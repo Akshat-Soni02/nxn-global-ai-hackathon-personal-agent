@@ -1,29 +1,22 @@
-// Daemon entry point. Chrome launches this as the native messaging host when the extension connects.
-// stdout is reserved for native messaging, so log to stderr only.
-import { Message } from "@taskplayer/core";
-import { connect } from "./native-messaging.ts";
+// Daemon entry point: the always-on process (launched at login later; `pnpm daemon` for now).
+// Until the menu bar exists, type commands on stdin: `record`, `stop`, `status`.
+import { createInterface } from "node:readline";
+import { socketPath } from "@taskplayer/ipc";
+import { startDaemon } from "./daemon.ts";
 
 const log = (...args: unknown[]) => console.error("[daemon]", ...args);
+const path = socketPath();
+const daemon = await startDaemon({ socketPath: path, log });
+log("listening on", path);
 
-const port = connect(process.stdin, process.stdout, (raw) => {
-  const parsed = Message.safeParse(raw);
-  if (!parsed.success) {
-    log("invalid message", parsed.error.issues);
-    return;
-  }
-  const message = parsed.data;
-  switch (message.type) {
-    case "hello":
-      log("extension connected, version", message.version);
-      port.send({ id: message.id, type: "hello", from: "daemon", version: "0.0.0" });
-      break;
-    case "ping":
-      port.send({ id: message.id, type: "pong" });
-      break;
-    default:
-      // TODO: route record.* to the recorder and run.step_result to the player.
-      log("unhandled", message.type);
-  }
+createInterface({ input: process.stdin }).on("line", (line) => {
+  const command = line.trim();
+  if (command === "record") daemon.startRecording();
+  else if (command === "stop") daemon.stopRecording();
+  else if (command === "status") log(`${daemon.extensions.size} extension(s) connected`);
+  else if (command) log("commands: record, stop, status");
 });
 
-log("started");
+const shutdown = () => daemon.close().then(() => process.exit(0));
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

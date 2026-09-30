@@ -1,5 +1,6 @@
 // Chrome native messaging framing: each message is a 4-byte little-endian length followed by UTF-8 JSON.
 // https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging
+// The daemon's Unix socket uses the same framing, so the native host can forward bytes unchanged.
 import type { Readable, Writable } from "node:stream";
 
 // Chrome rejects messages from the host larger than 1 MB.

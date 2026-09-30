@@ -1,11 +1,10 @@
-# Replace the placeholder handles with your GitHub usernames, then uncomment.
-# Shared core needs a review from both sides; record and replay are owned separately.
-#
-# /packages/core/      @replay-dev @record-dev
-# /packages/llm/       @replay-dev @record-dev
-# /packages/memory/    @replay-dev @record-dev
-# /skills/             @replay-dev @record-dev
-# /packages/recorder/  @record-dev
-# /packages/player/    @replay-dev
-# /apps/daemon/        @replay-dev
-# /apps/extension/     @replay-dev @record-dev
+# /packages/core/      @Akshat-Soni02 @ruseellkj
+# /packages/llm/       @Akshat-Soni02 @ruseellkj
+# /packages/memory/    @Akshat-Soni02 @ruseellkj
+# /packages/ipc/       @Akshat-Soni02 @ruseellkj
+# /skills/             @Akshat-Soni02 @ruseellkj
+# /packages/recorder/  @ruseellkj
+# /packages/player/    @Akshat-Soni02
+# /apps/daemon/        @Akshat-Soni02
+# /apps/native-host/   @Akshat-Soni02
+# /apps/extension/     @Akshat-Soni02 @ruseellkj

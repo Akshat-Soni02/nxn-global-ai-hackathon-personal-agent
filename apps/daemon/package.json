@@ -13,6 +13,7 @@
     "tsx": "^4.23.15"
   },
   "dependencies": {
-    "@taskplayer/core": "workspace:*"
+    "@taskplayer/core": "workspace:*",
+    "@taskplayer/ipc": "workspace:*"
   }
 }

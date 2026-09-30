@@ -8,18 +8,20 @@
   },
   "scripts": {
     "build": "pnpm -r --if-present build",
-    "typecheck": "pnpm -r --if-present typecheck",
+    "typecheck": "tsc -p . && pnpm -r --if-present typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check .",
     "format": "biome check --write .",
     "daemon": "pnpm --filter @taskplayer/daemon dev",
     "extension": "pnpm --filter @taskplayer/extension dev",
-    "fixtures": "node scripts/serve-fixtures.mjs"
+    "fixtures": "node scripts/serve-fixtures.mjs",
+    "setup:native-host": "tsx scripts/install-native-host.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
     "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   }

@@ -10,11 +10,16 @@ Design doc: [`docs/design.md`](docs/design.md) (snapshot) · [live doc](https://
 ![Architecture](docs/architecture.png)
 
 ```
-Menu-bar daemon (triggers, skill store, memory, LLM layer, run log)
-   ├── Chrome extension ── content script (record) + chrome.debugger (replay)
-   │        ↕ native messaging
-   └── Mac actuator ── fs / AppleScript / Shortcuts first, Accessibility (AX) post-v1
+Menu-bar daemon (always on: triggers, skill store, memory, LLM layer, run log, recording sessions)
+   ├── Mac actuator ── fs / AppleScript / Shortcuts first, Accessibility (AX) post-v1
+   └── Unix socket
+         ↕
+       native-host shim (Chrome launches it; forwards bytes only)
+         ↕ native messaging
+       Chrome extension ── content script (record) + chrome.debugger (replay)
 ```
+
+Why the shim: Chrome launches a *fresh* process for every native messaging connection, so it cannot attach to the always-on daemon directly. Only the extension can open the connection, so it connects on startup, keeps the port open and reconnects with backoff.
 
 Record and replay are two modes over the **same channels**. Record writes a **skill**; replay reads it. The skill format (`packages/core/src/skill.ts`) is the contract between the two, and changes to it are agreed by both sides.
 
@@ -22,7 +27,7 @@ Record and replay are two modes over the **same channels**. Record writes a **sk
 
 Turns one demonstration (or a natural-language description) into a parameterised skill.
 
-1. **Capture**: the user presses Record and does the task in their own Chrome and on their Mac.
+1. **Capture**: the user presses Record in the menu bar. The **daemon owns the session**: it watches the filesystem itself and tells the extension to capture web events if Chrome is running. A Mac-only task never needs Chrome; a mixed task becomes one trace ordered by timestamp.
 2. **Trace**: sensors write timestamped events, each with a snapshot of its target.
    - Web pages: extension content script (click, input, change, submit, key presses, file-input change, navigation, frame/shadow-DOM path).
    - Tabs and windows: extension background worker (`chrome.tabs`, `chrome.webNavigation`, `chrome.downloads`).
@@ -79,14 +84,16 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 │   ├── core/          # JOINT   skill schema (zod), element descriptor, extension↔daemon messages
 │   ├── llm/           # JOINT   Nemotron client for our Nebius Serverless endpoint (OpenAI-compatible)
 │   ├── memory/        # JOINT   persistent memory store (interface now, SQLite later)
+│   ├── ipc/           # JOINT   length-prefixed framing (native messaging + daemon socket), socket path
 │   ├── recorder/      # RECORD  trace normaliser, compiler, drill questions
 │   └── player/        # REPLAY  step loop, matcher, channels, agent fallback, learn-back
 ├── apps/
 │   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
-│   └── daemon/        # Node daemon: native messaging host, skill store, triggers, fs/script channels, run log
+│   ├── native-host/   # shim Chrome launches: pipes native messaging <-> the daemon's Unix socket
+│   └── daemon/        # always-on Node daemon: socket server, recording sessions, skill store, triggers, fs/script channels
 ├── skills/examples/   # hand-written skills; the schema tests validate every file here
 ├── fixtures/pages/    # local test pages, including a "drifted" redesign, for replay tests
-├── scripts/           # dev helpers (fixture server)
+├── scripts/           # dev helpers: fixture server, native host installer
 ├── docs/              # design doc snapshot, architecture diagram, research notes
 └── .github/           # CI (lint, typecheck, test, build) and CODEOWNERS template
 ```
@@ -95,11 +102,11 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 
 | Area | Owner | Rule |
 | --- | --- | --- |
-| `packages/core`, `packages/llm`, `packages/memory`, `skills/` | Both | Changes need a review from both sides; the skill schema is the contract |
+| `packages/core`, `packages/llm`, `packages/memory`, `packages/ipc`, `skills/` | Both | Changes need a review from both sides; the skill schema is the contract |
 | `packages/recorder`, recording code in `apps/extension/src/content.ts` | Record | |
-| `packages/player`, replay code in `apps/extension/src/background.ts`, `apps/daemon` | Replay | |
+| `packages/player`, replay code in `apps/extension/src/background.ts`, `apps/daemon`, `apps/native-host` | Replay | |
 
-Workspace packages are consumed as TypeScript source (no build step); only the extension is bundled (esbuild).
+Workspace packages are consumed as TypeScript source (no build step); only the extension and the native host are bundled (esbuild).
 
 ## Running Guide
 
@@ -109,18 +116,22 @@ Workspace packages are consumed as TypeScript source (no build step); only the e
 pnpm install
 cp .env.example .env        # fill in the Nebius endpoint, API key and Nemotron model
 
-pnpm test                   # schema + framing tests
+pnpm test                   # schema, framing and daemon socket tests
 pnpm typecheck
 pnpm lint                   # Biome; `pnpm format` to auto-fix
 
 pnpm fixtures               # serves fixtures/pages on http://localhost:5173
 pnpm extension              # builds apps/extension/dist in watch mode
-pnpm daemon                 # runs the daemon in watch mode
+pnpm daemon                 # runs the daemon in watch mode; type `record`, `stop` or `status`
 ```
 
-**Load the extension**: open `chrome://extensions`, enable Developer mode, click "Load unpacked" and pick `apps/extension/dist`.
+**Connect Chrome to the daemon** (once per machine):
 
-**Connect extension ↔ daemon**: Chrome starts the daemon itself through a native messaging host manifest. Installing that manifest is not scripted yet (TODO in milestone 0). Until then, the daemon's framing can be exercised by the tests in `apps/daemon/src/native-messaging.test.ts`.
+1. `pnpm setup:native-host` builds the shim and registers it with Chrome (`--uninstall` to remove). It writes `~/Library/Application Support/TaskPlayer/native-host` and `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.taskplayer.daemon.json`.
+2. Open `chrome://extensions`, enable Developer mode, click "Load unpacked" and pick `apps/extension/dist`. The manifest's `key` pins the extension ID to `eloljjdiofhdlhoankjbhfeihjankikk`, which is the only origin the host allows.
+3. Run `pnpm daemon`. The extension reconnects within a minute, or immediately if you reload it. `status` in the daemon shows connected extensions.
+
+The daemon listens on `~/Library/Application Support/TaskPlayer/daemon.sock`. Override it with `TASKPLAYER_SOCKET`, keeping the path at 103 bytes or less (a macOS limit for Unix sockets).
 
 ## Deployed Link
 <!-- populate later -->

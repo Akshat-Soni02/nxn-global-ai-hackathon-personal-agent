@@ -14,6 +14,9 @@ importers:
       '@types/node':
         specifier: ^26.6.3
         version: 26.6.3
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -26,6 +29,9 @@ importers:
       '@taskplayer/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@taskplayer/ipc':
+        specifier: workspace:*
+        version: link:../../packages/ipc
     devDependencies:
       '@types/node':
         specifier: ^26.6.3
@@ -47,11 +53,30 @@ importers:
         specifier: ^0.28.2
         version: 0.28.2
 
+  apps/native-host:
+    dependencies:
+      '@taskplayer/ipc':
+        specifier: workspace:*
+        version: link:../../packages/ipc
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.3
+        version: 26.6.3
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+
   packages/core:
     dependencies:
       zod:
         specifier: ^4.6.5
         version: 4.6.5
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.3
+        version: 26.6.3
+
+  packages/ipc:
     devDependencies:
       '@types/node':
         specifier: ^26.6.3

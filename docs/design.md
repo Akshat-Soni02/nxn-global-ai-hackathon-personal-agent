@@ -35,6 +35,13 @@ Three processes, one skill format: the daemon owns skills, memory, triggers and 
 
 Record and replay use the same channels: the content script watches pages during recording, and `chrome.debugger` acts on the same pages during replay. Dashed = post-v1.
 
+**Why a native host shim.** Chrome launches a fresh process for every native messaging connection, so it cannot attach to the always-on daemon. A small shim (`apps/native-host`) is what Chrome launches; it forwards bytes between Chrome and the daemon's Unix socket (`~/Library/Application Support/TaskPlayer/daemon.sock`). Constraints that follow:
+
+- Only the extension can open the connection. It connects on startup, keeps the port open (which also keeps its service worker alive) and reconnects with backoff.
+- If the daemon is down, the shim replies `daemon.offline` and exits; the extension retries.
+- If Chrome is closed, Mac-only skills run normally; a skill with web steps makes the daemon open Chrome and wait for the extension to connect.
+- macOS limits Unix socket paths to 103 bytes.
+
 ## Glossary
 
 | Term | What it means for us |
@@ -54,6 +61,7 @@ Record and replay use the same channels: the content script watches pages during
 | Memory | Local store of facts, preferences and run context that the compiler and agent read. |
 | Nemotron | NVIDIA's family of open models. Our LLM for compiling skills and recovering failed steps. |
 | Nebius Serverless | Nebius's on-demand GPU endpoints. We deploy Nemotron there on our own endpoint. |
+| Native host shim | The small program Chrome launches for native messaging. Forwards bytes to the always-on daemon's Unix socket. |
 
 ## Record
 
@@ -61,7 +69,7 @@ Record turns one demonstration or description into a skill; its output is only v
 
 **Pipeline**
 
-1. **Capture.** The user presses Record in the menu bar and does the task in their Chrome and on their Mac.
+1. **Capture.** The user presses Record in the menu bar and does the task. The daemon owns the session: it watches the filesystem itself and tells the extension to capture web events if Chrome is running. A Mac-only task never needs Chrome; a mixed task becomes one trace ordered by timestamp.
 2. **Trace.** Sensors write a timestamped trace of events, each with a snapshot of its target.
 3. **Compile.** An LLM turns the trace into a parameterised skill: intent, inputs, steps, success checks. It reads memory for known facts first.
 4. **Drill.** The compiler asks the user about anything ambiguous, updates the skill, and saves durable answers to memory.

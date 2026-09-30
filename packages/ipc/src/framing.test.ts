@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDecoder, encode } from "./native-messaging.ts";
+import { createDecoder, encode } from "./framing.ts";
 
 describe("native messaging framing", () => {
   it("round-trips messages split across chunks", () => {
@@ -19,5 +19,13 @@ describe("native messaging framing", () => {
 
   it("refuses messages over Chrome's 1 MB limit", () => {
     expect(() => encode({ big: "x".repeat(1024 * 1024) })).toThrow(/too large/);
+  });
+});
+
+describe("socket path", () => {
+  it("rejects paths macOS cannot bind", async () => {
+    const { socketPath } = await import("./paths.ts");
+    expect(socketPath({ TASKPLAYER_SOCKET: "/tmp/ok.sock" })).toBe("/tmp/ok.sock");
+    expect(() => socketPath({ TASKPLAYER_SOCKET: `/tmp/${"x".repeat(120)}.sock` })).toThrow(/103/);
   });
 });
