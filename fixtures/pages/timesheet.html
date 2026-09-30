@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Timesheet</title>
+<h1>Weekly timesheet</h1>
+<form id="f">
+  <label>Project
+    <select name="project">
+      <option value="">Choose…</option>
+      <option value="NX-101">NX-101</option>
+      <option value="NX-202">NX-202</option>
+    </select>
+  </label>
+  <label>Hours <input type="number" name="hours" /></label>
+  <button type="submit">Save draft</button>
+</form>
+<p id="status" role="status"></p>
+<script>
+  document.getElementById("f").addEventListener("submit", (e) => {
+    e.preventDefault();
+    document.getElementById("status").textContent = "Draft saved";
+  });
+</script>

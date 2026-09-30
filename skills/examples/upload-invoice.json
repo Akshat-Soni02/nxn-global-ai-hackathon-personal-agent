@@ -1,0 +1,47 @@
+{
+  "id": "upload-invoice",
+  "version": 1,
+  "intent": "Upload the newest invoice PDF to the vendor portal",
+  "inputs": {
+    "invoice": {
+      "type": "file",
+      "description": "Newest invoice PDF in Downloads",
+      "resolve": { "dir": "~/Downloads", "glob": "invoice-*.pdf", "pick": "newest" }
+    }
+  },
+  "triggers": [{ "type": "folder_watch", "dir": "~/Downloads", "glob": "invoice-*.pdf" }],
+  "steps": [
+    {
+      "id": "s1",
+      "intent": "Open the portal's uploads page",
+      "channel": "web",
+      "action": "navigate",
+      "args": { "url": "http://localhost:5173/upload.html" },
+      "check": { "url_matches": "/upload" }
+    },
+    {
+      "id": "s2",
+      "intent": "Attach the invoice",
+      "channel": "web",
+      "action": "upload",
+      "target": {
+        "role": "button",
+        "name": "Upload invoice",
+        "near": "Documents",
+        "fallbacks": ["input[type=file][name=invoice]", "//section[h2='Documents']//input[@type='file']"]
+      },
+      "args": { "file": "{{inputs.invoice}}" },
+      "check": { "text_visible": "{{inputs.invoice.name}}" }
+    },
+    {
+      "id": "s3",
+      "intent": "Submit the upload",
+      "channel": "web",
+      "action": "click",
+      "target": { "role": "button", "name": "Submit" },
+      "requires_approval": true,
+      "on_fail": { "retries": 2, "fallback": "agent" }
+    }
+  ],
+  "success": [{ "text_visible": "Upload complete" }]
+}

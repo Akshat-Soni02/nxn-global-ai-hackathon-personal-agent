@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Vendor portal: uploads (redesigned)</title>
+<!-- Same task as upload.html after a "redesign": new layout, renamed classes, a cookie banner, reworded button. -->
+<div class="cookie-banner" role="dialog" aria-label="Cookies">
+  We use cookies. <button type="button" onclick="this.parentElement.remove()">Accept</button>
+</div>
+<main class="x9f-layout">
+  <aside><nav>Home · Billing · Documents</nav></aside>
+  <section class="a81-card">
+    <h2>Documents</h2>
+    <div class="dropzone">
+      <span>Drop your invoice here or</span>
+      <label class="btn-3a8f">Browse files <input type="file" name="invoice_file" hidden /></label>
+    </div>
+    <p id="chosen"></p>
+    <button type="button" class="btn-primary-7c2" id="send">Submit invoice</button>
+    <p id="status" role="status"></p>
+  </section>
+</main>
+<script>
+  const input = document.querySelector("input[type=file]");
+  input.addEventListener("change", () => {
+    document.getElementById("chosen").textContent = input.files[0]?.name ?? "";
+  });
+  document.getElementById("send").addEventListener("click", () => {
+    document.getElementById("status").textContent = input.files.length ? "Upload complete" : "Choose a file first";
+  });
+</script>

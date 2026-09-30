@@ -1,0 +1,23 @@
+{
+  "id": "tidy-screenshots",
+  "version": 1,
+  "intent": "Move screenshots from the Desktop into a dated folder",
+  "inputs": {
+    "screenshots": {
+      "type": "file",
+      "description": "All screenshots on the Desktop",
+      "resolve": { "dir": "~/Desktop", "glob": "Screenshot *.png", "pick": "all" }
+    }
+  },
+  "triggers": [{ "type": "schedule", "cron": "0 18 * * *" }],
+  "steps": [
+    {
+      "id": "s1",
+      "intent": "Move each screenshot into ~/Pictures/Screenshots/<today>",
+      "channel": "fs",
+      "action": "move",
+      "args": { "from": "{{inputs.screenshots}}", "to": "~/Pictures/Screenshots/{{today}}" },
+      "check": { "file_exists": "~/Pictures/Screenshots/{{today}}" }
+    }
+  ]
+}
