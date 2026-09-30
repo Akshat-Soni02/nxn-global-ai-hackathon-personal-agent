@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Task Player",
+  "version": "0.0.0",
+  "description": "Records and replays tasks in your own Chrome.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo+ADyronVhEpCpcUGkgCUqUfwWXFUX8kEQfTyp6M4/epHempFhrSdfh57FQtng/68vrtdsPgqcMQ8UNtAZ982qU60UqD7Tu1VbJRfGeD9rO99gNqOkGw6w3wy34l8Mz501RA7zCcZI8Ui+g7ZnpyvRe47Xq57QvpxkPGFQI0i1YJ1HfdLCmsyvnsxSmAj4zJNhPEjzBYmT/DsxeHTqdSXyydeSZHPpTcB8PQ+dIHAxRJrjzdLe4dpY91l5sodjZuYJjJbjWNwPL+b475wQIXT+0CjgTMXZLDVPR3V+4PX3vdON56clchI9JjnkfR76VrZ+4V3O70hFY72uDDf1asIQIDAQAB",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "permissions": ["debugger", "tabs", "scripting", "nativeMessaging", "storage", "webNavigation", "downloads"],
+  "host_permissions": ["<all_urls>"]
+}

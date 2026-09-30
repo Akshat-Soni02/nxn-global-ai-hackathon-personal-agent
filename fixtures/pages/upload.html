@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Vendor portal: uploads</title>
+<h1>Vendor portal</h1>
+<section>
+  <h2>Documents</h2>
+  <label>Upload invoice <input type="file" name="invoice" accept="application/pdf" /></label>
+  <p id="chosen"></p>
+  <button type="button" id="submit">Submit</button>
+  <p id="status" role="status"></p>
+</section>
+<script>
+  const input = document.querySelector("input[name=invoice]");
+  input.addEventListener("change", () => {
+    document.getElementById("chosen").textContent = input.files[0]?.name ?? "";
+  });
+  document.getElementById("submit").addEventListener("click", () => {
+    document.getElementById("status").textContent = input.files.length ? "Upload complete" : "Choose a file first";
+  });
+</script>
