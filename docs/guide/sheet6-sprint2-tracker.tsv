@@ -1,0 +1,27 @@
+ID	Task	Owner	Depends on	Est. hours	Target day	Done when	Status	Notes
+D-01	Monorepo scaffold: pnpm workspaces, CI, Biome, MIT	Akshat	–	–	Wed 30 Sep	CI runs lint/typecheck/test/build	Done	commit 8e38109
+D-02	Skill schema + 3 example skills	Both	–	–	Wed 30 Sep	Examples validate	Done	
+D-03	Native messaging bridge: daemon socket, native-host shim, installer	Akshat	–	–	Wed 30 Sep	daemon.test.ts passes	Done	commit 55fd9fb
+D-04	Daemon-owned record sessions (record / stop / status)	Akshat	D-03	–	Wed 30 Sep	record.start reaches the extension	Done	
+D-05	Nemotron client chat()	Both	–	–	Wed 30 Sep	Compiles; never called yet	Done (untested)	packages/llm; text-only messages
+D-06	Fixture pages incl. drifted redesign	Both	–	–	Wed 30 Sep	pnpm fixtures serves them	Done	
+J-01	DSU decisions: model endpoint + IDs, TraceEvent, template grammar, role equivalence, exit criterion	Both	–	0.5	Thu 1 Oct	Written in the sheet	To do	DSU 5pm
+R-01	Fix local install: delete package-lock.json, corepack enable, pnpm install	Rushil	–	0.5	Thu 1 Oct	pnpm test: 12 green	To do	npm install cannot resolve workspace:* (measured: 2 of 3 suites fail)
+R-02	Build content script as IIFE; drop export from content.ts	Rushil (Akshat reviews)	R-01	1	Thu 1 Oct	Loaded unpacked, no SyntaxError on a fixture page	To do	measured: ESM bundle fails classic-script parse
+R-03	Nebius checks: list Nemotron IDs, JSON mode, image input → docs/nebius.md	Rushil	–	1.5	Thu 1 Oct	IDs and sample responses written down	To do	decide Token Factory vs own endpoint
+R-04	TraceEvent schema in packages/core/src/trace.ts; record.event.event → enum	Rushil (Akshat reviews)	–	2	Thu 1 Oct	Merged; both sides import it	To do	answers the action item for the input side
+R-05	describeElement(el) in apps/extension/src/describe.ts	Rushil (joint)	R-02	5	Fri 2 Oct	Role and name match Chrome on all 3 fixtures; selectors unique	To do	shared with the player matcher
+R-06	Content-script capture: click, type (coalesced), select/check, file, submit/Enter; redaction; cheap echo	Rushil	R-04, R-05	5	Sat 3 Oct	Recording upload.html → navigate, click, file, click at the daemon; no secrets	To do	
+R-07	Background: tabId/frameId/url from sender; webNavigation events	Rushil (Akshat reviews)	R-04	1.5	Sat 3 Oct	Every event carries tab and frame	To do	background.ts:67 ignores sender
+R-08	Daemon trace-store.ts: append record.event to traces/<sessionId>.jsonl	Rushil (Akshat reviews)	R-04	1.5	Sat 3 Oct	File exists after stop; every line parses	To do	daemon.ts:50-53 only logs today
+R-09	Record real traces of upload.html and timesheet.html → fixtures/traces/	Rushil	R-06, R-07, R-08	1	Sat 3 Oct	2 JSONL files committed	To do	test data for R-10 and R-11
+R-10	Normaliser packages/recorder/src/trace.ts + unit tests	Rushil	R-09	4	Sun 4 Oct	Upload trace → 3 steps	To do	no LLM
+R-11	Compiler v0 packages/recorder/src/compile.ts: model writes intents/inputs/checks, code splices locators, Skill.safeParse retry ≤ 2	Rushil	R-03, R-10	5	Mon 5 Oct	Valid skill from the real trace; diff vs upload-invoice.json reviewed	To do	never let the model retype selectors
+R-12	Drill v0: print questions, read stdin, patch skill	Rushil	R-11	2	Mon 5 Oct	One answer changes the skill	Stretch	else Sprint 3
+A-01	run.step handler: chrome.debugger attach; navigate, click, type, select, upload via DOM.setFileInputFiles	Akshat	–	6	Fri 2 Oct	Hand-written upload-invoice.json runs on upload.html	To do	
+A-02	Matcher v0, rungs 1–3, using describeElement; role equivalence	Akshat	R-05	5	Sat 3 Oct	Resolves every example target on its fixture	To do	measured: Hours is spinbutton, example says textbox
+A-03	Checks: url_matches, text_visible, element_visible, polling with timeout	Akshat	A-01	3	Sat 3 Oct	One fixture test per check	To do	
+A-04	Daemon run loop + run <file> command; {{…}} template resolution	Akshat	A-01, A-02, A-03, J-01	4	Sun 4 Oct	run skills/examples/upload-invoice.json succeeds	To do	grammar from J-01
+A-05	Reconnect with chrome.alarms instead of setTimeout backoff	Akshat	–	1	Sun 4 Oct	Daemon restart → reconnect within ~30 s with no page load	To do	worker stops after 30 s idle (Chrome docs)
+J-02	E2E: record → compile → replay on upload.html; then run on upload-drifted.html and log the first failing step + rung	Both	R-11, A-04	2	Mon 5 Oct	Pass on v1; drifted failure logged	To do	Sprint 2 exit criterion
+J-03	Update the Sprints tab, answer Sheet4 (Playwright: no; trigger: local daemon), plan Sprint 3	Both	J-02	0.5	Mon 5 Oct	Sheet updated	To do	
