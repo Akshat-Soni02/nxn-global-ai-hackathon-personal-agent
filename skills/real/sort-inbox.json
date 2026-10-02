@@ -1,0 +1,60 @@
+{
+  "id": "sort-inbox",
+  "version": 1,
+  "intent": "Sort the sandbox inbox into PDFs, images and notes folders, then show a notification",
+  "triggers": [{ "type": "manual" }, { "type": "folder_watch", "dir": "~/TaskPlayerTest/inbox" }],
+  "steps": [
+    {
+      "id": "s1",
+      "intent": "Find PDFs in the inbox",
+      "channel": "fs",
+      "action": "find",
+      "args": { "dir": "~/TaskPlayerTest/inbox", "glob": "*.pdf", "pick": "all" },
+      "save_as": "pdfs"
+    },
+    {
+      "id": "s2",
+      "intent": "Move PDFs to sorted/pdfs",
+      "channel": "fs",
+      "action": "move",
+      "args": { "from": "{{vars.pdfs}}", "to": "~/TaskPlayerTest/sorted/pdfs/" }
+    },
+    {
+      "id": "s3",
+      "intent": "Find images in the inbox",
+      "channel": "fs",
+      "action": "find",
+      "args": { "dir": "~/TaskPlayerTest/inbox", "glob": "*.{png,jpg,jpeg,heic}", "pick": "all" },
+      "save_as": "images"
+    },
+    {
+      "id": "s4",
+      "intent": "Move images to sorted/images",
+      "channel": "fs",
+      "action": "move",
+      "args": { "from": "{{vars.images}}", "to": "~/TaskPlayerTest/sorted/images/" }
+    },
+    {
+      "id": "s5",
+      "intent": "Find text notes in the inbox",
+      "channel": "fs",
+      "action": "find",
+      "args": { "dir": "~/TaskPlayerTest/inbox", "glob": "*.{txt,md}", "pick": "all" },
+      "save_as": "notes"
+    },
+    {
+      "id": "s6",
+      "intent": "Move notes to sorted/notes",
+      "channel": "fs",
+      "action": "move",
+      "args": { "from": "{{vars.notes}}", "to": "~/TaskPlayerTest/sorted/notes/" }
+    },
+    {
+      "id": "s7",
+      "intent": "Tell the user the inbox was sorted",
+      "channel": "script",
+      "action": "applescript",
+      "args": { "source": "display notification \"Inbox sorted\" with title \"Task Player\"" }
+    }
+  ]
+}

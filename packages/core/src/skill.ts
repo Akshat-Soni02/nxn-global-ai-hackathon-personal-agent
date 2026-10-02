@@ -1,6 +1,31 @@
 // The skill format: the only contract between record and replay.
 // Record writes skills, replay reads them. Changes here need sign-off from both sides.
 // See "The skill format" in the design doc.
+//
+// Templates: any string in `args` or a check may contain
+//   {{inputs.<name>}}       resolved input (a file input resolves to its absolute path, or a list of paths)
+//   {{inputs.<name>.name}}  file input's base name
+//   {{vars.<name>}}         value saved by an earlier step's `save_as`
+//   {{today}}               local date, YYYY-MM-DD
+// Paths may start with ~ and may be globs where noted. Moving or copying an empty list is a no-op.
+//
+// Args by action (v1):
+//   web.navigate  { url }
+//   web.click     {}
+//   web.type      { text, clear?: boolean }            focuses the target, then inserts text
+//   web.select    { option }                            visible option label
+//   web.press     { key }                               e.g. "Enter", "Escape"
+//   web.upload    { file }                              target is the <input type=file>; no native dialog
+//   web.wait_for  {}                                    waits for `check` (or the target) within timeout_ms
+//   web.extract   { all?, limit?, each?, join? }        each: per-element template using {{text}} and {{href}}
+//   fs.find       { dir, glob, pick: "newest" | "all", since_run_start? }   since_run_start ignores older files
+//   fs.move|copy  { from, to }                          `to` ending in "/" is a folder (created if missing)
+//   fs.rename     { from, to }
+//   fs.read       { path }
+//   fs.write      { path, content, append? }
+//   script.applescript { source }
+//   script.shortcut    { name, input? }
+//   script.shell       { command }                      allow-listed commands only
 import { z } from "zod";
 
 export const CHANNELS = ["web", "fs", "script", "ax", "vision"] as const;
@@ -42,6 +67,8 @@ export type Check = z.infer<typeof Check>;
 export const Input = z.object({
   type: z.enum(["string", "number", "date", "file", "secret"]),
   description: z.string().optional(),
+  // Used when the run does not supply a value (e.g. trigger-fired runs and tests).
+  default: z.unknown().optional(),
   // How to fill the input at run time, e.g. { dir, glob, pick: "newest" } for files.
   resolve: z.record(z.string(), z.unknown()).optional(),
 });
@@ -66,6 +93,13 @@ export const Step = z
     wait: Check.optional(),
     check: Check.optional(),
     requires_approval: z.boolean().default(false),
+    // Saves the step's result (found paths, extracted text, file contents) as {{vars.<save_as>}}.
+    save_as: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]*$/)
+      .optional(),
+    // How long `wait` and `check` may take before the step fails. Player default applies when absent.
+    timeout_ms: z.number().int().positive().optional(),
     on_fail: z
       .object({
         retries: z.number().int().min(0).default(0),

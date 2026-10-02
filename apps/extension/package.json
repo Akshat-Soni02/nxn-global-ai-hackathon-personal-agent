@@ -13,6 +13,7 @@
     "esbuild": "^0.28.2"
   },
   "dependencies": {
-    "@taskplayer/core": "workspace:*"
+    "@taskplayer/core": "workspace:*",
+    "@taskplayer/player": "workspace:*"
   }
 }

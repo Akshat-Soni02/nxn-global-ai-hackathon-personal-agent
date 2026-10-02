@@ -1,0 +1,129 @@
+{
+  "id": "fill-web-form",
+  "version": 1,
+  "intent": "Fill in and submit Selenium's test web form (text, textarea, select, datalist, checkbox, radio, date picker)",
+  "inputs": {
+    "full_name": { "type": "string", "description": "Text input", "default": "Ada Lovelace" },
+    "notes": { "type": "string", "description": "Textarea", "default": "Submitted by Task Player replay test." },
+    "city": { "type": "string", "description": "Datalist city", "default": "Seattle" },
+    "date": { "type": "string", "description": "Date picker, mm/dd/yyyy", "default": "10/15/2026" }
+  },
+  "triggers": [{ "type": "manual" }],
+  "steps": [
+    {
+      "id": "s1",
+      "intent": "Open the web form",
+      "channel": "web",
+      "action": "navigate",
+      "args": { "url": "https://www.selenium.dev/selenium/web/web-form.html" },
+      "check": { "text_visible": "Web form" }
+    },
+    {
+      "id": "s2",
+      "intent": "Enter the name in Text input",
+      "channel": "web",
+      "action": "type",
+      "target": {
+        "role": "textbox",
+        "name": "Text input",
+        "attrs": { "id": "my-text-id", "name": "my-text" },
+        "fallbacks": ["#my-text-id", "input[name=my-text]"]
+      },
+      "args": { "text": "{{inputs.full_name}}", "clear": true }
+    },
+    {
+      "id": "s3",
+      "intent": "Enter the notes in Textarea",
+      "channel": "web",
+      "action": "type",
+      "target": {
+        "role": "textbox",
+        "name": "Textarea",
+        "attrs": { "name": "my-textarea" },
+        "fallbacks": ["textarea[name=my-textarea]"]
+      },
+      "args": { "text": "{{inputs.notes}}", "clear": true }
+    },
+    {
+      "id": "s4",
+      "intent": "Choose Two in the select dropdown",
+      "channel": "web",
+      "action": "select",
+      "target": {
+        "role": "combobox",
+        "name": "Dropdown (select)",
+        "attrs": { "name": "my-select" },
+        "fallbacks": ["select[name=my-select]"]
+      },
+      "args": { "option": "Two" }
+    },
+    {
+      "id": "s5",
+      "intent": "Type the city into the datalist dropdown",
+      "channel": "web",
+      "action": "type",
+      "target": {
+        "role": "combobox",
+        "name": "Dropdown (datalist)",
+        "attrs": { "name": "my-datalist" },
+        "fallbacks": ["input[name=my-datalist]"]
+      },
+      "args": { "text": "{{inputs.city}}", "clear": true }
+    },
+    {
+      "id": "s6",
+      "intent": "Tick Default checkbox",
+      "channel": "web",
+      "action": "click",
+      "target": {
+        "role": "checkbox",
+        "name": "Default checkbox",
+        "attrs": { "id": "my-check-2" },
+        "fallbacks": ["#my-check-2"]
+      }
+    },
+    {
+      "id": "s7",
+      "intent": "Choose Default radio",
+      "channel": "web",
+      "action": "click",
+      "target": {
+        "role": "radio",
+        "name": "Default radio",
+        "attrs": { "id": "my-radio-2" },
+        "fallbacks": ["#my-radio-2"]
+      }
+    },
+    {
+      "id": "s8",
+      "intent": "Type the date into Date picker",
+      "channel": "web",
+      "action": "type",
+      "target": {
+        "role": "textbox",
+        "name": "Date picker",
+        "attrs": { "name": "my-date" },
+        "fallbacks": ["input[name=my-date]"]
+      },
+      "args": { "text": "{{inputs.date}}", "clear": true }
+    },
+    {
+      "id": "s9",
+      "intent": "Close the date picker popup so it cannot cover the Submit button",
+      "channel": "web",
+      "action": "press",
+      "args": { "key": "Escape" }
+    },
+    {
+      "id": "s10",
+      "intent": "Submit the form",
+      "channel": "web",
+      "action": "click",
+      "target": { "role": "button", "name": "Submit", "fallbacks": ["form button[type=submit]"] },
+      "requires_approval": true,
+      "check": { "url_matches": "submitted-form.html", "text_visible": "Received!" },
+      "on_fail": { "retries": 1, "fallback": "agent" }
+    }
+  ],
+  "success": [{ "text_visible": "Form submitted" }]
+}

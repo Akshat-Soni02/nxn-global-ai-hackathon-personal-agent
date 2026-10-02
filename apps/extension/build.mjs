@@ -6,19 +6,16 @@ const watch = process.argv.includes("--watch");
 mkdirSync("dist", { recursive: true });
 copyFileSync("manifest.json", "dist/manifest.json");
 
-const ctx = await esbuild.context({
-  entryPoints: { background: "src/background.ts", content: "src/content.ts" },
-  outdir: "dist",
-  bundle: true,
-  format: "esm",
-  target: "chrome120",
-  sourcemap: true,
-  logLevel: "info",
-});
+const common = { outdir: "dist", bundle: true, target: "chrome120", sourcemap: true, logLevel: "info" };
+// The service worker is declared "type": "module"; content scripts must be classic scripts, so they are IIFEs.
+const contexts = await Promise.all([
+  esbuild.context({ ...common, entryPoints: { background: "src/background.ts" }, format: "esm" }),
+  esbuild.context({ ...common, entryPoints: { content: "src/content.ts" }, format: "iife" }),
+]);
 
 if (watch) {
-  await ctx.watch();
+  await Promise.all(contexts.map((ctx) => ctx.watch()));
 } else {
-  await ctx.rebuild();
-  await ctx.dispose();
+  await Promise.all(contexts.map((ctx) => ctx.rebuild()));
+  await Promise.all(contexts.map((ctx) => ctx.dispose()));
 }

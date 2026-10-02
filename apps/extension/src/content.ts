@@ -15,6 +15,8 @@ chrome.runtime.sendMessage({ type: "recording?" }).then(
   () => {},
 );
 
-export function isRecording() {
+// Content scripts load as classic scripts: no import/export at the top level (build.mjs bundles this as an IIFE).
+function isRecording() {
   return sessionId !== undefined;
 }
+void isRecording;

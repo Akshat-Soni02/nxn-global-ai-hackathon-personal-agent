@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@taskplayer/core": "workspace:*",
-    "@taskplayer/ipc": "workspace:*"
+    "@taskplayer/ipc": "workspace:*",
+    "@taskplayer/player": "workspace:*"
   }
 }

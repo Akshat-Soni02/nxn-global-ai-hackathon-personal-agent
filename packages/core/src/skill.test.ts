@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Skill } from "./skill.ts";
 
-const examplesDir = join(import.meta.dirname, "../../../skills/examples");
+const skillsDir = join(import.meta.dirname, "../../../skills/real");
 
 describe("skill schema", () => {
-  for (const file of readdirSync(examplesDir).filter((f) => f.endsWith(".json"))) {
-    it(`accepts example ${file}`, () => {
-      const data = JSON.parse(readFileSync(join(examplesDir, file), "utf8"));
+  for (const file of readdirSync(skillsDir).filter((f) => f.endsWith(".json"))) {
+    it(`accepts ${file}`, () => {
+      const data = JSON.parse(readFileSync(join(skillsDir, file), "utf8"));
       expect(() => Skill.parse(data)).not.toThrow();
     });
   }

@@ -1,14 +1,15 @@
-// Service worker: keeps a native port open to the daemon (via apps/native-host) and owns chrome.debugger for replay.
-// Only the extension can open this connection, so it connects on startup and reconnects with backoff.
+// Service worker: keeps a native port open to the daemon (via apps/native-host) and runs replay steps.
+// Only the extension can open this connection. It connects on startup; after a disconnect it retries soon,
+// and a chrome.alarms heartbeat keeps retrying even if Chrome suspends this worker (timers die with it).
 // An open native port also keeps this MV3 service worker alive.
 import { type Message, NATIVE_HOST_NAME } from "@taskplayer/core";
+import { endRun, runPageCheck, runWebStep } from "./replay.ts";
 
 const VERSION = chrome.runtime.getManifest().version;
-const MAX_BACKOFF_MS = 60_000;
+const QUICK_RETRY_MS = 3_000;
+const RECONNECT_ALARM = "reconnect-daemon";
 
 let port: chrome.runtime.Port | undefined;
-let backoffMs = 1_000;
-let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let recordingSession: string | undefined;
 
 function send(message: Message) {
@@ -16,24 +17,25 @@ function send(message: Message) {
 }
 
 function connectDaemon() {
-  clearTimeout(reconnectTimer);
   if (port) return;
   port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-  port.onMessage.addListener(onDaemonMessage);
+  port.onMessage.addListener((message: Message) => void onDaemonMessage(message));
   port.onDisconnect.addListener(() => {
     console.warn("[extension] disconnected from daemon", chrome.runtime.lastError?.message ?? "");
     port = undefined;
     setRecording(undefined);
-    reconnectTimer = setTimeout(connectDaemon, backoffMs);
-    backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+    void endRun();
+    setTimeout(connectDaemon, QUICK_RETRY_MS);
+    // Minimum alarm period is 30 s; it survives the worker being suspended.
+    chrome.alarms.create(RECONNECT_ALARM, { periodInMinutes: 0.5 });
   });
   send({ id: crypto.randomUUID(), type: "hello", from: "extension", version: VERSION });
 }
 
-function onDaemonMessage(message: Message) {
+async function onDaemonMessage(message: Message) {
   switch (message.type) {
     case "hello":
-      backoffMs = 1_000;
+      chrome.alarms.clear(RECONNECT_ALARM);
       console.log("[extension] connected to daemon", message.version);
       break;
     case "daemon.offline":
@@ -45,8 +47,19 @@ function onDaemonMessage(message: Message) {
     case "record.stop":
       setRecording(undefined);
       break;
-    case "run.step":
-      // TODO(player): run the step in the automation window through chrome.debugger, reply with run.step_result.
+    case "run.step": {
+      const { id, runId, step } = message;
+      const result = await runWebStep(step).catch((error: Error) => ({ ok: false, error: error.message }));
+      send({ ...result, id, type: "run.step_result", runId, stepId: step.id });
+      break;
+    }
+    case "run.check": {
+      const ok = await runPageCheck(message.check, message.timeoutMs).catch(() => false);
+      send({ id: message.id, type: "run.check_result", runId: message.runId, ok });
+      break;
+    }
+    case "run.end":
+      await endRun();
       break;
     default:
       console.log("[extension] unhandled", message.type);
@@ -69,6 +82,9 @@ chrome.runtime.onMessage.addListener((message, _sender, reply) => {
   else if (message?.type === "record.event" && recordingSession) send({ ...message, sessionId: recordingSession });
 });
 
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === RECONNECT_ALARM) connectDaemon();
+});
 chrome.runtime.onStartup.addListener(connectDaemon);
 chrome.runtime.onInstalled.addListener(connectDaemon);
 connectDaemon();

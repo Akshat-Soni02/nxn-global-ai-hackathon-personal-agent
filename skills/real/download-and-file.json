@@ -1,0 +1,46 @@
+{
+  "id": "download-and-file",
+  "version": 1,
+  "intent": "Download File 1 from Selenium's test downloads page and file it under today's date in the sandbox",
+  "triggers": [{ "type": "manual" }, { "type": "schedule", "cron": "0 9 * * 1-5" }],
+  "steps": [
+    {
+      "id": "s1",
+      "intent": "Open the downloads page",
+      "channel": "web",
+      "action": "navigate",
+      "args": { "url": "https://www.selenium.dev/selenium/web/downloads/download.html" },
+      "check": { "text_visible": "Downloads" }
+    },
+    {
+      "id": "s2",
+      "intent": "Start downloading File 1",
+      "channel": "web",
+      "action": "click",
+      "target": {
+        "role": "link",
+        "name": "File 1",
+        "attrs": { "id": "file-1", "href": "file_1.txt" },
+        "fallbacks": ["#file-1", "a[href='file_1.txt']"]
+      }
+    },
+    {
+      "id": "s3",
+      "intent": "Wait for the finished download in ~/Downloads (Chrome may add a suffix like ' (1)')",
+      "channel": "fs",
+      "action": "find",
+      "args": { "dir": "~/Downloads", "glob": "file_1*.txt", "pick": "newest", "since_run_start": true },
+      "save_as": "downloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "id": "s4",
+      "intent": "Move it into the sandbox, named by today's date",
+      "channel": "fs",
+      "action": "move",
+      "args": { "from": "{{vars.downloaded}}", "to": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt" },
+      "check": { "file_exists": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt" }
+    }
+  ],
+  "success": [{ "file_exists": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt" }]
+}
