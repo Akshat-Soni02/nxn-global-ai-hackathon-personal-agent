@@ -1,0 +1,118 @@
+{
+  "id": "upload-test-file",
+  "version": 1,
+  "intent": "Upload the newest test file from the sandbox to the-internet's uploader, confirm it, then file it under done/",
+  "inputs": {
+    "file": {
+      "type": "file",
+      "description": "Newest .txt in the sandbox upload folder. The site is public: never point this at real documents.",
+      "resolve": {
+        "dir": "~/TaskPlayerTest/upload",
+        "glob": "*.txt",
+        "pick": "newest"
+      }
+    }
+  },
+  "triggers": [
+    {
+      "type": "manual"
+    },
+    {
+      "type": "folder_watch",
+      "dir": "~/TaskPlayerTest/upload",
+      "glob": "*.txt"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "intent": "Open the file uploader page (the site sometimes stalls on a script, so retry once)",
+      "channel": "web",
+      "action": "navigate",
+      "args": {
+        "url": "https://the-internet.herokuapp.com/upload"
+      },
+      "check": {
+        "text_visible": "File Uploader"
+      },
+      "on_fail": {
+        "retries": 1,
+        "fallback": "ask"
+      }
+    },
+    {
+      "id": "s2",
+      "intent": "Attach the test file to the file input",
+      "channel": "web",
+      "action": "upload",
+      "target": {
+        "near": "File Uploader",
+        "attrs": {
+          "type": "file",
+          "id": "file-upload",
+          "name": "file"
+        },
+        "fallbacks": ["#file-upload", "input[type=file][name=file]"]
+      },
+      "args": {
+        "file": "{{inputs.file}}"
+      }
+    },
+    {
+      "id": "s3",
+      "intent": "Submit the upload",
+      "channel": "web",
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Upload",
+        "near": "File Uploader",
+        "attrs": {
+          "id": "file-submit"
+        },
+        "fallbacks": ["#file-submit", "input[type=submit][value=Upload]"]
+      },
+      "requires_approval": true,
+      "check": {
+        "text_visible": "File Uploaded!"
+      },
+      "on_fail": {
+        "retries": 1,
+        "fallback": "agent"
+      }
+    },
+    {
+      "id": "s4",
+      "intent": "Confirm the uploaded file's name is listed",
+      "channel": "web",
+      "action": "wait_for",
+      "target": {
+        "attrs": {
+          "id": "uploaded-files"
+        },
+        "fallbacks": ["#uploaded-files"]
+      },
+      "check": {
+        "text_visible": "{{inputs.file.name}}"
+      }
+    },
+    {
+      "id": "s5",
+      "intent": "Move the uploaded file into done/ so it is not uploaded again",
+      "channel": "fs",
+      "action": "move",
+      "args": {
+        "from": "{{inputs.file}}",
+        "to": "~/TaskPlayerTest/upload/done/"
+      },
+      "check": {
+        "file_exists": "~/TaskPlayerTest/upload/done/{{inputs.file.name}}"
+      }
+    }
+  ],
+  "success": [
+    {
+      "file_exists": "~/TaskPlayerTest/upload/done/{{inputs.file.name}}"
+    }
+  ]
+}

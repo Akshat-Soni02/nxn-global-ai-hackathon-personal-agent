@@ -1,0 +1,46 @@
+{
+  "id": "hn-digest",
+  "version": 1,
+  "intent": "Save today's top 5 Hacker News stories as a Markdown digest and open it in TextEdit",
+  "triggers": [{ "type": "manual" }, { "type": "schedule", "cron": "30 8 * * *" }],
+  "steps": [
+    {
+      "id": "s1",
+      "intent": "Open the Hacker News front page",
+      "channel": "web",
+      "action": "navigate",
+      "args": { "url": "https://news.ycombinator.com/" },
+      "check": { "text_visible": "Hacker News" }
+    },
+    {
+      "id": "s2",
+      "intent": "Collect the first 5 story titles with their links",
+      "channel": "web",
+      "action": "extract",
+      "target": { "role": "link", "near": "story title", "fallbacks": ["tr.athing span.titleline > a"] },
+      "args": { "all": true, "limit": 5, "each": "- [{{text}}]({{href}})", "join": "\n" },
+      "save_as": "stories"
+    },
+    {
+      "id": "s3",
+      "intent": "Write the digest file",
+      "channel": "fs",
+      "action": "write",
+      "args": {
+        "path": "~/TaskPlayerTest/digests/hn-{{today}}.md",
+        "content": "# Hacker News top 5, {{today}}\n\n{{vars.stories}}\n"
+      },
+      "check": { "file_exists": "~/TaskPlayerTest/digests/hn-{{today}}.md" }
+    },
+    {
+      "id": "s4",
+      "intent": "Open the digest in TextEdit",
+      "channel": "script",
+      "action": "applescript",
+      "args": {
+        "source": "set f to (POSIX path of (path to home folder)) & \"TaskPlayerTest/digests/hn-{{today}}.md\"\ntell application \"TextEdit\"\n  open (POSIX file f)\n  activate\nend tell"
+      }
+    }
+  ],
+  "success": [{ "file_exists": "~/TaskPlayerTest/digests/hn-{{today}}.md" }]
+}

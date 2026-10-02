@@ -16,6 +16,15 @@
       "all_frames": true
     }
   ],
-  "permissions": ["debugger", "tabs", "scripting", "nativeMessaging", "storage", "webNavigation", "downloads"],
+  "permissions": [
+    "debugger",
+    "tabs",
+    "scripting",
+    "nativeMessaging",
+    "storage",
+    "webNavigation",
+    "downloads",
+    "alarms"
+  ],
   "host_permissions": ["<all_urls>"]
 }

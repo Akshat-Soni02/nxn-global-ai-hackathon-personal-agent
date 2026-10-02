@@ -91,9 +91,11 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 │   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
 │   ├── native-host/   # shim Chrome launches: pipes native messaging <-> the daemon's Unix socket
 │   └── daemon/        # always-on Node daemon: socket server, recording sessions, skill store, triggers, fs/script channels
-├── skills/examples/   # hand-written skills; the schema tests validate every file here
-├── fixtures/pages/    # local test pages, including a "drifted" redesign, for replay tests
-├── scripts/           # dev helpers: fixture server, native host installer
+├── skills/real/       # 5 replay test skills against real sites (see skills/real/README.md)
+├── fixtures/
+│   ├── pages/         # local test pages, including a "drifted" redesign
+│   └── snapshots/     # saved copies of the real pages; tests check every locator against them
+├── scripts/           # fixture server, native host installer, sandbox seeder, page snapshots
 ├── docs/              # design doc snapshot, architecture diagram, research notes
 └── .github/           # CI (lint, typecheck, test, build) and CODEOWNERS template
 ```
@@ -121,9 +123,21 @@ pnpm typecheck
 pnpm lint                   # Biome; `pnpm format` to auto-fix
 
 pnpm fixtures               # serves fixtures/pages on http://localhost:5173
+pnpm seed:sandbox           # creates ~/TaskPlayerTest with sample files for skills/real (--reset to start over)
+pnpm snapshot:pages         # re-downloads the real pages into fixtures/snapshots
 pnpm extension              # builds apps/extension/dist in watch mode
-pnpm daemon                 # runs the daemon in watch mode; type `record`, `stop` or `status`
+pnpm daemon                 # runs the daemon (daemon:dev = watch mode, but it also reads Enter); type run <skill.json>, approve, deny, record, stop, status
 ```
+
+**Replay a skill**
+
+```sh
+pnpm seed:sandbox                                        # once: sample files in ~/TaskPlayerTest
+pnpm replay skills/real/fill-web-form.json               # dev runner: separate Chrome profile, no extension needed
+pnpm replay skills/real/upload-test-file.json --yes      # --yes approves gated steps; --headless, --no-scripts, --keep-open
+```
+
+`pnpm replay` launches its own debug-port Chrome (profile in `~/Library/Application Support/TaskPlayer/dev-chrome`). The production path is the daemon: type `run skills/real/<skill>.json` in `pnpm daemon`, and web steps run in an automation window of your own Chrome through the extension. Both paths share the player code, and every daemon run is logged to `~/Library/Application Support/TaskPlayer/runs/<runId>.jsonl`.
 
 **Connect Chrome to the daemon** (once per machine):
 

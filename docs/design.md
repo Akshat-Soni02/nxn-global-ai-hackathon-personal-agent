@@ -117,6 +117,8 @@ The skill is the only interface between record and replay: record writes it, rep
 
 **Step fields**: `id`, `intent` (what this step achieves, in words; the agent fallback relies on it), `channel`, `action`, `target` (locator, if any), `args`, `wait` (precondition), `check` (postcondition), `requires_approval`, `on_fail` (retries, then fallback: `agent` or `ask`).
 
+**Also on steps and inputs**: `save_as` stores a step's result for later steps as `{{vars.<name>}}`; `timeout_ms` bounds a step's wait and check; inputs may carry a `default`. Templates available in args and checks: `{{inputs.<name>}}`, `{{inputs.<name>.name}}` (a file's base name), `{{vars.<name>}}`, `{{today}}`. The per-action args are listed at the top of `packages/core/src/skill.ts`.
+
 | Channel | Actions (v1) |
 | --- | --- |
 | `web` | `navigate`, `click`, `type`, `select`, `press`, `upload`, `wait_for`, `extract` |
@@ -125,7 +127,7 @@ The skill is the only interface between record and replay: record writes it, rep
 | `ax` (post-v1) | `press`, `set_value`, `focus`, `menu` |
 | `vision` (fallback only) | `click`, `type`: never written by the compiler, only chosen by replay |
 
-See `skills/examples/` for complete, validated examples.
+See `skills/real/` for five replay test skills against real sites.
 
 ## Replay
 
@@ -144,11 +146,13 @@ Replay executes a skill step by step through the cheapest channel that works, wi
 2. **Wait.** Poll the step's precondition with a timeout: element present and enabled, network idle, URL matches.
 3. **Match (deterministic).** Score candidates against the stored locator in order: role + name, then label or nearby text, then fallback selectors. Accept only one clear winner above a confidence threshold.
 4. **Approve.** If `requires_approval`, pause and ask the user (menu-bar notification).
-5. **Act.** Execute through the step's channel. Web uses trusted CDP input (`Input.dispatchMouseEvent`, `Input.insertText`); uploads use `DOM.setFileInputFiles` with the local path, so no native Open dialog appears.
+5. **Act.** Execute through the step's channel. Web uses trusted CDP input: a mouse press at the element's current centre after checking nothing covers it, and typing as a keyDown/keyUp per character (`Input.insertText` alone skips key events, and widgets such as date pickers then overwrite the field). Uploads use `DOM.setFileInputFiles` with the local path, so no native Open dialog appears.
 6. **Verify.** Evaluate the postcondition. Success moves to the next step.
 7. **Retry.** On failure, retry up to `on_fail.retries` times after re-observing the page (dismiss known banners, wait longer).
 8. **Agent fallback.** Send the LLM the step's `intent`, the stored target snapshot, relevant memory and the current page (compact DOM/AX outline, plus screenshot if needed). It returns a new target or a short sequence of actions, which go through the same act and verify steps.
 9. **Escalate.** If the agent fails or is unsure, pause the run and ask the user, showing where it stopped.
+
+**Matcher v0 (built).** Signals are Chrome's own accessibility tree (`Accessibility.queryAXTree`: role, with equivalent roles grouped, and accessible name), stored attributes and fallback selectors, weighted 0.45 / 0.25 / 0.30 and normalised over the signals the locator has. A target is accepted at score ≥ 0.5 with a margin of 0.15 over the runner-up; otherwise the step reports "not found" or "ambiguous" with the top candidates. Navigation waits only for the document to be parsed; each step then waits for its own target.
 
 **Learn-back.** When the agent's fix passes verification, replay proposes a new skill version with the updated locator (the old one stays as a fallback). The user approves it the first time; later, small locator fixes can be applied automatically. This is how drift handling improves over time.
 

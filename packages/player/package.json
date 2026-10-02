@@ -4,9 +4,17 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./web": "./src/web/index.ts",
+    "./node": "./src/node/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@taskplayer/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3"
   }
 }
