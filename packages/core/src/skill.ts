@@ -15,29 +15,48 @@
 //   web.type      { text, clear?: boolean }            focuses the target, then inserts text
 //   web.select    { option }                            visible option label
 //   web.press     { key }                               e.g. "Enter", "Escape"
-//   web.upload    { file }                              target is the <input type=file>; no native dialog
+//   web.upload    { file }                              target is the <input type=file>, the control that opens it,
+//                                                       or a drop zone; no native dialog either way
+//   web.drag      { to: Locator }                       drags the target onto `to` (a card onto a list)
 //   web.wait_for  {}                                    waits for `check` (or the target) within timeout_ms
 //   web.extract   { all?, limit?, each?, join? }        each: per-element template using {{text}} and {{href}}
+//   web.extract   { source: "google_sheet" }            the open Google Sheet's rows (CSV export), as objects
+//   web.extract   { source: "table" }                   the target <table>'s rows, as objects keyed by header
 //   fs.find       { dir, glob, pick: "newest" | "all", since_run_start? }   since_run_start ignores older files
+// A file input's resolve: { dir, glob, pick, ask?, accept?, max_mb? }. ask: false takes the newest match without
+// asking. accept ("image/*,.pdf", the HTML syntax) and max_mb say which files it takes: checked before the run.
 //   fs.move|copy  { from, to }                          `to` ending in "/" is a folder (created if missing)
 //   fs.rename     { from, to }
 //   fs.read       { path }
 //   fs.write      { path, content, append? }
+//   ax.open       { app, name? }                       launches or brings forward a Mac app (bundle id)
+//   ax.press      { button?: "right" }                 presses the target (AXPress; right: its context menu)
+//   ax.set_value  { text }                             focuses the target and sets its value
+//   ax.focus      {}
+//   ax.menu       { app, path: string[] }              a menu bar item by its titles, e.g. ["File", "Export As…"]
+//   ax.key        { app, key, modifiers?: ("cmd"|"shift"|"option"|"ctrl")[] }   a shortcut or Return/Escape/arrow
+//                 ax targets: role = AX role, name = title or description, label, near, and attrs
+//                 { app, window?, identifier?, subrole?, path? (" > "-joined) }
 //   script.applescript { source }
 //   script.shortcut    { name, input? }
 //   script.shell       { command }                      allow-listed commands only
+//   data.pick  { from, where: { Column: value }, column, pick?: "first"|"last" }   a rule over rows; no model call
+//   data.ai    { instruction, from, output: "text"|"number"|"date"|"json" }       one model call per run, capped
 import { z } from "zod";
 
-export const CHANNELS = ["web", "fs", "script", "ax", "vision"] as const;
+export const CHANNELS = ["web", "fs", "script", "data", "ax", "vision"] as const;
 export const Channel = z.enum(CHANNELS);
 export type Channel = z.infer<typeof Channel>;
 
 // Actions each channel supports. The recorder must only emit these; the player must implement all of them.
 export const ACTIONS = {
-  web: ["navigate", "click", "type", "select", "press", "upload", "wait_for", "extract"],
+  web: ["navigate", "click", "type", "select", "press", "upload", "drag", "wait_for", "extract"],
   fs: ["find", "move", "copy", "rename", "read", "write"],
   script: ["applescript", "shortcut", "shell"],
-  ax: ["press", "set_value", "focus", "menu"],
+  // Work on values earlier steps saved: a rule (pick) by default, the model (ai) only when no rule fits.
+  data: ["pick", "ai"],
+  // Mac apps through the Accessibility API, run by Task Player.app (apps/mac).
+  ax: ["open", "press", "set_value", "focus", "menu", "key"],
   vision: ["click", "type"],
 } as const satisfies Record<Channel, readonly string[]>;
 

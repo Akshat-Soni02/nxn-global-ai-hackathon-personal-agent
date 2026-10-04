@@ -15,6 +15,9 @@
   "dependencies": {
     "@taskplayer/core": "workspace:*",
     "@taskplayer/ipc": "workspace:*",
-    "@taskplayer/player": "workspace:*"
+    "@taskplayer/player": "workspace:*",
+    "@taskplayer/llm": "workspace:*",
+    "@taskplayer/memory": "workspace:*",
+    "@taskplayer/recorder": "workspace:*"
   }
 }

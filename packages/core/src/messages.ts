@@ -3,8 +3,8 @@
 // Only the extension can open this connection (Chrome launches the native host), so it connects on startup and
 // keeps the port open; the daemon can then send to it at any time. Add new message types here so both sides stay in sync.
 import { z } from "zod";
-import type { ElementDescriptor } from "./descriptor.ts";
 import { Check, Step } from "./skill.ts";
+import { TraceEvent } from "./trace.ts";
 
 export const NATIVE_HOST_NAME = "com.taskplayer.daemon";
 // Fixed by the "key" in apps/extension/manifest.json, so the native host manifest can allow exactly this extension.
@@ -13,8 +13,15 @@ export const EXTENSION_ID = "eloljjdiofhdlhoankjbhfeihjankikk";
 const base = { id: z.string() };
 
 export const Message = z.discriminatedUnion("type", [
-  // Handshake: extension sends hello on connect, daemon replies with hello
-  z.object({ ...base, type: z.literal("hello"), from: z.enum(["extension", "daemon"]), version: z.string() }),
+  // Handshake: extension (and Task Player.app, "mac") send hello on connect, daemon replies with hello.
+  // mac also says whether macOS lets it use the Accessibility API (trusted).
+  z.object({
+    ...base,
+    type: z.literal("hello"),
+    from: z.enum(["extension", "daemon", "mac"]),
+    version: z.string(),
+    trusted: z.boolean().optional(),
+  }),
   z.object({ ...base, type: z.literal("ping") }),
   z.object({ ...base, type: z.literal("pong") }),
 
@@ -22,21 +29,33 @@ export const Message = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("daemon.offline"), reason: z.string() }),
 
   // Record: the daemon owns the session (started from the menu bar), and also watches the filesystem itself.
-  // daemon -> extension: start/stop capturing web events for this session
-  z.object({ ...base, type: z.literal("record.start"), sessionId: z.string() }),
+  // daemon -> extension: start/stop capturing web events for this session. startedAt drives the button's timer.
+  z.object({ ...base, type: z.literal("record.start"), sessionId: z.string(), startedAt: z.number().optional() }),
   z.object({ ...base, type: z.literal("record.stop"), sessionId: z.string() }),
-  // extension -> daemon: one captured web event
+  // extension -> daemon: the Record / Stop button (floating in the page, or the toolbar icon). The daemon still owns
+  // the session: it handles this exactly like a typed `record` / `stop`, and answers with record.start / record.stop.
+  z.object({ ...base, type: z.literal("record.command"), command: z.enum(["start", "stop"]) }),
+  // daemon -> extension: what happens after stop, shown on the button (drill questions are answered in the terminal).
   z.object({
     ...base,
-    type: z.literal("record.event"),
-    sessionId: z.string(),
-    at: z.number(),
-    event: z.string(),
-    value: z.string().optional(),
-    target: z.custom<ElementDescriptor>().optional(),
+    type: z.literal("record.status"),
+    phase: z.enum(["compiling", "question", "saved", "empty", "failed", "busy", "replay"]),
+    text: z.string(),
   }),
+  // extension -> daemon: one captured web or browser event. The fields are the trace format (trace.ts), so an
+  // unknown event kind is rejected here instead of reaching the compiler.
+  TraceEvent.extend({ type: z.literal("record.event") }),
 
-  // Replay: the daemon runs the skill; web work goes to the extension. Replies reuse the request's id.
+  // daemon -> extension: whether Task Player.app's floating button is on screen (Chrome then hides its own).
+  z.object({ ...base, type: z.literal("desktop.button"), present: z.boolean() }),
+  // mac -> daemon: Accessibility was allowed or taken away while the app was running.
+  z.object({ ...base, type: z.literal("mac.trusted"), trusted: z.boolean() }),
+  // mac -> daemon: a folder a Finder window shows while you record. One outside the watched folders (an external
+  // drive, /Users/Shared) is watched from then on, so a file you move there is recorded.
+  z.object({ ...base, type: z.literal("watch.folder"), path: z.string() }),
+
+  // Replay: the daemon runs the skill; web work goes to the extension, ax work to Task Player.app (same messages).
+  // Replies reuse the request's id.
   // daemon -> extension: run one web step (templates already resolved) in the automation window
   z.object({ ...base, type: z.literal("run.step"), runId: z.string(), step: Step }),
   z.object({

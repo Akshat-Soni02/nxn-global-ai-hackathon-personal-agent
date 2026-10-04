@@ -17,6 +17,7 @@
     "extension": "pnpm --filter @taskplayer/extension dev",
     "fixtures": "node scripts/serve-fixtures.mjs",
     "setup:native-host": "tsx scripts/install-native-host.ts",
+    "setup:mac": "tsx scripts/build-mac.ts",
     "seed:sandbox": "tsx scripts/seed-sandbox.ts",
     "snapshot:pages": "tsx scripts/snapshot-pages.ts",
     "replay": "tsx scripts/replay.ts",
@@ -24,8 +25,10 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.3",
     "linkedom": "^0.18.13",
+    "jsdom": "^30.1.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"

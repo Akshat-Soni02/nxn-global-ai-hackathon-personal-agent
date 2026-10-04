@@ -69,7 +69,7 @@ Record turns one demonstration or description into a skill; its output is only v
 
 **Pipeline**
 
-1. **Capture.** The user presses Record in the menu bar and does the task. The daemon owns the session: it watches the filesystem itself and tells the extension to capture web events if Chrome is running. A Mac-only task never needs Chrome; a mixed task becomes one trace ordered by timestamp.
+1. **Capture.** The user presses Record (until the menu bar exists: a floating button the extension draws on every page while the daemon runs, or its toolbar icon; both send `record.command` to the daemon) and does the task. The daemon owns the session: it watches the filesystem itself and tells the extension to capture web events if Chrome is running. A Mac-only task never needs Chrome; a mixed task becomes one trace ordered by timestamp.
 2. **Trace.** Sensors write a timestamped trace of events, each with a snapshot of its target.
 3. **Compile.** An LLM turns the trace into a parameterised skill: intent, inputs, steps, success checks. It reads memory for known facts first.
 4. **Drill.** The compiler asks the user about anything ambiguous, updates the skill, and saves durable answers to memory.
@@ -82,7 +82,7 @@ Record turns one demonstration or description into a skill; its output is only v
 | Web pages | Extension content script | click, input, change, submit, keydown (Enter, Tab), file-input change, navigation, frame and shadow-DOM path |
 | Tabs and windows | Extension background worker (`chrome.tabs`, `chrome.webNavigation`, `chrome.downloads`) | tab open/switch/close, URL changes, downloads started and finished |
 | Filesystem | Daemon (FSEvents) | files created, moved or renamed during the session, with paths |
-| Native apps (post-v1) | Daemon (AX observer + event tap) | the AX element under each click or keystroke, never raw coordinates |
+| Mac apps | Task Player.app (`apps/mac`, Accessibility API, passive NSEvent monitors) | the AX element under each click, a field's final value, shortcuts, menu paths; never raw coordinates or keystrokes |
 | Natural language | Daemon chat UI | the user's description, used instead of or alongside a trace |
 
 **Target snapshot (per event).** This is what makes drift survivable, so capture all of it:
@@ -119,12 +119,15 @@ The skill is the only interface between record and replay: record writes it, rep
 
 **Also on steps and inputs**: `save_as` stores a step's result for later steps as `{{vars.<name>}}`; `timeout_ms` bounds a step's wait and check; inputs may carry a `default`. Templates available in args and checks: `{{inputs.<name>}}`, `{{inputs.<name>.name}}` (a file's base name), `{{vars.<name>}}`, `{{today}}`. The per-action args are listed at the top of `packages/core/src/skill.ts`.
 
+**Added with the record/replay merge (Oct 3)**: `web.drag { to }` moves the target onto another element (HTML5 drag events for `draggable` sources, a trusted press-move-release otherwise). `web.upload` accepts a target that is the file input, the control that opens it, or a drop zone: replay looks for the file input in the target's dialog or the page (shadow roots included) and drops the files when there is none. `web.extract { source: "google_sheet" | "table" }` returns rows as objects. The `data` channel works on saved rows: compile writes a `data.pick` rule once; `data.ai` is only for what no rule can express, is shown to the user with its cost before saving, and is capped per run. Uploads through the extension need "Allow access to file URLs" on the extension: without it Chrome answers `DOM.setFileInputFiles` with "Not allowed".
+
 | Channel | Actions (v1) |
 | --- | --- |
-| `web` | `navigate`, `click`, `type`, `select`, `press`, `upload`, `wait_for`, `extract` |
+| `web` | `navigate`, `click`, `type`, `select`, `press`, `upload`, `drag`, `wait_for`, `extract` |
 | `fs` | `find`, `move`, `copy`, `rename`, `read`, `write` |
 | `script` | `applescript`, `shortcut`, `shell` (allow-listed) |
-| `ax` (post-v1) | `press`, `set_value`, `focus`, `menu` |
+| `data` | `pick` (a rule over saved rows; no model), `ai` (one model call per run, capped and cached) |
+| `ax` | `open`, `press`, `set_value`, `focus`, `menu`, `key` (run by Task Player.app; see docs/guide/11-mac-apps.md) |
 | `vision` (fallback only) | `click`, `type`: never written by the compiler, only chosen by replay |
 
 See `skills/real/` for five replay test skills against real sites.

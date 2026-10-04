@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Studio: upload dialog</title>
+<!-- Like a video studio: "Upload videos" opens a dialog whose "Select files" button opens a hidden file input
+     elsewhere in the dialog with a script. The input has no label and is not in the accessibility tree. -->
+<h1>Channel content</h1>
+<button type="button" id="create">Upload videos</button>
+<div role="dialog" aria-label="Upload videos" id="uploader" hidden>
+  <h2>Upload videos</h2>
+  <p>Drag and drop video files to upload</p>
+  <button type="button" id="select">Select files</button>
+  <div class="footer"><input type="file" name="video" hidden /></div>
+</div>
+<p id="status" role="status"></p>
+<script>
+  const dialog = document.getElementById("uploader");
+  const input = dialog.querySelector("input[type=file]");
+  document.getElementById("create").addEventListener("click", () => {
+    dialog.hidden = false;
+  });
+  document.getElementById("select").addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    document.getElementById("status").textContent = input.files[0] ? `Uploading ${input.files[0].name}` : "";
+  });
+</script>

@@ -6,9 +6,11 @@
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { Skill, type Step } from "../packages/core/src/skill.ts";
+import { chat, configFromEnv } from "../packages/llm/src/index.ts";
 import { runSkill } from "../packages/player/src/index.ts";
 import type { DevChrome } from "../packages/player/src/node/index.ts";
 import {
+  dataChannel,
   expandHome,
   fileExists,
   fsChannel,
@@ -38,6 +40,19 @@ argv.forEach((a, i) => {
 });
 
 const skill = Skill.parse(JSON.parse(readFileSync(file, "utf8")));
+
+function askModel() {
+  try {
+    const config = configFromEnv(process.env);
+    return (system: string, user: string) =>
+      chat(config, [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ]);
+  } catch {
+    return undefined; // no model configured: data.ai steps fail with a clear message, data.pick still works
+  }
+}
 const needsBrowser =
   skill.steps.some((s) => s.channel === "web") ||
   skill.success.some((c) => c.text_visible || c.url_matches || c.element_visible);
@@ -89,6 +104,8 @@ try {
             return { ok: true };
           }
         : scriptChannel,
+      // data.pick rules need no model; data.ai uses Nemotron when NEBIUS_* are set (capped, see data-channel.ts).
+      data: dataChannel({ ask: askModel() }),
       fileExists: (pattern, timeoutMs) => poll(() => fileExists(pattern), timeoutMs),
       webCheck: async (check, timeoutMs) => waitForCheck(await browser(), check, timeoutMs),
       approve,

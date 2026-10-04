@@ -10,10 +10,12 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.3.4",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "@types/node": "^26.6.3"
   },
   "dependencies": {
     "@taskplayer/core": "workspace:*",
-    "@taskplayer/player": "workspace:*"
+    "@taskplayer/player": "workspace:*",
+    "dom-accessibility-api": "^0.7.1"
   }
 }
