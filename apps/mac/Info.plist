@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.taskplayer.mac</string>
+  <key>CFBundleName</key>
+  <string>Task Player</string>
+  <key>CFBundleDisplayName</key>
+  <string>Task Player</string>
+  <key>CFBundleExecutable</key>
+  <string>TaskPlayer</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.0.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <!-- No Dock icon and no menu bar: Task Player is the floating button. -->
+  <key>LSUIElement</key>
+  <true/>
+  <!-- Shown when Task Player asks Finder which folder a window shows (only if Finder doesn't say it through
+       Accessibility), so a file moved on an external drive is recorded. -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Task Player asks Finder which folder a window shows, so files you move there during a recording are recorded.</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>

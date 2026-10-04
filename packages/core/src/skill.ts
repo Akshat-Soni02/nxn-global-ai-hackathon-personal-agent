@@ -23,10 +23,20 @@
 //   web.extract   { source: "google_sheet" }            the open Google Sheet's rows (CSV export), as objects
 //   web.extract   { source: "table" }                   the target <table>'s rows, as objects keyed by header
 //   fs.find       { dir, glob, pick: "newest" | "all", since_run_start? }   since_run_start ignores older files
+// A file input's resolve: { dir, glob, pick, ask?, accept?, max_mb? }. ask: false takes the newest match without
+// asking. accept ("image/*,.pdf", the HTML syntax) and max_mb say which files it takes: checked before the run.
 //   fs.move|copy  { from, to }                          `to` ending in "/" is a folder (created if missing)
 //   fs.rename     { from, to }
 //   fs.read       { path }
 //   fs.write      { path, content, append? }
+//   ax.open       { app, name? }                       launches or brings forward a Mac app (bundle id)
+//   ax.press      { button?: "right" }                 presses the target (AXPress; right: its context menu)
+//   ax.set_value  { text }                             focuses the target and sets its value
+//   ax.focus      {}
+//   ax.menu       { app, path: string[] }              a menu bar item by its titles, e.g. ["File", "Export As…"]
+//   ax.key        { app, key, modifiers?: ("cmd"|"shift"|"option"|"ctrl")[] }   a shortcut or Return/Escape/arrow
+//                 ax targets: role = AX role, name = title or description, label, near, and attrs
+//                 { app, window?, identifier?, subrole?, path? (" > "-joined) }
 //   script.applescript { source }
 //   script.shortcut    { name, input? }
 //   script.shell       { command }                      allow-listed commands only
@@ -45,7 +55,8 @@ export const ACTIONS = {
   script: ["applescript", "shortcut", "shell"],
   // Work on values earlier steps saved: a rule (pick) by default, the model (ai) only when no rule fits.
   data: ["pick", "ai"],
-  ax: ["press", "set_value", "focus", "menu"],
+  // Mac apps through the Accessibility API, run by Task Player.app (apps/mac).
+  ax: ["open", "press", "set_value", "focus", "menu", "key"],
   vision: ["click", "type"],
 } as const satisfies Record<Channel, readonly string[]>;
 

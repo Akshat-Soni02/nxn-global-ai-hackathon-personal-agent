@@ -1,6 +1,6 @@
 // Normalise: turns a raw trace into the steps a person would describe, with no AI.
 // Mechanical rules only, so the compiler's input is stable and testable, and the model sees fewer tokens.
-import type { ElementDescriptor, FileInfo, TraceEvent } from "@taskplayer/core";
+import type { AxElement, ElementDescriptor, FileInfo, TraceEvent } from "@taskplayer/core";
 
 export type StepKind =
   | "navigate"
@@ -12,7 +12,13 @@ export type StepKind =
   | "drag"
   | "copy"
   | "fs_move"
-  | "fs_rename";
+  | "fs_rename"
+  // Mac apps (Task Player.app, Accessibility API)
+  | "app_open"
+  | "app_press"
+  | "app_type"
+  | "app_key"
+  | "app_menu";
 
 // A value that will probably be different next time. The compiler and the drill decide; this only proposes.
 export interface ParamCandidate {
@@ -36,6 +42,7 @@ export interface NormalisedStep {
   checked?: boolean;
   file?: FileInfo;
   files?: FileInfo[];
+  accept?: string; // upload: the kinds of file the page's input takes
   path?: string;
   toPath?: string;
   navigatesTo?: string; // the page this click or key press led to
@@ -50,6 +57,13 @@ export interface NormalisedStep {
   fromCopy?: string;
   // Clicks just before this step that had no element to replay (a canvas): reported, not replayed.
   drawnBefore?: number;
+  // Mac apps: the app, the control (AX), a menu path, a shortcut's modifiers, a right click, a value too long to keep.
+  app?: { id: string; name?: string };
+  element?: AxElement;
+  menu?: string[];
+  modifiers?: ("cmd" | "shift" | "option" | "ctrl")[];
+  button?: "left" | "right";
+  long?: boolean;
   events: string[]; // ids of the trace events merged into this step
 }
 
@@ -60,6 +74,19 @@ const FILE_DIALOG_MS = 5 * 60_000; // how long the macOS file dialog may stay op
 const SCRIPT_CLICK_MS = 1_000; // a page script clicking its hidden file input right after your click on its button
 const CAUSED = new Set(["link", "form_submit"]);
 const FOCUS_ONLY_ROLES = new Set(["textbox", "searchbox", "spinbutton"]);
+// Finder is recorded by what it did to files (fs_move, fs_rename from the watcher), never by its clicks: a click on
+// last month's row can't be replayed next month. Task Player.app leaves Finder out too; this also covers old traces.
+const FILE_APPS = new Set(["com.apple.finder"]);
+// Mac-app elements that only hold others: a click on one is a click on nothing in particular.
+const AX_CONTAINERS = new Set([
+  "AXWindow",
+  "AXGroup",
+  "AXScrollArea",
+  "AXSplitGroup",
+  "AXLayoutArea",
+  "AXMenuBar",
+  "AXUnknown",
+]);
 const DATE = /^\d{4}-\d{2}-\d{2}$|^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/;
 const NUMBER = /^-?\d+([.,]\d+)?$/;
 
@@ -85,10 +112,25 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
     return prev.events;
   };
 
+  // A Mac-app step is replayed in its app: when the recording moves into an app (or back to it after Chrome or Finder),
+  // an "open" step brings that app forward first. Switching apps without doing anything there adds nothing.
+  const appOf = (e: TraceEvent) => e.app ?? (e.element && { id: e.element.app, name: e.element.appName });
+  const pushApp = (e: TraceEvent, step: Omit<Draft, "events" | "at">) => {
+    const app = appOf(e);
+    const prev = last();
+    const inApp = prev?.kind.startsWith("app_") && prev.app?.id === app?.id;
+    if (app && !inApp) steps.push({ kind: "app_open", at: e.at - 1, app, events: [] });
+    steps.push({ ...step, at: e.at, app, events: [e.id] });
+  };
+
   for (const e of events) {
     const prev = last();
+    if (e.event.startsWith("app_") && FILE_APPS.has(appOf(e)?.id ?? "")) continue;
     switch (e.event) {
       case "navigate": {
+        // A page replay can't open (a new tab page, another extension's page, chrome://settings) is not a step: the
+        // page you went to from there is.
+        if (!opensOnReplay(e.url)) break;
         if (prev && (prev.kind === "click" || prev.kind === "press") && e.at - prev.at <= FOLLOW_MS) {
           if (CAUSED.has(e.transition ?? "")) {
             prev.navigatesTo = e.url;
@@ -211,6 +253,7 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
           target,
           file,
           files: e.files,
+          accept: e.accept,
           path: file?.path,
           events: [...absorbed, e.id],
         });
@@ -240,8 +283,40 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
       case "fs_rename":
         steps.push({ ...base(e), kind: e.event, target: undefined, path: e.path, toPath: e.toPath });
         break;
+      case "app_click": {
+        const el = e.element;
+        if (!el || (AX_CONTAINERS.has(el.role) && !el.title && !el.description && !el.identifier)) break;
+        // A double click, or the same control clicked again at once, is one press.
+        if (prev?.kind === "app_press" && sameElement(prev.element, el) && e.at - prev.at < 600) {
+          prev.events.push(e.id);
+          break;
+        }
+        pushApp(e, { kind: "app_press", element: el, button: e.button });
+        break;
+      }
+      case "app_type": {
+        const el = e.element;
+        if (!el) break;
+        // The click that only put the cursor in this field adds nothing once you typed in it.
+        const focus = prev?.kind === "app_press" && sameElement(prev.element, el) ? steps.pop()?.events : undefined;
+        const field = last();
+        if (field?.kind === "app_type" && sameElement(field.element, el)) {
+          Object.assign(field, { value: e.value, secret: e.secret, pasted: e.pasted, long: e.long });
+          field.events.push(e.id);
+          break;
+        }
+        pushApp(e, { kind: "app_type", element: el, value: e.value, secret: e.secret, pasted: e.pasted, long: e.long });
+        if (focus) last()?.events.unshift(...focus);
+        break;
+      }
+      case "app_key":
+        pushApp(e, { kind: "app_key", value: e.value, modifiers: e.modifiers, element: e.element });
+        break;
+      case "app_menu":
+        if (e.menu && e.menu.length > 0) pushApp(e, { kind: "app_menu", menu: e.menu });
+        break;
       default:
-        break; // tab_open, tab_close: context only
+        break; // tab_open, tab_close: context only. app_activate: an "open" step is added before the app's first step.
     }
   }
 
@@ -261,6 +336,10 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
   );
   return kept.map((s, index) => ({ ...s, index, candidate: candidateFor(s, produced) }));
 }
+
+// Replay opens web pages and local files in its own tab. Chrome's own pages and other extensions' pages refuse it
+// ("Not allowed").
+const opensOnReplay = (url?: string) => /^(https?|file):/i.test(url ?? "");
 
 // The matcher finds an element by Chrome's accessibility tree (role, name) or by selectors from the document; an
 // element in a shadow root with no role or name can be reached by neither.
@@ -284,7 +363,7 @@ function addStartingPage(steps: Draft[]) {
   const first = steps[0];
   if (!first || first.kind === "navigate" || first.kind === "fs_move" || first.kind === "fs_rename") return;
   const url = first.frameId ? undefined : (first.url ?? first.target?.url);
-  if (!url) return;
+  if (!url || !opensOnReplay(url)) return;
   steps.unshift({ kind: "navigate", at: first.at - 1, tabId: first.tabId, url, events: [] });
 }
 
@@ -298,7 +377,7 @@ function candidateFor(step: Draft, produced: string[]): ParamCandidate | undefin
     const name = basename(step.path);
     return { kind: "file", value: name, glob: globFor(name), dir: dirname(step.path) };
   }
-  if ((step.kind === "type" || step.kind === "select") && step.value && !step.secret) {
+  if ((step.kind === "type" || step.kind === "select" || step.kind === "app_type") && step.value && !step.secret) {
     const value = step.value.trim();
     const kind = DATE.test(value) ? "date" : NUMBER.test(value) ? "number" : "text";
     return { kind, value };
@@ -324,3 +403,10 @@ export function sameTarget(a?: ElementDescriptor, b?: ElementDescriptor): boolea
 
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const dirname = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0)) || "/";
+
+// Two AX descriptions of the same control: same app, role and identifier, or same role, name and place.
+function sameElement(a?: AxElement, b?: AxElement): boolean {
+  if (!a || !b || a.app !== b.app || a.role !== b.role) return false;
+  if (a.identifier || b.identifier) return a.identifier === b.identifier;
+  return a.title === b.title && a.description === b.description && a.path?.join(">") === b.path?.join(">");
+}

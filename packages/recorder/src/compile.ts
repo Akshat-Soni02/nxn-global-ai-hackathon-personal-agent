@@ -213,7 +213,18 @@ function forModel(steps: NormalisedStep[], idsByStep: string[][]) {
     ids: idsByStep[i],
     did: s.kind,
     page: s.url,
-    element: s.target && { role: s.target.role, name: s.target.name, label: s.target.label, near: s.target.near },
+    element: s.target
+      ? { role: s.target.role, name: s.target.name, label: s.target.label, near: s.target.near }
+      : s.element && {
+          role: s.element.role,
+          name: s.element.title || s.element.description,
+          label: s.element.label,
+          near: s.element.near,
+        },
+    // Mac apps: which app, a menu path, a shortcut.
+    app: s.app?.name ?? s.app?.id,
+    menu: s.menu,
+    keys: s.kind === "app_key" ? [...(s.modifiers ?? []), s.value].join("+") : undefined,
     dropped_on: s.to && { role: s.to.role, name: s.to.name, label: s.to.label, near: s.to.near },
     value: s.secret ? "(secret, not recorded)" : s.value?.slice(0, 200),
     checked: s.checked,
@@ -239,7 +250,15 @@ function skeletonForModel(draft: SkillDraft) {
 
 function memoryQuery(steps: NormalisedStep[]): string {
   return steps
-    .flatMap((s) => [s.target?.name, s.target?.label, s.target?.near, s.file?.name, hostOf(s.url)])
+    .flatMap((s) => [
+      s.target?.name,
+      s.target?.label,
+      s.target?.near,
+      s.file?.name,
+      hostOf(s.url),
+      s.element?.title,
+      s.app?.name,
+    ])
     .filter(Boolean)
     .join(" ");
 }
@@ -271,13 +290,15 @@ function merge(draft: SkillDraft, notes: Annotations): SkillDraft {
     for (const [key, value] of Object.entries(note.args ?? {})) {
       // A drag's destination comes from the recording, like its target.
       if (step.action === "drag" && key === "to") continue;
+      // So do a Mac step's app, menu path and shortcut.
+      if (step.channel === "ax" && ["app", "path", "key", "modifiers", "button"].includes(key)) continue;
       // A navigate step stays on the site you recorded, whatever the model says.
       if (step.action === "navigate" && key === "url" && !sameOrigin(step.args?.url, value)) continue;
       // A secret stays a secret input.
       if (
         typeof step.args?.[key] === "string" &&
         /\{\{\s*inputs\./.test(step.args[key] as string) &&
-        step.action === "type"
+        (step.action === "type" || step.action === "set_value")
       )
         continue;
       // A recorded value the model turns into an input becomes that input's default, so runs that nobody types

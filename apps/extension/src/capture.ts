@@ -7,7 +7,18 @@ import { actionableTarget, describeElement, hasVerifiedSelector } from "./descri
 
 export type PageEvent = Pick<
   TraceEvent,
-  "event" | "value" | "secret" | "checked" | "file" | "files" | "echo" | "native" | "drawn" | "pasted" | "context"
+  | "event"
+  | "value"
+  | "secret"
+  | "checked"
+  | "file"
+  | "files"
+  | "accept"
+  | "echo"
+  | "native"
+  | "drawn"
+  | "pasted"
+  | "context"
 > & {
   at?: number; // set when the event is sent later than it happened (a copy waits for the sheet's context)
   target?: ElementDescriptor;
@@ -46,6 +57,12 @@ export interface CaptureOptions {
   // Reads a Google Sheet's CSV export (the extension's background worker does it, with your cookies).
   fetchSheet?(url: string): Promise<string>;
 }
+
+// Task Player's own UI in the page (the floating Record / Stop button) carries this attribute. Nothing done to it is
+// recorded: pressing Stop is not a step of your task. Its shadow root is closed, so events from inside it reach these
+// listeners retargeted to that element.
+export const OWN_UI = "data-taskplayer-ui";
+const isOwnUi = (node: EventTarget) => node instanceof Element && node.hasAttribute(OWN_UI);
 
 const COPY_LIMIT = 2_000; // characters of copied text kept in the trace
 const DRAWN_AREA = 200 * 200; // a click target this big with no role, name or text is a drawing surface
@@ -110,7 +127,7 @@ export function startCapture(
         if (editableField(from) || from.localName === "canvas" || (from as HTMLInputElement).type === "range") return;
         // What is under the pointer, skipping the dragged element (libraries often move it along with the pointer).
         const below = (doc.elementsFromPoint?.(m.clientX, m.clientY) ?? []).find(
-          (el) => el !== from && !from.contains(el) && !el.contains(from),
+          (el) => el !== from && !from.contains(el) && !el.contains(from) && !isOwnUi(el),
         );
         if (!below) return;
         suppressClickUntil = e.timeStamp + 100; // the browser still fires a click on the common ancestor
@@ -184,9 +201,12 @@ export function startCapture(
             return;
           }
           if (input.type === "file") {
-            // The page only ever gets the file's name, never its path. The compiler turns it into a file input.
+            // The page only ever gets the file's name, never its path. The compiler turns it into a file input,
+            // checked at run time against the kinds of file this input takes (its accept attribute).
             const file = input.files?.[0];
-            if (file) send("file", el, { file: fileInfo(file), files: Array.from(input.files ?? []).map(fileInfo) });
+            const accept = input.accept.trim() || undefined;
+            if (file)
+              send("file", el, { file: fileInfo(file), files: Array.from(input.files ?? []).map(fileInfo), accept });
             return;
           }
         }
@@ -271,6 +291,7 @@ export function startCapture(
       const wrapped = (event: Event) => {
         if (!isRecording()) return;
         try {
+          if (event.composedPath().some(isOwnUi)) return;
           for (const node of event.composedPath()) {
             if (node instanceof ShadowRoot && !watchedRoots.has(node)) {
               watchedRoots.add(node);
@@ -292,7 +313,7 @@ export function startCapture(
   // copy is read last (bubble phase on the window), after the page's own handler: apps that draw their content
   // (Google Sheets) put the copied value on the clipboard themselves.
   const onCopy = (event: Event) => {
-    if (!isRecording()) return;
+    if (!isRecording() || event.composedPath().some(isOwnUi)) return;
     const at = Date.now();
     const text = (
       (event as ClipboardEvent).clipboardData?.getData("text/plain") ||

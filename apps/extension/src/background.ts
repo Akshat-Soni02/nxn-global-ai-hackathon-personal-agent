@@ -2,7 +2,10 @@
 // Only the extension can open this connection. It connects on startup; after a disconnect it retries soon,
 // and a chrome.alarms heartbeat keeps retrying even if Chrome suspends this worker (timers die with it).
 // An open native port also keeps this MV3 service worker alive.
+// It also drives the Record / Stop controls: the floating button in each page (button.ts) and the toolbar icon. Both
+// only ask the daemon, which owns the session; what they show is what the daemon said back.
 import { type Message, NATIVE_HOST_NAME } from "@taskplayer/core";
+import type { ButtonState } from "./button.ts";
 import { endRun, isAutomationTab, runPageCheck, runWebStep } from "./replay.ts";
 
 const VERSION = chrome.runtime.getManifest().version;
@@ -11,6 +14,7 @@ const RECONNECT_ALARM = "reconnect-daemon";
 
 let port: chrome.runtime.Port | undefined;
 let recordingSession: string | undefined;
+let ui: ButtonState = { daemon: false };
 
 function send(message: Message) {
   port?.postMessage(message);
@@ -23,7 +27,7 @@ function connectDaemon() {
   port.onDisconnect.addListener(() => {
     console.warn("[extension] disconnected from daemon", chrome.runtime.lastError?.message ?? "");
     port = undefined;
-    setRecording(undefined);
+    setRecording(undefined, { daemon: false });
     void endRun();
     setTimeout(connectDaemon, QUICK_RETRY_MS);
     // Minimum alarm period is 30 s; it survives the worker being suspended.
@@ -37,16 +41,27 @@ async function onDaemonMessage(message: Message) {
     case "hello":
       chrome.alarms.clear(RECONNECT_ALARM);
       console.log("[extension] connected to daemon", message.version);
+      setRecording(recordingSession, { daemon: true });
       break;
     case "daemon.offline":
       console.warn("[extension] daemon offline:", message.reason);
       break;
     case "record.start":
-      setRecording(message.sessionId);
+      setRecording(message.sessionId, { recording: { since: message.startedAt ?? Date.now() }, status: undefined });
       break;
     case "record.stop":
-      setRecording(undefined);
+      setRecording(undefined, { recording: undefined });
       break;
+    case "desktop.button":
+      setRecording(recordingSession, { desktop: message.present });
+      break;
+    case "record.status": {
+      // "Still compiling" while a question is already showing would only hide that question.
+      const open = ui.status?.phase === "compiling" || ui.status?.phase === "question";
+      if (message.phase === "busy" && open) break;
+      setRecording(recordingSession, { status: { phase: message.phase, text: message.text, at: Date.now() } });
+      break;
+    }
     case "run.step": {
       const { id, runId, step } = message;
       const result = await runWebStep(step).catch((error: Error) => ({ ok: false, error: error.message }));
@@ -66,25 +81,84 @@ async function onDaemonMessage(message: Message) {
   }
 }
 
-// Tell every content script whether to capture. Content scripts send captured events back via chrome.runtime.
-function setRecording(sessionId: string | undefined) {
+// Tell every content script whether to capture, and what the button shows. Content scripts send captured events
+// back via chrome.runtime.
+function setRecording(sessionId: string | undefined, change: Partial<ButtonState> = {}) {
   recordingSession = sessionId;
+  ui = { ...ui, ...change };
+  if (!ui.daemon) ui = { daemon: false };
+  paintToolbar();
   chrome.tabs.query({}, (tabs) => {
     for (const tab of tabs) {
-      if (tab.id !== undefined) tellTab(tab.id, sessionId);
+      if (tab.id !== undefined) tellTab(tab.id);
     }
   });
 }
 
-// Tabs that were open before the extension was installed or reloaded have no content script: inject it there.
-// On start it asks "recording?" itself, so it joins the session without another message.
-async function tellTab(tabId: number, sessionId: string | undefined) {
-  const reached = await chrome.tabs.sendMessage(tabId, { type: "recording", sessionId }).then(
+// The button's state for one tab: none in replay's automation window (the matcher must not find a "Stop" button there).
+const uiFor = (tabId: number | undefined) => (isAutomationTab(tabId) ? undefined : ui);
+
+// Tabs that were open before the extension was installed or reloaded have no content script: inject it there once the
+// daemon is up (for the button) or a session starts. On start it asks "recording?" itself, so it needs nothing more.
+async function tellTab(tabId: number) {
+  const message = { type: "recording", sessionId: recordingSession, ui: uiFor(tabId) };
+  const reached = await chrome.tabs.sendMessage(tabId, message).then(
     () => true,
     () => false,
   );
-  if (reached || !sessionId) return;
+  if (reached || !ui.daemon || isAutomationTab(tabId)) return;
   await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["content.js"] }).catch(() => {}); // chrome:// pages and the Web Store can't be scripted
+}
+
+// Record / Stop, from the floating button or the toolbar icon: a request to the daemon, which answers with
+// record.start / record.stop (or a status saying why not).
+function press(command: "start" | "stop"): string | undefined {
+  if (!ui.daemon || !port) return "The daemon isn't running: start it with pnpm daemon";
+  send({ id: crypto.randomUUID(), type: "record.command", command });
+  return undefined;
+}
+
+chrome.action.onClicked.addListener(() => {
+  const busy = ui.status?.phase === "compiling" || ui.status?.phase === "question";
+  if (ui.daemon && !busy) press(ui.recording ? "stop" : "start");
+});
+
+// The toolbar icon, drawn here (a red dot to record, a square to stop), so the extension ships no image files.
+function paintToolbar() {
+  const busy = ui.status?.phase === "compiling" || ui.status?.phase === "question";
+  const kind = !ui.daemon ? "off" : ui.recording ? "stop" : "record";
+  void chrome.action.setIcon({ imageData: drawIcon(kind) }).catch(() => {});
+  void chrome.action.setBadgeText({ text: ui.recording ? "REC" : busy ? "…" : "" });
+  void chrome.action.setBadgeBackgroundColor({ color: ui.recording ? "#dc2626" : "#52525b" });
+  const title = !ui.daemon
+    ? "Task Player: the daemon isn't running (pnpm daemon)"
+    : ui.recording
+      ? "Task Player: stop recording"
+      : busy
+        ? `Task Player: ${ui.status?.text}`
+        : "Task Player: record a task";
+  void chrome.action.setTitle({ title });
+}
+
+function drawIcon(kind: "off" | "record" | "stop"): Record<number, ImageData> {
+  const images: Record<number, ImageData> = {};
+  for (const size of [16, 32]) {
+    const canvas = new OffscreenCanvas(size, size);
+    const g = canvas.getContext("2d");
+    if (!g) continue;
+    const u = size / 16;
+    g.fillStyle = "#18181b";
+    g.beginPath();
+    g.arc(8 * u, 8 * u, 7.5 * u, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = kind === "off" ? "#a1a1aa" : kind === "stop" ? "#ffffff" : "#ef4444";
+    g.beginPath();
+    if (kind === "stop") g.roundRect(4.5 * u, 4.5 * u, 7 * u, 7 * u, 1.5 * u);
+    else g.arc(8 * u, 8 * u, 3.6 * u, 0, Math.PI * 2);
+    g.fill();
+    images[size] = g.getImageData(0, 0, size, size);
+  }
+  return images;
 }
 
 // One trace event from a page or the browser, stamped with the session. Dropped when not recording, and for the
@@ -111,7 +185,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       .catch((error: Error) => reply({ error: error.message }));
     return true; // the reply comes later
   }
-  if (message?.type === "recording?") reply({ sessionId: recordingSession });
+  if (message?.type === "record.press") reply({ error: press(message.command === "stop" ? "stop" : "start") });
+  else if (message?.type === "recording?") reply({ sessionId: recordingSession, ui: uiFor(sender.tab?.id) });
   else if (message?.type === "record.event")
     record({ ...message, tabId: sender.tab?.id, frameId: sender.frameId, url: sender.url });
 });
@@ -147,6 +222,7 @@ chrome.downloads.onChanged.addListener((delta) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === RECONNECT_ALARM) connectDaemon();
 });
+paintToolbar();
 chrome.runtime.onStartup.addListener(connectDaemon);
 chrome.runtime.onInstalled.addListener(connectDaemon);
 connectDaemon();

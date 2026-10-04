@@ -17,6 +17,7 @@
     "extension": "pnpm --filter @taskplayer/extension dev",
     "fixtures": "node scripts/serve-fixtures.mjs",
     "setup:native-host": "tsx scripts/install-native-host.ts",
+    "setup:mac": "tsx scripts/build-mac.ts",
     "seed:sandbox": "tsx scripts/seed-sandbox.ts",
     "snapshot:pages": "tsx scripts/snapshot-pages.ts",
     "replay": "tsx scripts/replay.ts",

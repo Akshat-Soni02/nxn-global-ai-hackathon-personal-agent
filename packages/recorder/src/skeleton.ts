@@ -1,7 +1,7 @@
 // Skeleton: the skill as far as code alone can take it. Channel, action, target and every recorded value come from
 // here, so the model (compile.ts) can only add meaning on top: it can never invent a selector or an action.
 // It is also a complete, valid skill on its own, which is what gets saved when no model is configured.
-import type { Input, Skill } from "@taskplayer/core";
+import { type AxElement, type Input, kindOf, type Locator, type Skill } from "@taskplayer/core";
 import type { z } from "zod";
 import type { Question } from "./compile.ts";
 import { toLocator } from "./locator.ts";
@@ -12,6 +12,8 @@ type StepDraft = SkillDraft["steps"][number];
 
 // Steps that commit something you can't take back. Replay pauses for your OK before them.
 const RISKY = /\b(submit|pay|send|delete|remove|post|publish|confirm|purchase|buy|order|transfer|sign)\b/i;
+// The same in Mac apps' words: menus and buttons that lose work or quit.
+const RISKY_MAC = /\b(quit|erase|empty|trash|discard|don.t save|replace|overwrite|log ?out|shut ?down|restart)\b/i;
 
 export function buildSkeleton(steps: NormalisedStep[]): SkillDraft {
   return skeletonOf(steps).draft;
@@ -31,13 +33,14 @@ export function skeletonOf(steps: NormalisedStep[]): Skeleton {
   const idsByStep: string[][] = [];
   const questions: Question[] = [];
   const copies = new Map<string, string>(); // a copy event's id -> the variable its value is saved as
+  const files = new Map<string, string>(); // a path a step left a file at -> how later steps refer to it
   for (const step of steps) {
     const first = out.length;
     const id = (k: number) => `s${first + k + 1}`;
     out.push(
       ...(step.kind === "copy"
         ? copySteps(step, id, copies, questions)
-        : [toStep(step, id(0), inputs, copies, questions)]),
+        : [toStep(step, id(0), { inputs, copies, questions, files })]),
     );
     idsByStep.push(out.slice(first).map((s) => s.id));
   }
@@ -121,13 +124,14 @@ function copySteps(
   ];
 }
 
-function toStep(
-  step: NormalisedStep,
-  id: string,
-  inputs: Record<string, Input>,
-  copies: Map<string, string>,
-  questions: Question[],
-): StepDraft {
+interface Context {
+  inputs: Record<string, Input>;
+  copies: Map<string, string>;
+  questions: Question[];
+  files: Map<string, string>;
+}
+
+function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, files }: Context): StepDraft {
   const target = step.target && toLocator(step.target);
   const what = describe(step);
   const leadsTo = step.navigatesTo ? { url_matches: pathOf(step.navigatesTo) } : undefined;
@@ -240,18 +244,26 @@ function toStep(
         requires_approval: isRisky(step),
       };
     case "upload": {
-      // The page never knew the file's path, so the file is always an input, found again at run time.
+      // The page never knew the file's path, so the file is always an input, chosen again at run time.
       const c = step.candidate;
-      const name = addInput(inputs, stem(step.file?.name ?? "file"), {
+      const fileName = step.file?.name ?? "file";
+      const several = (step.files?.length ?? 1) > 1;
+      // The kinds of file the page's input takes, else files like the recorded one (a photo: any image).
+      const accept = step.accept ?? kindOf(fileName, step.file?.type);
+      const found = {
+        dir: tilde(c?.dir) ?? "~/Downloads",
+        glob: c?.glob ?? "*",
+        pick: several ? "all" : "newest",
+        ...(accept ? { accept } : {}),
+      };
+      const choice = several ? undefined : fileQuestion(fileName, found, `the upload to ${what}`);
+      const name = addInput(inputs, stem(fileName), {
         type: "file",
         description: `File like ${step.file?.name ?? "the one you picked"}`,
         // Several files dropped or picked at once: all files of that kind, not the newest one.
-        resolve: {
-          dir: tilde(c?.dir) ?? "~/Downloads",
-          glob: c?.glob ?? "*",
-          pick: (step.files?.length ?? 1) > 1 ? "all" : "newest",
-        },
+        resolve: choice?.resolve ?? found,
       });
+      if (choice) questions.push(choice.question(name));
       return {
         id,
         intent: `Attach a file to ${what}`,
@@ -264,24 +276,160 @@ function toStep(
     case "copy":
       throw new Error("copy steps are built by copySteps");
     case "fs_move":
+    case "fs_rename": {
+      // The file is found again at run time, as an upload's is: the newest file like it in the folder it was in
+      // (invoice-0923.pdf -> the newest invoice-*.pdf), so next month's file is the one moved. A step on a file an
+      // earlier step moved follows that same file by name ({{inputs.x.name}} in its new folder).
+      const from = step.path ?? "";
+      const to = step.toPath ?? "";
+      let source = files.get(from);
+      if (!source) {
+        const accept = kindOf(basename(from));
+        const found = {
+          dir: tilde(step.candidate?.dir ?? dirname(from)) ?? dirname(from),
+          glob: step.candidate?.glob ?? "*",
+          pick: "newest",
+          ...(accept ? { accept } : {}),
+        };
+        const choice = fileQuestion(basename(from), found, `the ${step.kind === "fs_move" ? "move" : "rename"}`);
+        const name = addInput(inputs, stem(basename(from)), {
+          type: "file",
+          description: `File like ${basename(from)}`,
+          resolve: choice.resolve,
+        });
+        questions.push(choice.question(name));
+        source = `{{inputs.${name}}}`;
+        files.set(from, source);
+      }
+      if (step.kind === "fs_move") {
+        const folder = tilde(dirname(to));
+        // Where the file is now: same name, new folder.
+        const moved = source.startsWith("{{inputs.")
+          ? `${folder}/${source.replace(/\}\}$/, ".name}}")}`
+          : `${folder}/${basename(source)}`;
+        files.set(to, moved);
+        return {
+          id,
+          intent: `Move ${basename(from)} to ${folder}`,
+          channel: "fs",
+          action: "move",
+          // The trailing "/" makes it a folder for fs.move (fs-channel.ts); without it the file would be renamed to it.
+          args: { from: source, to: `${folder}/` },
+          check: { file_exists: moved },
+        };
+      }
+      // The new name is kept as recorded: what it should be next time (a date in it, say) is for the model to decide.
+      files.set(to, tilde(to) ?? to);
       return {
         id,
-        intent: `Move ${basename(step.path)} to ${tilde(dirname(step.toPath))}`,
-        channel: "fs",
-        action: "move",
-        args: { from: tilde(step.path), to: tilde(dirname(step.toPath)) },
-        check: { file_exists: tilde(step.toPath) },
-      };
-    case "fs_rename":
-      return {
-        id,
-        intent: `Rename ${basename(step.path)} to ${basename(step.toPath)}`,
+        intent: `Rename ${basename(from)} to ${basename(to)}`,
         channel: "fs",
         action: "rename",
-        args: { from: tilde(step.path), to: tilde(step.toPath) },
-        check: { file_exists: tilde(step.toPath) },
+        args: { from: source, to: tilde(to) },
+        check: { file_exists: tilde(to) },
       };
+    }
+    // Mac apps: the Accessibility API acts on the control itself (AXPress, its value), never at a screen position.
+    case "app_open":
+      return {
+        id,
+        intent: `Open ${step.app?.name ?? step.app?.id ?? "the app"}`,
+        channel: "ax",
+        action: "open",
+        args: { app: step.app?.id ?? "", name: step.app?.name },
+      };
+    case "app_press": {
+      const el = step.element;
+      return {
+        id,
+        intent: `${step.button === "right" ? "Right-click" : "Click"} ${axWhat(el)} in ${appName(step)}`,
+        channel: "ax",
+        action: "press",
+        target: el && axLocator(el),
+        args: step.button === "right" ? { button: "right" } : {},
+        requires_approval: axRisky(axName(el)),
+      };
+    }
+    case "app_type": {
+      const el = step.element;
+      const field = axWhat(el);
+      let text = step.value ?? "";
+      if (step.secret || step.pasted || step.long) {
+        // Never recorded (a password field, a paste, a whole document): an input, filled at run time or by you.
+        const name = addInput(inputs, step.secret ? (el?.label ?? el?.title ?? "password") : `text for ${field}`, {
+          type: step.secret ? "secret" : "string",
+          description: step.secret ? `Secret for ${field}, from the Keychain at run time` : `What goes into ${field}`,
+        });
+        if (!step.secret) {
+          questions.push({
+            id: `app-text-${name}`,
+            text: `${step.pasted ? "You pasted into" : "You wrote a long text in"} ${field}; it was not recorded. What should go there?`,
+            appliesTo: `inputs.${name}.default`,
+          });
+        }
+        text = `{{inputs.${name}}}`;
+      }
+      return {
+        id,
+        intent: `${step.secret ? "Enter the secret for" : "Type into"} ${field} in ${appName(step)}`,
+        channel: "ax",
+        action: "set_value",
+        target: el && axLocator(el),
+        args: { text },
+      };
+    }
+    case "app_key": {
+      const keys = [...(step.modifiers ?? []), step.value ?? ""].join("+");
+      return {
+        id,
+        intent: `Press ${keys} in ${appName(step)}`,
+        channel: "ax",
+        action: "key",
+        args: { app: step.app?.id ?? "", key: step.value ?? "", modifiers: step.modifiers ?? [] },
+        // Cmd+Delete moves things to the Trash in Finder.
+        requires_approval: /^(delete|forwarddelete)$/i.test(step.value ?? "") && Boolean(step.modifiers?.length),
+      };
+    }
+    case "app_menu": {
+      const path = step.menu ?? [];
+      return {
+        id,
+        intent: `Choose ${path.join(" > ")} in ${appName(step)}`,
+        channel: "ax",
+        action: "menu",
+        args: { app: step.app?.id ?? "", path },
+        requires_approval: axRisky(path.at(-1)),
+      };
+    }
   }
+}
+
+// Which file a run uses. By default you choose it each time you run the skill (the terminal suggests the newest file
+// like the recorded one); the drill also offers "the newest of its kind" and "always this file" for runs nobody
+// watches. A name with no numbers in it (Photo.jpeg) has no pattern of its own: "of its kind" is then its type.
+function fileQuestion(
+  fileName: string,
+  found: { dir: string; glob: string; pick: string; accept?: string },
+  use: string,
+): { resolve: Record<string, unknown>; question: (input: string) => Question } {
+  const dot = fileName.lastIndexOf(".");
+  const like = found.glob === fileName ? (dot > 0 ? `*${fileName.slice(dot)}` : "*") : found.glob;
+  const each = "ask me each time I run it";
+  const askEachTime = { ...found, glob: like, ask: true };
+  return {
+    resolve: askEachTime,
+    question: (input) => ({
+      id: `file-${input}`,
+      text: `You used ${fileName} for ${use}. Next time, which file?`,
+      appliesTo: `inputs.${input}.resolve`,
+      options: [
+        { label: each, value: askEachTime },
+        { label: `the newest ${like} in ${found.dir}`, value: { ...found, glob: like, ask: false } },
+        { label: `always ${fileName}`, value: { ...found, glob: fileName, ask: false } },
+      ],
+      default: each,
+    }),
+  };
 }
 
 // A form submit, or a button whose words say it commits something. skills/real gates every form submit the same way.
@@ -325,6 +473,7 @@ function stem(fileName: string): string {
 // (timesheet.html -> timesheet), then the site.
 function guessId(steps: NormalisedStep[]): string {
   const upload = slug(steps.find((s) => s.kind === "upload" && s.target?.name)?.target?.name);
+  const app = steps.find((s) => s.kind === "app_open")?.app;
   const url = steps.find((s) => s.url)?.url;
   const page = slug(
     pathOf(url)
@@ -334,12 +483,19 @@ function guessId(steps: NormalisedStep[]): string {
       ?.replace(/\.[a-z]+$/i, ""),
   );
   const host = hostOf(url);
-  return upload ?? page ?? slug(host ? `task on ${host}` : undefined) ?? "recorded-task";
+  return (
+    upload ??
+    page ??
+    slug(host ? `task on ${host}` : undefined) ??
+    slug(app && `task in ${app.name ?? app.id}`) ??
+    "recorded-task"
+  );
 }
 
 function guessIntent(steps: NormalisedStep[]): string {
   const host = hostOf(steps.find((s) => s.url)?.url);
-  return host ? `Recorded task on ${host}` : "Recorded task";
+  const app = steps.find((s) => s.kind === "app_open")?.app;
+  return host ? `Recorded task on ${host}` : app ? `Recorded task in ${app.name ?? app.id}` : "Recorded task";
 }
 
 function slug(text: string | undefined): string | undefined {
@@ -401,3 +557,34 @@ function datesOf(text: string): string[] {
 
 const basename = (path = "") => path.slice(path.lastIndexOf("/") + 1);
 const dirname = (path = "") => path.slice(0, Math.max(path.lastIndexOf("/"), 0)) || "/";
+
+// How a Mac-app control is found again (ax channel): its role and name first, then what labels it, the developer's
+// identifier, the window and where it sits in it. The same Locator shape as web targets; attrs carry the AX parts.
+export function axLocator(el: AxElement): Locator {
+  const attrs: Record<string, string> = { app: el.app };
+  if (el.window) attrs.window = el.window;
+  if (el.identifier) attrs.identifier = el.identifier;
+  if (el.subrole) attrs.subrole = el.subrole;
+  if (el.placeholder) attrs.placeholder = el.placeholder;
+  if (el.path?.length) attrs.path = el.path.join(" > ");
+  return {
+    role: el.role,
+    name: axName(el),
+    label: el.label,
+    near: el.near,
+    attrs,
+    fallbacks: [],
+  };
+}
+
+const axName = (el?: AxElement) => el?.title || el?.description || undefined;
+const axRisky = (words?: string) => Boolean(words && (RISKY.test(words) || RISKY_MAC.test(words)));
+const appName = (step: NormalisedStep) => step.app?.name ?? step.element?.appName ?? step.app?.id ?? "the app";
+function axWhat(el?: AxElement): string {
+  const name = axName(el) ?? el?.label ?? el?.near ?? el?.placeholder;
+  const kind = (el?.role ?? "control")
+    .replace(/^AX/, "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase();
+  return name ? `'${name}'` : `the ${kind}`;
+}

@@ -100,12 +100,38 @@ All of these need his review.
 - a live Nemotron compile or `data.ai` call (no `.env`);
 - Spotlight finding files on your disk (tests use a temp folder).
 
+## The Record / Stop button (added after the merge)
+
+A floating button in Chrome replaces typing `record` / `stop`. It is a remote control; the daemon still owns the session.
+
+```
+page: press ●  ──chrome.runtime──▶ background.ts ──record.command──▶ daemon (same code as typed `record`)
+page: ■ Stop · 0:42  ◀──recording── background.ts ◀──record.start {startedAt}── daemon
+page: ⌨ Answer in the daemon terminal: …  ◀── record.status {phase: "question"} (drill questions stay in the terminal)
+page: ✓ Saved timesheet. Replay: run timesheet  ◀── record.status {phase: "saved"}
+```
+
+| Rule | Why |
+|---|---|
+| Only while the daemon is connected | without it a press could do nothing |
+| Its own clicks are never recorded (`OWN_UI` check in capture) | pressing Stop is not a step of your task; tested by removing the check, which makes the test fail |
+| Not in replay's automation window | the matcher would see a "Stop recording" button there |
+| Closed shadow root, constructed stylesheet, no `innerHTML` | page CSS can't reach it, and strict pages don't block it: on `fixtures/pages/strict-csp.html` (Trusted Types + `style-src 'self'`, measured to block the page's own `innerHTML` and inline `<style>`) it draws styled |
+| A button that fails to draw is skipped | that page is still recorded |
+| Toolbar icon does the same, with a REC badge | the new tab page and `chrome://` pages run no content script |
+| A press while a recording is still compiling is refused | its questions are open in the terminal |
+
+Checked end to end with the real extension (Chrome for Testing, native host registered in a scratch profile, real daemon): press → record the timesheet task → Stop → question → saved → `run timesheet` through the automation window → "Draft saved". 16 of 16 checks; the button never appears in the trace. Not checked: clicking the toolbar icon (only its REC badge), dragging the button, stable Chrome (the run used Chrome for Testing 153).
+
+> Later on 3 Oct: Finder moves and renames now find "the newest file like the one you moved" at run time, as uploads do, and the floating button moved to the desktop (Task Player.app, [11](11-mac-apps.md)).
+
 ## Run it
 
 ```bash
+corepack enable pnpm          # once: pnpm isn't on your PATH otherwise, and `pnpm build` calls pnpm
 pnpm install && pnpm build && pnpm setup:native-host
 # chrome://extensions → Load unpacked → apps/extension/dist → Details → "Allow access to file URLs"
 pnpm daemon
-#   record → do the task in Chrome → stop → answer the questions → "replay it with: run <id>"
+#   Chrome: press the round button (bottom right) → do the task → Stop → answer the questions here
 #   run <id> → approve
 ```

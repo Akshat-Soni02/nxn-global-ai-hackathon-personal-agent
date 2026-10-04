@@ -2,11 +2,13 @@
 // and file events from the folder watcher alike. After stop: trace -> normalise -> compile (Nemotron) -> drill ->
 // skills/<id>/vN.json. The trace is kept, so a failed or poor compile can be redone with `compile <session>`.
 import { randomUUID } from "node:crypto";
+import { existsSync, realpathSync } from "node:fs";
+import { isAbsolute, sep } from "node:path";
 import type { Skill, TraceEvent } from "@taskplayer/core";
 import { chat, configFromEnv } from "@taskplayer/llm";
 import type { MemoryStore } from "@taskplayer/memory";
 import { type Chat, compile, drill, normalise, type Prompter, settleDataSteps } from "@taskplayer/recorder";
-import { watchFiles } from "./fs-watch.ts";
+import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
 import { saveSkill, versions } from "./skill-store.ts";
 import { appendTrace, readTrace } from "./trace-store.ts";
@@ -16,6 +18,8 @@ type Log = (...args: unknown[]) => void;
 export interface Recording {
   sessionId: string;
   append(event: TraceEvent): void;
+  // A folder opened in Finder outside the watched ones: watched for the rest of this recording. True if it is new.
+  watchFolder(path: string): boolean;
   stopWatching(): void;
 }
 
@@ -30,14 +34,33 @@ export function openRecording(
       options.log("could not write trace event", error instanceof Error ? error.message : error);
     }
   };
-  const watcher =
-    options.watchDirs.length > 0
-      ? watchFiles(options.watchDirs, (change) => append({ id: randomUUID(), sessionId, ...change }), {
-          log: options.log,
-          ignoreUnder: [options.dataDir],
-        })
-      : undefined;
-  return { sessionId, append, stopWatching: () => watcher?.close() };
+  const onChange = (change: FsChange) => append({ id: randomUUID(), sessionId, ...change });
+  const watch = (dirs: string[]) => watchFiles(dirs, onChange, { log: options.log, ignoreUnder: [options.dataDir] });
+  const roots = [...options.watchDirs];
+  const watchers = roots.length > 0 ? [watch(roots)] : [];
+  const covered = (path: string) => roots.some((r) => path === r || path.startsWith(`${r}${sep}`));
+
+  const watchFolder = (folder: string) => {
+    if (watchers.length === 0 || !isAbsolute(folder) || !existsSync(folder)) return false; // file capture is off
+    // On an external drive, the whole drive: a file is usually moved between two of its folders.
+    const drive = /^\/Volumes\/[^/]+/.exec(folder)?.[0];
+    let root = drive ?? folder;
+    try {
+      root = realpathSync(root);
+    } catch {
+      return false;
+    }
+    // /Volumes/Macintosh HD is your startup disk ("/"): never watched whole.
+    if (root === "/" || covered(root)) return false;
+    roots.push(root);
+    watchers.push(watch([root]));
+    options.log(`watching ${root} too (opened in Finder)`);
+    return true;
+  };
+  const stopWatching = () => {
+    for (const w of watchers) w.close();
+  };
+  return { sessionId, append, watchFolder, stopWatching };
 }
 
 export interface FinishOptions {

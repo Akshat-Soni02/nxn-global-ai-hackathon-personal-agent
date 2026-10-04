@@ -1,5 +1,6 @@
 node_modules/
 dist/
+apps/mac/build/
 coverage/
 .DS_Store
 .env

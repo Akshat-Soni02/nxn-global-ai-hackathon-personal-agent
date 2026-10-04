@@ -27,6 +27,8 @@ export interface RunDeps {
   script: ChannelExecutor;
   // Rules and model calls over saved values (data.pick, data.ai). Optional: skills without data steps never need it.
   data?: ChannelExecutor;
+  // Mac apps through the Accessibility API (Task Player.app). Optional: web-and-file skills never need it.
+  ax?: ChannelExecutor;
   // Polls a file_exists check (a path or glob) until it holds or the timeout passes.
   fileExists(pattern: string, timeoutMs: number): Promise<boolean>;
   // Web checks used by the skill's `success` list (text_visible, url_matches, element_visible).

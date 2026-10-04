@@ -53,6 +53,8 @@ To edit it, open [`architecture-map.excalidraw`](architecture-map.excalidraw) at
 | 07 | [How to proceed + Sheet6 tracker](07-how-to-proceed.md) | Order of work for the rest of Sprint 2, the DSU decisions, the tracker |
 | 08 | [FAQ](08-faq.md) | The naive questions that come up while building this |
 | 10 | [Record meets replay, and the hot edges](10-merge-and-hot-edges.md) | The merge with Akshat's replay, the shared skill contract, file drops, drag, copy/paste, Google Sheets, AI cost limits |
+| 11 | [Mac apps: the Accessibility API, and the desktop button](11-mac-apps.md) | Recording and replaying clicks, typing, shortcuts and menus in any Mac app; how the permission works; the floating desktop button; a mixed web + file + app recording |
+| 12 | [How it works, in plain words](12-how-it-works-simply.md) + [diagram](12-how-it-works-simply.excalidraw) | Start, record, stop, replay end to end: how web, Mac-app and file events are captured, Chrome cases, what is saved, where AI fits |
 | 09 | [Record, explained and built](09-record-explained.md) | Mac events vs AX, the drill, memory, versions, injection, auth; then what was built for record, why, and how it was checked |
 | — | [`sheet6-sprint2-tracker.tsv`](sheet6-sprint2-tracker.tsv) | Paste-ready rows for worksheet 6 |
 

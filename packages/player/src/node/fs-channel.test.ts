@@ -5,6 +5,7 @@ import { Skill } from "@taskplayer/core";
 import { describe, expect, it } from "vitest";
 import type { RunContext } from "../types.ts";
 import { fsChannel } from "./fs-channel.ts";
+import { resolveInputs } from "./inputs.ts";
 
 const step = (action: string, args: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
   Skill.parse({
@@ -59,5 +60,28 @@ describe("fs channel", () => {
     const d = dir();
     const r = await fsChannel(step("write", { path: join(d, "a/b/c.md"), content: "hi" }), ctx());
     expect(readFileSync(r.value as string, "utf8")).toBe("hi");
+  });
+});
+
+describe("file inputs resolved without asking", () => {
+  const skillWith = (resolve: Record<string, unknown>) =>
+    Skill.parse({
+      id: "t",
+      version: 1,
+      intent: "t",
+      inputs: { doc: { type: "file", resolve } },
+      steps: [{ id: "s", intent: "t", channel: "fs", action: "read", args: { path: "{{inputs.doc}}" } }],
+    });
+
+  it("takes the newest file the step can use: of the kind it takes, and not empty", async () => {
+    const d = dir();
+    writeFileSync(join(d, "empty.png"), ""); // newest of all, but empty
+    expect((await resolveInputs(skillWith({ dir: d, glob: "*", pick: "newest", accept: "image/*" }))).doc).toBe(
+      join(d, "pic.png"),
+    );
+    expect((await resolveInputs(skillWith({ dir: d, glob: "*", pick: "all", accept: ".pdf" }))).doc).toHaveLength(2);
+    await expect(
+      resolveInputs(skillWith({ dir: d, glob: "*.pdf", pick: "newest", accept: "video/*" })),
+    ).rejects.toThrow(/no file matches \*\.pdf .* \(taking video\/\*\)/);
   });
 });

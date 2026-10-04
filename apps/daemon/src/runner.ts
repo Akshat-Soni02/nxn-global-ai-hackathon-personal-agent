@@ -1,4 +1,5 @@
-// Runs a skill in the daemon: fs and script steps locally, web steps and page checks in the extension.
+// Runs a skill in the daemon: fs and script steps locally, web steps and page checks in the extension, ax steps
+// (Mac apps) in Task Player.app.
 // Every run is logged as JSON lines in ~/Library/Application Support/TaskPlayer/runs/<runId>.jsonl.
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -62,6 +63,19 @@ export async function runSkillFile(
     return { ok, value, matchScore, matchedBy, failedCheck, error };
   };
 
+  // Mac-app steps act through the Accessibility API, which only Task Player.app is allowed to use. The app itself says
+  // when macOS hasn't allowed it yet (the step fails with how to allow it).
+  const ax = async (step: Step, ctx: { runId: string }): Promise<StepResult> => {
+    if (!daemon.mac().connected) throw new Error("Task Player.app is not running: build it with pnpm setup:mac");
+    const reply = await daemon.requestMac(
+      { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
+      (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 2 + EXTENSION_MARGIN_MS,
+    );
+    if (reply.type !== "run.step_result") throw new Error(`unexpected reply ${reply.type}`);
+    const { ok, value, matchScore, matchedBy, error } = reply;
+    return { ok, value, matchScore, matchedBy, error };
+  };
+
   try {
     return await runSkill(
       skill,
@@ -79,6 +93,7 @@ export async function runSkillFile(
           return reply.type === "run.check_result" && reply.ok;
         },
         data: hooks.data,
+        ax,
         approve: hooks.approve,
         log,
       },

@@ -1,6 +1,8 @@
 // Mac-side capture: files created, moved or renamed while you record. Node's recursive fs.watch uses FSEvents on
 // macOS. FSEvents only says "something happened at this path", so each report is turned into an observation
 // (the file appeared or vanished) and a short settled batch of those is classified into create / move / rename.
+// By default the whole home folder is watched, so any folder you work in is covered with no setup. Places where apps
+// write their own files all day are skipped: ~/Library, hidden folders, node_modules and app libraries.
 import { type FSWatcher, readdirSync, statSync, watch } from "node:fs";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, join, sep } from "node:path";
@@ -19,8 +21,16 @@ export interface FsChange {
   at: number;
 }
 
-// Temporary and system files: in-progress downloads, editor swap files, Finder metadata, anything hidden.
-const IGNORED_NAME = /^\.|\.crdownload$|\.download$|\.part$|\.tmp$|\.swp$|^~\$|^Icon\r$/;
+// Temporary and system files: in-progress downloads, editor swap files, Finder metadata, anything hidden. And folders
+// that are someone else's working space: dependencies, caches, and app libraries kept as packages (Photos, Music).
+const IGNORED_NAME =
+  /^\.|\.crdownload$|\.download$|\.part$|\.tmp$|\.swp$|^~\$|^Icon\r$|^node_modules$|^__pycache__$|\.(app|photoslibrary|musiclibrary|imovielibrary|tvlibrary|fcpbundle|xcodeproj|xcworkspace)$/;
+
+// Inside ~/Library, the folders that hold your own files: cloud storage (Google Drive, OneDrive, Dropbox) and iCloud.
+export const CLOUD_FOLDERS = ["CloudStorage", "Mobile Documents"];
+
+// Folders macOS guards with its own question (Privacy & Security > Files and Folders), asked once per app.
+export const PROTECTED_FOLDERS = ["Desktop", "Documents", "Downloads"];
 
 export function ignored(path: string): boolean {
   return path.split(sep).some((segment) => IGNORED_NAME.test(segment));
@@ -67,10 +77,11 @@ export function classify(batch: FsObservation[]): FsChange[] {
   return changes.sort((a, b) => a.at - b.at);
 }
 
-// TASKPLAYER_WATCH_DIRS="~/Downloads:~/Desktop" (":"-separated, like PATH). Empty turns file capture off.
+// Your home folder unless TASKPLAYER_WATCH_DIRS says otherwise ("~/Work:/Volumes/Drive", ":"-separated like PATH).
+// Empty turns file capture off.
 export function watchDirsFromEnv(env: Record<string, string | undefined> = process.env): string[] {
   const raw = env.TASKPLAYER_WATCH_DIRS;
-  if (raw === undefined) return [join(homedir(), "Downloads"), join(homedir(), "Desktop")];
+  if (raw === undefined) return [homedir()];
   return raw
     .split(delimiter)
     .map((p) => p.trim())
@@ -78,11 +89,32 @@ export function watchDirsFromEnv(env: Record<string, string | undefined> = proce
     .map((p) => (p.startsWith("~") ? join(homedir(), p.slice(1)) : p));
 }
 
+// Asks macOS for the guarded folders inside the watched ones, once, when the daemon starts: macOS shows its question
+// then (and remembers the answer), not in the middle of a recording. Returns the folders it refused.
+export function askFolderAccess(dirs: string[], home = homedir()): string[] {
+  const guarded = PROTECTED_FOLDERS.map((name) => join(home, name)).filter((p) =>
+    dirs.some((d) => p === d || p.startsWith(`${d}${sep}`)),
+  );
+  return guarded.filter((p) => {
+    try {
+      readdirSync(p);
+      return false;
+    } catch (error) {
+      return ["EPERM", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "");
+    }
+  });
+}
+
 export function watchFiles(
   dirs: string[],
   onChange: (change: FsChange) => void,
-  options: { log: (...args: unknown[]) => void; ignoreUnder?: string[]; settleMs?: number },
+  options: { log: (...args: unknown[]) => void; ignoreUnder?: string[]; settleMs?: number; home?: string },
 ): { close(): void } {
+  const library = join(options.home ?? homedir(), "Library");
+  // Except your cloud folders, which macOS keeps inside Library: Google Drive, OneDrive, Dropbox, and iCloud Drive.
+  const cloud = CLOUD_FOLDERS.map((name) => join(library, name));
+  const under = (path: string, root: string) => path === root || path.startsWith(`${root}${sep}`);
+  const blocked = new Set<string>(); // folders macOS would not let us look into: said once, not per file
   const known = new Map<string, number>(); // path -> inode, so a vanished file can be matched to where it reappears
   const watchers: FSWatcher[] = [];
   let batch: FsObservation[] = [];
@@ -105,16 +137,32 @@ export function watchFiles(
           // vanished while listing
         }
       }
+      // ~/Library is where apps keep their own files; skipped (but for cloud folders) unless you asked to watch a
+      // folder inside it.
+      const skipLibrary = !under(dir, library);
+      const skipped = (path: string) =>
+        (options.ignoreUnder ?? []).some((root) => under(path, root)) ||
+        (skipLibrary && under(path, library) && !cloud.some((root) => under(path, root)));
       const watcher = watch(dir, { recursive: true }, (type, filename) => {
         if (!filename || type === "change") return; // content edits are not steps
         const path = join(dir, filename.toString());
-        if (ignored(path) || options.ignoreUnder?.some((root) => path.startsWith(root))) return;
+        if (ignored(path) || skipped(path)) return;
         let ino: number | undefined;
         try {
           const stat = statSync(path);
           if (!stat.isFile()) return;
           ino = stat.ino;
-        } catch {
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          // macOS refused to look (a guarded folder you haven't allowed): not a file that vanished.
+          if (code === "EPERM" || code === "EACCES") {
+            const top = dirname(path);
+            if (!blocked.has(top)) {
+              blocked.add(top);
+              options.log(`!! macOS blocked ${top}: allow your terminal in Privacy & Security > Files and Folders`);
+            }
+            return;
+          }
           ino = undefined;
         }
         if (ino !== undefined && known.get(path) === ino) return; // the same file, rewritten in place

@@ -1,6 +1,6 @@
 import { type ElementDescriptor, Skill, type TraceEvent } from "@taskplayer/core";
 import { describe, expect, it, vi } from "vitest";
-import { type Chat, compile, extractJson, settleDataSteps } from "./compile.ts";
+import { type Chat, compile, extractJson, type Question, settleDataSteps } from "./compile.ts";
 import { applyAnswer, drill } from "./drill.ts";
 import { normalise } from "./normalise.ts";
 
@@ -124,6 +124,25 @@ describe("normalise", () => {
     expect(steps[1]?.navigatesTo).toBe("https://portal.example/billing");
   });
 
+  it("starts from the page you went to, not a new tab page replay can't open", async () => {
+    const result = { ...submitButton, url: "https://www.google.com/search?q=docs", name: "Google Docs", role: "link" };
+    const steps = normalise([
+      ev("tab_open", 0, { url: "chrome://newtab/" }),
+      ev("navigate", 100, {
+        url: "chrome-extension://jlmpjdjjbgclbocgajdjefcidcncaied/index.html",
+        transition: "typed",
+      }),
+      ev("navigate", 1_500, { url: "https://www.google.com/search?q=docs", transition: "generated" }),
+      ev("click", 4_000, { url: result.url, target: result }),
+    ]);
+    expect(steps.map((s) => [s.kind, s.url])).toEqual([
+      ["navigate", "https://www.google.com/search?q=docs"],
+      ["click", "https://www.google.com/search?q=docs"],
+    ]);
+    const { skill } = await compile(steps, {});
+    expect(skill.steps[0]?.args).toEqual({ url: "https://www.google.com/search?q=docs" });
+  });
+
   it("links a download to the file later uploaded, and records Finder moves", () => {
     const steps = normalise([
       ev("click", 0, { target: submitButton }),
@@ -136,6 +155,27 @@ describe("normalise", () => {
     expect(steps.map((s) => s.kind)).toEqual(["navigate", "click", "fs_move", "upload"]);
     expect(steps[1]?.produces).toEqual(["/Users/me/Downloads/invoice-1001.pdf"]);
     expect(steps[3]?.candidate?.dir).toBe("/Users/me/Downloads");
+  });
+
+  it("moves next month's file too: a Finder move and rename find the newest file like the one you moved", async () => {
+    const steps = normalise([
+      ev("fs_move", 0, { path: "/Users/me/Inbox/invoice-0923.pdf", toPath: "/Users/me/Archive/invoice-0923.pdf" }),
+      ev("fs_rename", 1_000, { path: "/Users/me/Archive/invoice-0923.pdf", toPath: "/Users/me/Archive/Sep.pdf" }),
+    ]);
+    const { skill } = await compile(steps, {});
+    expect(skill.inputs.invoice).toMatchObject({
+      type: "file",
+      resolve: { dir: "~/Inbox", glob: "invoice-*.pdf", pick: "newest" },
+    });
+    expect(skill.steps.map((s) => [s.action, s.args, s.check])).toEqual([
+      // the destination ends in "/": a folder for fs.move, which would otherwise rename the file to "Archive"
+      ["move", { from: "{{inputs.invoice}}", to: "~/Archive/" }, { file_exists: "~/Archive/{{inputs.invoice.name}}" }],
+      [
+        "rename",
+        { from: "~/Archive/{{inputs.invoice.name}}", to: "~/Archive/Sep.pdf" },
+        { file_exists: "~/Archive/Sep.pdf" },
+      ],
+    ]);
   });
 });
 
@@ -170,6 +210,21 @@ describe("uploads however the file got there", () => {
       ev("file", 4_000, { target: shadowInput, file: clip }),
     ]);
     expect(steps[1]?.target?.name).toBe("Select files");
+  });
+
+  it("keeps the kinds of file the page's input takes, else the kind you uploaded, for the check before a run", async () => {
+    const own = normalise([
+      ev("file", 0, {
+        target: hiddenInput,
+        file: { ...clip, name: "scan.png", type: "image/png" },
+        accept: ".pdf,image/png",
+      }),
+    ]);
+    expect((await compile(own, {})).skill.inputs.scan?.resolve).toMatchObject({ accept: ".pdf,image/png" });
+    const none = normalise([ev("file", 0, { target: hiddenInput, file: clip })]);
+    expect((await compile(none, {})).skill.inputs.video?.resolve).toMatchObject({ accept: "video/*" });
+    const doc = normalise([ev("file", 0, { target: hiddenInput, file: { ...clip, name: "invoice-7.pdf", type: "" } })]);
+    expect((await compile(doc, {})).skill.inputs.invoice?.resolve).toMatchObject({ accept: ".pdf" });
   });
 
   it("turns a drop from Finder into an upload onto the drop zone", () => {
@@ -329,7 +384,11 @@ describe("compile", () => {
     expect(Skill.safeParse(result.skill).success).toBe(true);
     expect(result.skill.steps.map((s) => s.action)).toEqual(["navigate", "upload", "click"]);
     expect(result.skill.steps[2]?.requires_approval).toBe(true); // "Submit" is risky
-    expect(result.questions.map((q) => q.appliesTo)).toEqual(["inputs.invoice.resolve.dir", "intent"]);
+    expect(result.questions.map((q) => q.appliesTo)).toEqual([
+      "inputs.invoice.resolve",
+      "inputs.invoice.resolve.dir",
+      "intent",
+    ]);
   });
 
   it("merges a model answer by step id: words from the model, targets from the recording", async () => {
@@ -511,6 +570,119 @@ describe("drill", () => {
       kind: "fact",
       text: "Where do invoices arrive? ~/Downloads",
       skillId: "upload-invoice",
+    });
+  });
+});
+
+describe("Mac apps (Accessibility)", () => {
+  const app = { id: "com.apple.TextEdit", name: "TextEdit" };
+  const mac = (event: TraceEvent["event"], at: number, extra: Partial<TraceEvent> = {}) =>
+    ev(event, at, { tabId: undefined, frameId: undefined, url: undefined, app, ...extra });
+  const field = {
+    app: app.id,
+    appName: "TextEdit",
+    role: "AXTextField",
+    label: "Hours",
+    path: ["AXWindow", "AXTextField"],
+  };
+  const password = { app: app.id, role: "AXTextField", subrole: "AXSecureTextField", title: "Password" };
+
+  it("becomes ax steps: an open before the app's first step, values not keys, menus by path", async () => {
+    const steps = normalise([
+      ev("click", 0, { target: submitButton }),
+      mac("app_activate", 1_000),
+      mac("app_click", 1_500, { element: { app: app.id, role: "AXGroup" } }), // a click on nothing in particular
+      mac("app_click", 2_000, { element: field }), // only put the cursor in the field
+      mac("app_type", 2_500, { element: field, value: "38" }),
+      mac("app_type", 3_000, { element: password, secret: true }),
+      mac("app_key", 3_500, { value: "s", modifiers: ["cmd"] }),
+      mac("app_menu", 4_000, { menu: ["File", "Export As…"] }),
+      ev("click", 5_000, { target: submitButton }),
+      mac("app_click", 6_000, { element: { app: app.id, role: "AXButton", title: "Move to Trash" } }),
+    ]);
+    expect(steps.map((s) => s.kind)).toEqual([
+      "navigate",
+      "click",
+      "app_open",
+      "app_type",
+      "app_type",
+      "app_key",
+      "app_menu",
+      "click",
+      "app_open", // back from Chrome: the app is brought forward again
+      "app_press",
+    ]);
+    const { skill } = await compile(steps, {});
+    const ax = skill.steps.filter((s) => s.channel === "ax");
+    expect(ax.map((s) => [s.action, s.args])).toEqual([
+      ["open", { app: app.id, name: "TextEdit" }],
+      ["set_value", { text: "38" }],
+      ["set_value", { text: "{{inputs.password}}" }],
+      ["key", { app: app.id, key: "s", modifiers: ["cmd"] }],
+      ["menu", { app: app.id, path: ["File", "Export As…"] }],
+      ["open", { app: app.id, name: "TextEdit" }],
+      ["press", {}],
+    ]);
+    expect(skill.inputs.password?.type).toBe("secret");
+    // Found again by role and label, never by position.
+    expect(ax[1]?.target).toMatchObject({
+      role: "AXTextField",
+      label: "Hours",
+      attrs: { app: app.id, path: "AXWindow > AXTextField" },
+    });
+    // Moving to the Trash waits for your OK.
+    expect(ax.at(-1)?.requires_approval).toBe(true);
+  });
+
+  it("records Finder by what it did to the file, so next month's file is moved, not last month's row clicked", () => {
+    const finder = { id: "com.apple.finder", name: "Finder" };
+    const row = { app: finder.id, role: "AXRow", title: "invoice-0923.pdf" };
+    const steps = normalise([
+      mac("app_activate", 0, { app: finder }),
+      mac("app_click", 500, { app: finder, element: row }),
+      ev("fs_move", 1_000, { path: "/Users/me/Inbox/invoice-0923.pdf", toPath: "/Users/me/Archive/invoice-0923.pdf" }),
+      mac("app_key", 1_500, { app: finder, value: "Return" }),
+    ]);
+    expect(steps.map((s) => s.kind)).toEqual(["fs_move"]);
+  });
+
+  it("asks for a pasted value instead of keeping it", async () => {
+    const steps = normalise([mac("app_type", 0, { element: field, pasted: true })]);
+    const { skill, questions } = await compile(steps, {});
+    expect(skill.steps.find((s) => s.action === "set_value")?.args).toEqual({ text: "{{inputs.text_for_hours}}" });
+    expect(questions.map((q) => q.appliesTo)).toContain("inputs.text_for_hours.default");
+  });
+});
+
+describe("which file a skill uses next time", () => {
+  it("asks each run by default, and offers the newest of its kind or always this file", async () => {
+    // A name with no numbers: "the newest like it" can only mean "the newest of its type".
+    const steps = normalise([
+      ev("fs_move", 0, {
+        path: "/Users/me/Downloads/Rushil Jariwala Photo.jpeg",
+        toPath: "/Users/me/Desktop/rushil/Rushil Jariwala Photo.jpeg",
+      }),
+    ]);
+    const { skill, questions } = await compile(steps, {});
+    // A photo: next time any image will do, and nothing else.
+    expect(skill.inputs.rushil?.resolve).toEqual({
+      dir: "~/Downloads",
+      glob: "*.jpeg",
+      pick: "newest",
+      ask: true,
+      accept: "image/*",
+    });
+    const question = questions.find((q) => q.id === "file-rushil");
+    expect(question?.options?.map((o) => o.label)).toEqual([
+      "ask me each time I run it",
+      "the newest *.jpeg in ~/Downloads",
+      "always Rushil Jariwala Photo.jpeg",
+    ]);
+    expect(question?.default).toBe("ask me each time I run it");
+    const always = applyAnswer(skill, question as Question, "3");
+    expect(always.ok && always.skill.inputs.rushil?.resolve).toMatchObject({
+      glob: "Rushil Jariwala Photo.jpeg",
+      ask: false,
     });
   });
 });

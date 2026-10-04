@@ -27,12 +27,12 @@ Record and replay are two modes over the **same channels**. Record writes a **sk
 
 Turns one demonstration (or a natural-language description) into a parameterised skill.
 
-1. **Capture**: the user presses Record in the menu bar. The **daemon owns the session**: it watches the filesystem itself and tells the extension to capture web events if Chrome is running. A Mac-only task never needs Chrome; a mixed task becomes one trace ordered by timestamp.
+1. **Capture**: the user presses Record (the floating desktop button of Task Player.app; without it, the button Chrome shows on every page, or the extension's toolbar icon). The **daemon owns the session**: it watches the filesystem itself and tells the extension to capture web events if Chrome is running. A Mac-only task never needs Chrome; a mixed task becomes one trace ordered by timestamp.
 2. **Trace**: sensors write timestamped events, each with a snapshot of its target.
    - Web pages: extension content script (click, input, change, submit, key presses, file-input change, navigation, frame/shadow-DOM path).
    - Tabs and windows: extension background worker (`chrome.tabs`, `chrome.webNavigation`, `chrome.downloads`).
    - Filesystem: daemon (FSEvents): files created, moved, renamed.
-   - Native apps (post-v1): daemon (AX observer + event tap), bound to the AX element, never raw coordinates.
+   - Mac apps: Task Player.app (`apps/mac`) through the Accessibility API: the AX element under each click, a field's final value, shortcuts and menu paths; never raw coordinates or keystrokes (docs/guide/11-mac-apps.md).
    - Natural language: daemon chat UI, instead of or alongside a trace.
 3. **Target snapshot** per event: role + accessible name, visible text/label/placeholder/`aria-*`/`id`/`data-testid`, nearby context (section heading, label), ranked fallback selectors (CSS, XPath), frame and shadow-root path, a cropped element screenshot, the URL.
 4. **Compile**: an LLM turns the trace into a skill, reading memory for known facts first:
@@ -112,7 +112,7 @@ Workspace packages are consumed as TypeScript source (no build step); only the e
 
 ## Running Guide
 
-**Prerequisites**: macOS, Node 22+, pnpm 10, Google Chrome.
+**Prerequisites**: macOS, Node 22+, pnpm 10 (Node ships it through corepack: run `corepack enable pnpm` once), Google Chrome, and for Mac apps the Xcode command line tools (`swiftc`; `xcode-select --install`).
 
 ```sh
 pnpm install
@@ -144,6 +144,23 @@ pnpm replay skills/real/upload-test-file.json --yes      # --yes approves gated 
 1. `pnpm setup:native-host` builds the shim and registers it with Chrome (`--uninstall` to remove). It writes `~/Library/Application Support/TaskPlayer/native-host` and `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.taskplayer.daemon.json`.
 2. Open `chrome://extensions`, enable Developer mode, click "Load unpacked" and pick `apps/extension/dist`. The manifest's `key` pins the extension ID to `eloljjdiofhdlhoankjbhfeihjankikk`, which is the only origin the host allows. Then open the extension's Details and turn on **Allow access to file URLs**: without it Chrome refuses to hand local files to a page, so upload steps fail with "Not allowed".
 3. Run `pnpm daemon`. The extension reconnects within a minute, or immediately if you reload it. `status` in the daemon shows connected extensions.
+
+**Record Mac apps and get the desktop button** (once):
+
+1. `pnpm setup:mac` builds `apps/mac/build/Task Player.app` (rebuilt only when its sources change). `pnpm daemon` starts it; it quits when the daemon does.
+2. Right-click the floating button → **Allow Mac apps**: macOS asks, then turn on Task Player in System Settings → Privacy & Security → Accessibility. The permission goes to Task Player only, never to your terminal. After a rebuild, turn it off and on again (the app is signed ad hoc, so the permission is tied to that build).
+   Without it, web pages and files are still recorded; Mac apps are not. If turning it off and on doesn't take after a rebuild, run `tccutil reset Accessibility com.taskplayer.mac` and allow it again.
+   Finder is recorded by what it does to files (moves, renames), not by its clicks. File moves anywhere in your home folder are recorded with no setup (macOS asks once for Desktop, Documents and Downloads when the daemon starts); a folder outside it, such as an external drive, is added when a Finder window shows it.
+
+**Record and replay** (each time):
+
+1. `pnpm daemon` in a terminal you can see (not `daemon:dev`: its watch mode also reads Enter, which drill answers need).
+2. Press the round **record button** at the bottom right of your screen (Task Player.app, above every app; drag it anywhere). Do the task in Chrome, Finder or any Mac app, then press **Stop**. Without Task Player.app, the same button appears inside Chrome pages instead, and the extension's toolbar icon does the same.
+3. The daemon compiles the recording and asks its questions **in the terminal** (Enter takes the default); the button says when one is waiting, then shows the saved skill's id.
+4. If the task used a file (an upload, a file you moved), `run <id>` first asks **which file** to use this time: Enter takes the suggestion (the newest file like the one you recorded), or type a path, or drag any file from Finder into the terminal window. Or give it with the command: `run <id> ~/Desktop/new.jpeg` (type `run <id> ` and drag the file in). When you stop a recording you can instead choose "the newest of its kind" or "always this file", and then it doesn't ask. Every file is checked before the first step runs: it must exist, not be empty, and be a kind the step takes (the page's own file-field rule, else the kind you recorded with: a photo means any image). A wrong file is explained and asked for again; given with the command, it stops the run.
+5. `run <id>` in the terminal replays it in a separate, unfocused 1280×800 Chrome window (switch to it to watch; Chrome shows its "started debugging this browser" bar while it runs). Steps that submit wait for `approve`. Each step prints ✓ or ✗.
+
+After `git pull`, run `pnpm build` again and reload the extension in `chrome://extensions`.
 
 The daemon listens on `~/Library/Application Support/TaskPlayer/daemon.sock`. Override it with `TASKPLAYER_SOCKET`, keeping the path at 103 bytes or less (a macOS limit for Unix sockets).
 

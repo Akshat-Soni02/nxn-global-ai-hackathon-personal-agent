@@ -1,20 +1,26 @@
 // Daemon entry point: the always-on process (launched at login later; `pnpm daemon` for now).
-// Until the menu bar exists, type commands on stdin:
+// Record and Stop are also a floating button in Chrome (and the extension's toolbar icon). Type commands on stdin:
 //   record | stop                       record a task; stop compiles it into a skill (questions are asked here)
 //   compile <session>                   recompile a kept trace
-//   run <skill-id | skill.json> [name=value ...]   replay a skill (web steps go through the extension)
+//   run <skill-id | skill.json> [name=value ... | path]   replay a skill (web steps go through the extension); a
+//                                       file it needs can be given here, else it is asked for before the first step
 //   approve | deny                      answer a pending approval
 //   skills | traces | status
-import { existsSync } from "node:fs";
+
+import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { Skill } from "@taskplayer/core";
 import { dataDir, socketPath } from "@taskplayer/ipc";
 import { openMemory } from "@taskplayer/memory";
 import type { RunLogEvent } from "@taskplayer/player";
 import { aiLimitsFromEnv, dataChannel } from "@taskplayer/player/node";
 import type { Prompter, Question } from "@taskplayer/recorder";
+import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
 import { startDaemon } from "./daemon.ts";
-import { watchDirsFromEnv } from "./fs-watch.ts";
+import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
 import { askFromEnv, chatFromEnv, finishRecording } from "./record.ts";
 import { runSkillFile } from "./runner.ts";
@@ -34,13 +40,26 @@ const userCwd = process.env.INIT_CWD ?? process.cwd();
 const path = socketPath();
 const home = dataDir();
 const watchDirs = watchDirsFromEnv();
-const daemon = await startDaemon({ socketPath: path, log, dataDir: home, watchDirs });
+const daemon = await startDaemon({
+  socketPath: path,
+  log,
+  dataDir: home,
+  watchDirs,
+  onRecordCommand: (command) => (command === "start" ? startRecording() : stopRecording()),
+});
 const memory = openMemory(join(home, "memory.db"));
 const chat = chatFromEnv();
 // data.pick rules are free; data.ai calls the model on every run, so it is capped (calls per run, input size) and
 // its answers are cached by question and data.
 const data = dataChannel({ ask: askFromEnv(), cacheDir: join(home, "ai-cache"), limits: aiLimitsFromEnv() });
 log("listening on", path);
+// macOS asks once for Desktop, Documents and Downloads: now, rather than when you press Record.
+for (const folder of askFolderAccess(watchDirs)) {
+  log(
+    `!! macOS blocked ${folder}: file moves there are not recorded. Allow your terminal in Privacy & Security > Files and Folders`,
+  );
+}
+startMacApp();
 log("data in", home, watchDirs.length > 0 ? `| watching ${watchDirs.join(", ")}` : "| file capture off");
 log(
   chat
@@ -50,11 +69,17 @@ log(
 
 let answer: ((line: string) => void) | undefined; // a drill question is waiting for you
 let pendingApproval: ((approved: boolean) => void) | undefined; // a replay step is waiting for approve/deny
-let compiling = false;
+let compiling = false; // from stop until the skill is saved: no new recording meanwhile (its questions are open here)
 let running = false;
+
+// The status line on the button in Chrome. The questions themselves are asked here, in the terminal.
+type Phase = "compiling" | "question" | "saved" | "empty" | "failed" | "busy" | "replay";
+const status = (phase: Phase, text: string) =>
+  daemon.broadcast({ id: randomUUID(), type: "record.status", phase, text });
 
 const prompter: Prompter = {
   ask(question: Question) {
+    status("question", `Answer in the daemon terminal: ${question.text}`);
     const choices = question.options?.map((o, i) => `${i + 1}) ${o.label}`).join("   ");
     console.error(`\n? ${question.text}`);
     if (choices) console.error(`  ${choices}`);
@@ -67,16 +92,41 @@ const prompter: Prompter = {
 
 async function compileSession(sessionId: string) {
   compiling = true;
+  status("compiling", chat ? "Compiling with Nemotron…" : "Compiling…");
   try {
     const locate = { searchDirs: defaultSearchDirs(watchDirs) };
     const saved = await finishRecording(sessionId, { dataDir: home, prompter, chat, memory, locate, log });
-    if (saved) log(`replay it with: run ${saved.skill.id}`);
+    if (saved) {
+      log(`replay it with: run ${saved.skill.id}`);
+      status("saved", `Saved ${saved.skill.id}. Replay: run ${saved.skill.id}`);
+    } else status("empty", "Nothing to save: no steps were recorded");
   } catch (error) {
     log("compile failed:", error instanceof Error ? error.message : error);
     log(`the trace is kept: retry with "compile ${sessionId}"`);
+    status("failed", "Compile failed: see the daemon terminal");
   } finally {
     compiling = false;
   }
+}
+
+// `record` / `stop`, typed here or pressed in Chrome.
+function startRecording() {
+  if (compiling) return refuse();
+  daemon.startRecording();
+}
+async function stopRecording() {
+  if (compiling) return refuse();
+  compiling = true; // covers the wait for late events too, so a new recording can't start in between
+  try {
+    const sessionId = await daemon.stopRecording();
+    if (sessionId) await compileSession(sessionId);
+  } finally {
+    compiling = false;
+  }
+}
+function refuse() {
+  log("still compiling the last recording; answer its questions first");
+  status("busy", "Still compiling the last recording: answer its questions in the daemon terminal");
 }
 
 function printRun(e: RunLogEvent) {
@@ -102,15 +152,20 @@ function skillFile(ref: string): string | undefined {
 }
 
 async function run(args: string[]) {
-  const [ref, ...pairs] = args;
-  if (!ref) return log("usage: run <skill-id | skill.json> [name=value ...]");
+  const [ref, ...given] = args;
+  if (!ref) return log("usage: run <skill-id | skill.json> [name=value ... | path]");
   if (running) return log("a run is already in progress");
   const file = skillFile(ref);
   if (!file) return log(`no skill ${ref} (see "skills")`);
-  const provided = Object.fromEntries(pairs.map((p) => [p.split("=")[0], p.split("=").slice(1).join("=")]));
   running = true;
   try {
-    await runSkillFile(
+    // Which files to use, settled before the first step: given with the command, else asked here (Enter takes the
+    // newest like the recorded one; or drag one in from Finder). A wrong file stops the run before anything runs.
+    const skill = Skill.parse(JSON.parse(readFileSync(file, "utf8")));
+    const provided = givenInputs(skill, given);
+    await chooseFiles(skill, provided, (question) => prompter.ask(question), log);
+    status("replay", `Replaying ${skill.id}…`);
+    const outcome = await runSkillFile(
       daemon,
       file,
       provided,
@@ -125,8 +180,15 @@ async function run(args: string[]) {
       },
       join(home, "runs"),
     );
+    if (outcome.status === "succeeded") status("saved", `Replayed ${skill.id}`);
+    else
+      status(
+        "failed",
+        `Replay ${outcome.status}${outcome.failedStep ? ` at ${outcome.failedStep}` : ""}: see the terminal`,
+      );
   } catch (error) {
     log("run failed:", (error as Error).message);
+    status("failed", "Replay failed: see the daemon terminal");
   } finally {
     running = false;
   }
@@ -139,7 +201,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     reply(line);
     return;
   }
-  const [command, ...args] = line.trim().split(/\s+/);
+  const [command, ...args] = splitArgs(line);
   if (!command) return;
   if (command === "approve" || command === "deny") {
     if (!pendingApproval) return log("nothing to approve");
@@ -147,13 +209,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     pendingApproval = undefined;
     return;
   }
-  if (compiling) return log("still compiling the last recording; wait for it to finish");
+  if (compiling) return refuse();
   if (command === "run") void run(args);
-  else if (command === "record") daemon.startRecording();
-  else if (command === "stop")
-    void daemon.stopRecording().then((sessionId) => {
-      if (sessionId) return compileSession(sessionId);
-    });
+  else if (command === "record") startRecording();
+  else if (command === "stop") void stopRecording();
   else if (command === "compile" && args[0]) void compileSession(args[0]);
   else if (command === "skills")
     for (const s of listSkills(home)) log(`${s.id}  v${s.versions.join(",v")}  ${s.intent}`);
@@ -163,6 +222,17 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     log(`${daemon.extensions.size} extension(s) connected${running ? ", run in progress" : ""}`);
   else log("commands: record, stop, compile <session>, run <skill>, approve, deny, skills, traces, status");
 });
+
+// Task Player.app: the floating Record / Stop button on the desktop, Mac-app recording and the ax channel. Started
+// through `open`, so macOS asks for Accessibility in its own name (not your terminal's). It quits when the daemon does.
+function startMacApp() {
+  const app = join(import.meta.dirname, "../../mac/build/Task Player.app");
+  if (process.env.TASKPLAYER_MAC === "off") return;
+  if (!existsSync(app)) return log("no desktop button: build it with pnpm setup:mac");
+  execFile("open", ["-g", app, "--args", "--socket", resolve(path)], (error) => {
+    if (error) log("could not start Task Player.app:", error.message);
+  });
+}
 
 const shutdown = () =>
   daemon.close().then(() => {

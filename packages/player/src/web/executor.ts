@@ -1,6 +1,7 @@
 // Executes one web step against one tab: wait -> match -> act -> verify. Runs in the extension (chrome.debugger)
 // or, for development, against a debug-port Chrome. Templates are already resolved by the daemon.
 import type { Locator, Step } from "@taskplayer/core";
+import { wrongKind } from "@taskplayer/core/accept";
 import type { StepResult } from "../types.ts";
 import { type Cdp, callOn, evaluate, pollUntil, type RemoteObject, sleep } from "./cdp.ts";
 import { pagePart, waitForCheck } from "./checks.ts";
@@ -59,6 +60,7 @@ const FN_TABLE_ROWS = `function () {
   return body.map((cells) => Object.fromEntries(header.map((h, i) => [h, cells[i] ?? ""])));
 }`;
 const FN_FILE_COUNT = `function () { return this.files ? this.files.length : -1; }`;
+const FN_ACCEPT = `function () { return this.accept || ""; }`;
 
 const fail = (error: string, extra: Partial<StepResult> = {}): StepResult => ({ ok: false, error, ...extra });
 
@@ -297,6 +299,13 @@ export async function executeWebStep(cdp: Cdp, step: Step, env: WebEnv = {}): Pr
           if (input === undefined) {
             // No file input at all: the page only takes drops. Drop the files on the target, as Finder would.
             error = await dropFiles(cdp, id, files);
+            break;
+          }
+          // The daemon checked the file before the run; the page may take other kinds now than when you recorded.
+          const accept = await callOn<string>(cdp, input, FN_ACCEPT);
+          const wrong = files.map((file) => wrongKind(file, accept)).find(Boolean);
+          if (wrong) {
+            error = `${wrong}, as the page's file field says (${accept})`;
             break;
           }
           await cdp.send("DOM.setFileInputFiles", { files, backendNodeId: input });

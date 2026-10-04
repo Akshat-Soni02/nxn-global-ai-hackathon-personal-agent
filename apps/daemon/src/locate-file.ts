@@ -15,8 +15,18 @@ export interface LocateOptions {
 
 export function defaultSearchDirs(watchDirs: string[] = []): string[] {
   const home = homedir();
-  const usual = ["Downloads", "Desktop", "Documents", "Movies", "Pictures"].map((d) => join(home, d));
-  return [...new Set([...watchDirs, ...usual])];
+  // The walk skips Library, so the cloud folders macOS keeps there are searched as folders of their own.
+  const usual = [
+    "Downloads",
+    "Desktop",
+    "Documents",
+    "Movies",
+    "Pictures",
+    "Library/CloudStorage",
+    "Library/Mobile Documents/com~apple~CloudDocs",
+  ].map((d) => join(home, d));
+  // The usual folders first: with the whole home folder watched, they are also inside it (walk skips repeats).
+  return [...new Set([...usual, ...watchDirs])];
 }
 
 export function spotlight(name: string): Promise<string[]> {
@@ -53,9 +63,12 @@ function walk(dirs: string[], name: string, maxEntries: number): string[] {
   const hits: string[] = [];
   let seen = 0;
   let level = dirs.map((dir) => ({ dir, depth: 0 }));
+  const visited = new Set<string>();
   while (level.length > 0 && seen < maxEntries) {
     const next: typeof level = [];
     for (const { dir, depth } of level) {
+      if (visited.has(dir)) continue;
+      visited.add(dir);
       let entries: Dirent[];
       try {
         entries = readdirSync(dir, { withFileTypes: true });

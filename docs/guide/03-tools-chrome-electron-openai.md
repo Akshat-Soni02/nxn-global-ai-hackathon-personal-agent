@@ -160,8 +160,8 @@ What we keep *in addition* is everything their agent rediscovers on every run: `
 | Replay | Agent run in a new thread, every time | Deterministic interpreter; agent only on a failed step |
 | Model calls per clean replay | Many (one or more per step) | **Zero** |
 | Drift handling | Implicit: the agent re-reads the screen each time | Ladder of fallbacks → agent → learn-back writes v2 ([06](06-processing-and-learning.md)) |
-| Unattended or scheduled | Not documented | `Trigger`: schedule, folder watch (`skill.ts:50-54`) |
-| Scope | Any macOS app | Chrome + filesystem/scripts in v1; macOS AX post-v1 |
+| Unattended or scheduled | Scheduled tasks can use skills, if the app stays running ([automations](https://learn.chatgpt.com/docs/automations?surface=app)); whether a Computer Use skill runs unattended isn't documented | `Trigger`: schedule, folder watch are in the format; only manual `run` is built (Oct 2026) |
+| Scope | macOS apps, through Computer Use, except terminal apps and ChatGPT itself ([computer use](https://learn.chatgpt.com/docs/computer-use)) | Chrome, files, and Mac apps through the Accessibility API (Task Player.app, [11](11-mac-apps.md)) |
 | Auditability | The agent's reasoning | Run log: matched target, score and check per step |
 
 ### What to copy, and what not to
