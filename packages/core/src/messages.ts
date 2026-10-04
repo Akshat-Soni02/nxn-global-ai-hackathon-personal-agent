@@ -3,8 +3,8 @@
 // Only the extension can open this connection (Chrome launches the native host), so it connects on startup and
 // keeps the port open; the daemon can then send to it at any time. Add new message types here so both sides stay in sync.
 import { z } from "zod";
-import type { ElementDescriptor } from "./descriptor.ts";
 import { Check, Step } from "./skill.ts";
+import { TraceEvent } from "./trace.ts";
 
 export const NATIVE_HOST_NAME = "com.taskplayer.daemon";
 // Fixed by the "key" in apps/extension/manifest.json, so the native host manifest can allow exactly this extension.
@@ -25,16 +25,9 @@ export const Message = z.discriminatedUnion("type", [
   // daemon -> extension: start/stop capturing web events for this session
   z.object({ ...base, type: z.literal("record.start"), sessionId: z.string() }),
   z.object({ ...base, type: z.literal("record.stop"), sessionId: z.string() }),
-  // extension -> daemon: one captured web event
-  z.object({
-    ...base,
-    type: z.literal("record.event"),
-    sessionId: z.string(),
-    at: z.number(),
-    event: z.string(),
-    value: z.string().optional(),
-    target: z.custom<ElementDescriptor>().optional(),
-  }),
+  // extension -> daemon: one captured web or browser event. The fields are the trace format (trace.ts), so an
+  // unknown event kind is rejected here instead of reaching the compiler.
+  TraceEvent.extend({ type: z.literal("record.event") }),
 
   // Replay: the daemon runs the skill; web work goes to the extension. Replies reuse the request's id.
   // daemon -> extension: run one web step (templates already resolved) in the automation window

@@ -1,0 +1,26 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Studio: uploader in a shadow root</title>
+<!-- The uploader lives in a shadow root, as YouTube Studio's does: a "Select files" button and a hidden file input
+     that querySelector from the page cannot see, and whose change event never reaches the document. -->
+<h1>Studio</h1>
+<x-uploader></x-uploader>
+<p id="status" role="status"></p>
+<script>
+  customElements.define(
+    "x-uploader",
+    class extends HTMLElement {
+      connectedCallback() {
+        const root = this.attachShadow({ mode: "open" });
+        root.innerHTML =
+          '<div role="dialog" aria-label="Upload videos"><h2>Upload videos</h2>' +
+          '<button type="button">Select files</button><input type="file" hidden></div>';
+        const input = root.querySelector("input");
+        root.querySelector("button").addEventListener("click", () => input.click());
+        input.addEventListener("change", () => {
+          document.getElementById("status").textContent = input.files[0] ? `Uploading ${input.files[0].name}` : "";
+        });
+      }
+    },
+  );
+</script>

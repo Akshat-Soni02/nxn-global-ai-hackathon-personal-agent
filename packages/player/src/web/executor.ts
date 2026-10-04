@@ -1,9 +1,11 @@
 // Executes one web step against one tab: wait -> match -> act -> verify. Runs in the extension (chrome.debugger)
 // or, for development, against a debug-port Chrome. Templates are already resolved by the daemon.
-import type { Step } from "@taskplayer/core";
+import type { Locator, Step } from "@taskplayer/core";
 import type { StepResult } from "../types.ts";
-import { type Cdp, callOn, evaluate, pollUntil, sleep } from "./cdp.ts";
+import { type Cdp, callOn, evaluate, pollUntil, type RemoteObject, sleep } from "./cdp.ts";
 import { pagePart, waitForCheck } from "./checks.ts";
+import { rowsOf, sheetExportUrl } from "./csv.ts";
+import { type DomNode, fileAccessError, pickFileInput } from "./file-input.ts";
 import { attributesOf, type MatchOutcome, match, matchAll, selectAll } from "./match.ts";
 
 export const DEFAULT_WEB_TIMEOUT_MS = 10_000;
@@ -37,13 +39,35 @@ const FN_CHOOSE_OPTION = `function (label) {
   return "";
 }`;
 const FN_TEXT_AND_HREF = `function () { return { text: (this.innerText || this.textContent || "").trim(), href: this.href || "" }; }`;
+// HTML5 drag and drop, sent inside the page: Chrome does not start one from CDP mouse events.
+const FN_HTML5_DRAG = `function (target) {
+  const data = new DataTransfer();
+  const fire = (el, type) =>
+    el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, composed: true, dataTransfer: data }));
+  fire(this, "dragstart");
+  fire(target, "dragenter");
+  fire(target, "dragover");
+  fire(target, "drop");
+  fire(this, "dragend");
+}`;
+// A <table>'s rows as objects keyed by its header cells.
+const FN_TABLE_ROWS = `function () {
+  const table = this.closest("table") || this.querySelector("table");
+  if (!table) return null;
+  const rows = Array.from(table.rows).map((r) => Array.from(r.cells).map((c) => (c.innerText || c.textContent || "").trim()));
+  const [header = [], ...body] = rows;
+  return body.map((cells) => Object.fromEntries(header.map((h, i) => [h, cells[i] ?? ""])));
+}`;
 const FN_FILE_COUNT = `function () { return this.files ? this.files.length : -1; }`;
 
 const fail = (error: string, extra: Partial<StepResult> = {}): StepResult => ({ ok: false, error, ...extra });
 
 async function waitForTarget(cdp: Cdp, step: Step, timeoutMs: number): Promise<MatchOutcome> {
-  const target = step.target;
-  if (!target) throw new Error("step has no target");
+  if (!step.target) throw new Error("step has no target");
+  return waitForLocator(cdp, step.target, timeoutMs);
+}
+
+async function waitForLocator(cdp: Cdp, target: Locator, timeoutMs: number): Promise<MatchOutcome> {
   let last: MatchOutcome = { status: "none", candidates: [] };
   await pollUntil(async () => {
     last = await match(cdp, target);
@@ -136,7 +160,54 @@ async function fileInputFor(cdp: Cdp, backendNodeId: number): Promise<number | u
   return id;
 }
 
-export async function executeWebStep(cdp: Cdp, step: Step): Promise<StepResult> {
+// Drags one element onto another. A draggable="true" source gets HTML5 drag events; anything else gets a trusted
+// mouse press, a path of moves and a release over the destination (pointer-based boards and sortable lists).
+async function dragTo(cdp: Cdp, from: number, to: number): Promise<string | undefined> {
+  if ((await attributesOf(cdp, from)).draggable === "true") {
+    const [source, target] = await Promise.all(
+      [from, to].map((backendNodeId) => cdp.send<{ object: RemoteObject }>("DOM.resolveNode", { backendNodeId })),
+    );
+    const { exceptionDetails } = await cdp.send<{ exceptionDetails?: { text: string } }>("Runtime.callFunctionOn", {
+      objectId: source?.object.objectId,
+      functionDeclaration: FN_HTML5_DRAG,
+      arguments: [{ objectId: target?.object.objectId }],
+    });
+    return exceptionDetails ? `drag failed: ${exceptionDetails.text}` : undefined;
+  }
+  const a = await center(cdp, from);
+  const b = await center(cdp, to);
+  if (!a || !b) return "drag source or destination is not visible";
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: a.x, y: a.y });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: a.x, y: a.y, button: "left", clickCount: 1 });
+  const steps = 10;
+  for (let i = 1; i <= steps; i++) {
+    const x = a.x + ((b.x - a.x) * i) / steps;
+    const y = a.y + ((b.y - a.y) * i) / steps;
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "left", buttons: 1 });
+    await sleep(15);
+  }
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: b.x, y: b.y, button: "left", clickCount: 1 });
+  return undefined;
+}
+
+// Drops local files onto an element the way a drag from Finder does: dragEnter, dragOver, drop at its centre.
+async function dropFiles(cdp: Cdp, backendNodeId: number, files: string[]): Promise<string | undefined> {
+  const point = await center(cdp, backendNodeId);
+  if (!point) return "drop target is not visible";
+  const data = { items: [], files, dragOperationsMask: 1 }; // 1 = copy
+  for (const type of ["dragEnter", "dragOver", "drop"]) {
+    await cdp.send("Input.dispatchDragEvent", { type, x: point.x, y: point.y, data });
+  }
+  return undefined;
+}
+
+// What only the host can do. The extension fetches from its background worker: it has the user's cookies and is not
+// held back by CORS, which a page-side fetch of a Google Sheet export (redirected to googleusercontent.com) would be.
+export interface WebEnv {
+  fetchText?(url: string): Promise<string>;
+}
+
+export async function executeWebStep(cdp: Cdp, step: Step, env: WebEnv = {}): Promise<StepResult> {
   const timeoutMs = step.timeout_ms ?? DEFAULT_WEB_TIMEOUT_MS;
   const a = step.args;
 
@@ -151,6 +222,24 @@ export async function executeWebStep(cdp: Cdp, step: Step): Promise<StepResult> 
   if (step.action === "navigate") {
     const error = await navigate(cdp, String(a.url ?? ""), timeoutMs);
     if (error) return fail(error);
+  } else if (step.action === "extract" && a.source === "google_sheet") {
+    // The sheet's cells are drawn on a canvas, so its rows are read from its CSV export instead.
+    const url = sheetExportUrl(await evaluate<string>(cdp, "location.href"));
+    if (!url) return fail("this page is not a Google Sheet");
+    const fetchInPage = `fetch(${JSON.stringify(url)}, { credentials: "include" }).then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })`;
+    try {
+      value = rowsOf(env.fetchText ? await env.fetchText(url) : await evaluate<string>(cdp, fetchInPage));
+    } catch (error) {
+      return fail(`could not read the sheet: ${(error as Error).message}`);
+    }
+  } else if (step.action === "extract" && a.source === "table") {
+    if (!step.target) return fail("extract from a table needs a target");
+    const outcome = await waitForTarget(cdp, step, timeoutMs);
+    if (outcome.status !== "found") return fail(describeMiss(outcome), { matchScore: outcome.candidates[0]?.score });
+    value = await callOn<Record<string, string>[] | null>(cdp, outcome.best.backendNodeId, FN_TABLE_ROWS);
+    if (!value) return fail("the target is not in a table");
+    matchScore = outcome.best.score;
+    matchedBy = outcome.best.matchedBy;
   } else if (step.action === "extract" && a.all) {
     if (!step.target) return fail("extract needs a target");
     const ids = await pollUntil(async () => {
@@ -196,15 +285,39 @@ export async function executeWebStep(cdp: Cdp, step: Step): Promise<StepResult> 
         error = await press(cdp, String(a.key ?? ""));
         break;
       case "upload": {
-        const input = await fileInputFor(cdp, id);
-        if (!input) {
-          error = "target has no file input";
+        const files = Array.isArray(a.file) ? a.file.map(String) : [String(a.file ?? "")];
+        try {
+          // The input itself, inside the target, or labelled by it; else the one in the target's dialog or the only
+          // one on the page, shadow roots included ("Select files" buttons that open a hidden input elsewhere).
+          let input = await fileInputFor(cdp, id);
+          if (input === undefined) {
+            const { root } = await cdp.send<{ root: DomNode }>("DOM.getDocument", { depth: -1, pierce: true });
+            input = pickFileInput(root, id);
+          }
+          if (input === undefined) {
+            // No file input at all: the page only takes drops. Drop the files on the target, as Finder would.
+            error = await dropFiles(cdp, id, files);
+            break;
+          }
+          await cdp.send("DOM.setFileInputFiles", { files, backendNodeId: input });
+          if ((await callOn<number>(cdp, input, FN_FILE_COUNT)) !== files.length)
+            error = "file input did not take the file";
+        } catch (failure) {
+          error = fileAccessError(failure);
+        }
+        break;
+      }
+      case "drag": {
+        const to = a.to as Locator | undefined;
+        if (!to) {
+          error = "drag needs args.to";
           break;
         }
-        const files = Array.isArray(a.file) ? a.file.map(String) : [String(a.file ?? "")];
-        await cdp.send("DOM.setFileInputFiles", { files, backendNodeId: input });
-        if ((await callOn<number>(cdp, input, FN_FILE_COUNT)) !== files.length)
-          error = "file input did not take the file";
+        const landing = await waitForLocator(cdp, { ...to, fallbacks: to.fallbacks ?? [] }, timeoutMs);
+        error =
+          landing.status === "found"
+            ? await dragTo(cdp, id, landing.best.backendNodeId)
+            : `drop target ${describeMiss(landing)}`;
         break;
       }
       case "extract":

@@ -8,6 +8,8 @@
 > 4. **the research dossier** and the Cursor research chat (`docs/research/cursor-chat-task-replay.md`).
 >
 > Where the dossier and the code disagree, the code wins, and the disagreement is written down in [01](01-status-and-diff.md).
+>
+> **Update, 3 Oct:** the record half has since been built and checked ([09](09-record-explained.md)), then merged with Akshat's replay engine, which now replays recorded skills ([10](10-merge-and-hot-edges.md)). The status sections in 01, 05 and 07, the tracker TSV, and the BUILT/BROKEN/TODO tags in both diagrams describe the code as of 1 Oct. Where they disagree with 09, 09 is current.
 
 ---
 
@@ -50,6 +52,8 @@ To edit it, open [`architecture-map.excalidraw`](architecture-map.excalidraw) at
 | 06 | [Processing with models, and learning from drift](06-processing-and-learning.md) | Where Nemotron runs, what it sees, what "the model learns the new UI" really means |
 | 07 | [How to proceed + Sheet6 tracker](07-how-to-proceed.md) | Order of work for the rest of Sprint 2, the DSU decisions, the tracker |
 | 08 | [FAQ](08-faq.md) | The naive questions that come up while building this |
+| 10 | [Record meets replay, and the hot edges](10-merge-and-hot-edges.md) | The merge with Akshat's replay, the shared skill contract, file drops, drag, copy/paste, Google Sheets, AI cost limits |
+| 09 | [Record, explained and built](09-record-explained.md) | Mac events vs AX, the drill, memory, versions, injection, auth; then what was built for record, why, and how it was checked |
 | — | [`sheet6-sprint2-tracker.tsv`](sheet6-sprint2-tracker.tsv) | Paste-ready rows for worksheet 6 |
 
 ## Your questions → where they are answered
@@ -74,7 +78,7 @@ To edit it, open [`architecture-map.excalidraw`](architecture-map.excalidraw) at
 ## Six sentences that make the rest obvious
 
 1. **The skill file is the product.** Record is a *compiler* that writes it, replay is an *interpreter* that runs it, and Nemotron is only called where the compiler or interpreter would otherwise have to guess.
-2. **The plumbing is built, but nothing that touches a web page exists yet.** The daemon ⇄ native host ⇄ extension bridge is written and has tests. In this session only the framing tests actually ran, and the Chrome hop was never exercised end to end ([01](01-status-and-diff.md)). Capture, matching, acting and compiling are all `TODO`.
+2. **The plumbing and the record half are built; replay is not.** The daemon ⇄ native host ⇄ extension bridge is written and tested. Capture, trace, normalise, compile (Nemotron), drill, memory and the skill store were built on 3 Oct ([09](09-record-explained.md)). Matching and acting (replay) are still `TODO`. The full loop in your own Chrome over native messaging has not been run yet.
 3. **You never need coordinates, because the browser hands you the element itself at the moment of the click.** x/y is something replay computes fresh at the last millisecond, never something record stores.
 4. **Nothing gets trained.** "The model learns the new UI" means a corrected locator is written into the next skill *version*. The data changes; the model doesn't.
 5. **Since Chrome 136 there is no way into the user's default profile except from inside it, and an extension is inside it.** That one fact settles Playwright, Electron and "which tool".

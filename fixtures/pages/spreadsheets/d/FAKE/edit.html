@@ -1,0 +1,43 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Invoices - Google Sheets (fake)</title>
+<!-- A stand-in for a Google Sheet: the cells are drawn on a canvas, so a click has no cell element to remember, and
+     copying puts the selected cell's value on the clipboard from the page's own handler, as Sheets does. Its rows come
+     from ./export?format=csv&gid=0 (served by scripts/serve-fixtures.mjs, dated yesterday, today and tomorrow). -->
+<h1>Invoices</h1>
+<canvas id="grid" width="480" height="140" style="border: 1px solid #ccc"></canvas>
+<script>
+  const canvas = document.getElementById("grid");
+  const ctx = canvas.getContext("2d");
+  const W = 160;
+  const H = 28;
+  let rows = [];
+  let selected = { r: 1, c: 0 };
+  const draw = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (const [r, cells] of rows.entries()) {
+      for (const [c, text] of cells.entries()) {
+        ctx.strokeStyle = r === selected.r && c === selected.c ? "#1a73e8" : "#ddd";
+        ctx.strokeRect(c * W, r * H, W, H);
+        ctx.fillText(text, c * W + 6, r * H + 18);
+      }
+    }
+  };
+  fetch("export?format=csv&gid=0")
+    .then((r) => r.text())
+    .then((csv) => {
+      rows = csv.trim().split("\n").map((line) => line.match(/("[^"]*"|[^,]+)/g).map((v) => v.replace(/"/g, "")));
+      draw();
+    });
+  canvas.addEventListener("click", (e) => {
+    selected = { r: Math.floor(e.offsetY / H), c: Math.floor(e.offsetX / W) };
+    location.hash = `gid=0&range=${"ABC"[selected.c]}${selected.r + 1}`;
+    draw();
+  });
+  document.addEventListener("copy", (e) => {
+    e.clipboardData.setData("text/plain", rows[selected.r]?.[selected.c] ?? "");
+    e.preventDefault();
+  });
+  // For the test harness: where a cell is drawn.
+  window.cellCenter = (r, c) => ({ x: c * W + W / 2, y: r * H + H / 2 });
+</script>

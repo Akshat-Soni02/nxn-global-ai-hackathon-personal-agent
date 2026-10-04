@@ -88,7 +88,9 @@ async function executeOnce(step: Step, ctx: RunContext, deps: RunDeps): Promise<
         ? deps.fs
         : step.channel === "script"
           ? deps.script
-          : undefined;
+          : step.channel === "data"
+            ? deps.data
+            : undefined;
   if (!channel) return { ok: false, error: `channel ${step.channel} is not supported yet` };
 
   let result: StepResult;

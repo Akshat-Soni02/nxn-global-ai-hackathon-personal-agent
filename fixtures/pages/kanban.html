@@ -1,0 +1,67 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Team board</title>
+<!-- Two boards. The first uses HTML5 drag and drop (draggable cards); the second moves cards with pointer events, as
+     most kanban libraries do. The task on each: move "Write report" to the done lane. -->
+<style>
+  .board { display: flex; gap: 40px; }
+  .lane { width: 220px; min-height: 140px; border: 1px solid #999; padding: 8px; }
+  li { padding: 6px; border: 1px solid #444; margin: 4px; list-style: none; background: #fff; user-select: none; }
+</style>
+<h1>Team board</h1>
+<h2>Sprint</h2>
+<div class="board">
+  <section id="todo-a" class="lane" aria-label="To do">
+    <h3>To do</h3>
+    <ul><li id="card-a" draggable="true">Write report</li></ul>
+  </section>
+  <section id="done-a" class="lane" aria-label="Done">
+    <h3>Done</h3>
+    <ul></ul>
+  </section>
+</div>
+<h2>Backlog</h2>
+<div class="board">
+  <section id="todo-b" class="lane" aria-label="Backlog to do">
+    <h3>Backlog to do</h3>
+    <ul><li id="card-b">Write report</li></ul>
+  </section>
+  <section id="done-b" class="lane" aria-label="Backlog done">
+    <h3>Backlog done</h3>
+    <ul></ul>
+  </section>
+</div>
+<p id="status" role="status"></p>
+<script>
+  const report = (text) => {
+    document.getElementById("status").textContent += `${text} `;
+  };
+  // Board 1: HTML5 drag and drop.
+  document.getElementById("card-a").addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", "card-a"));
+  for (const lane of document.querySelectorAll("#todo-a, #done-a")) {
+    lane.addEventListener("dragover", (e) => e.preventDefault());
+    lane.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const card = document.getElementById(e.dataTransfer.getData("text/plain") || "card-a");
+      lane.querySelector("ul").append(card);
+      report(`Moved ${card.textContent} to ${lane.getAttribute("aria-label")}.`);
+    });
+  }
+  // Board 2: pointer events.
+  const card = document.getElementById("card-b");
+  let dragging = false;
+  card.addEventListener("pointerdown", () => {
+    dragging = true;
+  });
+  document.addEventListener("pointerup", (e) => {
+    if (!dragging) return;
+    dragging = false;
+    const lane = document
+      .elementsFromPoint(e.clientX, e.clientY)
+      .find((el) => el.classList.contains("lane") && el.id.endsWith("-b"));
+    if (lane && !lane.contains(card)) {
+      lane.querySelector("ul").append(card);
+      report(`Moved ${card.textContent} to ${lane.getAttribute("aria-label")}.`);
+    }
+  });
+</script>

@@ -6,7 +6,14 @@ import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Message, Skill, type Step } from "@taskplayer/core";
 import { APP_SUPPORT_DIR } from "@taskplayer/ipc";
-import { DEFAULT_TIMEOUT_MS, type RunLogEvent, type RunOutcome, runSkill, type StepResult } from "@taskplayer/player";
+import {
+  type ChannelExecutor,
+  DEFAULT_TIMEOUT_MS,
+  type RunLogEvent,
+  type RunOutcome,
+  runSkill,
+  type StepResult,
+} from "@taskplayer/player";
 import { fileExists, fsChannel, poll, resolveInputs, scriptChannel } from "@taskplayer/player/node";
 import type { Daemon } from "./daemon.ts";
 
@@ -17,6 +24,8 @@ const CHROME_START_MS = 30_000;
 export interface RunHooks {
   approve(step: Step, skill: Skill): Promise<boolean>;
   log(event: RunLogEvent): void;
+  // data.pick / data.ai steps (see dataChannel in @taskplayer/player/node).
+  data?: ChannelExecutor;
 }
 
 export async function runSkillFile(
@@ -69,6 +78,7 @@ export async function runSkillFile(
           );
           return reply.type === "run.check_result" && reply.ok;
         },
+        data: hooks.data,
         approve: hooks.approve,
         log,
       },

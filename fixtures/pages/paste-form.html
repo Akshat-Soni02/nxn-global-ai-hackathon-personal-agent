@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Expenses: new entry</title>
+<h1>New expense</h1>
+<form id="f">
+  <label>Amount <input type="text" name="amount" /></label>
+  <button type="submit">Save</button>
+</form>
+<p id="status" role="status"></p>
+<script>
+  document.getElementById("f").addEventListener("submit", (e) => {
+    e.preventDefault();
+    document.getElementById("status").textContent = `Saved amount ${e.target.amount.value}`;
+  });
+</script>

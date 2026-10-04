@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:net";
 import { Message } from "@taskplayer/core";
+import { openRecording, type Recording } from "./record.ts";
 import { type Connection, listen } from "./server.ts";
 
 const VERSION = "0.0.0";
@@ -11,7 +12,8 @@ export interface Daemon {
   extensions: ReadonlySet<Connection>;
   // Starts a recording session. Web capture joins if Chrome is connected; Mac-only tasks work without it.
   startRecording(): string;
-  stopRecording(): void;
+  // Resolves with the stopped session once late events have arrived, ready to compile.
+  stopRecording(): Promise<string | undefined>;
   // Sends a request to the extension and resolves with its reply (same id). Waits for an extension to connect.
   request(message: Message, timeoutMs: number): Promise<Message>;
   // Fire-and-forget message to the extension, if one is connected.
@@ -30,10 +32,17 @@ interface Pending {
 export async function startDaemon(options: {
   socketPath: string;
   log?: (...args: unknown[]) => void;
+  // Where traces are written. Without it, events are only logged (tests of the socket alone).
+  dataDir?: string;
+  // Folders whose file changes are recorded too (FSEvents).
+  watchDirs?: string[];
+  // How long to keep accepting a stopped session's events that were already in flight.
+  drainMs?: number;
 }): Promise<Daemon> {
   const log = options.log ?? (() => {});
   const extensions = new Set<Connection>();
   let sessionId: string | undefined;
+  let recording: Recording | undefined; // the open trace; kept briefly after stop for late events
   const pending = new Map<string, Pending>();
   const extensionWaiters = new Set<() => void>();
 
@@ -63,8 +72,9 @@ export async function startDaemon(options: {
           send(connection, { id: message.id, type: "pong" });
           break;
         case "record.event":
-          // TODO(recorder): append to the session trace alongside filesystem events.
-          log("record.event", message.event);
+          // Into the session's trace, alongside the file events (record.ts). Events for any other session are dropped.
+          if (recording && message.sessionId === recording.sessionId) recording.append(message);
+          else log("record.event", message.event, "(no open trace)");
           break;
         case "run.step_result":
         case "run.check_result": {
@@ -110,17 +120,29 @@ export async function startDaemon(options: {
     server,
     extensions,
     startRecording() {
-      sessionId ??= randomUUID();
-      // TODO(recorder): start filesystem (FSEvents) capture for this session.
+      if (!sessionId) {
+        sessionId = randomUUID();
+        if (options.dataDir) {
+          recording?.stopWatching();
+          recording = openRecording(sessionId, { dataDir: options.dataDir, watchDirs: options.watchDirs ?? [], log });
+        }
+      }
       broadcast({ id: randomUUID(), type: "record.start", sessionId });
       log("recording", sessionId, `(${extensions.size} extension(s) capturing)`);
       return sessionId;
     },
-    stopRecording() {
-      if (!sessionId) return;
+    async stopRecording() {
+      if (!sessionId) return undefined;
+      const stopped = sessionId;
       broadcast({ id: randomUUID(), type: "record.stop", sessionId });
       log("stopped", sessionId);
       sessionId = undefined;
+      const open = recording;
+      open?.stopWatching();
+      // Events already on their way through Chrome and the native host still belong to this recording.
+      await new Promise((resolve) => setTimeout(resolve, options.drainMs ?? 500));
+      if (recording === open) recording = undefined;
+      return stopped;
     },
     waitForExtension,
     async request(message, timeoutMs) {

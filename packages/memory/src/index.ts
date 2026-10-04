@@ -19,4 +19,5 @@ export interface MemoryStore {
   remove(id: string): Promise<void>;
 }
 
-// TODO(memory): SQLite + FTS5 implementation in the daemon's data folder.
+// SQLite + FTS5 implementation, used by the daemon: memory.db in its data folder.
+export { openMemory, type SqliteMemory } from "./sqlite.ts";

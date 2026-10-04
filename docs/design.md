@@ -119,11 +119,14 @@ The skill is the only interface between record and replay: record writes it, rep
 
 **Also on steps and inputs**: `save_as` stores a step's result for later steps as `{{vars.<name>}}`; `timeout_ms` bounds a step's wait and check; inputs may carry a `default`. Templates available in args and checks: `{{inputs.<name>}}`, `{{inputs.<name>.name}}` (a file's base name), `{{vars.<name>}}`, `{{today}}`. The per-action args are listed at the top of `packages/core/src/skill.ts`.
 
+**Added with the record/replay merge (Oct 3)**: `web.drag { to }` moves the target onto another element (HTML5 drag events for `draggable` sources, a trusted press-move-release otherwise). `web.upload` accepts a target that is the file input, the control that opens it, or a drop zone: replay looks for the file input in the target's dialog or the page (shadow roots included) and drops the files when there is none. `web.extract { source: "google_sheet" | "table" }` returns rows as objects. The `data` channel works on saved rows: compile writes a `data.pick` rule once; `data.ai` is only for what no rule can express, is shown to the user with its cost before saving, and is capped per run. Uploads through the extension need "Allow access to file URLs" on the extension: without it Chrome answers `DOM.setFileInputFiles` with "Not allowed".
+
 | Channel | Actions (v1) |
 | --- | --- |
-| `web` | `navigate`, `click`, `type`, `select`, `press`, `upload`, `wait_for`, `extract` |
+| `web` | `navigate`, `click`, `type`, `select`, `press`, `upload`, `drag`, `wait_for`, `extract` |
 | `fs` | `find`, `move`, `copy`, `rename`, `read`, `write` |
 | `script` | `applescript`, `shortcut`, `shell` (allow-listed) |
+| `data` | `pick` (a rule over saved rows; no model), `ai` (one model call per run, capped and cached) |
 | `ax` (post-v1) | `press`, `set_value`, `focus`, `menu` |
 | `vision` (fallback only) | `click`, `type`: never written by the compiler, only chosen by replay |
 

@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Media library: drop to upload</title>
+<!-- An upload area that only accepts drops: there is no file input anywhere on the page. -->
+<h1>Media library</h1>
+<section>
+  <h2>Add media</h2>
+  <section id="dropzone" class="dropzone" aria-label="Drop files here" style="width: 400px; height: 150px; border: 2px dashed #888">
+    Drop files here
+  </section>
+  <p id="status" role="status"></p>
+</section>
+<script>
+  const zone = document.getElementById("dropzone");
+  zone.addEventListener("dragover", (e) => e.preventDefault());
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    document.getElementById("status").textContent = file ? `Received ${file.name} (${file.size} bytes)` : "Nothing dropped";
+  });
+</script>

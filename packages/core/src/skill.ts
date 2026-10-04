@@ -15,9 +15,13 @@
 //   web.type      { text, clear?: boolean }            focuses the target, then inserts text
 //   web.select    { option }                            visible option label
 //   web.press     { key }                               e.g. "Enter", "Escape"
-//   web.upload    { file }                              target is the <input type=file>; no native dialog
+//   web.upload    { file }                              target is the <input type=file>, the control that opens it,
+//                                                       or a drop zone; no native dialog either way
+//   web.drag      { to: Locator }                       drags the target onto `to` (a card onto a list)
 //   web.wait_for  {}                                    waits for `check` (or the target) within timeout_ms
 //   web.extract   { all?, limit?, each?, join? }        each: per-element template using {{text}} and {{href}}
+//   web.extract   { source: "google_sheet" }            the open Google Sheet's rows (CSV export), as objects
+//   web.extract   { source: "table" }                   the target <table>'s rows, as objects keyed by header
 //   fs.find       { dir, glob, pick: "newest" | "all", since_run_start? }   since_run_start ignores older files
 //   fs.move|copy  { from, to }                          `to` ending in "/" is a folder (created if missing)
 //   fs.rename     { from, to }
@@ -26,17 +30,21 @@
 //   script.applescript { source }
 //   script.shortcut    { name, input? }
 //   script.shell       { command }                      allow-listed commands only
+//   data.pick  { from, where: { Column: value }, column, pick?: "first"|"last" }   a rule over rows; no model call
+//   data.ai    { instruction, from, output: "text"|"number"|"date"|"json" }       one model call per run, capped
 import { z } from "zod";
 
-export const CHANNELS = ["web", "fs", "script", "ax", "vision"] as const;
+export const CHANNELS = ["web", "fs", "script", "data", "ax", "vision"] as const;
 export const Channel = z.enum(CHANNELS);
 export type Channel = z.infer<typeof Channel>;
 
 // Actions each channel supports. The recorder must only emit these; the player must implement all of them.
 export const ACTIONS = {
-  web: ["navigate", "click", "type", "select", "press", "upload", "wait_for", "extract"],
+  web: ["navigate", "click", "type", "select", "press", "upload", "drag", "wait_for", "extract"],
   fs: ["find", "move", "copy", "rename", "read", "write"],
   script: ["applescript", "shortcut", "shell"],
+  // Work on values earlier steps saved: a rule (pick) by default, the model (ai) only when no rule fits.
+  data: ["pick", "ai"],
   ax: ["press", "set_value", "focus", "menu"],
   vision: ["click", "type"],
 } as const satisfies Record<Channel, readonly string[]>;

@@ -8,16 +8,26 @@ const PROTOCOL_VERSION = "1.3";
 const STORE_KEY = "automationTab";
 
 let attachedTab: number | undefined;
+let knownAutomationTab: number | undefined;
+
+// Recording ignores the automation tab, so a replay that runs while you record never records itself.
+export function isAutomationTab(tabId: number | undefined): boolean {
+  return tabId !== undefined && tabId === knownAutomationTab;
+}
 
 async function automationTab(): Promise<number> {
   const stored = (await chrome.storage.session.get(STORE_KEY))[STORE_KEY] as number | undefined;
   if (stored !== undefined) {
     const tab = await chrome.tabs.get(stored).catch(() => undefined);
-    if (tab?.id !== undefined) return tab.id;
+    if (tab?.id !== undefined) {
+      knownAutomationTab = tab.id;
+      return tab.id;
+    }
   }
   const win = await chrome.windows.create({ url: "about:blank", focused: false, width: 1280, height: 800 });
   const tabId = win?.tabs?.[0]?.id;
   if (tabId === undefined) throw new Error("could not open the automation window");
+  knownAutomationTab = tabId;
   await chrome.storage.session.set({ [STORE_KEY]: tabId });
   return tabId;
 }
@@ -42,8 +52,16 @@ chrome.debugger.onDetach.addListener((source) => {
   if (source.tabId === attachedTab) attachedTab = undefined;
 });
 
+// Reading a Google Sheet's export from here, not the page: the worker has the user's cookies for every host it has
+// permission for, and is not held back by CORS when the export redirects to googleusercontent.com.
+async function fetchText(url: string): Promise<string> {
+  const response = await fetch(url, { credentials: "include" });
+  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+  return response.text();
+}
+
 export async function runWebStep(step: Step) {
-  return executeWebStep(await cdpFor(await automationTab()), step);
+  return executeWebStep(await cdpFor(await automationTab()), step, { fetchText });
 }
 
 export async function runPageCheck(check: Check, timeoutMs: number): Promise<boolean> {
