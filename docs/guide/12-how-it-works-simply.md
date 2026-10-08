@@ -115,7 +115,7 @@ What macOS reports, and what becomes a replay step today:
 | **Normalise** | tidies it up: 30 keystrokes become one "type 8"; a click that only focused a field disappears | no, only in memory |
 | **Compile** | turns tidy steps into a skill: which channel, what to find, what may change next time. Code does it all; the AI model, if set up, adds meaning | no, only in memory |
 | **Questions** | asked in the terminal: "which file next time?", "describe this task" | no |
-| **Skill** | the finished recipe | **yes**: `skills/<id>/v1.json` |
+| **Skill** | the finished recipe, with its own id: a name plus a random tag, e.g. `upload-invoice-k3f9q2`. Recording the same task again makes a new skill, never a version of the old one. | **yes**: `skills/<id>/v1.json` |
 
 All files are in `~/Library/Application Support/TaskPlayer/`.
 
