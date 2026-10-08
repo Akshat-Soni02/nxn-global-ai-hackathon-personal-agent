@@ -1,5 +1,7 @@
 # 08 · FAQ: the naive questions that come up while building this
 
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+
 Each answer is short and points to the file that holds the detail. Evidence labels are the same as in [00](00-start-here.md#how-claims-are-labelled).
 
 ## Browser and identity

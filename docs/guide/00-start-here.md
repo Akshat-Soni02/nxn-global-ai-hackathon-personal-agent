@@ -1,5 +1,7 @@
 # Task Player: the guide
 
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+
 > Written 1 Oct 2026 (Thursday, Sprint 2, day 3 of 7) against commit `351a7ea`.
 > Built from four sources, in this order of trust:
 > 1. **the code** in this repo, read file by file and run where possible;

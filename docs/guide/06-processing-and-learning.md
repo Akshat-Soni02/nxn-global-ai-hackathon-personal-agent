@@ -1,5 +1,7 @@
 # 06 · Processing with models, and what "learning the new UI" means
 
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+
 ## Q1 · Processing the input with a model
 
 > *"processing the input using some ml model back of the hood , extracting metadata from the screenrecording basically its instructions that can be replayable"*

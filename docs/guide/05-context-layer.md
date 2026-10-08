@@ -1,5 +1,7 @@
 # 05 · The context layer: your part, stage by stage
 
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+
 > *"there are many implementation stuff left + thinking about my part (context layer). many questions revolve that i have asked about the context layer."*
 >
 > Sprint 2 in the sheet: *"[Rushil] - Capture user input - Process input - extract info so that it is replayable in future"*. Carryover: *"Action Item - Pass structrued output required in Input flow"*.

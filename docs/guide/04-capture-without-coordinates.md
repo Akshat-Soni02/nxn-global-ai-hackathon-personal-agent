@@ -1,5 +1,7 @@
 # 04 · Capturing clicks and objects without coordinates
 
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+
 > *"How the screen recording will capture the objects, clicks, actions ? it should not be dependent on x and y coordinates as windows resizes then what and how to capture it in a smart way ?"*
 
 ## The short answer

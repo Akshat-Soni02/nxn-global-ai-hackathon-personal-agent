@@ -5,74 +5,55 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 
 ## How it works
 
-Design doc: [`docs/design.md`](docs/design.md) (snapshot) · [live doc](https://claude.ai/code/artifact/bb2b5b8e-9038-4eed-af7c-e9067173767a) (team only)
+Full design: [`docs/design.md`](docs/design.md). **Status:** the design below was adopted on Oct 8, 2026; the code still implements the earlier flat-skill flow ([status table](docs/design.md#status-design-vs-code)).
 
-![Architecture](docs/architecture.png)
-
+```mermaid
+flowchart LR
+  D["Describe"] --> R["Record<br/>events + screenshots + voice"]
+  R --> U["Understand<br/>(LLM)"]
+  U --> Q["Drill"]
+  Q --> T["Workflow tree"]
+  T --> E["Edit + approvals"]
+  E --> H["Test<br/>(highlight only)"]
+  H --> P["Run"]
+  P -- "a step fails" --> G["Debug<br/>self-correct"]
+  G -- "new version" --> T
 ```
-Menu-bar daemon (always on: triggers, skill store, memory, LLM layer, run log, recording sessions)
-   ├── Mac actuator ── fs / AppleScript / Shortcuts first, Accessibility (AX) post-v1
-   └── Unix socket
-         ↕
-       native-host shim (Chrome launches it; forwards bytes only)
-         ↕ native messaging
-       Chrome extension ── content script (record) + chrome.debugger (replay)
-```
 
-Why the shim: Chrome launches a *fresh* process for every native messaging connection, so it cannot attach to the always-on daemon directly. Only the extension can open the connection, so it connects on startup, keeps the port open and reconnects with backoff.
+1. **Describe.** The user fills in a short form: **Goal**, **Frequency** (a dropdown that becomes the trigger), **What changes each run**, **What stays the same** and, optionally, **Never** (lists are comma-separated). Placeholder text explains each field, because these answers are what separate variables from constants.
+2. **Record.** The user does the task their usual way while Task Player records three streams on one clock:
+    - **events** in Chrome, Mac apps and Finder;
+    - **a screenshot at each event**: only the active window, downscaled, sensitive fields blacked out. Screenshots stay on the Mac and need macOS's Screen Recording permission.
+    - **optional voice narration**: transcribed on the Mac and timestamped against the events. Audio never leaves the Mac.
+3. **Understand.** An LLM reads the description, events and transcript and drafts a **workflow**: a click on an email becomes "the newest email from this sender", changing values become variables, repetition becomes a loop.
+4. **Drill.** Questions only on the steps it is unsure about; answers go to memory.
+5. **Workflow tree.** The user sees the workflow as a tree. Each step is a browser or Mac action, or an **LLM step** that transforms data (summarise, classify, read a document). LLM steps never drive the UI. The tree also has **variables**, **loops** and **branches**, and any step can **ask the user** something before it runs.
+6. **Edit.** The user can change any step and toggle **human approval** on any step.
+7. **Test.** Play runs a **highlight-only** replay: it shows each target without acting. This mode may change.
+8. **Run.** The exact tree the user saw runs from its trigger. Actions are deterministic; no model call unless an LLM step needs one or a step fails.
+9. **Debug and self-correct.** When a step fails, a debug step proposes a fix, the player verifies it, and the workflow is saved as a **new version**. Every version is kept; the user is notified and can roll back in one click.
 
-Record and replay are two modes over the **same channels**. Record writes a **skill**; replay reads it. The skill format (`packages/core/src/skill.ts`) is the contract between the two, and changes to it are agreed by both sides.
+**Components.** An always-on **daemon** (workflows, versions, triggers, memory, run log, the Nemotron client), **Task Player.app** (Record button, Mac app capture and replay through the Accessibility API, screenshots, voice), the **Chrome extension** (web capture and replay through `chrome.debugger` in the user's own Chrome) and a tiny **native-host shim** (Chrome launches a fresh process per native messaging connection, so the shim forwards bytes to the daemon's socket). The model is NVIDIA Nemotron on our own Nebius Serverless endpoint and receives text only.
 
-### Record
+**Memory.** Local SQLite in the daemon: drill answers, run context, and site notes from debug fixes. Never secrets.
 
-Turns one demonstration (or a natural-language description) into a parameterised skill.
+## Success metric: task coverage
 
-1. **Capture**: the user presses Record (the floating desktop button of Task Player.app; without it, the button Chrome shows on every page, or the extension's toolbar icon). The **daemon owns the session**: it watches the filesystem itself and tells the extension to capture web events if Chrome is running. A Mac-only task never needs Chrome; a mixed task becomes one trace ordered by timestamp.
-2. **Trace**: sensors write timestamped events, each with a snapshot of its target.
-   - Web pages: extension content script (click, input, change, submit, key presses, file-input change, navigation, frame/shadow-DOM path).
-   - Tabs and windows: extension background worker (`chrome.tabs`, `chrome.webNavigation`, `chrome.downloads`).
-   - Filesystem: daemon (FSEvents): files created, moved, renamed.
-   - Mac apps: Task Player.app (`apps/mac`) through the Accessibility API: the AX element under each click, a field's final value, shortcuts and menu paths; never raw coordinates or keystrokes (docs/guide/11-mac-apps.md).
-   - Natural language: daemon chat UI, instead of or alongside a trace.
-3. **Target snapshot** per event: role + accessible name, visible text/label/placeholder/`aria-*`/`id`/`data-testid`, nearby context (section heading, label), ranked fallback selectors (CSS, XPath), frame and shadow-root path, a cropped element screenshot, the URL.
-4. **Compile**: an LLM turns the trace into a skill, reading memory for known facts first:
-   - collapses noise (keystrokes → one `type` step, drops stray clicks),
-   - extracts parameters ("newest PDF in ~/Downloads", not a fixed path),
-   - picks the best channel per step (a Finder drag becomes a filesystem move),
-   - adds waits and success checks,
-   - marks risky steps (submit, pay, send, delete) as requiring approval.
-5. **Drill**: the compiler asks clarifying questions about anything ambiguous and saves durable answers to memory.
-6. **Dry run**: replay highlights each target without acting; the user confirms and the skill is saved.
+**Task coverage = the share of real workflows that work from a recording of a person doing them their usual way.** The workflows are the 15 in [`docs/examples.md`](docs/examples.md), written from the user's side (what they see, click, copy and type), not as a program would do them.
 
-Record must never store coordinates as the primary locator, never record password values (they become secret inputs), and never emit an action the replayer does not support.
+The test for each one: someone who normally does the task does it while Task Player records, with no instructions on how. Then the next real occurrence runs by itself.
 
-### Replay
+- **1, done:** unattended from its trigger, correct result, three real occurrences in a row.
+- **0.5, partly:** correct result when started by hand, possibly with the user doing one step or answering one question.
+- **0, not yet:** a core step fails, or a run gives a wrong result (for example a date from the recording replayed as is).
 
-Executes a skill through the cheapest channel that works, with no LLM call unless a step fails.
+Coverage is the sum of the scores divided by 15. Next to it we track the same scores for skills a developer writes by hand: the gap between the two is what recording and compiling still have to learn.
 
-**Channel preference**: API / CLI / filesystem / AppleScript → web via extension (`chrome.debugger`) → native app via AX (post-v1) → screenshot + vision model (last resort).
+| Date | Coverage (from a recording) | Hand-written skills | Biggest gaps |
+| --- | --- | --- | --- |
+| 2026-10-06 | **7%** (1 / 15) | 23% (3.5 / 15) | dates and values that should change but replay literally; "for each" from repeated actions; choosing by sight; text typed from memory; triggers |
 
-**Per-step loop**
-
-1. **Resolve inputs**: fill `{{inputs.*}}` (e.g. find the newest matching file).
-2. **Wait**: poll the precondition (element present and enabled, network idle, URL matches) with a timeout.
-3. **Match deterministically**: score candidates by role + name → label / nearby text → fallback selectors; accept one clear winner above a threshold.
-4. **Approve**: pause for the user if the step requires approval.
-5. **Act**: trusted CDP input (`Input.dispatchMouseEvent`, `Input.insertText`); uploads via `DOM.setFileInputFiles` so no native Open dialog appears.
-6. **Verify**: check the postcondition.
-7. **Retry**: re-observe (dismiss known banners, wait longer) up to `on_fail.retries`.
-8. **Agent fallback**: send the LLM the step's intent, the stored target snapshot, relevant memory and the current page; it returns a new target or short action sequence, which goes through act + verify.
-9. **Escalate**: if the agent fails, pause and ask the user, showing where it stopped.
-
-**Learn-back**: when an agent fix passes verification, propose a new skill version with the updated locator (old one kept as fallback). This is how drift handling improves over time.
-
-**Background**: web runs in a dedicated, minimisable Chrome window. Steps that need the foreground (AX, vision) are grouped into a short "taking over" session with a notification first.
-
-**Run log**: every step's channel, matched target, match score, action, check result, retries and agent calls.
-
-### Memory
-
-A local store (SQLite in the daemon) of facts, preferences, run context and site notes. The compiler and the agent read it; drill answers, `extract` steps and learn-back write to it. Never stores secrets.
+Today's values are **estimated by reading the code**, which still implements the old flat-skill flow: they are the baseline the new workflow design is measured against. Nobody has recorded these workflows yet. To measure them, have a person who really does the workflow fill in the description and record it (narrating if they like), keep the recording in `fixtures/traces/`, and replay on the next occurrence.
 
 ## Repository Guide
 
@@ -81,14 +62,15 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 ```
 .
 ├── packages/
-│   ├── core/          # JOINT   skill schema (zod), element descriptor, extension↔daemon messages
+│   ├── core/          # JOINT   skill schema (zod; to become the workflow tree), element descriptor, extension↔daemon messages
 │   ├── llm/           # JOINT   Nemotron client for our Nebius Serverless endpoint (OpenAI-compatible)
 │   ├── memory/        # JOINT   persistent memory store (interface now, SQLite later)
 │   ├── ipc/           # JOINT   length-prefixed framing (native messaging + daemon socket), socket path
-│   ├── recorder/      # RECORD  trace normaliser, compiler, drill questions
-│   └── player/        # REPLAY  step loop, matcher, channels, agent fallback, learn-back
+│   ├── recorder/      # RECORD  trace normaliser, compiler, drill questions (to become: understand → workflow tree)
+│   └── player/        # REPLAY  step loop, matcher, channels (to gain: workflow interpreter, debug + versions)
 ├── apps/
 │   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
+│   ├── mac/           # Task Player.app (Swift): Record button, Mac app capture and replay via Accessibility
 │   ├── native-host/   # shim Chrome launches: pipes native messaging <-> the daemon's Unix socket
 │   └── daemon/        # always-on Node daemon: socket server, recording sessions, skill store, triggers, fs/script channels
 ├── skills/real/       # 5 replay test skills against real sites (see skills/real/README.md)
@@ -96,7 +78,7 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 │   ├── pages/         # local test pages, including a "drifted" redesign
 │   └── snapshots/     # saved copies of the real pages; tests check every locator against them
 ├── scripts/           # fixture server, native host installer, sandbox seeder, page snapshots
-├── docs/              # design doc snapshot, architecture diagram, research notes
+├── docs/              # design.md (current design), examples.md (15 real workflows), guide/ (earlier notes)
 └── .github/           # CI (lint, typecheck, test, build) and CODEOWNERS template
 ```
 
@@ -111,6 +93,8 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 Workspace packages are consumed as TypeScript source (no build step); only the extension and the native host are bundled (esbuild).
 
 ## Running Guide
+
+> These steps run the **current code**, which implements the earlier flat-skill flow (record → compile → `run`). The new workflow flow above is not built yet.
 
 **Prerequisites**: macOS, Node 22+, pnpm 10 (Node ships it through corepack: run `corepack enable pnpm` once), Google Chrome, and for Mac apps the Xcode command line tools (`swiftc`; `xcode-select --install`).
 
