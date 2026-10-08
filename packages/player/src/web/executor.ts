@@ -1,6 +1,6 @@
 // Executes one web step against one tab: wait -> match -> act -> verify. Runs in the extension (chrome.debugger)
 // or, for development, against a debug-port Chrome. Templates are already resolved by the daemon.
-import type { Locator, Step } from "@taskplayer/core";
+import type { Locator, ActionStep as Step } from "@taskplayer/core";
 import { wrongKind } from "@taskplayer/core/accept";
 import type { StepResult } from "../types.ts";
 import { type Cdp, callOn, evaluate, pollUntil, type RemoteObject, sleep } from "./cdp.ts";

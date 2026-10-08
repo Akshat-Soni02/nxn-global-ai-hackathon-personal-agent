@@ -5,7 +5,7 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 
 ## How it works
 
-Full design: [`docs/design.md`](docs/design.md). **Status:** the design below was adopted on Oct 8, 2026; the code still implements the earlier flat-skill flow ([status table](docs/design.md#status-design-vs-code)).
+Full design: [`docs/design.md`](docs/design.md). **Status:** the design below was adopted on Oct 8, 2026. The skill format is migrated to the workflow tree; most of the flow is not built yet ([status table](docs/design.md#status-design-vs-code)).
 
 ```mermaid
 flowchart LR
@@ -94,7 +94,7 @@ Workspace packages are consumed as TypeScript source (no build step); only the e
 
 ## Running Guide
 
-> These steps run the **current code**, which implements the earlier flat-skill flow (record → compile → `run`). The new workflow flow above is not built yet.
+> These steps run the **current code**: record → compile → `run`. Skills use the new workflow format, but the player runs only top-level action and llm steps for now; loops, branches and asks come with the workflow interpreter.
 
 **Prerequisites**: macOS, Node 22+, pnpm 10 (Node ships it through corepack: run `corepack enable pnpm` once), Google Chrome, and for Mac apps the Xcode command line tools (`swiftc`; `xcode-select --install`).
 

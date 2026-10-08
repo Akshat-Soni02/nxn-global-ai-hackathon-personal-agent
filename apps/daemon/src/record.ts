@@ -7,7 +7,7 @@ import { isAbsolute, sep } from "node:path";
 import type { Skill, TraceEvent } from "@taskplayer/core";
 import { chat, configFromEnv } from "@taskplayer/llm";
 import type { MemoryStore } from "@taskplayer/memory";
-import { type Chat, compile, drill, normalise, type Prompter, settleDataSteps } from "@taskplayer/recorder";
+import { type Chat, compile, drill, normalise, type Prompter } from "@taskplayer/recorder";
 import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
 import { saveSkill, versions } from "./skill-store.ts";
@@ -117,7 +117,7 @@ export async function finishRecording(
   for (const problem of drilled.problems) log("answer not applied:", problem);
 
   // A per-run AI step you declined in the drill goes back to its free rule.
-  const saved = saveSkill(dataDir, settleDataSteps(drilled.skill));
+  const saved = saveSkill(dataDir, drilled.skill);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
   return saved;
 }

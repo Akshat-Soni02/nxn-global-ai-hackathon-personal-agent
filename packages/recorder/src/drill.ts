@@ -55,6 +55,18 @@ export function applyAnswer(
     return { ok: false, error: `${question.appliesTo} can't be set by an answer` };
 
   let node = copy;
+  // "steps.s3" with an object answer replaces the whole step (keep an llm step, or the recorded rule instead).
+  if (keys[0] === "steps" && keys.length === 2) {
+    const steps = copy.steps as { id: string }[];
+    const index = steps.findIndex((s) => s.id === keys[1]);
+    const value = valueFor(question, answer, undefined);
+    if (index < 0) return { ok: false, error: `no step ${keys[1]}` };
+    if (typeof value !== "object" || value === null) return { ok: false, error: `${question.appliesTo} needs a step` };
+    steps[index] = JSON.parse(JSON.stringify(value));
+    const parsed = Skill.safeParse(copy);
+    if (parsed.success) return { ok: true, skill: parsed.data };
+    return { ok: false, error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+  }
   // "steps.s3.requires_approval" addresses a step by its id; "steps.2.x" by its position.
   if (keys[0] === "steps" && keys.length > 2) {
     const steps = copy.steps as { id: string }[];

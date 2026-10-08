@@ -1,6 +1,6 @@
 // The per-skill loop. Runs in the daemon. Web steps are sent to the browser (deps.web);
 // fs and script steps run locally. See "Replay" in the design doc.
-import type { Check, Skill, Step } from "@taskplayer/core";
+import { type ActionStep, type Check, isAction, isLlm, type Skill, type Step } from "@taskplayer/core";
 import { resolveTemplates } from "./template.ts";
 import type { RunContext, RunDeps, RunOutcome, StepResult } from "./types.ts";
 
@@ -37,6 +37,11 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
   log({ type: "run.start", runId: ctx.runId, skillId: skill.id, version: skill.version, inputs: ctx.inputs });
 
   for (const step of skill.steps) {
+    // TODO(player): the workflow interpreter (loops, branches, asks) replaces this flat loop next.
+    if (step.type === "control" || step.ask) {
+      const what = step.type === "control" ? `${step.kind} steps` : "asks";
+      return end({ status: "failed", vars: ctx.vars, failedStep: step.id, error: `${what} are not supported yet` });
+    }
     let resolved: Step;
     try {
       resolved = resolveTemplates(step, ctx, now());
@@ -50,12 +55,17 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
       if (!approved) return end({ status: "denied", vars: ctx.vars, failedStep: step.id });
     }
 
-    const attempts = 1 + (resolved.on_fail?.retries ?? 0);
+    const attempts = 1 + (isAction(resolved) ? (resolved.on_fail?.retries ?? 0) : 0);
     let result: StepResult = { ok: false, error: "not run" };
     for (let attempt = 1; attempt <= attempts; attempt++) {
-      log({ type: "step.start", stepId: step.id, channel: step.channel, action: step.action, attempt });
+      const [channel, action] = isAction(resolved) ? [resolved.channel, resolved.action] : ["llm", "transform"];
+      log({ type: "step.start", stepId: step.id, channel, action, attempt });
       const t0 = Date.now();
-      result = await executeOnce(resolved, ctx, deps);
+      result = isAction(resolved)
+        ? await executeOnce(resolved, ctx, deps)
+        : isLlm(resolved) && deps.llm
+          ? await deps.llm(resolved, ctx).catch((error: Error) => ({ ok: false, error: error.message }))
+          : { ok: false, error: "llm steps need a model client" };
       log({ type: "step.result", stepId: step.id, attempt, result, ms: Date.now() - t0 });
       if (result.ok) break;
     }
@@ -64,7 +74,7 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
       // TODO(player): agent fallback (on_fail.fallback === "agent") goes here; until then every failure escalates.
       return end({ status: "failed", vars: ctx.vars, failedStep: step.id, error: result.error ?? "check failed" });
     }
-    if (resolved.save_as) ctx.vars[resolved.save_as] = result.value;
+    if ((isAction(resolved) || isLlm(resolved)) && resolved.save_as) ctx.vars[resolved.save_as] = result.value;
   }
 
   for (const check of resolveTemplates(skill.success, ctx, now())) {
@@ -80,7 +90,7 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
   return end({ status: "succeeded", vars: ctx.vars });
 }
 
-async function executeOnce(step: Step, ctx: RunContext, deps: RunDeps): Promise<StepResult> {
+async function executeOnce(step: ActionStep, ctx: RunContext, deps: RunDeps): Promise<StepResult> {
   const channel =
     step.channel === "web"
       ? deps.web

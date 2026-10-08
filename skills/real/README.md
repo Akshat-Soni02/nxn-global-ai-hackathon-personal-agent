@@ -1,6 +1,6 @@
 # Real skills
 
-> **Old format.** These are flat skills (`packages/core/src/skill.ts`), the format before the Oct 8 workflow pivot. They will be rewritten as workflows once the workflow format lands (milestone 1 in [design.md](../../docs/design.md#build-order)); the sites and the sandbox stay the same.
+> **Workflow format** (Oct 8): each skill has a `name`, a `description` (goal, changes, constants, never), typed steps (`"type": "action"`) and a `history`. None uses loops, branches or llm steps yet.
 
 Five hand-written skills against real, public test sites, used as the replay team's test suite.
 Each web target is checked against a saved snapshot of its page by `skills/real/skills.test.ts`.

@@ -1,28 +1,58 @@
 {
   "id": "hn-digest",
+  "name": "Hacker News digest",
   "version": 1,
-  "intent": "Save today's top 5 Hacker News stories as a Markdown digest and open it in TextEdit",
-  "triggers": [{ "type": "manual" }, { "type": "schedule", "cron": "30 8 * * *" }],
+  "description": {
+    "goal": "Today's top 5 Hacker News stories are saved as a Markdown digest and open in TextEdit",
+    "changes": ["the stories", "the date"],
+    "constants": ["news.ycombinator.com", "top 5", "~/TaskPlayerTest/digests"],
+    "never": []
+  },
+  "triggers": [
+    {
+      "type": "manual"
+    },
+    {
+      "type": "schedule",
+      "cron": "30 8 * * *"
+    }
+  ],
   "steps": [
     {
       "id": "s1",
+      "type": "action",
       "intent": "Open the Hacker News front page",
       "channel": "web",
       "action": "navigate",
-      "args": { "url": "https://news.ycombinator.com/" },
-      "check": { "text_visible": "Hacker News" }
+      "args": {
+        "url": "https://news.ycombinator.com/"
+      },
+      "check": {
+        "text_visible": "Hacker News"
+      }
     },
     {
       "id": "s2",
+      "type": "action",
       "intent": "Collect the first 5 story titles with their links",
       "channel": "web",
       "action": "extract",
-      "target": { "role": "link", "near": "story title", "fallbacks": ["tr.athing span.titleline > a"] },
-      "args": { "all": true, "limit": 5, "each": "- [{{text}}]({{href}})", "join": "\n" },
+      "target": {
+        "role": "link",
+        "near": "story title",
+        "fallbacks": ["tr.athing span.titleline > a"]
+      },
+      "args": {
+        "all": true,
+        "limit": 5,
+        "each": "- [{{text}}]({{href}})",
+        "join": "\n"
+      },
       "save_as": "stories"
     },
     {
       "id": "s3",
+      "type": "action",
       "intent": "Write the digest file",
       "channel": "fs",
       "action": "write",
@@ -30,10 +60,13 @@
         "path": "~/TaskPlayerTest/digests/hn-{{today}}.md",
         "content": "# Hacker News top 5, {{today}}\n\n{{vars.stories}}\n"
       },
-      "check": { "file_exists": "~/TaskPlayerTest/digests/hn-{{today}}.md" }
+      "check": {
+        "file_exists": "~/TaskPlayerTest/digests/hn-{{today}}.md"
+      }
     },
     {
       "id": "s4",
+      "type": "action",
       "intent": "Open the digest in TextEdit",
       "channel": "script",
       "action": "applescript",
@@ -42,5 +75,17 @@
       }
     }
   ],
-  "success": [{ "file_exists": "~/TaskPlayerTest/digests/hn-{{today}}.md" }]
+  "success": [
+    {
+      "file_exists": "~/TaskPlayerTest/digests/hn-{{today}}.md"
+    }
+  ],
+  "history": [
+    {
+      "version": 1,
+      "by": "user",
+      "summary": "Hand-written test skill",
+      "at": "2026-10-02T10:00:00Z"
+    }
+  ]
 }

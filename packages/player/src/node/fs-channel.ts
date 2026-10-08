@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { appendFile, copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import type { Step } from "@taskplayer/core";
+import type { ActionStep as Step } from "@taskplayer/core";
 import type { RunContext, StepResult } from "../types.ts";
 import { expandHome, findFiles, poll } from "./paths.ts";
 

@@ -1,46 +1,93 @@
 {
   "id": "download-and-file",
+  "name": "Download and file",
   "version": 1,
-  "intent": "Download File 1 from Selenium's test downloads page and file it under today's date in the sandbox",
-  "triggers": [{ "type": "manual" }, { "type": "schedule", "cron": "0 9 * * 1-5" }],
+  "description": {
+    "goal": "File 1 from Selenium's test downloads page is saved under today's date in the sandbox",
+    "changes": ["the date in the file name", "Chrome's suffix on the download"],
+    "constants": ["the Selenium downloads page", "File 1", "~/TaskPlayerTest/downloads"],
+    "never": []
+  },
+  "triggers": [
+    {
+      "type": "manual"
+    },
+    {
+      "type": "schedule",
+      "cron": "0 9 * * 1-5"
+    }
+  ],
   "steps": [
     {
       "id": "s1",
+      "type": "action",
       "intent": "Open the downloads page",
       "channel": "web",
       "action": "navigate",
-      "args": { "url": "https://www.selenium.dev/selenium/web/downloads/download.html" },
-      "check": { "text_visible": "Downloads" }
+      "args": {
+        "url": "https://www.selenium.dev/selenium/web/downloads/download.html"
+      },
+      "check": {
+        "text_visible": "Downloads"
+      }
     },
     {
       "id": "s2",
+      "type": "action",
       "intent": "Start downloading File 1",
       "channel": "web",
       "action": "click",
       "target": {
         "role": "link",
         "name": "File 1",
-        "attrs": { "id": "file-1", "href": "file_1.txt" },
+        "attrs": {
+          "id": "file-1",
+          "href": "file_1.txt"
+        },
         "fallbacks": ["#file-1", "a[href='file_1.txt']"]
       }
     },
     {
       "id": "s3",
+      "type": "action",
       "intent": "Wait for the finished download in ~/Downloads (Chrome may add a suffix like ' (1)')",
       "channel": "fs",
       "action": "find",
-      "args": { "dir": "~/Downloads", "glob": "file_1*.txt", "pick": "newest", "since_run_start": true },
+      "args": {
+        "dir": "~/Downloads",
+        "glob": "file_1*.txt",
+        "pick": "newest",
+        "since_run_start": true
+      },
       "save_as": "downloaded",
       "timeout_ms": 30000
     },
     {
       "id": "s4",
+      "type": "action",
       "intent": "Move it into the sandbox, named by today's date",
       "channel": "fs",
       "action": "move",
-      "args": { "from": "{{vars.downloaded}}", "to": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt" },
-      "check": { "file_exists": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt" }
+      "args": {
+        "from": "{{vars.downloaded}}",
+        "to": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt"
+      },
+      "check": {
+        "file_exists": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt"
+      }
     }
   ],
-  "success": [{ "file_exists": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt" }]
+  "success": [
+    {
+      "file_exists": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt"
+    }
+  ],
+  "history": [
+    {
+      "version": 1,
+      "by": "user",
+      "summary": "Hand-written test skill",
+      "at": "2026-10-02T10:00:00Z"
+    }
+  ]
 }

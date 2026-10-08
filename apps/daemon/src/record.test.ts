@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, utime
 import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { Skill } from "@taskplayer/core";
+import { isAction, Skill } from "@taskplayer/core";
 import { createDecoder, encode } from "@taskplayer/ipc";
 import { afterEach, describe, expect, it } from "vitest";
 import { chooseFiles, cleanPath, givenInputs, splitArgs } from "./choose-file.ts";
@@ -53,14 +53,15 @@ describe("skill store", () => {
     const skill = Skill.parse({
       id: "demo",
       version: 1,
-      intent: "first",
-      steps: [{ id: "s1", intent: "x", channel: "web", action: "navigate" }],
+      name: "first",
+      description: { goal: "first" },
+      steps: [{ id: "s1", type: "action", intent: "x", channel: "web", action: "navigate" }],
     });
     const v1 = saveSkill(dir, skill);
-    const v2 = saveSkill(dir, { ...skill, intent: "second" });
+    const v2 = saveSkill(dir, { ...skill, name: "second" });
     expect([v1.skill.version, v2.skill.version, versions(dir, "demo")]).toEqual([1, 2, [1, 2]]);
-    expect(JSON.parse(readFileSync(v1.path, "utf8")).intent).toBe("first");
-    expect(loadSkill(dir, "demo")?.intent).toBe("second"); // the highest version is the active one
+    expect(JSON.parse(readFileSync(v1.path, "utf8")).name).toBe("first");
+    expect(loadSkill(dir, "demo")?.name).toBe("second"); // the highest version is the active one
   });
 });
 
@@ -268,7 +269,7 @@ describe("record end to end", () => {
     ext.end();
     expect(asked).toEqual(["file-invoice", "dir-invoice", "intent"]); // which file next time, then where they arrive
     expect(saved?.skill).toMatchObject({ id: "upload-invoice", version: 1 });
-    expect(saved?.skill.steps.map((s) => s.action)).toEqual(["navigate", "upload", "click"]);
+    expect(saved?.skill.steps.map((s) => (isAction(s) ? s.action : s.type))).toEqual(["navigate", "upload", "click"]);
     expect(Skill.safeParse(JSON.parse(readFileSync(saved?.path ?? "", "utf8"))).success).toBe(true);
   });
 });
@@ -278,11 +279,13 @@ describe("choosing the file when a skill runs", () => {
     Skill.parse({
       id: "file-photo",
       version: 1,
-      intent: "File a photo",
+      name: "File a photo",
+      description: { goal: "File a photo" },
       inputs: { photo: { type: "file", resolve } },
       steps: [
         {
           id: "s1",
+          type: "action",
           intent: "Move the photo to ~/Desktop/rushil",
           channel: "fs",
           action: "move",

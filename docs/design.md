@@ -1,6 +1,6 @@
 # Task Player Design
 
-> **Updated Oct 8, 2026: the workflow pivot.** A task is now taught by **describing it and recording it** (with optional voice narration), turned into an **editable workflow tree** by an LLM, tested, and replayed with **self-correction**. This file is the source of truth. The earlier live design doc (Sep 30) describes the old flat-skill flow and is out of date. The code still implements that old flow: see [Status: design vs code](#status-design-vs-code).
+> **Updated Oct 8, 2026: the workflow pivot.** A task is now taught by **describing it and recording it** (with optional voice narration), turned into an **editable workflow tree** by an LLM, tested, and replayed with **self-correction**. This file is the source of truth. The earlier live design doc (Sep 30) describes the old flat-skill flow and is out of date. The skill format is migrated (Oct 8); most of the rest of the flow is not built yet: see [Status: design vs code](#status-design-vs-code).
 
 Task Player learns a work task from a description and one demonstration, shows the user the workflow it understood, lets them correct it, and then runs it for them, fixing itself when a site changes.
 
@@ -115,23 +115,20 @@ Debug proposes; the player executes. Debug never adds a step that sends, submits
 
 ## The workflow format
 
-The workflow replaces the flat skill as the contract between record and replay. It lives in `packages/core` (to be written; today's `skill.ts` is the old format). Everything a node can be:
+The skill is the contract between record and replay, and a skill **is** a workflow. Source of truth: `packages/core/src/skill.ts` (schema, plus the args of every action and the template grammar). The workflow replay receives is final: the drill happened at record time.
 
-| Node | What it does | Notes |
+**On the skill:** `id`, `name` (short, for lists and notifications), `version`, `description` `{ goal, changes[], constants[], never[] }` (the form; Frequency became `triggers`), `triggers`, `inputs`, `steps` (the tree), `success` (final checks) and `history` (one note per version: `by` record, user or debug, a summary and a time).
+
+**Every step** has `id` (unique across the tree), `type`, `intent` (what it is for: the editor shows it, debug relies on it), `requires_approval` and an optional `ask` (`{ question, kind: "value" | "confirm", save_as }`, asked before the step runs). Then by type:
+
+| `type` | What it does | Fields |
 | --- | --- | --- |
-| **action** | One step in the browser, a Mac app, files or a script | Today's `Step`: channel (`web`, `ax`, `fs`, `script`), action, target (a locator, never coordinates), args, checks |
-| **llm** | Transforms data: summarise, classify, read text or a document, compute | **Transform only**: inputs are variables, output is typed (text, number, date, list, object) and saved to a variable. It never drives the UI and never chooses targets |
-| **loop** | Runs its child steps for each item of a list variable | e.g. each email, row, file |
-| **branch** | Runs one set of children if a condition holds, another otherwise | Conditions compare variables (equals, contains, greater than, exists); a fuzzy condition is computed by an llm node first |
+| `action` | One step in the browser, a Mac app, files or a script | `channel` (`web`, `ax`, `fs`, `script`, `data`), `action`, `target` (a locator, never coordinates), `args`, `wait`, `check`, `save_as`, `timeout_ms`, `on_fail` |
+| `llm` | **Transform only**: summarise, classify, read text, compute. Never drives the UI, gets no tools | `instruction`, `inputs` (templates of the data it reads), `output` (`text`, `number`, `boolean`, `date`, `list` or `object`, with `fields` / `items`), `save_as` (required). The answer is checked against `output` |
+| `control`, `kind: "loop"` | Runs its `steps` for each item of a list | `over` (a template that resolves to a list), `as` (the item's name inside), `max_items` (100), `on_item_fail` (`stop` or `skip`), `steps` |
+| `control`, `kind: "branch"` | Runs its `steps` if a condition holds, its `else` steps otherwise | `if` (a comparison `{ left, op, right }` with `equals`, `not_equals`, `contains`, `greater_than`, `less_than`, `exists`, `not_exists`; or `all` / `any` / `not` of conditions), `steps`, `else`. No `then` key: an object with one is treated as a promise by `await` |
 
-**Variables** hold values that change between runs. They come from the description ("what changes each run"), the trigger (the file that appeared), an action step's result (`save_as`), an llm node's output, or the user.
-
-**On every step:**
-
-- **approval**: on or off, toggled in the editor;
-- **ask** (optional): ask the user for a value or a confirmation before the step runs, e.g. "What are you working on today?" for a standup.
-
-**On the workflow:** id, name, the description fields, the trigger (from Frequency), variables, the tree, and **version** history (who changed it: the user, the drill or debug, and a one-line summary of the change).
+**Variables** need no declaration. `inputs` are values from outside a run: the trigger's file, a default, a resolver like "newest PDF in ~/Downloads", each with the recorded `example`. Every step's result can be saved with `save_as` and read as `{{vars.name}}` (or `{{vars.name.field}}`); an `ask` saves the answer the same way; inside a loop the item is `{{<as>}}`. `{{today}}` is the date. Judgement that a rule cannot express is an `llm` step; `data.ai` is gone.
 
 ## Architecture
 
@@ -181,7 +178,7 @@ Local SQLite in the daemon: facts and preferences from drill answers, run contex
 
 ## Status: design vs code
 
-The code implements the earlier flow: record, then compile once into a **flat skill** (`packages/core/src/skill.ts`), then replay. Mapping to the new design:
+The skill format is migrated to the workflow tree (Oct 8). The recorder still produces flat skills (action steps, plus an llm step when the drill keeps one), and the player still runs top-level action and llm steps only. Mapping to the new design:
 
 | Part | In the code today | For the new design |
 | --- | --- | --- |
@@ -189,7 +186,9 @@ The code implements the earlier flow: record, then compile once into a **flat sk
 | Replay engine (matching, acting, waiting) | ✅ `packages/player`, extension, Task Player.app | Stays; called by the new interpreter |
 | Approvals, run log, memory, IPC, native host | ✅ | Stays; run log adds the version |
 | `data.pick` (rules over rows), `data.ai` (capped model call) | ✅ | `data.ai` becomes the **llm** node; `data.pick` stays as a data action |
-| Skill format | Flat list of steps | **Workflow tree**: variables, loop, branch, llm, ask, approval, versions |
+| Skill format | ✅ workflow tree in `skill.ts`: action, llm, loop, branch, ask, approval, history | Done |
+| Running loops, branches and asks | ❌ the run loop stops with "not supported yet" | The interpreter (next) |
+| llm steps | ✅ run at the top level (capped, cached, typed output) | Inside loops and branches with the interpreter |
 | Compile | Trace → skill, drill in the terminal | Description + trace + transcript → tree; drill on the tree |
 | Description form | ❌ | New |
 | Screenshots per event | ❌ (only cropped element images in web capture) | New |
