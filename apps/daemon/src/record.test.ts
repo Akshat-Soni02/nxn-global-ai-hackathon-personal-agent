@@ -10,7 +10,7 @@ import { type Daemon, startDaemon } from "./daemon.ts";
 import { classify, type FsChange, ignored, watchDirsFromEnv, watchFiles } from "./fs-watch.ts";
 import { locateFile, locateFiles } from "./locate-file.ts";
 import { finishRecording } from "./record.ts";
-import { loadSkill, saveSkill, versions } from "./skill-store.ts";
+import { findSkills, loadSkill, saveSkill, versions } from "./skill-store.ts";
 import { appendTrace, readTrace, tracePath } from "./trace-store.ts";
 
 const temp = () => mkdtempSync(join(tmpdir(), "tp-"));
@@ -267,9 +267,19 @@ describe("record end to end", () => {
     });
     ext.end();
     expect(asked).toEqual(["file-invoice", "dir-invoice", "intent"]); // which file next time, then where they arrive
-    expect(saved?.skill).toMatchObject({ id: "upload-invoice", version: 1 });
+    expect(saved?.skill.id).toMatch(/^upload-invoice-[a-z0-9]{6}$/);
+    expect(saved?.skill.version).toBe(1);
     expect(saved?.skill.steps.map((s) => s.action)).toEqual(["navigate", "upload", "click"]);
     expect(Skill.safeParse(JSON.parse(readFileSync(saved?.path ?? "", "utf8"))).success).toBe(true);
+
+    // The same recording compiled again is a new skill with its own id, never a version of the first one.
+    const again = await finishRecording(sessionId, { dataDir: home, log: () => {}, prompter: { ask: async () => "" } });
+    expect(again?.skill.id).toMatch(/^upload-invoice-[a-z0-9]{6}$/);
+    expect(again?.skill.id).not.toBe(saved?.skill.id);
+    expect(again?.skill.version).toBe(1);
+    // "run upload-invoice" now matches two skills, so it must name both rather than guess.
+    expect(findSkills(home, "upload-invoice").sort()).toEqual([saved?.skill.id, again?.skill.id].sort());
+    expect(findSkills(home, saved?.skill.id ?? "")).toEqual([saved?.skill.id]);
   });
 });
 

@@ -10,7 +10,7 @@ import type { MemoryStore } from "@taskplayer/memory";
 import { type Chat, compile, drill, normalise, type Prompter, settleDataSteps } from "@taskplayer/recorder";
 import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
-import { saveSkill, versions } from "./skill-store.ts";
+import { newSkillId, saveSkill } from "./skill-store.ts";
 import { appendTrace, readTrace } from "./trace-store.ts";
 
 type Log = (...args: unknown[]) => void;
@@ -98,18 +98,8 @@ export async function finishRecording(
   for (const warning of compiled.warnings) log(warning);
   if (compiled.model === "nemotron") log(`model answer accepted after ${compiled.attempts} attempt(s)`);
 
-  // Same id as a skill you already have: a new version of it, or a separate skill?
-  let skill = compiled.skill;
-  const existing = versions(dataDir, skill.id);
-  if (existing.length > 0) {
-    const answer = await options.prompter.ask({
-      id: "same-id",
-      text: `A skill called ${skill.id} already exists (v${existing.join(", v")}). Save this as its next version or as a new skill?`,
-      options: [{ label: "next version" }, { label: "new skill" }],
-      default: "next version",
-    });
-    if (/^(2|new skill)$/i.test(answer.trim())) skill = { ...skill, id: freeId(dataDir, skill.id) };
-  }
+  // Every recording is a new skill, even of a task you already have: its own id, so recordings never collide.
+  const skill = { ...compiled.skill, id: newSkillId(dataDir, compiled.skill.id) };
 
   if (compiled.questions.length > 0)
     log(`${compiled.questions.length} question(s) before saving. Enter takes the default.`);
@@ -158,11 +148,4 @@ export function chatFromEnv(env: Record<string, string | undefined> = process.en
       return chat(config, messages, { signal: AbortSignal.timeout(120_000) });
     }
   };
-}
-
-function freeId(dataDir: string, id: string): string {
-  for (let n = 2; ; n++) {
-    const candidate = `${id}-${n}`;
-    if (versions(dataDir, candidate).length === 0) return candidate;
-  }
 }

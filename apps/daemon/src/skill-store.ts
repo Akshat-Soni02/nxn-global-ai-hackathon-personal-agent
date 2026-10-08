@@ -1,6 +1,7 @@
-// Skill store: skills/<id>/v<N>.json. A version is never overwritten: a new recording of the same skill, or a fix
-// approved by replay's learn-back, becomes the next version and the older ones stay as history and fallbacks.
-// The highest version is the one replay runs.
+// Skill store: skills/<id>/v<N>.json. Every recording is a new skill with its own id, even when it is the same task
+// as one you already have (newSkillId), so two recordings never land in one skill. Versions are fixes to one skill
+// (replay's learn-back): a version is never overwritten, and the highest one is the one replay runs.
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Skill } from "@taskplayer/core";
@@ -49,4 +50,21 @@ export function listSkills(dataDir: string): { id: string; versions: number[]; i
     const latest = all.length > 0 ? loadSkill(dataDir, id) : undefined;
     return latest ? [{ id, versions: all, intent: latest.intent }] : [];
   });
+}
+
+// A readable name and a random tag: upload-invoice-k3f9q2. The tag is what keeps two recordings of the same task
+// apart; the name is what you recognise in "skills".
+export function newSkillId(dataDir: string, name: string): string {
+  for (;;) {
+    const tag = randomBytes(5).readUIntBE(0, 5).toString(36).padStart(6, "0").slice(-6);
+    const id = `${name}-${tag}`;
+    if (versions(dataDir, id).length === 0) return id;
+  }
+}
+
+// The skills a name you typed refers to: the one with exactly that id, else every skill whose id starts with it
+// ("run upload-invoice" finds upload-invoice-k3f9q2 when it is the only one).
+export function findSkills(dataDir: string, ref: string): string[] {
+  const all = listSkills(dataDir).map((s) => s.id);
+  return all.includes(ref) ? [ref] : all.filter((id) => id.startsWith(ref));
 }

@@ -24,7 +24,7 @@ import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
 import { askFromEnv, chatFromEnv, finishRecording } from "./record.ts";
 import { runSkillFile } from "./runner.ts";
-import { listSkills, skillDir, versions } from "./skill-store.ts";
+import { findSkills, listSkills, skillDir, versions } from "./skill-store.ts";
 import { listTraces } from "./trace-store.ts";
 
 // NEBIUS_BASE_URL, NEBIUS_API_KEY and NEMOTRON_MODEL from the repo's .env, if there is one (see .env.example).
@@ -139,24 +139,30 @@ function printRun(e: RunLogEvent) {
   if (e.type === "run.end") log(`■ ${e.status} in ${e.ms} ms${e.error ? `: ${e.error}` : ""}`);
 }
 
-// A recorded skill by id (its latest version in the skill store), or a skill file by path.
-function skillFile(ref: string): string | undefined {
+// A recorded skill by its id, or by the start of it when only one skill matches (run upload-invoice finds
+// upload-invoice-k3f9q2), at its latest version; or a skill file by path.
+function skillFile(ref: string): { file?: string; why?: string } {
   const asPath = resolve(userCwd, ref);
-  if (ref.endsWith(".json") && existsSync(asPath)) return asPath;
-  try {
-    const latest = versions(home, ref).at(-1);
-    return latest === undefined ? undefined : join(skillDir(home, ref), `v${latest}.json`);
-  } catch {
-    return undefined; // not a valid skill id
-  }
+  if (ref.endsWith(".json") && existsSync(asPath)) return { file: asPath };
+  const found = findSkills(home, ref);
+  if (found.length > 1)
+    return { why: `${found.length} skills start with ${ref}: ${found.join(", ")}. Type the whole id.` };
+  const id = found[0];
+  const latest = id === undefined ? undefined : versions(home, id).at(-1);
+  if (id === undefined || latest === undefined) return { why: `no skill ${ref} (see "skills")` };
+  // A skill saved before ids got their tag is named exactly what you typed; newer recordings of it are not run.
+  const newer = id === ref ? listSkills(home).filter((s) => s.id.startsWith(`${ref}-`)) : [];
+  if (newer.length > 0)
+    log(`running ${ref}; also recorded: ${newer.map((s) => s.id).join(", ")} (type the whole id to run one)`);
+  return { file: join(skillDir(home, id), `v${latest}.json`) };
 }
 
 async function run(args: string[]) {
   const [ref, ...given] = args;
   if (!ref) return log("usage: run <skill-id | skill.json> [name=value ... | path]");
   if (running) return log("a run is already in progress");
-  const file = skillFile(ref);
-  if (!file) return log(`no skill ${ref} (see "skills")`);
+  const { file, why } = skillFile(ref);
+  if (!file) return log(why);
   running = true;
   try {
     // Which files to use, settled before the first step: given with the command, else asked here (Enter takes the
