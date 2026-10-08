@@ -124,6 +124,62 @@ describe("normalise", () => {
     expect(steps[1]?.navigatesTo).toBe("https://portal.example/billing");
   });
 
+  it("checks the page a click leads to by its name, not by the map position or ids of that one visit", async () => {
+    const place =
+      "https://www.google.com/maps/place/The+Rameshwaram+Cafe+Pune/@18.5629189,73.9159205,945m/data=!3m2!1e3!4b1";
+    const route = "https://www.google.com/maps/dir/18.5809595,73.7354437/The+Rameshwaram+Cafe+Pune/@18.57,73.82,13z";
+    const doc = "https://docs.google.com/document/d/1YBEtjYmbo_T7iWVx5de37OxoQ2kZ/edit";
+    const link = (name: string) => ({ ...submitButton, role: "link", name, url: "https://www.google.com/maps" });
+    const steps = normalise([
+      ev("navigate", 0, { url: "https://www.google.com/maps/@18.57,73.73,3782m/data=!3m1!1e3", transition: "typed" }),
+      ev("click", 5_000, { url: "https://www.google.com/maps", target: link("Rameshwaram Cafe") }),
+      ev("navigate", 5_500, { url: place, transition: "link" }),
+      ev("click", 9_000, { url: place, target: link("Directions") }),
+      ev("navigate", 9_500, { url: route, transition: "link" }),
+      ev("click", 13_000, { url: route, target: link("Open doc") }),
+      ev("navigate", 13_500, { url: doc, transition: "link" }),
+    ]);
+    const { skill } = await compile(steps, {});
+    expect(skill.steps.map((s) => s.check?.url_matches)).toEqual([
+      "/maps/",
+      "/maps/place/The+Rameshwaram+Cafe+Pune/",
+      "/maps/dir/",
+      "/document/d/",
+    ]);
+  });
+
+  it("opens where a link took you instead of finding the link again (feeds and previews change)", async () => {
+    const home = "https://www.youtube.com/";
+    const watch = "https://www.youtube.com/watch?v=sldH1dKWu78&list=RDsldH1dKWu78";
+    const preview = {
+      ...submitButton,
+      tag: "a",
+      role: "link",
+      name: "Akcent - Stay with Me (Lyrics)",
+      text: "Tap to unmute",
+      url: home,
+      attrs: { id: "media-container-link", href: "/watch?v=sldH1dKWu78&list=RDsldH1dKWu78&pp=oAcB" },
+    };
+    const scripted = { ...preview, name: "Menu", text: "Menu", attrs: { href: "#" } };
+    const steps = normalise([
+      ev("navigate", 0, { url: home, transition: "typed" }),
+      ev("click", 5_000, { url: home, target: preview }),
+      ev("navigate", 5_400, { url: watch, transition: "link" }),
+      ev("click", 9_000, { url: watch, target: scripted }),
+      ev("navigate", 9_300, { url: "https://www.youtube.com/feed/library", transition: "link" }),
+    ]);
+    const { skill } = await compile(steps, {});
+    expect(skill.steps.map((s) => [s.action, s.args])).toEqual([
+      ["navigate", { url: home }],
+      ["navigate", { url: watch }],
+      ["click", {}], // "#" is a script, not an address: the link is found and clicked
+    ]);
+    expect(skill.steps[1]).toMatchObject({
+      intent: "Open 'Akcent - Stay with Me (Lyrics)'",
+      check: { url_matches: "/watch" },
+    });
+  });
+
   it("starts from the page you went to, not a new tab page replay can't open", async () => {
     const result = { ...submitButton, url: "https://www.google.com/search?q=docs", name: "Google Docs", role: "link" };
     const steps = normalise([

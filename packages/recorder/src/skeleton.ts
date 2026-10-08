@@ -134,7 +134,7 @@ interface Context {
 function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, files }: Context): StepDraft {
   const target = step.target && toLocator(step.target);
   const what = describe(step);
-  const leadsTo = step.navigatesTo ? { url_matches: pathOf(step.navigatesTo) } : undefined;
+  const leadsTo = step.navigatesTo ? { url_matches: pagePath(step.navigatesTo) } : undefined;
   switch (step.kind) {
     case "navigate":
       return {
@@ -143,9 +143,21 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
         channel: "web",
         action: "navigate",
         args: { url: step.url },
-        check: { url_matches: pathOf(step.navigatesTo ?? step.url) },
+        check: { url_matches: pagePath(step.navigatesTo ?? step.url) },
       };
-    case "click":
+    case "click": {
+      // A link is an address: open where it led rather than find the link again. Feeds, search results and hover
+      // previews (YouTube's home page) show different links on every visit; the page you went to is still there.
+      const opened = !isRisky(step) && linkDestination(step);
+      if (opened)
+        return {
+          id,
+          intent: `Open ${what}`,
+          channel: "web",
+          action: "navigate",
+          args: { url: opened },
+          check: { url_matches: pagePath(opened) },
+        };
       return {
         id,
         intent: step.checked === undefined ? `Click ${what}` : `${step.checked ? "Tick" : "Untick"} ${what}`,
@@ -156,6 +168,7 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
         check: leadsTo,
         requires_approval: isRisky(step),
       };
+    }
     case "type": {
       if (step.pasted) {
         // Pasted from this recording's copy: the saved value. Pasted from elsewhere: not recorded, so ask for it.
@@ -522,6 +535,33 @@ function pathOf(url: string | undefined): string {
   } catch {
     return url ?? "";
   }
+}
+
+// Where a link click took you, when that is where the link points (same site and path): the link's own address,
+// not a script behind it.
+function linkDestination(step: NormalisedStep): string | undefined {
+  const href = step.target?.attrs?.href;
+  if (!step.navigatesTo || step.checked !== undefined || step.target?.role !== "link" || !href) return undefined;
+  try {
+    const link = new URL(href, step.url);
+    const went = new URL(step.navigatesTo);
+    if (!/^https?:$/.test(went.protocol)) return undefined;
+    return link.origin === went.origin && link.pathname === went.pathname ? step.navigatesTo : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// The part of an address that names the page, not this visit, for a url_matches check. A map's position and zoom
+// (@18.56,73.91,945m), its data= blob, coordinates (where you were) and long generated ids differ on every visit, or
+// with the window's size, so the check stops before the first of them:
+//   /maps/place/The+Rameshwaram+Cafe+Pune/@18.56,73.91,945m/data=!3m2  ->  /maps/place/The+Rameshwaram+Cafe+Pune/
+//   /maps/dir/18.58,73.73/The+Rameshwaram+Cafe+Pune/...                 ->  /maps/dir/
+const CHANGES_EACH_VISIT = /^@|^data=|^-?\d+(\.\d+)?,-?\d+(\.\d+)?|^(?=[\w-]*\d)[\w-]{20,}$/;
+function pagePath(url: string | undefined): string {
+  const parts = pathOf(url).split("/");
+  const cut = parts.findIndex((part, i) => i > 0 && CHANGES_EACH_VISIT.test(part));
+  return cut === -1 ? parts.join("/") : `${parts.slice(0, cut).join("/")}/`;
 }
 
 function short(url: string | undefined): string {
