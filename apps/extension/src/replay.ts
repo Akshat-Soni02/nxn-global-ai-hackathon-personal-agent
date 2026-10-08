@@ -1,5 +1,6 @@
 // Replay inside the user's Chrome: one dedicated automation window, driven through chrome.debugger.
-// The window is unfocused and fixed at 1280x800 so pages lay out the same way on every run.
+// The window is fixed at 1280x800 so pages lay out the same way on every run, and comes to the front when a run
+// starts, so you can watch it. Your own windows and tabs are never used.
 // Chrome shows a "started debugging this browser" bar while attached; we attach only during a run.
 import type { Check, Step } from "@taskplayer/core";
 import { type Cdp, executeWebStep, waitForCheck } from "@taskplayer/player/web";
@@ -35,6 +36,9 @@ async function automationTab(): Promise<number> {
 async function cdpFor(tabId: number): Promise<Cdp> {
   const target = { tabId };
   if (attachedTab !== tabId) {
+    // A run attaches once, at its first step (endRun detaches): bring its window forward to be watched.
+    const { windowId } = await chrome.tabs.get(tabId);
+    await chrome.windows.update(windowId, { focused: true, state: "normal" }).catch(() => {});
     await chrome.debugger.attach(target, PROTOCOL_VERSION);
     attachedTab = tabId;
     for (const domain of ["Page", "DOM", "Runtime", "Accessibility"]) {
