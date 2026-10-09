@@ -135,9 +135,14 @@ function printRun(e: RunLogEvent) {
   if (e.type === "step.result") {
     const r = e.result;
     const match = r.matchScore !== undefined ? ` match ${r.matchScore}` : "";
-    log(`  ${r.ok ? "✓" : "✗"} ${e.stepId} (try ${e.attempt}, ${e.ms} ms)${match}${r.ok ? "" : `  ${r.error}`}`);
+    log(`  ${r.ok ? "✓" : "✗"} ${e.path} (try ${e.attempt}, ${e.ms} ms)${match}${r.ok ? "" : `  ${r.error}`}`);
   }
-  if (e.type === "run.end") log(`■ ${e.status} in ${e.ms} ms${e.error ? `: ${e.error}` : ""}`);
+  if (e.type === "loop.start") log(`  ↻ ${e.path}: ${e.items} item(s)`);
+  if (e.type === "loop.item_failed") log(`  ↷ ${e.path}[${e.index}] skipped: ${e.error}`);
+  if (e.type === "branch") log(`  ⑂ ${e.path}: ${e.took === "steps" ? "condition holds" : "else"}`);
+  if (e.type === "step.skipped") log(`  – ${e.path} skipped (${e.reason})`);
+  if (e.type === "run.end")
+    log(`■ ${e.status} in ${e.ms} ms${e.failedStep ? ` at ${e.failedStep}` : ""}${e.error ? `: ${e.error}` : ""}`);
 }
 
 // A recorded skill by id (its latest version in the skill store), or a skill file by path.
@@ -179,6 +184,19 @@ async function run(args: string[]) {
             log(`approval needed for ${step.id}: "${step.intent}". Type approve or deny.`);
             pendingApproval = resolve;
           }),
+        // A step's question: typed here, like the drill's. A yes/no question takes yes or no.
+        ask: async (ask, step) => {
+          if (ask.kind === "confirm") {
+            const reply = await prompter.ask({
+              id: `ask-${step.id}`,
+              text: ask.question,
+              options: [{ label: "yes" }, { label: "no" }],
+              default: "yes",
+            });
+            return !/^(n|no|2)$/i.test(reply.trim());
+          }
+          return prompter.ask({ id: `ask-${step.id}`, text: ask.question });
+        },
       },
       join(home, "runs"),
     );

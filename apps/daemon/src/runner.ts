@@ -10,6 +10,7 @@ import { APP_SUPPORT_DIR } from "@taskplayer/ipc";
 import {
   type ChannelExecutor,
   DEFAULT_TIMEOUT_MS,
+  type RunDeps,
   type RunLogEvent,
   type RunOutcome,
   runSkill,
@@ -24,6 +25,8 @@ const CHROME_START_MS = 30_000;
 
 export interface RunHooks {
   approve(step: Step, skill: Skill): Promise<boolean>;
+  // A step's question for you (an ask), answered in the daemon terminal.
+  ask?: RunDeps["ask"];
   log(event: RunLogEvent): void;
   // data.pick steps (see dataChannel in @taskplayer/player/node).
   data?: ChannelExecutor;
@@ -98,6 +101,7 @@ export async function runSkillFile(
         llm: hooks.llm,
         ax,
         approve: hooks.approve,
+        ask: hooks.ask,
         log,
       },
       { runId, inputs: await resolveInputs(skill, provided) },

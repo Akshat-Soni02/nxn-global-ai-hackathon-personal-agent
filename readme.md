@@ -117,7 +117,7 @@ Workspace packages are consumed as TypeScript source (no build step); only the e
 
 ## Running Guide
 
-> These steps run the **current code**: record → compile → `run`. Skills use the new workflow format, but the player runs only top-level action and llm steps for now; loops, branches and asks come with the workflow interpreter.
+> These steps run the **current code**: record → compile → `run`. Skills use the new workflow format, and the player runs the whole tree: loops, branches, llm steps, asks and approvals. Recording does not build loops or branches yet; write them by hand (see `skills/real/sort-inbox.json`).
 
 **Prerequisites**: macOS, Node 22+, pnpm 10 (Node ships it through corepack: run `corepack enable pnpm` once), Google Chrome, and for Mac apps the Xcode command line tools (`swiftc`; `xcode-select --install`).
 

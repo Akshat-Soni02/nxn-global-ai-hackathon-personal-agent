@@ -210,3 +210,51 @@ describe("variables", () => {
     expect(fitValue({ type: "list", items: { type: "number" } }, ["1", "x"])).toBeUndefined();
   });
 });
+
+describe("variables in branches", () => {
+  const readStep = (id: string, name: string) => ({
+    id,
+    type: "action",
+    intent: "read",
+    channel: "fs",
+    action: "read",
+    args: { path: "~/a.txt" },
+    output: { name, type: { type: "text" } },
+  });
+  const branch = (yes: unknown[], no: unknown[]) => ({
+    id: "b1",
+    type: "control",
+    kind: "branch",
+    intent: "x",
+    if: { left: 1, op: "exists" },
+    steps: yes,
+    else: no,
+  });
+  const after = {
+    id: "s9",
+    type: "action",
+    intent: "go",
+    channel: "web",
+    action: "navigate",
+    args: { url: "{{label}}" },
+  };
+  const parse = (...steps: unknown[]) =>
+    Skill.safeParse({
+      id: "d",
+      name: "d",
+      version: 1,
+      description: { goal: "g" },
+      steps: [{ id: "start", type: "trigger", intent: "x" }, ...steps],
+    });
+
+  it("lets both arms produce the same variable, which then exists after the branch", () => {
+    expect(parse(branch([readStep("s1", "label")], [readStep("s2", "label")]), after).success).toBe(true);
+  });
+
+  it("still refuses a name declared twice in the same arm, or again after the branch", () => {
+    expect(parse(branch([readStep("s1", "label"), readStep("s2", "label")], [])).success).toBe(false);
+    expect(parse(branch([readStep("s1", "label")], [readStep("s2", "label")]), readStep("s3", "label")).success).toBe(
+      false,
+    );
+  });
+});

@@ -186,7 +186,8 @@ Built and unchanged by the pivot; the workflow interpreter will call it for ever
 - **Acting like a person.** Trusted CDP input: a mouse press at the element's current centre after checking nothing covers it; typing as keyDown/keyUp per character (inserting text at once leaves widgets such as date pickers with stale state). Uploads hand the file to the page's file input (in the target, its dialog, the page or a shadow root) or drop it, with no native dialog.
 - **Waiting.** Navigation waits until the document is parsed; each step then waits for its own target and checks its result.
 - **Where it runs.** Web steps run in a dedicated, unfocused 1280×800 Chrome window through `chrome.debugger`; Mac app steps through Task Player.app; files and scripts in the daemon. `pnpm replay` runs the same code in a separate debug-port Chrome for development.
-- **Run log.** Every run records each step, its match score, result, retries and (new) the workflow version that ran.
+- **The interpreter.** Walks the tree in order. A loop resolves `over`, refuses more than `max_items`, gives each item its own scope (the item and whatever its steps produce, dropped afterwards), and on a failing item stops or, with `on_item_fail: "skip"`, logs it and goes on; a denial always stops. A branch evaluates its condition (numbers written as text compare as numbers, ISO dates as dates, a reference with no value counts as missing for `exists`), runs one arm in its own scope and keeps only the variables both arms produce. An `ask` runs before its step: a value answer is converted to the output's type, a "no" to a confirm skips the step, and with no way to ask the run stops rather than guess. Approval on a loop is asked once; on a step inside it, once per item.
+- **Run log.** Every run records each step with where it ran (`l1[2] > s3`: step s3 on the third item of loop l1), its match score, result and retries, plus loop items, branch choices, asks and skipped steps; its first line names the skill version that ran.
 
 ## Memory
 
@@ -263,7 +264,7 @@ Each recording keeps its raw files in one folder: screenshots, audio, transcript
 
 ## Status: design vs code
 
-The skill format is migrated to the workflow tree (Oct 8). The recorder still produces flat skills (action steps, plus an llm step when the drill keeps one), and the player still runs top-level action and llm steps only. Mapping to the new design:
+The skill format is migrated to the workflow tree (Oct 8–9), and the player runs the whole tree: loops, branches, asks and approvals (Oct 9). The recorder still produces flat skills (action steps, plus an llm step when the drill keeps one); building loops and branches from a recording is the record side's understand step. Mapping to the new design:
 
 | Part | In the code today | For the new design |
 | --- | --- | --- |
@@ -272,8 +273,8 @@ The skill format is migrated to the workflow tree (Oct 8). The recorder still pr
 | Approvals, run log, memory, IPC, native host | ✅ | Stays; run log adds the version |
 | `data.pick` (rules over rows), `data.ai` (capped model call) | ✅ | `data.ai` becomes the **llm** node; `data.pick` stays as a data action |
 | Skill format | ✅ workflow tree: trigger step, action, llm, loop, branch, ask, approval, history; typed variables declared by the steps that produce them, checked when a skill is parsed | Done |
-| Running loops, branches and asks | ❌ the run loop stops with "not supported yet" | The interpreter (next) |
-| llm steps | ✅ run at the top level (capped, cached, typed output) | Inside loops and branches with the interpreter |
+| Running loops, branches and asks | ✅ the interpreter in `packages/player/src/run.ts`; asks answered in the daemon terminal or `pnpm replay` | Asks move to notifications and the editor later |
+| llm steps | ✅ anywhere in the tree (capped, cached, typed output) | Done |
 | Compile | Trace → skill, drill in the terminal | Description + trace + transcript → tree; drill on the tree |
 | Description form | ❌ | New |
 | Screenshots per event | ❌ (only cropped element images in web capture) | New |

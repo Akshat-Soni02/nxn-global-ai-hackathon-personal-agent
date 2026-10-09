@@ -8,7 +8,10 @@ type Scope = Map<string, VarType>;
 
 export function checkVariables(steps: Step[]): string[] {
   const problems: string[] = [];
-  const declared = new Set<string>();
+  // Names taken so far. A branch's two arms are alternatives (only one runs), so each arm is checked against the names
+  // taken before the branch; afterwards both arms' names are taken. That is how both arms can produce the same
+  // variable, which is what keeps it visible after the branch.
+  let declared = new Set<string>();
 
   const declare = (scope: Scope, name: string, type: VarType, where: string) => {
     if (declared.has(name)) problems.push(`${where}: variable ${name} is already declared`);
@@ -62,8 +65,13 @@ export function checkVariables(steps: Step[]): string[] {
         run(step.steps, inner, `${at}.steps`);
       } else {
         refs(scope, step.if, `${at}.if`);
+        const before = declared;
+        declared = new Set(before);
         const yes = run(step.steps, new Map(scope), `${at}.steps`);
+        const takenByYes = declared;
+        declared = new Set(before);
         const no = run(step.else, new Map(scope), `${at}.else`);
+        declared = new Set([...takenByYes, ...declared]);
         // After the branch, a variable exists only if both arms produced it, with the same type.
         for (const [name, type] of yes) {
           const other = no.get(name);

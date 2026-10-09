@@ -84,11 +84,19 @@ const print = (e: RunLogEvent) => {
     const match = r.matchScore !== undefined ? ` match ${r.matchScore} [${r.matchedBy?.join(", ") ?? ""}]` : "";
     const value = r.value !== undefined ? ` → ${JSON.stringify(r.value).slice(0, 160)}` : "";
     console.log(
-      `  ${r.ok ? "✓" : "✗"} ${e.stepId} (try ${e.attempt}, ${e.ms} ms)${match}${value}${r.ok ? "" : `  ${r.error}`}`,
+      `  ${r.ok ? "✓" : "✗"} ${e.path} (try ${e.attempt}, ${e.ms} ms)${match}${value}${r.ok ? "" : `  ${r.error}`}`,
     );
   }
-  if (e.type === "step.approval" && !e.approved) console.log(`  ⏹ ${e.stepId} denied`);
-  if (e.type === "run.end") console.log(`■ ${e.status} in ${e.ms} ms${e.error ? `: ${e.error}` : ""}`);
+  if (e.type === "step.approval" && !e.approved) console.log(`  ⏹ ${e.path} denied`);
+  if (e.type === "loop.start") console.log(`  ↻ ${e.path}: ${e.items} item(s)`);
+  if (e.type === "loop.item_failed") console.log(`  ↷ ${e.path}[${e.index}] skipped: ${e.error}`);
+  if (e.type === "branch") console.log(`  ⑂ ${e.path}: ${e.took === "steps" ? "condition holds" : "else"}`);
+  if (e.type === "step.skipped") console.log(`  – ${e.path} skipped (${e.reason})`);
+  if (e.type === "run.end") {
+    console.log(
+      `■ ${e.status} in ${e.ms} ms${e.failedStep ? ` at ${e.failedStep}` : ""}${e.error ? `: ${e.error}` : ""}`,
+    );
+  }
 };
 
 let status = "failed";
@@ -111,6 +119,11 @@ try {
       fileExists: (pattern, timeoutMs) => poll(() => fileExists(pattern), timeoutMs),
       webCheck: async (check, timeoutMs) => waitForCheck(await browser(), check, timeoutMs),
       approve,
+      // A step's question: typed here. A yes/no question takes y or n.
+      ask: async (ask) => {
+        const reply = await rl.question(`${ask.question}${ask.kind === "confirm" ? " [y/N] " : " "}`);
+        return ask.kind === "confirm" ? reply.trim().toLowerCase().startsWith("y") : reply;
+      },
       log: print,
     },
     { inputs: await resolveInputs(skill, provided) },
