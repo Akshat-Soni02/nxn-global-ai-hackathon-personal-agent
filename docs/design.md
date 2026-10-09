@@ -216,7 +216,7 @@ A caller that needs one model call (an llm step in a workflow) calls `packages/l
 
 - **A capability briefing, generated from code** (`packages/core/src/briefing.ts`), opens every episode: the actions per channel with their args, the variable types and reference rules, and what is available right now (extension connected, Task Player.app running, consents given). When the code changes, the briefing does.
 - **The tools are the rules.** Every workflow edit is a typed operation checked by the schema and `check.ts`; an impossible edit comes back as an error the agent reads (`{{pdf.pth}} has no such field: pdf is a file`).
-- **What may never change is enforced in code**, not in the prompt: the draft is compared with the original against [section 9's list](#repair).
+- **What may never change is enforced in code**, not in the prompt: the draft is compared with the original against [section 9's list](#repair) (`packages/core/src/guard.ts`).
 
 ### Memory
 
@@ -433,7 +433,7 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Workflow editor | ❌ (terminal only) | New |
 | Highlight-only test | ❌ | New |
 | Recover from a failure: classify, repair agent, verify, pause and show, versions + rollback | ❌ (a TODO in `run.ts`; `on_fail.fallback` is never read; every failure stops the run) | New |
-| `packages/agent` runtime; `core` edit operations and capability briefing | ❌ | New |
+| `packages/agent` runtime; `core` edit operations and capability briefing | ✅ the loop (native tools or JSON actions), guard, budgets, working memory, transcript; `core/edit.ts`, `core/briefing.ts`, and section 9's never-rules in `core/guard.ts` (Oct 10) | The repair agent's tools are milestone 5 |
 | Triggers from Frequency | ❌ (only manual `run`) | New |
 | `packages/llm` with profiles, structured output, tools, usage meter | ✅ client, catalog, fake client, `pnpm llm:check`; compile, llm steps and `pnpm replay` use it (Oct 10) | Confirm the catalog with `pnpm llm:check` and a real key |
 | Consent, redaction, 24-hour retention | ❌ | New |
@@ -448,7 +448,7 @@ Replay side first: the workflow format and its interpreter are what everything e
 | 1 | Workflow format in `packages/core`: nodes, variables, ask, approval, versions | Both | ✅ Done (Oct 8–9) |
 | 2 | Interpreter: variables, loop, branch, llm node, ask, approval | Replay | ✅ Done (Oct 9) |
 | 3 | `packages/llm`: client, profiles, model catalog, thinking control, structured output, tools, usage meter, fake client, `pnpm llm:check`; existing callers moved onto it | Both | Code done (Oct 10): every model call goes through it. Left: `llm:check` with a real key |
-| 4 | `packages/agent` runtime; `core/edit.ts` and `core/briefing.ts` | Both | An agent with a fake model edits a workflow through the guard, within its budget |
+| 4 | `packages/agent` runtime; `core/edit.ts` and `core/briefing.ts` | Both | ✅ Done (Oct 10): an agent with a scripted model is refused an outward edit, told about a broken reference, and commits a retarget within its budget (`packages/agent/src/agent.test.ts`) |
 | 5 | Recover from a failure: failure report, repair agent and its tools, verify, pause and resume, versions, notification and rollback, pause and show | Replay | A drifted page (new banner, renamed button, an action moved into a menu, a new confirmation page) is repaired and saved as v2, then rolled back in one click; a site that is down is retried, not repaired; a fix the agent can't find is shown by the user and the run resumes |
 | 6 | Highlight-only test | Replay | Play highlights each reachable target without acting |
 | 7 | Triggers from Frequency | Replay | A scheduled and a folder workflow start on their own |

@@ -96,6 +96,22 @@ importers:
         specifier: ^0.28.2
         version: 0.28.2
 
+  packages/agent:
+    dependencies:
+      '@taskplayer/llm':
+        specifier: workspace:*
+        version: link:../llm
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@taskplayer/core':
+        specifier: workspace:*
+        version: link:../core
+      '@types/node':
+        specifier: ^26.6.3
+        version: 26.6.3
+
   packages/core:
     dependencies:
       zod:
@@ -113,6 +129,10 @@ importers:
         version: 26.6.3
 
   packages/llm:
+    dependencies:
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: ^26.6.3
@@ -129,6 +149,9 @@ importers:
       '@taskplayer/core':
         specifier: workspace:*
         version: link:../core
+      '@taskplayer/llm':
+        specifier: workspace:*
+        version: link:../llm
     devDependencies:
       '@types/node':
         specifier: ^26.6.3

@@ -84,9 +84,9 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 ```
 .
 ├── packages/
-│   ├── core/          # JOINT   skill schema (zod; to become the workflow tree), element descriptor, extension↔daemon messages
+│   ├── core/          # JOINT   workflow schema and checker, edit operations, repair guard, capability briefing, element descriptor, extension↔daemon messages
 │   ├── llm/           # JOINT   all model calls to Nebius Token Factory: client, profiles (fast, smart, vision), structured output, usage
-│   ├── agent/         # JOINT   (planned) the agent runtime: loop, tools, guard, budgets, transcript
+│   ├── agent/         # JOINT   the agent runtime: loop, tools, guard, budgets, transcript
 │   ├── memory/        # JOINT   persistent memory store (interface now, SQLite later)
 │   ├── ipc/           # JOINT   length-prefixed framing (native messaging + daemon socket), socket path
 │   ├── recorder/      # RECORD  trace normaliser, compiler, drill questions (to become: understand → workflow tree)
