@@ -45,22 +45,26 @@ describe("runSkillFile through the extension", () => {
       JSON.stringify({
         id: "mixed",
         version: 1,
-        intent: "web then fs",
+        name: "web then fs",
+        description: { goal: "web then fs" },
         steps: [
+          { id: "start", type: "trigger", intent: "by hand" },
           {
             id: "s1",
+            type: "action",
             intent: "read title",
             channel: "web",
             action: "extract",
             target: { fallbacks: ["h1"] },
-            save_as: "title",
+            output: { name: "title", type: { type: "text" } },
           },
           {
             id: "s2",
+            type: "action",
             intent: "save it",
             channel: "fs",
             action: "write",
-            args: { path: join(dir, "out.txt"), content: "{{vars.title}}" },
+            args: { path: join(dir, "out.txt"), content: "{{title}}" },
             requires_approval: true,
           },
         ],
@@ -107,8 +111,19 @@ describe("runSkillFile through the extension", () => {
       JSON.stringify({
         id: "miss",
         version: 1,
-        intent: "x",
-        steps: [{ id: "s1", intent: "click", channel: "web", action: "click", target: { role: "button", name: "Go" } }],
+        name: "x",
+        description: { goal: "x" },
+        steps: [
+          { id: "start", type: "trigger", intent: "by hand" },
+          {
+            id: "s1",
+            type: "action",
+            intent: "click",
+            channel: "web",
+            action: "click",
+            target: { role: "button", name: "Go" },
+          },
+        ],
       }),
     );
     const outcome = await runSkillFile(

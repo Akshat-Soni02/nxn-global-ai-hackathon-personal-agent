@@ -3,7 +3,7 @@
 // Only the extension can open this connection (Chrome launches the native host), so it connects on startup and
 // keeps the port open; the daemon can then send to it at any time. Add new message types here so both sides stay in sync.
 import { z } from "zod";
-import { Check, Step } from "./skill.ts";
+import { ActionStep, Check } from "./skill.ts";
 import { TraceEvent } from "./trace.ts";
 
 export const NATIVE_HOST_NAME = "com.taskplayer.daemon";
@@ -57,7 +57,8 @@ export const Message = z.discriminatedUnion("type", [
   // Replay: the daemon runs the skill; web work goes to the extension, ax work to Task Player.app (same messages).
   // Replies reuse the request's id.
   // daemon -> extension: run one web step (templates already resolved) in the automation window
-  z.object({ ...base, type: z.literal("run.step"), runId: z.string(), step: Step }),
+  // Only action steps go to the browser: the daemon runs llm and control steps itself.
+  z.object({ ...base, type: z.literal("run.step"), runId: z.string(), step: ActionStep }),
   z.object({
     ...base,
     type: z.literal("run.step_result"),

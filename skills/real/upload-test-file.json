@@ -1,31 +1,46 @@
 {
   "id": "upload-test-file",
+  "name": "Upload test file",
   "version": 1,
-  "intent": "Upload the newest test file from the sandbox to the-internet's uploader, confirm it, then file it under done/",
-  "inputs": {
-    "file": {
-      "type": "file",
-      "description": "Newest .txt in the sandbox upload folder. The site is public: never point this at real documents.",
-      "resolve": {
-        "dir": "~/TaskPlayerTest/upload",
-        "glob": "*.txt",
-        "pick": "newest"
-      }
-    }
+  "description": {
+    "goal": "The newest sandbox test file is uploaded to the-internet's uploader and filed under done/",
+    "changes": ["the file to upload"],
+    "constants": ["the-internet.herokuapp.com/upload", "the ~/TaskPlayerTest/upload folder", "the done/ folder"],
+    "never": ["upload anything outside ~/TaskPlayerTest"]
   },
-  "triggers": [
-    {
-      "type": "manual"
-    },
-    {
-      "type": "folder_watch",
-      "dir": "~/TaskPlayerTest/upload",
-      "glob": "*.txt"
-    }
-  ],
   "steps": [
     {
+      "id": "start",
+      "type": "trigger",
+      "intent": "By hand, or when a new .txt lands in the sandbox upload folder",
+      "when": [
+        {
+          "type": "manual"
+        },
+        {
+          "type": "folder_watch",
+          "dir": "~/TaskPlayerTest/upload",
+          "glob": "*.txt"
+        }
+      ],
+      "inputs": {
+        "file": {
+          "type": {
+            "type": "file"
+          },
+          "description": "Newest .txt in the sandbox upload folder. The site is public: never point this at real documents.",
+          "resolve": {
+            "dir": "~/TaskPlayerTest/upload",
+            "glob": "*.txt",
+            "pick": "newest"
+          },
+          "example": "~/TaskPlayerTest/upload/taskplayer-test-2026-10-02T09-52-44-024Z.txt"
+        }
+      }
+    },
+    {
       "id": "s1",
+      "type": "action",
       "intent": "Open the file uploader page (the site sometimes stalls on a script, so retry once)",
       "channel": "web",
       "action": "navigate",
@@ -42,6 +57,7 @@
     },
     {
       "id": "s2",
+      "type": "action",
       "intent": "Attach the test file to the file input",
       "channel": "web",
       "action": "upload",
@@ -55,11 +71,12 @@
         "fallbacks": ["#file-upload", "input[type=file][name=file]"]
       },
       "args": {
-        "file": "{{inputs.file}}"
+        "file": "{{file}}"
       }
     },
     {
       "id": "s3",
+      "type": "action",
       "intent": "Submit the upload",
       "channel": "web",
       "action": "click",
@@ -83,6 +100,7 @@
     },
     {
       "id": "s4",
+      "type": "action",
       "intent": "Confirm the uploaded file's name is listed",
       "channel": "web",
       "action": "wait_for",
@@ -93,26 +111,35 @@
         "fallbacks": ["#uploaded-files"]
       },
       "check": {
-        "text_visible": "{{inputs.file.name}}"
+        "text_visible": "{{file.name}}"
       }
     },
     {
       "id": "s5",
+      "type": "action",
       "intent": "Move the uploaded file into done/ so it is not uploaded again",
       "channel": "fs",
       "action": "move",
       "args": {
-        "from": "{{inputs.file}}",
+        "from": "{{file}}",
         "to": "~/TaskPlayerTest/upload/done/"
       },
       "check": {
-        "file_exists": "~/TaskPlayerTest/upload/done/{{inputs.file.name}}"
+        "file_exists": "~/TaskPlayerTest/upload/done/{{file.name}}"
       }
     }
   ],
   "success": [
     {
-      "file_exists": "~/TaskPlayerTest/upload/done/{{inputs.file.name}}"
+      "file_exists": "~/TaskPlayerTest/upload/done/{{file.name}}"
+    }
+  ],
+  "history": [
+    {
+      "version": 1,
+      "by": "user",
+      "summary": "Hand-written test skill",
+      "at": "2026-10-02T10:00:00Z"
     }
   ]
 }

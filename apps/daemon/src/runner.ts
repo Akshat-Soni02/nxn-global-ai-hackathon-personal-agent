@@ -5,17 +5,18 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Message, Skill, type Step } from "@taskplayer/core";
+import { type ActionStep, type Message, Skill, type Step } from "@taskplayer/core";
 import { APP_SUPPORT_DIR } from "@taskplayer/ipc";
 import {
   type ChannelExecutor,
   DEFAULT_TIMEOUT_MS,
+  type RunDeps,
   type RunLogEvent,
   type RunOutcome,
   runSkill,
   type StepResult,
 } from "@taskplayer/player";
-import { fileExists, fsChannel, poll, resolveInputs, scriptChannel } from "@taskplayer/player/node";
+import { fileExists, fsChannel, type LlmExecutor, poll, resolveInputs, scriptChannel } from "@taskplayer/player/node";
 import type { Daemon } from "./daemon.ts";
 
 // Extra time on top of a step's own timeout for the round trip and the extension's work.
@@ -24,9 +25,13 @@ const CHROME_START_MS = 30_000;
 
 export interface RunHooks {
   approve(step: Step, skill: Skill): Promise<boolean>;
+  // A step's question for you (an ask), answered in the daemon terminal.
+  ask?: RunDeps["ask"];
   log(event: RunLogEvent): void;
-  // data.pick / data.ai steps (see dataChannel in @taskplayer/player/node).
+  // data.pick steps (see dataChannel in @taskplayer/player/node).
   data?: ChannelExecutor;
+  // llm steps (see llmExecutor in @taskplayer/player/node).
+  llm?: LlmExecutor;
 }
 
 export async function runSkillFile(
@@ -52,7 +57,7 @@ export async function runSkillFile(
     if (!(await daemon.waitForExtension(CHROME_START_MS))) throw new Error("Chrome's extension did not connect");
   };
 
-  const web = async (step: Step, ctx: { runId: string }): Promise<StepResult> => {
+  const web = async (step: ActionStep, ctx: { runId: string }): Promise<StepResult> => {
     await ensureExtension();
     const reply = await daemon.request(
       { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
@@ -65,7 +70,7 @@ export async function runSkillFile(
 
   // Mac-app steps act through the Accessibility API, which only Task Player.app is allowed to use. The app itself says
   // when macOS hasn't allowed it yet (the step fails with how to allow it).
-  const ax = async (step: Step, ctx: { runId: string }): Promise<StepResult> => {
+  const ax = async (step: ActionStep, ctx: { runId: string }): Promise<StepResult> => {
     if (!daemon.mac().connected) throw new Error("Task Player.app is not running: build it with pnpm setup:mac");
     const reply = await daemon.requestMac(
       { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
@@ -93,8 +98,10 @@ export async function runSkillFile(
           return reply.type === "run.check_result" && reply.ok;
         },
         data: hooks.data,
+        llm: hooks.llm,
         ax,
         approve: hooks.approve,
+        ask: hooks.ask,
         log,
       },
       { runId, inputs: await resolveInputs(skill, provided) },

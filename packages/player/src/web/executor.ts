@@ -1,7 +1,17 @@
 // Executes one web step against one tab: wait -> match -> act -> verify. Runs in the extension (chrome.debugger)
 // or, for development, against a debug-port Chrome. Templates are already resolved by the daemon.
-import type { Locator, Step } from "@taskplayer/core";
+import type { Locator, ActionStep as Step } from "@taskplayer/core";
 import { wrongKind } from "@taskplayer/core/accept";
+
+// A path where a file is expected: a file value's path ({ path, … }) or plain text. Inlined, not imported from core's
+// vars.ts, so the extension bundle does not pull in zod.
+const pathOf = (v: unknown): string | undefined =>
+  typeof v === "string"
+    ? v
+    : v && typeof v === "object" && "path" in v
+      ? String((v as { path: unknown }).path)
+      : undefined;
+
 import type { StepResult } from "../types.ts";
 import { type Cdp, callOn, evaluate, pollUntil, type RemoteObject, sleep } from "./cdp.ts";
 import { pagePart, waitForCheck } from "./checks.ts";
@@ -287,7 +297,8 @@ export async function executeWebStep(cdp: Cdp, step: Step, env: WebEnv = {}): Pr
         error = await press(cdp, String(a.key ?? ""));
         break;
       case "upload": {
-        const files = Array.isArray(a.file) ? a.file.map(String) : [String(a.file ?? "")];
+        // A file value or a list of them (or plain paths): the page gets their paths.
+        const files = (Array.isArray(a.file) ? a.file : [a.file]).map((f) => pathOf(f) ?? String(f ?? ""));
         try {
           // The input itself, inside the target, or labelled by it; else the one in the target's dialog or the only
           // one on the page, shadow roots included ("Select files" buttons that open a hidden input elsewhere).

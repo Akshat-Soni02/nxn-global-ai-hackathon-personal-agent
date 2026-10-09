@@ -1,8 +1,13 @@
-import { type ElementDescriptor, Skill, type TraceEvent } from "@taskplayer/core";
+import { type ActionStep, type ElementDescriptor, Skill, type TraceEvent, triggerOf } from "@taskplayer/core";
 import { describe, expect, it, vi } from "vitest";
-import { type Chat, compile, extractJson, type Question, settleDataSteps } from "./compile.ts";
+import { type Chat, compile, extractJson, type Question } from "./compile.ts";
 import { applyAnswer, drill } from "./drill.ts";
 import { normalise } from "./normalise.ts";
+
+// Compiled skills are action steps only (an llm step appears after the drill), so tests read them as such.
+// steps[0] is the trigger; acts() is the steps after it, so indexes match the recording.
+const acts = (skill: Skill) => skill.steps.slice(1) as ActionStep[];
+const inputsOf = (skill: Skill) => triggerOf(skill).inputs;
 
 const PAGE = "http://localhost:5173/upload.html";
 const T0 = 1_790_812_800_000;
@@ -62,16 +67,16 @@ const goodAnswer = {
   intent: "Upload the newest invoice PDF to the vendor portal",
   inputs: {
     invoice: {
-      type: "file",
+      type: { type: "file" },
       description: "Newest invoice PDF in Downloads",
       resolve: { dir: "~/Downloads", glob: "invoice-*.pdf", pick: "newest" },
     },
   },
-  triggers: [{ type: "folder_watch", dir: "~/Downloads", glob: "invoice-*.pdf" }],
+  when: [{ type: "folder_watch", dir: "~/Downloads", glob: "invoice-*.pdf" }],
   success: [{ text_visible: "Upload complete" }],
   steps: [
     { id: "s1", intent: "Open the portal's uploads page" },
-    { id: "s2", intent: "Attach the invoice", check: { text_visible: "{{inputs.invoice.name}}" } },
+    { id: "s2", intent: "Attach the invoice", check: { text_visible: "{{invoice.name}}" } },
     { id: "s3", intent: "Submit the upload", on_fail: { retries: 2, fallback: "agent" } },
   ],
   questions: [],
@@ -140,7 +145,7 @@ describe("normalise", () => {
       ev("navigate", 13_500, { url: doc, transition: "link" }),
     ]);
     const { skill } = await compile(steps, {});
-    expect(skill.steps.map((s) => s.check?.url_matches)).toEqual([
+    expect(acts(skill).map((s) => s.check?.url_matches)).toEqual([
       "/maps/",
       "/maps/place/The+Rameshwaram+Cafe+Pune/",
       "/maps/dir/",
@@ -169,12 +174,12 @@ describe("normalise", () => {
       ev("navigate", 9_300, { url: "https://www.youtube.com/feed/library", transition: "link" }),
     ]);
     const { skill } = await compile(steps, {});
-    expect(skill.steps.map((s) => [s.action, s.args])).toEqual([
+    expect(acts(skill).map((s) => [s.action, s.args])).toEqual([
       ["navigate", { url: home }],
       ["navigate", { url: watch }],
       ["click", {}], // "#" is a script, not an address: the link is found and clicked
     ]);
-    expect(skill.steps[1]).toMatchObject({
+    expect(acts(skill)[1]).toMatchObject({
       intent: "Open 'Akcent - Stay with Me (Lyrics)'",
       check: { url_matches: "/watch" },
     });
@@ -196,7 +201,7 @@ describe("normalise", () => {
       ["click", "https://www.google.com/search?q=docs"],
     ]);
     const { skill } = await compile(steps, {});
-    expect(skill.steps[0]?.args).toEqual({ url: "https://www.google.com/search?q=docs" });
+    expect(acts(skill)[0]?.args).toEqual({ url: "https://www.google.com/search?q=docs" });
   });
 
   it("links a download to the file later uploaded, and records Finder moves", () => {
@@ -219,18 +224,14 @@ describe("normalise", () => {
       ev("fs_rename", 1_000, { path: "/Users/me/Archive/invoice-0923.pdf", toPath: "/Users/me/Archive/Sep.pdf" }),
     ]);
     const { skill } = await compile(steps, {});
-    expect(skill.inputs.invoice).toMatchObject({
-      type: "file",
+    expect(inputsOf(skill).invoice).toMatchObject({
+      type: { type: "file" },
       resolve: { dir: "~/Inbox", glob: "invoice-*.pdf", pick: "newest" },
     });
-    expect(skill.steps.map((s) => [s.action, s.args, s.check])).toEqual([
+    expect(acts(skill).map((s) => [s.action, s.args, s.check])).toEqual([
       // the destination ends in "/": a folder for fs.move, which would otherwise rename the file to "Archive"
-      ["move", { from: "{{inputs.invoice}}", to: "~/Archive/" }, { file_exists: "~/Archive/{{inputs.invoice.name}}" }],
-      [
-        "rename",
-        { from: "~/Archive/{{inputs.invoice.name}}", to: "~/Archive/Sep.pdf" },
-        { file_exists: "~/Archive/Sep.pdf" },
-      ],
+      ["move", { from: "{{invoice}}", to: "~/Archive/" }, { file_exists: "~/Archive/{{invoice.name}}" }],
+      ["rename", { from: "~/Archive/{{invoice.name}}", to: "~/Archive/Sep.pdf" }, { file_exists: "~/Archive/Sep.pdf" }],
     ]);
   });
 });
@@ -276,11 +277,11 @@ describe("uploads however the file got there", () => {
         accept: ".pdf,image/png",
       }),
     ]);
-    expect((await compile(own, {})).skill.inputs.scan?.resolve).toMatchObject({ accept: ".pdf,image/png" });
+    expect(inputsOf((await compile(own, {})).skill).scan?.resolve).toMatchObject({ accept: ".pdf,image/png" });
     const none = normalise([ev("file", 0, { target: hiddenInput, file: clip })]);
-    expect((await compile(none, {})).skill.inputs.video?.resolve).toMatchObject({ accept: "video/*" });
+    expect(inputsOf((await compile(none, {})).skill).video?.resolve).toMatchObject({ accept: "video/*" });
     const doc = normalise([ev("file", 0, { target: hiddenInput, file: { ...clip, name: "invoice-7.pdf", type: "" } })]);
-    expect((await compile(doc, {})).skill.inputs.invoice?.resolve).toMatchObject({ accept: ".pdf" });
+    expect(inputsOf((await compile(doc, {})).skill).invoice?.resolve).toMatchObject({ accept: ".pdf" });
   });
 
   it("turns a drop from Finder into an upload onto the drop zone", () => {
@@ -320,7 +321,7 @@ describe("drag inside a page", () => {
       steps: [{ id: "s2", intent: "Mark the report done", args: { to: { role: "region", name: "Archive" } } }],
     };
     const { skill } = await compile(steps, { chat: replies(JSON.stringify(moved)) });
-    expect(skill.steps[1]).toMatchObject({
+    expect(acts(skill)[1]).toMatchObject({
       action: "drag",
       intent: "Mark the report done",
       target: { role: "listitem", fallbacks: ["#card-a"] },
@@ -364,12 +365,12 @@ describe("copy, paste and drawn apps", () => {
 
   it("turns a sheet copy into read rows + a rule, and the paste into {{vars}}", async () => {
     const result = await compile(normalise(sheetTrace()));
-    expect(result.skill.steps.map((s) => [s.channel, s.action, s.args, s.save_as])).toEqual([
+    expect(acts(result.skill).map((s) => [s.channel, s.action, s.args, s.output?.name])).toEqual([
       ["web", "navigate", { url: SHEET }, undefined],
       ["web", "extract", { source: "google_sheet" }, "sheet_1"],
-      ["data", "pick", { from: "{{vars.sheet_1}}", where: { Date: shown }, column: "Amount" }, "copied_1"],
+      ["data", "pick", { from: "{{sheet_1}}", where: { Date: shown }, column: "Amount" }, "copied_1"],
       ["web", "navigate", { url: PAGE }, undefined],
-      ["web", "type", { text: "{{vars.copied_1}}", clear: true }, undefined],
+      ["web", "type", { text: "{{copied_1}}", clear: true }, undefined],
     ]);
     // The copied row was dated the recording day, so the drill offers "today's row" first.
     expect(result.questions[0]).toMatchObject({
@@ -379,32 +380,33 @@ describe("copy, paste and drawn apps", () => {
     expect(JSON.stringify(result.skill)).not.toContain("Globex"); // only the rule, not the row, is saved
   });
 
-  it("makes a per-run AI step only with a reason, shows its cost, and can go back to the rule", async () => {
+  it("offers a per-run llm step only with a reason, shows its cost, and can keep the rule instead", async () => {
     const answer = {
       steps: [
         { id: "s3", ai: { instruction: "Amount of today's row", output: "number", reason: "dates are free text" } },
       ],
     };
     const result = await compile(normalise(sheetTrace()), { chat: replies(JSON.stringify(answer)), pricePerMTok: 2 });
-    expect(result.skill.steps[2]?.action).toBe("ai");
-    expect(result.questions[0]?.text).toMatch(
-      /s3 asks the model on every run, about \d+ tokens .*Why: dates are free text/,
-    );
-    expect(result.questions[1]?.appliesTo).toBe("steps.s3.args.rule.where");
-    const declined = settleDataSteps({
-      ...result.skill,
-      steps: result.skill.steps.map((s) => (s.id === "s3" ? { ...s, args: { ...s.args, mode: "pick" } } : s)),
-    });
-    expect(declined.steps[2]).toMatchObject({
-      action: "pick",
-      args: { from: "{{vars.sheet_1}}", where: { Date: shown }, column: "Amount" },
-    });
-    const kept = settleDataSteps(result.skill);
-    expect(kept.steps[2]?.args).toEqual({
+    // The rule stays until the drill decides; the question carries both steps.
+    expect(acts(result.skill)[2]).toMatchObject({ channel: "data", action: "pick" });
+    const ai = result.questions[0] as Question;
+    expect(ai.text).toMatch(/s3 asks the model on every run, about \d+ tokens .*Why: dates are free text/);
+    expect(ai.appliesTo).toBe("steps.s3");
+    const kept = applyAnswer(result.skill, ai, "1");
+    expect(kept.ok && acts(kept.skill)[2]).toMatchObject({
+      type: "llm",
       instruction: "Amount of today's row",
-      from: "{{vars.sheet_1}}",
-      output: "number",
+      inputs: ["{{sheet_1}}"],
+      output: { name: "copied_1", type: { type: "number" } },
     });
+    const declined = applyAnswer(result.skill, ai, "2");
+    expect(declined.ok && acts(declined.skill)[2]).toMatchObject({
+      type: "action",
+      action: "pick",
+      args: { from: "{{sheet_1}}", where: { Date: shown }, column: "Amount" },
+    });
+    // The rule's own question still edits the rule, for when it is kept.
+    expect(result.questions[1]?.appliesTo).toBe("steps.s3.args.where");
   });
 
   it("folds the click that selected text into the copy", () => {
@@ -427,8 +429,8 @@ describe("copy, paste and drawn apps", () => {
     const result = await compile(
       normalise([ev("click", 0, { target: canvas, drawn: true }), ev("type", 1_000, { target: amount, pasted: true })]),
     );
-    expect(result.skill.steps[1]?.args).toEqual({ text: "{{inputs.pasted_amount}}", clear: true });
-    expect(result.questions.map((q) => q.appliesTo)).toContain("inputs.pasted_amount.default");
+    expect(acts(result.skill)[1]?.args).toEqual({ text: "{{pasted_amount}}", clear: true });
+    expect(result.questions.map((q) => q.appliesTo)).toContain("steps.start.inputs.pasted_amount.default");
     expect(result.warnings.join(" ")).toMatch(/s2: 1 click\(s\) before it landed on a drawn area/);
   });
 });
@@ -438,12 +440,12 @@ describe("compile", () => {
     const result = await compile(normalise(uploadTrace()));
     expect(result.model).toBe("none");
     expect(Skill.safeParse(result.skill).success).toBe(true);
-    expect(result.skill.steps.map((s) => s.action)).toEqual(["navigate", "upload", "click"]);
-    expect(result.skill.steps[2]?.requires_approval).toBe(true); // "Submit" is risky
+    expect(acts(result.skill).map((s) => s.action)).toEqual(["navigate", "upload", "click"]);
+    expect(acts(result.skill)[2]?.requires_approval).toBe(true); // "Submit" is risky
     expect(result.questions.map((q) => q.appliesTo)).toEqual([
-      "inputs.invoice.resolve",
-      "inputs.invoice.resolve.dir",
-      "intent",
+      "steps.start.inputs.invoice.resolve",
+      "steps.start.inputs.invoice.resolve.dir",
+      "description.goal",
     ]);
   });
 
@@ -451,21 +453,21 @@ describe("compile", () => {
     const reply = `<think>The user uploaded an invoice.</think>\n\`\`\`json\n${JSON.stringify(goodAnswer)}\n\`\`\``;
     const { skill, model, attempts } = await compile(normalise(uploadTrace()), { chat: replies(reply) });
     expect([model, attempts]).toEqual(["nemotron", 1]);
-    expect(skill.steps.map((s) => [s.action, s.intent])).toEqual([
+    expect(acts(skill).map((s) => [s.action, s.intent])).toEqual([
       ["navigate", "Open the portal's uploads page"],
       ["upload", "Attach the invoice"],
       ["click", "Submit the upload"],
     ]);
-    expect(skill.steps[1]?.target).toMatchObject({
+    expect(acts(skill)[1]?.target).toMatchObject({
       role: "button",
       name: "Upload invoice",
       near: "Documents",
       fallbacks: ["input[type=file][name=invoice]", "//section[h2='Documents']//input[@type='file']"],
     });
-    expect(skill.steps[1]?.args).toEqual({ file: "{{inputs.invoice}}" });
-    expect(skill.steps[0]?.args).toEqual({ url: PAGE });
-    expect(skill.steps[2]?.requires_approval).toBe(true);
-    expect(skill.inputs).toEqual(goodAnswer.inputs);
+    expect(acts(skill)[1]?.args).toEqual({ file: "{{invoice}}" });
+    expect(acts(skill)[0]?.args).toEqual({ url: PAGE });
+    expect(acts(skill)[2]?.requires_approval).toBe(true);
+    expect(inputsOf(skill)).toEqual(goodAnswer.inputs);
     expect(skill.success).toEqual(goodAnswer.success);
   });
 
@@ -477,10 +479,12 @@ describe("compile", () => {
   });
 
   it("rejects templates that name an undeclared input", async () => {
-    const typo = { ...goodAnswer, steps: [{ id: "s2", check: { text_visible: "{{inputs.invoce.name}}" } }] };
+    const typo = { ...goodAnswer, steps: [{ id: "s2", check: { text_visible: "{{invoce.name}}" } }] };
     const chat = vi.fn(replies(JSON.stringify(typo), JSON.stringify(goodAnswer)));
     const result = await compile(normalise(uploadTrace()), { chat });
-    expect(chat.mock.calls[1]?.[0].at(-1)?.content).toMatch(/inputs\.invoce, which is not declared/);
+    expect(chat.mock.calls[1]?.[0].at(-1)?.content).toMatch(
+      /\{\{invoce\.name\}\} uses invoce, which is not declared by an earlier step/,
+    );
     expect(result.attempts).toBe(2);
   });
 
@@ -493,8 +497,8 @@ describe("compile", () => {
       ],
     };
     const { skill } = await compile(normalise(uploadTrace()), { chat: replies(JSON.stringify(sneaky)) });
-    expect(skill.steps[0]?.args.url).toBe(PAGE);
-    expect(skill.steps[2]?.requires_approval).toBe(true);
+    expect(acts(skill)[0]?.args.url).toBe(PAGE);
+    expect(acts(skill)[2]?.requires_approval).toBe(true);
   });
 
   it("keeps the code-only skill when the model is unreachable or never valid", async () => {
@@ -531,7 +535,7 @@ describe("contract with the player (packages/core/src/skill.ts args table)", () 
 
   it("writes select as {option} and type as {text, clear}", async () => {
     const { skill } = await compile(normalise(formTrace()));
-    expect(skill.steps.map((s) => [s.action, s.args])).toEqual([
+    expect(acts(skill).map((s) => [s.action, s.args])).toEqual([
       ["navigate", { url: PAGE }],
       ["select", { option: "NX-101" }],
       ["type", { text: "38", clear: true }],
@@ -540,36 +544,32 @@ describe("contract with the player (packages/core/src/skill.ts args table)", () 
 
   it("keeps a typed value as the default of the input the model makes from it", async () => {
     const answer = {
-      inputs: { hours: { type: "number", description: "Hours worked this week" } },
-      steps: [{ id: "s3", args: { text: "{{inputs.hours}}" } }],
+      inputs: { hours: { type: { type: "number" }, description: "Hours worked this week" } },
+      steps: [{ id: "s3", args: { text: "{{hours}}" } }],
     };
     const { skill } = await compile(normalise(formTrace()), { chat: replies(JSON.stringify(answer)) });
-    expect(skill.inputs.hours).toEqual({ type: "number", description: "Hours worked this week", default: 38 });
-    expect(skill.steps[2]?.args).toEqual({ text: "{{inputs.hours}}", clear: true });
+    expect(inputsOf(skill).hours).toEqual({
+      type: { type: "number" },
+      description: "Hours worked this week",
+      default: 38,
+    });
+    expect(acts(skill)[2]?.args).toEqual({ text: "{{hours}}", clear: true });
   });
 
-  it("accepts {{vars.x}} only after the step that saves it", async () => {
-    const early = {
-      steps: [
-        { id: "s2", args: { option: "{{vars.code}}" } },
-        { id: "s3", save_as: "code" },
-      ],
-    };
-    const late = {
-      steps: [
-        { id: "s2", save_as: "code" },
-        { id: "s3", args: { text: "{{vars.code}}" } },
-      ],
-    };
-    const chat = vi.fn(replies(JSON.stringify(early), JSON.stringify(late)));
+  it("sends back undeclared variables and outputs an action cannot produce, then takes the fixed reply", async () => {
+    const undeclared = { steps: [{ id: "s2", args: { option: "{{code}}" } }] };
+    const noValue = { steps: [{ id: "s2", save_as: "code" }] }; // a select produces no value
+    const fixed = { steps: [{ id: "s2", intent: "Choose the project" }] };
+    const chat = vi.fn(replies(JSON.stringify(undeclared), JSON.stringify(noValue), JSON.stringify(fixed)));
     const result = await compile(normalise(formTrace()), { chat });
-    expect(chat.mock.calls[1]?.[0].at(-1)?.content).toMatch(
-      /s2: \{\{vars\.code\}\} is used before any earlier step saves it/,
-    );
-    expect([result.attempts, result.skill.steps[1]?.save_as, result.skill.steps[2]?.args.text]).toEqual([
-      2,
-      "code",
-      "{{vars.code}}",
+    // compile keeps one conversation: the feedback after each rejected reply, in order.
+    const feedback = (chat.mock.calls[0]?.[0] ?? []).filter((m) => m.role === "user").slice(1);
+    expect(feedback[0]?.content).toMatch(/\{\{code\}\} uses code, which is not declared by an earlier step/);
+    expect(feedback[1]?.content).toMatch(/web\.select produces no value/);
+    expect([result.model, result.attempts, acts(result.skill)[1]?.intent]).toEqual([
+      "nemotron",
+      3,
+      "Choose the project",
     ]);
   });
 });
@@ -579,17 +579,21 @@ describe("drill", () => {
 
   it("writes answers where they apply, by step id, option number or typed text", async () => {
     let skill = await base();
-    const dir = applyAnswer(skill, { id: "d", text: "Where?", appliesTo: "inputs.invoice.resolve.dir" }, "~/Invoices");
-    expect(dir.ok && dir.skill.inputs.invoice?.resolve?.dir).toBe("~/Invoices");
+    const dir = applyAnswer(
+      skill,
+      { id: "d", text: "Where?", appliesTo: "steps.start.inputs.invoice.resolve.dir" },
+      "~/Invoices",
+    );
+    expect(dir.ok && inputsOf(dir.skill).invoice?.resolve?.dir).toBe("~/Invoices");
     if (dir.ok) skill = dir.skill;
     const approval = applyAnswer(skill, { id: "a", text: "Ask first?", appliesTo: "steps.s3.requires_approval" }, "no");
-    expect(approval.ok && approval.skill.steps[2]?.requires_approval).toBe(false);
+    expect(approval.ok && acts(approval.skill)[2]?.requires_approval).toBe(false);
     const trigger = applyAnswer(
       skill,
       {
         id: "t",
         text: "When?",
-        appliesTo: "triggers",
+        appliesTo: "steps.start.when",
         options: [
           { label: "manual", value: [{ type: "manual" }] },
           { label: "when a new invoice appears", value: [{ type: "folder_watch", dir: "~/Downloads" }] },
@@ -597,7 +601,7 @@ describe("drill", () => {
       },
       "2",
     );
-    expect(trigger.ok && trigger.skill.triggers).toEqual([{ type: "folder_watch", dir: "~/Downloads" }]);
+    expect(trigger.ok && triggerOf(trigger.skill).when).toEqual([{ type: "folder_watch", dir: "~/Downloads" }]);
   });
 
   it("refuses answers that would change a target or break the schema", async () => {
@@ -614,14 +618,14 @@ describe("drill", () => {
         {
           id: "d",
           text: "Where do invoices arrive?",
-          appliesTo: "inputs.invoice.resolve.dir",
+          appliesTo: "steps.start.inputs.invoice.resolve.dir",
           default: "~/Downloads",
           remember: "fact",
         },
       ],
       { prompter: { ask: async () => "" }, memory: { add } as never },
     );
-    expect(result.skill.inputs.invoice?.resolve?.dir).toBe("~/Downloads");
+    expect(inputsOf(result.skill).invoice?.resolve?.dir).toBe("~/Downloads");
     expect(add).toHaveBeenCalledWith({
       kind: "fact",
       text: "Where do invoices arrive? ~/Downloads",
@@ -669,17 +673,17 @@ describe("Mac apps (Accessibility)", () => {
       "app_press",
     ]);
     const { skill } = await compile(steps, {});
-    const ax = skill.steps.filter((s) => s.channel === "ax");
+    const ax = acts(skill).filter((s) => s.channel === "ax");
     expect(ax.map((s) => [s.action, s.args])).toEqual([
       ["open", { app: app.id, name: "TextEdit" }],
       ["set_value", { text: "38" }],
-      ["set_value", { text: "{{inputs.password}}" }],
+      ["set_value", { text: "{{password}}" }],
       ["key", { app: app.id, key: "s", modifiers: ["cmd"] }],
       ["menu", { app: app.id, path: ["File", "Export As…"] }],
       ["open", { app: app.id, name: "TextEdit" }],
       ["press", {}],
     ]);
-    expect(skill.inputs.password?.type).toBe("secret");
+    expect(inputsOf(skill).password?.type).toEqual({ type: "secret" });
     // Found again by role and label, never by position.
     expect(ax[1]?.target).toMatchObject({
       role: "AXTextField",
@@ -705,8 +709,8 @@ describe("Mac apps (Accessibility)", () => {
   it("asks for a pasted value instead of keeping it", async () => {
     const steps = normalise([mac("app_type", 0, { element: field, pasted: true })]);
     const { skill, questions } = await compile(steps, {});
-    expect(skill.steps.find((s) => s.action === "set_value")?.args).toEqual({ text: "{{inputs.text_for_hours}}" });
-    expect(questions.map((q) => q.appliesTo)).toContain("inputs.text_for_hours.default");
+    expect(acts(skill).find((s) => s.action === "set_value")?.args).toEqual({ text: "{{text_for_hours}}" });
+    expect(questions.map((q) => q.appliesTo)).toContain("steps.start.inputs.text_for_hours.default");
   });
 });
 
@@ -721,7 +725,7 @@ describe("which file a skill uses next time", () => {
     ]);
     const { skill, questions } = await compile(steps, {});
     // A photo: next time any image will do, and nothing else.
-    expect(skill.inputs.rushil?.resolve).toEqual({
+    expect(inputsOf(skill).rushil?.resolve).toEqual({
       dir: "~/Downloads",
       glob: "*.jpeg",
       pick: "newest",
@@ -736,7 +740,7 @@ describe("which file a skill uses next time", () => {
     ]);
     expect(question?.default).toBe("ask me each time I run it");
     const always = applyAnswer(skill, question as Question, "3");
-    expect(always.ok && always.skill.inputs.rushil?.resolve).toMatchObject({
+    expect(always.ok && inputsOf(always.skill).rushil?.resolve).toMatchObject({
       glob: "Rushil Jariwala Photo.jpeg",
       ask: false,
     });

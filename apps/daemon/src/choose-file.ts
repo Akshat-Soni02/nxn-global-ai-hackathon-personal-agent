@@ -6,7 +6,7 @@
 // Every file is checked first (checkFile): it must exist, not be empty, and be a kind the step takes. A wrong answer
 // is explained and asked again; a wrong file given with the command stops the run at once.
 
-import type { Skill } from "@taskplayer/core";
+import { type Input, type Skill, triggerOf, walkSteps } from "@taskplayer/core";
 import { checkFile, expandHome, type FileRule, findFiles } from "@taskplayer/player/node";
 import type { Question } from "@taskplayer/recorder";
 
@@ -16,8 +16,8 @@ export async function chooseFiles(
   ask: (question: Question) => Promise<string>,
   log: (...args: unknown[]) => void,
 ): Promise<void> {
-  for (const [name, input] of Object.entries(skill.inputs)) {
-    if (input.type !== "file") continue;
+  for (const [name, input] of Object.entries(triggerOf(skill).inputs)) {
+    if (!takesFiles(input)) continue;
     const rule = (input.resolve ?? {}) as FileRule;
     if (name in provided) {
       const given = provided[name];
@@ -41,7 +41,10 @@ export async function chooseFiles(
       rule.dir && rule.glob
         ? (await findFiles(rule.dir, rule.glob).catch(() => [])).find((path) => !checkFile(path, rule))
         : undefined;
-    const use = skill.steps.find((s) => JSON.stringify(s.args).includes(`{{inputs.${name}`))?.intent;
+    const refersTo = new RegExp(`\\{\\{\\s*${name}[.}\\s]`);
+    const use = [...walkSteps(skill.steps)].find(
+      ({ step }) => step.type !== "trigger" && refersTo.test(JSON.stringify(step)),
+    )?.step.intent;
     for (let tries = 0; tries < 3 && !(name in provided); tries++) {
       const typed = await ask({
         id: `run-file-${name}`,
@@ -62,14 +65,16 @@ export async function chooseFiles(
 // What the run command gave: name=value pairs, or just a path when the skill takes one file (run <skill> <path>).
 export function givenInputs(skill: Skill, args: string[]): Record<string, unknown> {
   const given: Record<string, unknown> = {};
-  const files = Object.keys(skill.inputs).filter((name) => skill.inputs[name]?.type === "file");
+  const inputs = triggerOf(skill).inputs;
+  const files = Object.keys(inputs).filter((name) => {
+    const input = inputs[name];
+    return input !== undefined && takesFiles(input);
+  });
   for (const arg of args) {
     const named = /^([A-Za-z_][\w-]*)=(.*)$/s.exec(arg);
     if (named?.[1]) {
-      if (!(named[1] in skill.inputs))
-        throw new Error(
-          `${skill.id} has no input ${named[1]} (it has: ${Object.keys(skill.inputs).join(", ") || "none"})`,
-        );
+      if (!(named[1] in inputs))
+        throw new Error(`${skill.id} has no input ${named[1]} (it has: ${Object.keys(inputs).join(", ") || "none"})`);
       given[named[1]] = named[2] ?? "";
     } else if (files.length === 1 && files[0]) given[files[0]] = arg;
     else if (files.length === 0) throw new Error(`${skill.id} takes no file, so ${arg} has nowhere to go`);
@@ -120,3 +125,7 @@ export function cleanPath(typed: string): string {
   path = quoted ? (quoted[2] ?? "") : path.replace(/\\(.)/g, "$1");
   return path ? expandHome(path) : "";
 }
+
+// A file input, or a list of files (an input that takes all matching files).
+const takesFiles = (input: Input) =>
+  input.type.type === "file" || (input.type.type === "list" && input.type.items.type === "file");

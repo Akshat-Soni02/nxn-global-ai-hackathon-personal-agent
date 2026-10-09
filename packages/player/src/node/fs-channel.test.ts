@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Skill } from "@taskplayer/core";
+import { type ActionStep, Skill } from "@taskplayer/core";
 import { describe, expect, it } from "vitest";
 import type { RunContext } from "../types.ts";
 import { fsChannel } from "./fs-channel.ts";
@@ -10,10 +10,15 @@ import { resolveInputs } from "./inputs.ts";
 const step = (action: string, args: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
   Skill.parse({
     id: "t",
+    name: "t",
     version: 1,
-    intent: "t",
-    steps: [{ id: "s", intent: "t", channel: "fs", action, args, ...extra }],
-  }).steps[0] as Skill["steps"][number];
+    description: { goal: "t" },
+    steps: [
+      { id: "start", type: "trigger", intent: "t" },
+      { id: "s", type: "action", intent: "t", channel: "fs", action, args, ...extra },
+    ],
+  }).steps[1] as ActionStep;
+const pathOf = (v: unknown) => (v as { path: string }).path;
 const ctx = (startedAt = 0): RunContext => ({ runId: "r", startedAt, inputs: {}, vars: {} });
 
 function dir() {
@@ -29,7 +34,11 @@ function dir() {
 describe("fs channel", () => {
   it("finds the newest match, or all of them, with brace globs", async () => {
     const d = dir();
-    expect((await fsChannel(step("find", { dir: d, glob: "*.pdf" }), ctx())).value).toBe(join(d, "new.pdf"));
+    expect((await fsChannel(step("find", { dir: d, glob: "*.pdf" }), ctx())).value).toMatchObject({
+      path: join(d, "new.pdf"),
+      name: "new.pdf",
+      size: 1,
+    });
     const all = (await fsChannel(step("find", { dir: d, glob: "*.{pdf,png}", pick: "all" }), ctx())).value;
     expect(all).toHaveLength(3);
   });
@@ -44,10 +53,12 @@ describe("fs channel", () => {
     const d = dir();
     writeFileSync(join(d, "out-new.pdf"), "x");
     const moved = await fsChannel(step("move", { from: [join(d, "new.pdf")], to: `${d}/sorted/` }), ctx());
-    expect(moved.value).toEqual([join(d, "sorted", "new.pdf")]);
+    expect((moved.value as unknown[]).map(pathOf)).toEqual([join(d, "sorted", "new.pdf")]);
     writeFileSync(join(d, "again.pdf"), "y");
-    const clash = await fsChannel(step("move", { from: join(d, "again.pdf"), to: join(d, "pic.png") }), ctx());
-    expect(clash.value).toBe(join(d, "pic (1).png"));
+    // A file value works wherever a path is expected.
+    const again = { path: join(d, "again.pdf"), name: "again.pdf", size: 1, modified: "" };
+    const clash = await fsChannel(step("move", { from: again, to: join(d, "pic.png") }), ctx());
+    expect(pathOf(clash.value)).toBe(join(d, "pic (1).png"));
     expect(readFileSync(join(d, "pic.png"), "utf8")).toBe("3");
   });
 
@@ -59,7 +70,7 @@ describe("fs channel", () => {
   it("writes, creating folders", async () => {
     const d = dir();
     const r = await fsChannel(step("write", { path: join(d, "a/b/c.md"), content: "hi" }), ctx());
-    expect(readFileSync(r.value as string, "utf8")).toBe("hi");
+    expect(readFileSync(pathOf(r.value), "utf8")).toBe("hi");
   });
 });
 
@@ -68,17 +79,20 @@ describe("file inputs resolved without asking", () => {
     Skill.parse({
       id: "t",
       version: 1,
-      intent: "t",
-      inputs: { doc: { type: "file", resolve } },
-      steps: [{ id: "s", intent: "t", channel: "fs", action: "read", args: { path: "{{inputs.doc}}" } }],
+      name: "t",
+      description: { goal: "t" },
+      steps: [
+        { id: "start", type: "trigger", intent: "t", inputs: { doc: { type: { type: "file" }, resolve } } },
+        { id: "s", type: "action", intent: "t", channel: "fs", action: "read", args: { path: "{{doc.path}}" } },
+      ],
     });
 
   it("takes the newest file the step can use: of the kind it takes, and not empty", async () => {
     const d = dir();
     writeFileSync(join(d, "empty.png"), ""); // newest of all, but empty
-    expect((await resolveInputs(skillWith({ dir: d, glob: "*", pick: "newest", accept: "image/*" }))).doc).toBe(
-      join(d, "pic.png"),
-    );
+    expect(
+      (await resolveInputs(skillWith({ dir: d, glob: "*", pick: "newest", accept: "image/*" }))).doc,
+    ).toMatchObject({ path: join(d, "pic.png"), name: "pic.png" });
     expect((await resolveInputs(skillWith({ dir: d, glob: "*", pick: "all", accept: ".pdf" }))).doc).toHaveLength(2);
     await expect(
       resolveInputs(skillWith({ dir: d, glob: "*.pdf", pick: "newest", accept: "video/*" })),

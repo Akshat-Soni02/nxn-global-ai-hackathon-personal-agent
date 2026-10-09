@@ -1,5 +1,7 @@
 # 11 · Mac apps: the Accessibility API, and the desktop button
 
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+
 > Written 3 Oct 2026. Uncommitted on `main`.
 
 **The idea:** Task Player records a Mac app the way VoiceOver reads it.

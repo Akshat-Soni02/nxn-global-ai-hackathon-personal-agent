@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { Skill, type Step } from "../../../packages/core/src/skill.ts";
+import { isAction, Skill, type Step } from "../../../packages/core/src/skill.ts";
 import type { TraceEvent } from "../../../packages/core/src/trace.ts";
 import { compile, normalise } from "../../../packages/recorder/src/index.ts";
 import { describeElement } from "./describe.ts";
@@ -42,7 +42,7 @@ describe("golden: recorder output vs skills/real/upload-test-file.json", () => {
     const { skill } = await compile(normalise(trace));
 
     const expected = Skill.parse(JSON.parse(readFileSync(join(root, "skills/real/upload-test-file.json"), "utf8")));
-    const byAction = (steps: Step[], action: string) => steps.find((s) => s.action === action);
+    const byAction = (steps: Step[], action: string) => steps.filter(isAction).find((s) => s.action === action);
     for (const action of ["upload", "click"]) {
       const ours = byAction(skill.steps, action)?.target;
       const theirs = byAction(expected.steps, action)?.target;

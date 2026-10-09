@@ -5,7 +5,7 @@
 // Production replay goes through the daemon and the extension; this shares the same player code.
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
-import { Skill, type Step } from "../packages/core/src/skill.ts";
+import { isAction, Skill, type Step, walkSteps } from "../packages/core/src/skill.ts";
 import { chat, configFromEnv } from "../packages/llm/src/index.ts";
 import { runSkill } from "../packages/player/src/index.ts";
 import type { DevChrome } from "../packages/player/src/node/index.ts";
@@ -15,6 +15,7 @@ import {
   fileExists,
   fsChannel,
   launchChrome,
+  llmExecutor,
   poll,
   resolveInputs,
   scriptChannel,
@@ -50,11 +51,11 @@ function askModel() {
         { role: "user", content: user },
       ]);
   } catch {
-    return undefined; // no model configured: data.ai steps fail with a clear message, data.pick still works
+    return undefined; // no model configured: llm steps fail with a clear message, data.pick still works
   }
 }
 const needsBrowser =
-  skill.steps.some((s) => s.channel === "web") ||
+  [...walkSteps(skill.steps)].some(({ step }) => isAction(step) && step.channel === "web") ||
   skill.success.some((c) => c.text_visible || c.url_matches || c.element_visible);
 
 let chrome: DevChrome | undefined;
@@ -83,11 +84,19 @@ const print = (e: RunLogEvent) => {
     const match = r.matchScore !== undefined ? ` match ${r.matchScore} [${r.matchedBy?.join(", ") ?? ""}]` : "";
     const value = r.value !== undefined ? ` → ${JSON.stringify(r.value).slice(0, 160)}` : "";
     console.log(
-      `  ${r.ok ? "✓" : "✗"} ${e.stepId} (try ${e.attempt}, ${e.ms} ms)${match}${value}${r.ok ? "" : `  ${r.error}`}`,
+      `  ${r.ok ? "✓" : "✗"} ${e.path} (try ${e.attempt}, ${e.ms} ms)${match}${value}${r.ok ? "" : `  ${r.error}`}`,
     );
   }
-  if (e.type === "step.approval" && !e.approved) console.log(`  ⏹ ${e.stepId} denied`);
-  if (e.type === "run.end") console.log(`■ ${e.status} in ${e.ms} ms${e.error ? `: ${e.error}` : ""}`);
+  if (e.type === "step.approval" && !e.approved) console.log(`  ⏹ ${e.path} denied`);
+  if (e.type === "loop.start") console.log(`  ↻ ${e.path}: ${e.items} item(s)`);
+  if (e.type === "loop.item_failed") console.log(`  ↷ ${e.path}[${e.index}] skipped: ${e.error}`);
+  if (e.type === "branch") console.log(`  ⑂ ${e.path}: ${e.took === "steps" ? "condition holds" : "else"}`);
+  if (e.type === "step.skipped") console.log(`  – ${e.path} skipped (${e.reason})`);
+  if (e.type === "run.end") {
+    console.log(
+      `■ ${e.status} in ${e.ms} ms${e.failedStep ? ` at ${e.failedStep}` : ""}${e.error ? `: ${e.error}` : ""}`,
+    );
+  }
 };
 
 let status = "failed";
@@ -104,11 +113,17 @@ try {
             return { ok: true };
           }
         : scriptChannel,
-      // data.pick rules need no model; data.ai uses Nemotron when NEBIUS_* are set (capped, see data-channel.ts).
-      data: dataChannel({ ask: askModel() }),
+      // data.pick rules need no model; llm steps use Nemotron when NEBIUS_* are set (capped, see llm-step.ts).
+      data: dataChannel(),
+      llm: llmExecutor({ ask: askModel() }),
       fileExists: (pattern, timeoutMs) => poll(() => fileExists(pattern), timeoutMs),
       webCheck: async (check, timeoutMs) => waitForCheck(await browser(), check, timeoutMs),
       approve,
+      // A step's question: typed here. A yes/no question takes y or n.
+      ask: async (ask) => {
+        const reply = await rl.question(`${ask.question}${ask.kind === "confirm" ? " [y/N] " : " "}`);
+        return ask.kind === "confirm" ? reply.trim().toLowerCase().startsWith("y") : reply;
+      },
       log: print,
     },
     { inputs: await resolveInputs(skill, provided) },

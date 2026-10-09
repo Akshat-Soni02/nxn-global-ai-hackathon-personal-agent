@@ -1,14 +1,55 @@
 // Skeleton: the skill as far as code alone can take it. Channel, action, target and every recorded value come from
 // here, so the model (compile.ts) can only add meaning on top: it can never invent a selector or an action.
 // It is also a complete, valid skill on its own, which is what gets saved when no model is configured.
-import { type AxElement, type Input, kindOf, type Locator, type Skill } from "@taskplayer/core";
+import {
+  type ActionStep,
+  type AxElement,
+  type Check,
+  type Description,
+  type Input,
+  kindOf,
+  type Locator,
+  type Skill,
+  type Trigger,
+} from "@taskplayer/core";
 import type { z } from "zod";
 import type { Question } from "./compile.ts";
 import { toLocator } from "./locator.ts";
 import type { NormalisedStep } from "./normalise.ts";
 
-export type SkillDraft = z.input<typeof Skill>;
-type StepDraft = SkillDraft["steps"][number];
+// The recorder builds action steps only; an llm step comes from the drill (see aiQuestions in compile.ts).
+export type ActionDraft = z.input<typeof ActionStep>;
+type StepDraft = Omit<ActionDraft, "type">;
+
+// The recorder's working copy: the trigger's parts (when, inputs) beside the action steps, so compile and the drill
+// work on plain steps. skillInput() joins them into a skill whose first step is the trigger.
+export interface SkillDraft {
+  id: string;
+  name: string;
+  version: number;
+  description: z.input<typeof Description>;
+  when: Trigger[];
+  inputs: Record<string, Input>;
+  steps: ActionDraft[];
+  success: Check[];
+}
+
+export const TRIGGER_ID = "start";
+
+export function skillInput(draft: SkillDraft): z.input<typeof Skill> {
+  const { when, inputs, steps, ...rest } = draft;
+  const manual = when.every((w) => w.type === "manual");
+  return {
+    ...rest,
+    steps: [
+      { id: TRIGGER_ID, type: "trigger", intent: manual ? "By hand" : "On its trigger, or by hand", when, inputs },
+      ...steps,
+    ],
+  };
+}
+
+const TEXT = { type: "text" } as const;
+const FILE = { type: "file" } as const;
 
 // Steps that commit something you can't take back. Replay pauses for your OK before them.
 const RISKY = /\b(submit|pay|send|delete|remove|post|publish|confirm|purchase|buy|order|transfer|sign)\b/i;
@@ -29,7 +70,7 @@ export interface Skeleton {
 
 export function skeletonOf(steps: NormalisedStep[]): Skeleton {
   const inputs: Record<string, Input> = {};
-  const out: StepDraft[] = [];
+  const out: ActionDraft[] = [];
   const idsByStep: string[][] = [];
   const questions: Question[] = [];
   const copies = new Map<string, string>(); // a copy event's id -> the variable its value is saved as
@@ -37,20 +78,21 @@ export function skeletonOf(steps: NormalisedStep[]): Skeleton {
   for (const step of steps) {
     const first = out.length;
     const id = (k: number) => `s${first + k + 1}`;
-    out.push(
-      ...(step.kind === "copy"
+    const built =
+      step.kind === "copy"
         ? copySteps(step, id, copies, questions)
-        : [toStep(step, id(0), { inputs, copies, questions, files })]),
-    );
+        : [toStep(step, id(0), { inputs, copies, questions, files })];
+    out.push(...built.map((s) => ({ ...s, type: "action" as const })));
     idsByStep.push(out.slice(first).map((s) => s.id));
   }
   return {
     draft: {
       id: guessId(steps),
+      name: guessIntent(steps),
       version: 1,
-      intent: guessIntent(steps),
+      description: { goal: guessIntent(steps) },
+      when: [{ type: "manual" }],
       inputs,
-      triggers: [{ type: "manual" }],
       steps: out,
       success: [],
     },
@@ -59,7 +101,7 @@ export function skeletonOf(steps: NormalisedStep[]): Skeleton {
   };
 }
 
-// A copy keeps its value for later steps (save_as). On a normal page that is the text of the element you copied
+// A copy keeps its value for later steps (an output). On a normal page that is the text of the element you copied
 // from. In a Google Sheet, whose cells are drawn, it is the sheet's rows read from its export, then a rule that
 // picks the value: code writes the rule for the exact row you copied from, and asks if it should be "today's row".
 function copySteps(
@@ -99,15 +141,15 @@ function copySteps(
         channel: "web",
         action: "extract",
         args: { source: "google_sheet" },
-        save_as: sheet,
+        output: { name: sheet, type: { type: "list", items: { type: "object" } } },
       },
       {
         id: pickId,
         intent: `Pick ${ctx.column} from the row`,
         channel: "data",
         action: "pick",
-        args: { from: `{{vars.${sheet}}}`, where: exact, column: ctx.column },
-        save_as: name,
+        args: { from: `{{${sheet}}}`, where: exact, column: ctx.column },
+        output: { name, type: TEXT },
       },
     ];
   }
@@ -119,7 +161,7 @@ function copySteps(
       action: "extract",
       target: step.target && toLocator(step.target),
       args: {},
-      save_as: name,
+      output: { name, type: TEXT },
     },
   ];
 }
@@ -180,17 +222,17 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
             channel: "web",
             action: "type",
             target,
-            args: { text: `{{vars.${copied}}}`, clear: true },
+            args: { text: `{{${copied}}}`, clear: true },
           };
         }
         const name = addInput(inputs, `pasted ${step.target?.label ?? step.target?.name ?? "text"}`, {
-          type: "string",
+          type: TEXT,
           description: `What you pasted into ${what}`,
         });
         questions.push({
           id: `paste-${name}`,
           text: `You pasted something into ${what}; it was not recorded. What should go there?`,
-          appliesTo: `inputs.${name}.default`,
+          appliesTo: `steps.${TRIGGER_ID}.inputs.${name}.default`,
         });
         return {
           id,
@@ -198,13 +240,13 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
           channel: "web",
           action: "type",
           target,
-          args: { text: `{{inputs.${name}}}`, clear: true },
+          args: { text: `{{${name}}}`, clear: true },
         };
       }
       if (step.secret) {
         // The value was never recorded. Replay fills it from the macOS Keychain.
         const name = addInput(inputs, step.target?.label ?? step.target?.name ?? "password", {
-          type: "secret",
+          type: { type: "secret" },
           description: `Secret for ${what}, from the Keychain at run time`,
         });
         return {
@@ -213,7 +255,7 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
           channel: "web",
           action: "type",
           target,
-          args: { text: `{{inputs.${name}}}`, clear: true },
+          args: { text: `{{${name}}}`, clear: true },
         };
       }
       return {
@@ -271,7 +313,7 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
       };
       const choice = several ? undefined : fileQuestion(fileName, found, `the upload to ${what}`);
       const name = addInput(inputs, stem(fileName), {
-        type: "file",
+        type: several ? { type: "list", items: FILE } : FILE,
         description: `File like ${step.file?.name ?? "the one you picked"}`,
         // Several files dropped or picked at once: all files of that kind, not the newest one.
         resolve: choice?.resolve ?? found,
@@ -283,7 +325,7 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
         channel: "web",
         action: "upload",
         target,
-        args: { file: `{{inputs.${name}}}` },
+        args: { file: `{{${name}}}` },
       };
     }
     case "copy":
@@ -292,7 +334,7 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
     case "fs_rename": {
       // The file is found again at run time, as an upload's is: the newest file like it in the folder it was in
       // (invoice-0923.pdf -> the newest invoice-*.pdf), so next month's file is the one moved. A step on a file an
-      // earlier step moved follows that same file by name ({{inputs.x.name}} in its new folder).
+      // earlier step moved follows that same file by name ({{x.name}} in its new folder).
       const from = step.path ?? "";
       const to = step.toPath ?? "";
       let source = files.get(from);
@@ -306,18 +348,18 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
         };
         const choice = fileQuestion(basename(from), found, `the ${step.kind === "fs_move" ? "move" : "rename"}`);
         const name = addInput(inputs, stem(basename(from)), {
-          type: "file",
+          type: FILE,
           description: `File like ${basename(from)}`,
           resolve: choice.resolve,
         });
         questions.push(choice.question(name));
-        source = `{{inputs.${name}}}`;
+        source = `{{${name}}}`;
         files.set(from, source);
       }
       if (step.kind === "fs_move") {
         const folder = tilde(dirname(to));
         // Where the file is now: same name, new folder.
-        const moved = source.startsWith("{{inputs.")
+        const moved = source.startsWith("{{")
           ? `${folder}/${source.replace(/\}\}$/, ".name}}")}`
           : `${folder}/${basename(source)}`;
         files.set(to, moved);
@@ -370,17 +412,17 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
       if (step.secret || step.pasted || step.long) {
         // Never recorded (a password field, a paste, a whole document): an input, filled at run time or by you.
         const name = addInput(inputs, step.secret ? (el?.label ?? el?.title ?? "password") : `text for ${field}`, {
-          type: step.secret ? "secret" : "string",
+          type: step.secret ? { type: "secret" } : TEXT,
           description: step.secret ? `Secret for ${field}, from the Keychain at run time` : `What goes into ${field}`,
         });
         if (!step.secret) {
           questions.push({
             id: `app-text-${name}`,
             text: `${step.pasted ? "You pasted into" : "You wrote a long text in"} ${field}; it was not recorded. What should go there?`,
-            appliesTo: `inputs.${name}.default`,
+            appliesTo: `steps.${TRIGGER_ID}.inputs.${name}.default`,
           });
         }
-        text = `{{inputs.${name}}}`;
+        text = `{{${name}}}`;
       }
       return {
         id,
@@ -434,7 +476,7 @@ function fileQuestion(
     question: (input) => ({
       id: `file-${input}`,
       text: `You used ${fileName} for ${use}. Next time, which file?`,
-      appliesTo: `inputs.${input}.resolve`,
+      appliesTo: `steps.${TRIGGER_ID}.inputs.${input}.resolve`,
       options: [
         { label: each, value: askEachTime },
         { label: `the newest ${like} in ${found.dir}`, value: { ...found, glob: like, ask: false } },
@@ -458,7 +500,7 @@ function describe(step: NormalisedStep): string {
   return t?.role ? `the ${t.role}` : "the element";
 }
 
-// A name usable in {{inputs.NAME}}: lowercase letters, digits and underscores, unique within the skill.
+// A variable name usable as {{NAME}}: lowercase letters, digits and underscores, unique within the skill.
 function addInput(inputs: Record<string, Input>, raw: string, input: Input): string {
   const base =
     raw
@@ -466,7 +508,7 @@ function addInput(inputs: Record<string, Input>, raw: string, input: Input): str
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .replace(/^(\d)/, "input_$1") || "input";
-  let name = base;
+  let name = base === "today" ? "today_input" : base;
   for (let n = 2; name in inputs; n++) name = `${base}_${n}`;
   inputs[name] = input;
   return name;
