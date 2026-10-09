@@ -16,7 +16,7 @@ flowchart LR
   T --> E["Edit + approvals"]
   E --> H["Test<br/>(highlight only)"]
   H --> P["Run"]
-  P -- "a step fails" --> G["Debug<br/>self-correct"]
+  P -- "a step fails" --> G["Recover<br/>classify, repair,<br/>or the user shows it"]
   G -- "new version" --> T
 ```
 
@@ -31,7 +31,7 @@ flowchart LR
 6. **Edit.** The user can change any step and toggle **human approval** on any step.
 7. **Test.** Play runs a **highlight-only** replay: it shows each target without acting. This mode may change.
 8. **Run.** The exact tree the user saw runs from its trigger. Actions are deterministic; no model call unless an LLM step needs one or a step fails.
-9. **Debug and self-correct.** When a step fails, a debug step proposes a fix, the player verifies it, and the workflow is saved as a **new version**. Every version is kept; the user is notified and can roll back in one click.
+9. **Recover.** When a step fails, the failure is classified first: a site that is down is retried later, a login the user must do pauses the run, an empty inbox ends it as nothing to do, and only a changed page or app is **repaired**. Repair may change any part of the workflow, but never adds outward actions, changes what the user decided or turns approvals off, and is kept only with evidence it worked: then it becomes the **new version**, the user is notified and can roll back in one click. If repair can't fix it, the run pauses and the user **shows the step once** while Task Player records; that becomes the fix and the run resumes.
 
 **Components.** An always-on **daemon** (workflows, versions, triggers, memory, run log, all model calls), **Task Player.app** (Record button, Mac app capture and replay through the Accessibility API, screenshots and their redaction, voice and transcription), the **Chrome extension** (web capture and replay through `chrome.debugger` in the user's own Chrome) and a tiny **native-host shim** (Chrome launches a fresh process per native messaging connection, so the shim forwards bytes to the daemon's socket). There is **no backend server**: the daemon calls Nebius Token Factory directly with the user's own API key, kept in the macOS Keychain.
 

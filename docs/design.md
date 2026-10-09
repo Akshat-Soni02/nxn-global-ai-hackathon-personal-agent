@@ -19,7 +19,7 @@ flowchart LR
   T --> E["6 Edit<br/>any step, approval<br/>toggles"]
   E --> H["7 Test<br/>highlight only"]
   H --> P["8 Run<br/>the same tree,<br/>from its trigger"]
-  P -- "a step fails" --> G["9 Debug<br/>self-correct"]
+  P -- "a step fails" --> G["9 Recover<br/>classify, repair,<br/>or the user shows it"]
   G -- "new version,<br/>user notified" --> T
 ```
 
@@ -101,16 +101,79 @@ The user can edit any step (its target, values, wording), add, remove or reorder
 
 Runs execute **exactly the tree the user saw**, started by the trigger from Frequency or by hand. Action steps are deterministic: no model call unless an LLM step asks for one, or a step fails. The engine is the one already built (see [Replay engine](#replay-engine)).
 
-### 9. Debug and self-correct
+### 9. Recover from a failure
 
-When a step fails after its retries (target not found, check not met), a **debug** step takes over:
+*Decided Oct 9, 2026.* The aim is **as little human intervention as possible without giving up safety**. Two rules shape everything below: a run that silently does the wrong thing is worse than one that stops, and only a real change in the site or app may change the workflow.
 
-1. Nemotron 3 Super (the `debug` role) gets the step's intent, the failure, the stored target and its top candidates, the current page or window outline, and the recent run log. With screen consent, a redacted screenshot of the page is described by the `vision` role and added as text.
-2. It proposes a correction: a new target, an extra step (dismiss a new banner), or a longer wait.
-3. The player runs the corrected step. If its check passes, the run continues.
-4. The corrected workflow is **saved as a new version automatically**. Every version is kept. The user is notified with what changed and a **single click rolls back** to the previous version.
+```mermaid
+flowchart LR
+  F["A step fails<br/>after its retries"] --> C{"Classify"}
+  C -- transient --> T["Retry the run later"]
+  C -- environment --> E["Pause, notify,<br/>resume when fixed"]
+  C -- "nothing to do" --> N["End as no-op"]
+  C -- data --> D["This item fails<br/>or skips"]
+  C -- drift --> L["Cheap ladder<br/>(no model)"]
+  L -- "not fixed" --> R["Repair<br/>(debug model)"]
+  L -- fixed --> V
+  R --> V{"Verified?"}
+  V -- yes --> S["Continue the run,<br/>save as new version"]
+  V -- no --> P["Pause: the user<br/>shows the step"]
+  P --> S
+```
 
-Debug proposes; the player executes. Debug never adds a step that sends, submits, pays, publishes or deletes, and never changes a value the user set; those failures go to the user instead.
+#### Classify first
+
+When a step fails after its retries, the failure is classified **before anything is changed**:
+
+| Class | Examples | What happens | New version? |
+| --- | --- | --- | --- |
+| **Transient** | site down, 5xx, timeout, no network | The run is retried later with backoff; after the last retry it is handled as *environment* | No |
+| **Environment** | logged out, a one-time code, Task Player.app not running, a macOS permission missing | The run **pauses** and the user is told exactly what is needed ("log in to Xero"); it resumes from the failed step when they are done | No |
+| **Nothing to do** | the email hasn't arrived, the folder is empty, no unread invoices | The run ends as **no-op**, which is not a failure | No |
+| **Data** | this invoice has no due date, an extracted value doesn't fit its type | This item fails (or is skipped, with `on_item_fail: "skip"`); outside a loop the run fails and the user is told | No |
+| **Drift** | a button renamed, a new banner or dialog, an action moved into a menu, a new confirmation page, a changed layout | **Repair** (below) | Yes |
+
+Cheap signals decide first, with no model: the HTTP status, a URL that is a login page, the channel's own errors (app not running, permission missing). The model is asked only when these don't decide.
+
+#### Repair
+
+1. **Cheap ladder, no model.** Wait longer; match with the locator's label and nearby heading; fuzzy match (same role, similar name, one clear winner). Most drift should stop here.
+2. **Repair by the `debug` role.** It gets:
+   - the workflow's goal and the failed step's intent;
+   - the failure, the stored target and its top candidates *described* (role, name, text, attributes; not only scores);
+   - an outline of the current page, built from the DOM so that hidden file inputs are listed, or of the Mac window from the Accessibility tree;
+   - the recent run log, and site notes from memory;
+   - with screen consent, a redacted screenshot described by the `vision` role.
+3. **Scope: the whole workflow, not one step.** Repair may retarget steps, add, remove, reorder or replace steps (open a "⋯" menu, pass a new confirmation page, dismiss a banner), and change waits and timeouts, anywhere in the tree. A changed workflow must parse and pass `check.ts`, like any other.
+
+**What repair may never do** (a repair that needs one of these goes to the user):
+
+- **Outward actions:** add a step that sends, submits, pays, publishes or deletes, or one that matches a **Never** entry. It may retarget an existing outward step to the same control on a changed page ("Submit" → "Submit invoice"), but that step then needs approval the first time it runs.
+- **What the user decided:** the trigger, the inputs and their defaults, the description, values the user set in `args`, llm step instructions, `max_items` and `on_item_fail`.
+- **Safety switches:** turn approval off on any step, or remove an `ask`.
+- **Reach:** add `script` steps, or navigate to a site the workflow doesn't already use.
+
+#### Verify
+
+A repair counts only with evidence: the repaired step's `check` passes, or, if it has none, the next step's target is found (or its `wait` holds), or for the last step the workflow's `success` checks pass. A click that simply didn't throw is not evidence. Steps repaired further down the tree are verified when the run reaches them, and fail like any other step if they don't hold.
+
+#### Save permanently
+
+A verified repair **becomes the next version immediately**; later runs use it, with no confirmation step. The version's history note says `by: debug`, with what changed and why. The user is notified with the change, and **a single click rolls back** to the previous version. What was learnt about the site ("the billing portal shows a cookie banner first") is saved to memory as a site note, which later repairs read.
+
+#### When repair can't fix it: pause, and the user shows it
+
+- The run **pauses** instead of failing. The browser tab or Mac window, and the run's variables, are kept as they are, and the user is notified with where it stopped and why.
+- The user **does the stuck part by hand while Task Player records**, with the same recorder used to teach the task.
+- That demonstration **becomes the repair**: it is turned into steps at the failed point, checked like any other recorded steps (approvals on for outward steps), and saved as the next version (`by: user`).
+- The run **resumes** after the demonstrated part.
+
+So asking the user is not a dead end: it is how a fix the model couldn't find is taught, once.
+
+#### Not decided yet
+
+- **One model call or an agent** for classify and repair (see [Open questions](#open-questions)).
+- Limits: repair attempts per step and per run, the model budget, and how long a paused run waits.
 
 ## The workflow format
 
@@ -252,7 +315,7 @@ Each recording keeps its raw files in one folder: screenshots, audio, transcript
 - **Secrets:** sensitive field values are never recorded; passwords become secret inputs read from the macOS Keychain at run time.
 - **LLM steps cannot act.** They only transform data, so text on a web page cannot make the model click, send or navigate.
 - **Approvals:** on by default for send, submit, pay, publish and delete, and for anything matching the description's "Never".
-- **Debug is bounded:** it cannot add outward actions or change user-set values; every change is a new version the user can roll back in one click.
+- **Repair is bounded:** only drift changes a workflow; repair cannot add outward actions or scripts, change what the user decided, turn approvals off or reach new sites, and a fix is kept only with evidence that it worked. Every change is a new version the user can roll back in one click ([Recover from a failure](#9-recover-from-a-failure)).
 - **Permissions (macOS):** Accessibility (Mac app capture and replay), Screen Recording (Mac app window screenshots), Microphone and Speech Recognition (narration), Automation (scripts). Full Disk Access is not needed.
 
 ## Deployment
@@ -281,7 +344,7 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Voice + transcription (macOS SpeechAnalyzer) | ❌ | New |
 | Workflow editor | ❌ (terminal only) | New |
 | Highlight-only test | ❌ | New |
-| Debug + self-correct + versions + rollback | ❌ (fallback is a TODO in `run.ts`) | New |
+| Recover from a failure: classify, repair, verify, pause and show, versions + rollback | ❌ (a TODO in `run.ts`; `on_fail.fallback` is never read; every failure stops the run) | New |
 | Triggers from Frequency | ❌ (only manual `run`) | New |
 | `packages/llm` with roles, structured output, budgets, usage | ❌ (one `chat()` function; callers build their own wrappers) | New |
 | Consent, redaction, 24-hour retention | ❌ | New |
@@ -296,7 +359,7 @@ Replay side first: the workflow format and its interpreter are what everything e
 | 1 | Workflow format in `packages/core`: nodes, variables, ask, approval, versions | Both | ✅ Done (Oct 8) |
 | 2 | `packages/llm`: roles, thinking control, structured output, budgets, usage, fake client, `pnpm llm:check`; existing callers moved onto it | Both | Every model call goes through a role; `llm:check` passes with a real key |
 | 3 | Interpreter: variables, loop, branch, llm node, ask, approval | Replay | A hand-written workflow with a loop and a branch runs end to end |
-| 4 | Debug and self-correct, versions, notification and rollback | Replay | A drifted page is fixed, saved as v2, and rolled back in one click |
+| 4 | Recover from a failure: classify, repair, verify, pause and show, versions, notification and rollback | Replay | A drifted page (new banner, renamed button, new confirmation page) is repaired and saved as v2, then rolled back in one click; a site that is down is retried, not repaired; a fix the model can't find is shown by the user and the run resumes |
 | 5 | Highlight-only test | Replay | Play highlights each reachable target without acting |
 | 6 | Triggers from Frequency | Replay | A scheduled and a folder workflow start on their own |
 | 7 | Description form; consent; screenshots with redaction; voice and transcription; 24-hour retention | Record | A recording carries events, redacted screenshots and a transcript on one clock, and its folder is gone a day after finalising |
@@ -318,7 +381,7 @@ Replay side first: the workflow format and its interpreter are what everything e
 | Zero Data Retention | A Token Factory organization setting: prompts and responses are not stored or used for training |
 | Drill | Questions on the uncertain parts of a draft workflow |
 | Highlight-only test | A replay that finds and highlights each target without acting |
-| Debug step | The LLM-assisted fix when a step fails; saves a new version |
+| Repair | The fix for a drifted step, by the cheap ladder or the `debug` role, or shown by the user; saved as a new version once verified |
 | Locator | How a control is remembered: role, accessible name, nearby text, attributes and fallback selectors. Never coordinates |
 | CDP / chrome.debugger | Chrome's remote-control protocol, reached by the extension in the user's own Chrome |
 | AX | macOS Accessibility API, for reading and pressing controls in Mac apps |
@@ -346,7 +409,11 @@ Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglo
 - [ ] **Frequency options.** The dropdown list above is a proposal; "when an email arrives" is wanted but needs an email trigger.
 - [ ] **Where the workflow editor lives:** Chrome side panel, a local page served by the daemon, or Task Player.app.
 - [ ] **Highlight-only test** for steps behind an earlier action (see [Test](#7-test)).
-- [ ] **Debug limits:** attempts per run, model budget, which fixes are allowed without the user.
+- [ ] **One model call or an agent for recovery?** Can classify and repair be a single structured call over the page outline, or do they need an agent that looks, acts and looks again (open the menu, then see what is inside)? Next to brainstorm.
+- [ ] **Recovery limits:** repair attempts per step and per run, the model budget, how long a paused run waits before it ends.
+- [ ] **A run that fails halfway:** after some rows are written or emails labelled, a fresh run would do them again. Resume from the failed step, or require steps that are safe to repeat?
+- [ ] **Telling "nothing to do" from drift:** an empty inbox and a changed inbox page both look like "target not found". Each step may need to say what "nothing to do" looks like.
+- [ ] **Wrong but "successful" steps:** a weak match on the wrong element never fails, so recovery never starts. A check before acting on a low-margin match, and a "that was wrong" button on the run report.
 - [ ] **Sheet writes and clipboard steps**, needed by several workflows in examples.md.
 - [ ] **Model ids and `json_schema` support** to confirm with a real key (`pnpm llm:check`); the catalog was read on Oct 8.
 - [ ] **Submission period:** if the hackathon started after our first commit (Sep 30), add a note on what was built during it.
