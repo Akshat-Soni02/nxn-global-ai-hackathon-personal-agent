@@ -55,7 +55,10 @@ describe("skill store", () => {
       version: 1,
       name: "first",
       description: { goal: "first" },
-      steps: [{ id: "s1", type: "action", intent: "x", channel: "web", action: "navigate" }],
+      steps: [
+        { id: "start", type: "trigger", intent: "by hand" },
+        { id: "s1", type: "action", intent: "x", channel: "web", action: "navigate" },
+      ],
     });
     const v1 = saveSkill(dir, skill);
     const v2 = saveSkill(dir, { ...skill, name: "second" });
@@ -269,7 +272,12 @@ describe("record end to end", () => {
     ext.end();
     expect(asked).toEqual(["file-invoice", "dir-invoice", "intent"]); // which file next time, then where they arrive
     expect(saved?.skill).toMatchObject({ id: "upload-invoice", version: 1 });
-    expect(saved?.skill.steps.map((s) => (isAction(s) ? s.action : s.type))).toEqual(["navigate", "upload", "click"]);
+    expect(saved?.skill.steps.map((s) => (isAction(s) ? s.action : s.type))).toEqual([
+      "trigger",
+      "navigate",
+      "upload",
+      "click",
+    ]);
     expect(Skill.safeParse(JSON.parse(readFileSync(saved?.path ?? "", "utf8"))).success).toBe(true);
   });
 });
@@ -281,15 +289,15 @@ describe("choosing the file when a skill runs", () => {
       version: 1,
       name: "File a photo",
       description: { goal: "File a photo" },
-      inputs: { photo: { type: "file", resolve } },
       steps: [
+        { id: "start", type: "trigger", intent: "by hand", inputs: { photo: { type: { type: "file" }, resolve } } },
         {
           id: "s1",
           type: "action",
           intent: "Move the photo to ~/Desktop/rushil",
           channel: "fs",
           action: "move",
-          args: { from: "{{inputs.photo}}", to: "~/Desktop/rushil/" },
+          args: { from: "{{photo}}", to: "~/Desktop/rushil/" },
         },
       ],
     });

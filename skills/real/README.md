@@ -1,6 +1,6 @@
 # Real skills
 
-> **Workflow format** (Oct 8): each skill has a `name`, a `description` (goal, changes, constants, never), typed steps (`"type": "action"`) and a `history`. None uses loops, branches or llm steps yet.
+> **Workflow format** (Oct 9): each skill starts with a `trigger` step (when it runs, and its typed inputs), declares a typed `output` on every step that produces a value, and refers to variables as `{{name}}` / `{{name.field}}`. None uses loops, branches or llm steps yet.
 
 Five hand-written skills against real, public test sites, used as the replay team's test suite.
 Each web target is checked against a saved snapshot of its page by `skills/real/skills.test.ts`.
@@ -12,7 +12,7 @@ The exception is Chrome's own download folder, `~/Downloads`, which `download-an
 | --- | --- | --- | --- |
 | `upload-test-file` | Mac + Chrome | the-internet.herokuapp.com/upload | file input resolved from disk, `upload` without a native dialog, approval gate, result-page check, `fs.move` afterwards |
 | `download-and-file` | Mac + Chrome | selenium.dev downloads page | a click that starts a download, waiting on the filesystem (`since_run_start`, `timeout_ms`), Chrome's ` (1)` suffix, dated rename |
-| `hn-digest` | Mac + Chrome | news.ycombinator.com | `extract` over many elements with `save_as`, `fs.write` from a variable, AppleScript (needs Automation permission for TextEdit) |
+| `hn-digest` | Mac + Chrome | news.ycombinator.com | `extract` over many elements into a text `output`, `fs.write` from that variable, AppleScript (needs Automation permission for TextEdit) |
 | `fill-web-form` | Chrome only | selenium.dev web form | text, textarea, `select`, datalist, checkbox, radio, date picker popup + `press Escape`, submit and navigate, input defaults |
 | `sort-inbox` | Mac only | none | `fs.find` with `pick: all`, brace globs, moving lists (empty list = no-op), notification |
 

@@ -81,19 +81,5 @@ describe("real skills", () => {
     }
   }
 
-  it("uses only template variables the player knows", () => {
-    for (const id of ["upload-test-file", "download-and-file", "hn-digest", "fill-web-form", "sort-inbox"]) {
-      const skill = load(id);
-      const saved = new Set<string>();
-      for (const { step } of walkSteps(skill.steps)) {
-        for (const [, ref] of JSON.stringify(step).matchAll(/\{\{([^}]+)\}\}/g)) {
-          const [scope, name] = (ref as string).split(".");
-          if (scope === "inputs") expect(skill.inputs, `${id}/${step.id}`).toHaveProperty(name as string);
-          else if (scope === "vars") expect(saved.has(name as string), `${id}/${step.id} uses ${ref}`).toBe(true);
-          else expect(["today", "text", "href"], `${id}/${step.id}`).toContain(scope);
-        }
-        if ((isAction(step) || step.type === "llm") && step.save_as) saved.add(step.save_as);
-      }
-    }
-  });
+  // Variables (declared, visible, right fields) are checked by the schema itself: see packages/core/src/check.ts.
 });

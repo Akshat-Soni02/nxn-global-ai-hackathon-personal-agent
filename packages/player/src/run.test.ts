@@ -4,8 +4,15 @@ import { describe, expect, it } from "vitest";
 import { runSkill } from "./run.ts";
 import type { RunDeps, StepResult } from "./types.ts";
 
-const skill = (steps: unknown[], extra: Record<string, unknown> = {}): Skill =>
-  SkillSchema.parse({ id: "t", name: "test", version: 1, description: { goal: "test" }, steps, ...extra });
+const skill = (steps: unknown[], extra: Record<string, unknown> = {}, inputs: Record<string, unknown> = {}): Skill =>
+  SkillSchema.parse({
+    id: "t",
+    name: "test",
+    version: 1,
+    description: { goal: "test" },
+    steps: [{ id: "start", type: "trigger", intent: "by hand", inputs }, ...steps],
+    ...extra,
+  });
 
 function deps(results: Record<string, StepResult[]>, overrides: Partial<RunDeps> = {}) {
   const calls: Step[] = [];
@@ -26,30 +33,60 @@ function deps(results: Record<string, StepResult[]>, overrides: Partial<RunDeps>
 }
 
 describe("runSkill", () => {
-  it("passes saved values to later steps through templates", async () => {
+  it("passes inputs and typed outputs to later steps through references", async () => {
+    const s = skill(
+      [
+        {
+          id: "a",
+          type: "action",
+          intent: "find",
+          channel: "fs",
+          action: "find",
+          args: { dir: "~", glob: "*", pick: "all" },
+          output: { name: "found", type: { type: "list", items: { type: "file" } } },
+        },
+        {
+          id: "b",
+          type: "action",
+          intent: "move",
+          channel: "fs",
+          action: "move",
+          args: { from: "{{found}}", to: "~/x/{{n}}/{{found.0.name}}" },
+        },
+      ],
+      {},
+      { n: { type: { type: "text" } } },
+    );
+    const { d, calls } = deps({ a: [{ ok: true, value: ["/p/1.pdf", "/p/2.pdf"] }] });
+    const out = await runSkill(s, d, { inputs: { n: "out" } });
+    expect(out.status).toBe("succeeded");
+    expect((calls[1] as ActionStep | undefined)?.args).toEqual({
+      from: [
+        { path: "/p/1.pdf", name: "1.pdf", size: 0, modified: "" },
+        { path: "/p/2.pdf", name: "2.pdf", size: 0, modified: "" },
+      ],
+      to: "~/x/out/1.pdf",
+    });
+  });
+
+  it("fails the step when its result does not fit the declared output type", async () => {
     const s = skill([
       {
         id: "a",
         type: "action",
-        intent: "find",
+        intent: "read the total",
         channel: "fs",
-        action: "find",
-        args: { dir: "~", glob: "*" },
-        save_as: "found",
-      },
-      {
-        id: "b",
-        type: "action",
-        intent: "move",
-        channel: "fs",
-        action: "move",
-        args: { from: "{{vars.found}}", to: "~/x/{{inputs.n}}" },
+        action: "read",
+        args: { path: "~/total.txt" },
+        output: { name: "total", type: { type: "number" } },
       },
     ]);
-    const { d, calls } = deps({ a: [{ ok: true, value: ["/p/1", "/p/2"] }] });
-    const out = await runSkill(s, d, { inputs: { n: "out" } });
-    expect(out.status).toBe("succeeded");
-    expect((calls[1] as ActionStep | undefined)?.args).toEqual({ from: ["/p/1", "/p/2"], to: "~/x/out" });
+    const { d } = deps({ a: [{ ok: true, value: "about twelve hundred" }] });
+    expect(await runSkill(s, d, { inputs: {} })).toMatchObject({
+      status: "failed",
+      failedStep: "a",
+      error: 'total should be number, got "about twelve hundred"',
+    });
   });
 
   it("retries up to on_fail.retries, then fails the run at that step", async () => {
@@ -101,12 +138,23 @@ describe("runSkill", () => {
     expect(await runSkill(s, d, { inputs: {} })).toMatchObject({ status: "failed", failedStep: "success" });
   });
 
-  it("fails cleanly on a placeholder with no value", async () => {
-    const s = skill([
-      { id: "a", type: "action", intent: "n", channel: "web", action: "navigate", args: { url: "{{vars.missing}}" } },
-    ]);
+  it("refuses an undeclared reference when the skill is parsed, and an unset input when it runs", async () => {
+    const step = {
+      id: "a",
+      type: "action",
+      intent: "n",
+      channel: "web",
+      action: "navigate",
+      args: { url: "{{page}}" },
+    };
+    expect(() => skill([step])).toThrow("page, which is not declared by an earlier step");
+    const s = skill([step], {}, { page: { type: { type: "text" } } });
     const { d, calls } = deps({});
-    expect(await runSkill(s, d, { inputs: {} })).toMatchObject({ status: "failed", failedStep: "a" });
+    expect(await runSkill(s, d, { inputs: {} })).toMatchObject({
+      status: "failed",
+      failedStep: "a",
+      error: "{{page}}: page has no value yet",
+    });
     expect(calls).toHaveLength(0);
   });
 });

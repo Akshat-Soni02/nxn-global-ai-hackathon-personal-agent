@@ -114,20 +114,45 @@ Debug proposes; the player executes. Debug never adds a step that sends, submits
 
 ## The workflow format
 
-The skill is the contract between record and replay, and a skill **is** a workflow. Source of truth: `packages/core/src/skill.ts` (schema, plus the args of every action and the template grammar). The workflow replay receives is final: the drill happened at record time.
+The skill is the contract between record and replay, and a skill **is** a workflow. Source of truth: `packages/core/src/skill.ts` (the schema and the args of every action), `vars.ts` (types and references) and `check.ts` (the variable check). The workflow replay receives is final: the drill happened at record time.
 
-**On the skill:** `id`, `name` (short, for lists and notifications), `version`, `description` `{ goal, changes[], constants[], never[] }` (the form; Frequency became `triggers`), `triggers`, `inputs`, `steps` (the tree), `success` (final checks) and `history` (one note per version: `by` record, user or debug, a summary and a time).
+**On the skill:** `id`, `name` (short, for lists and notifications), `version`, `description` `{ goal, changes[], constants[], never[] }` (the form), `steps` (the tree), `success` (final checks) and `history` (one note per version: `by` record, user or debug, a summary and a time).
 
-**Every step** has `id` (unique across the tree), `type`, `intent` (what it is for: the editor shows it, debug relies on it), `requires_approval` and an optional `ask` (`{ question, kind: "value" | "confirm", save_as }`, asked before the step runs). Then by type:
+**The first step is always the trigger:** `{ id, type: "trigger", intent, when, inputs }`. `when` is the Frequency (`manual`, `schedule` with a cron, `folder_watch`); `inputs` are the values a run starts with, each `{ type, description?, default?, resolve?, example? }`. A value given with `run`, a file resolver ("the newest PDF in ~/Downloads"), or the default fills it; `example` is what was seen while recording.
+
+**Every other step** has `id` (unique across the tree), `type`, `intent` (what it is for: the editor shows it, debug relies on it), `requires_approval` and an optional `ask` (`{ question, kind: "value" | "confirm", output }`, asked before the step runs). Then by type:
 
 | `type` | What it does | Fields |
 | --- | --- | --- |
-| `action` | One step in the browser, a Mac app, files or a script | `channel` (`web`, `ax`, `fs`, `script`, `data`), `action`, `target` (a locator, never coordinates), `args`, `wait`, `check`, `save_as`, `timeout_ms`, `on_fail` |
-| `llm` | **Transform only**: summarise, classify, read text, compute. Never drives the UI, gets no tools | `instruction`, `inputs` (templates of the data it reads), `output` (`text`, `number`, `boolean`, `date`, `list` or `object`, with `fields` / `items`), `save_as` (required). The answer is checked against `output` |
-| `control`, `kind: "loop"` | Runs its `steps` for each item of a list | `over` (a template that resolves to a list), `as` (the item's name inside), `max_items` (100), `on_item_fail` (`stop` or `skip`), `steps` |
+| `action` | One step in the browser, a Mac app, files or a script | `channel` (`web`, `ax`, `fs`, `script`, `data`), `action`, `target` (a locator, never coordinates), `args`, `wait`, `check`, `output`, `timeout_ms`, `on_fail` |
+| `llm` | **Transform only**: summarise, classify, read text, compute. Never drives the UI, gets no tools | `instruction`, `inputs` (references to the data it reads), `output` (required; never a file or secret). The model's answer is checked against the output's type |
+| `control`, `kind: "loop"` | Runs its `steps` for each item of a list | `over` (a reference to a list), `item` (the current item, a variable visible only inside the loop), `max_items` (100), `on_item_fail` (`stop` or `skip`), `steps` |
 | `control`, `kind: "branch"` | Runs its `steps` if a condition holds, its `else` steps otherwise | `if` (a comparison `{ left, op, right }` with `equals`, `not_equals`, `contains`, `greater_than`, `less_than`, `exists`, `not_exists`; or `all` / `any` / `not` of conditions), `steps`, `else`. No `then` key: an object with one is treated as a promise by `await` |
 
-**Variables** need no declaration. `inputs` are values from outside a run: the trigger's file, a default, a resolver like "newest PDF in ~/Downloads", each with the recorded `example`. Every step's result can be saved with `save_as` and read as `{{vars.name}}` (or `{{vars.name.field}}`); an `ask` saves the answer the same way; inside a loop the item is `{{<as>}}`. `{{today}}` is the date. Judgement that a rule cannot express is an `llm` step; `data.ai` is gone.
+### Variables
+
+Every value a step reads is a **variable declared, with its type, by an earlier step**: the trigger's `inputs`, an action's or llm step's `output` (`{ name, type }`), an ask's `output`, or a loop's `item`. Names are unique in a skill, and each variable is set by exactly one step.
+
+**Types** (a fixed set, one way to write each):
+
+| Type | Value |
+| --- | --- |
+| `{ "type": "text" }` | a string |
+| `{ "type": "number" }` | a number |
+| `{ "type": "boolean" }` | true or false |
+| `{ "type": "date" }` | `"YYYY-MM-DD"` |
+| `{ "type": "file" }` | `{ path, name, size, modified }`: `{{invoice_file.path}}`, `{{invoice_file.name}}` are ordinary fields |
+| `{ "type": "secret" }` | text that is never logged, stored or sent to the model |
+| `{ "type": "list", "items": <type> }` | a list of one type |
+| `{ "type": "object", "fields": { name: <type> } }` | an object; without `fields`, rows of any shape (a sheet read by its header) |
+
+**References:** `{{name}}`, then `.field` for an object's field and `.N` for a list item: `{{invoice.amount}}`, `{{emails.0.subject}}`, `{{email.body}}` (inside a loop); `{{today}}` is built in. A string that is exactly one reference keeps the value's type (a list stays a list); inside longer text the value becomes text, objects and lists as JSON. A file value can be given wherever a path is expected.
+
+**Visibility:** a reference is valid only after the step that declares the variable, at the same level or an enclosing one. A loop's item and anything produced inside the loop exist only inside it. A variable produced inside a branch exists after it only if both arms produce it with the same type.
+
+**What each action produces** (and so the outputs it may declare): `web.extract` gives text, a list of text (`all`), or a list of row objects (`source`); `fs.find` a file, or a list of files (`pick: "all"`); `fs.move` and `fs.copy` a file or a list of files; `fs.rename` and `fs.write` a file; `fs.read` text; `data.pick` text (with `column`) or a row object; `script` steps text. Other actions produce nothing, and declaring an output on them is an error. Text may be declared as number, boolean or date and is converted at run time ("1,234" becomes 1234).
+
+**Checked twice.** When a skill is parsed (saved by the recorder, the editor or debug), `check.ts` verifies every reference: the variable is declared and visible at that step, the field exists, a loop runs over a list whose items match its `item`, names are unique, and each output fits what its action produces. Errors name the exact place, e.g. `steps.2.steps.3.args.from: {{pdf.pth}} has no such field: pdf is a file`. At run time, a step whose reference has no value stops with that name, and every output is checked against its declared type before it is saved.
 
 ## Architecture
 
@@ -246,7 +271,7 @@ The skill format is migrated to the workflow tree (Oct 8). The recorder still pr
 | Replay engine (matching, acting, waiting) | ✅ `packages/player`, extension, Task Player.app | Stays; called by the new interpreter |
 | Approvals, run log, memory, IPC, native host | ✅ | Stays; run log adds the version |
 | `data.pick` (rules over rows), `data.ai` (capped model call) | ✅ | `data.ai` becomes the **llm** node; `data.pick` stays as a data action |
-| Skill format | ✅ workflow tree in `skill.ts`: action, llm, loop, branch, ask, approval, history | Done |
+| Skill format | ✅ workflow tree: trigger step, action, llm, loop, branch, ask, approval, history; typed variables declared by the steps that produce them, checked when a skill is parsed | Done |
 | Running loops, branches and asks | ❌ the run loop stops with "not supported yet" | The interpreter (next) |
 | llm steps | ✅ run at the top level (capped, cached, typed output) | Inside loops and branches with the interpreter |
 | Compile | Trace → skill, drill in the terminal | Description + trace + transcript → tree; drill on the tree |

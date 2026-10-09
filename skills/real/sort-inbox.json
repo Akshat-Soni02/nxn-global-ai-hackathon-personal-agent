@@ -8,16 +8,21 @@
     "constants": ["~/TaskPlayerTest/inbox", "the sorted/ folders"],
     "never": ["delete files"]
   },
-  "triggers": [
-    {
-      "type": "manual"
-    },
-    {
-      "type": "folder_watch",
-      "dir": "~/TaskPlayerTest/inbox"
-    }
-  ],
   "steps": [
+    {
+      "id": "start",
+      "type": "trigger",
+      "intent": "By hand, or when the sandbox inbox changes",
+      "when": [
+        {
+          "type": "manual"
+        },
+        {
+          "type": "folder_watch",
+          "dir": "~/TaskPlayerTest/inbox"
+        }
+      ]
+    },
     {
       "id": "s1",
       "type": "action",
@@ -29,7 +34,15 @@
         "glob": "*.pdf",
         "pick": "all"
       },
-      "save_as": "pdfs"
+      "output": {
+        "name": "pdfs",
+        "type": {
+          "type": "list",
+          "items": {
+            "type": "file"
+          }
+        }
+      }
     },
     {
       "id": "s2",
@@ -38,7 +51,7 @@
       "channel": "fs",
       "action": "move",
       "args": {
-        "from": "{{vars.pdfs}}",
+        "from": "{{pdfs}}",
         "to": "~/TaskPlayerTest/sorted/pdfs/"
       }
     },
@@ -53,7 +66,15 @@
         "glob": "*.{png,jpg,jpeg,heic}",
         "pick": "all"
       },
-      "save_as": "images"
+      "output": {
+        "name": "images",
+        "type": {
+          "type": "list",
+          "items": {
+            "type": "file"
+          }
+        }
+      }
     },
     {
       "id": "s4",
@@ -62,7 +83,7 @@
       "channel": "fs",
       "action": "move",
       "args": {
-        "from": "{{vars.images}}",
+        "from": "{{images}}",
         "to": "~/TaskPlayerTest/sorted/images/"
       }
     },
@@ -77,7 +98,15 @@
         "glob": "*.{txt,md}",
         "pick": "all"
       },
-      "save_as": "notes"
+      "output": {
+        "name": "notes",
+        "type": {
+          "type": "list",
+          "items": {
+            "type": "file"
+          }
+        }
+      }
     },
     {
       "id": "s6",
@@ -86,7 +115,7 @@
       "channel": "fs",
       "action": "move",
       "args": {
-        "from": "{{vars.notes}}",
+        "from": "{{notes}}",
         "to": "~/TaskPlayerTest/sorted/notes/"
       }
     },

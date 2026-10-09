@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { LlmOutput, LlmStep } from "@taskplayer/core";
+import { fitValue, type LlmStep, type VarType } from "@taskplayer/core";
 import { today } from "../template.ts";
 import type { RunContext, StepResult } from "../types.ts";
 
@@ -45,7 +45,7 @@ export function llmExecutor(options: { ask?: Ask; cacheDir?: string; limits?: Ai
     // The model has no calendar: the run's date goes into the question, and into the cache key, so "today's row"
     // is never answered from yesterday's cache when the data hasn't changed.
     const day = today(new Date(ctx.startedAt || Date.now()));
-    const shape = describeOutput(step.output);
+    const shape = describeOutput(step.output.type);
     const key = createHash("sha256").update(`${day}\n${step.instruction}\n${shape}\n${input}`).digest("hex");
     const cached = options.cacheDir ? join(options.cacheDir, `${key}.json`) : undefined;
     if (cached && existsSync(cached)) return { ok: true, value: JSON.parse(readFileSync(cached, "utf8")).answer };
@@ -59,7 +59,7 @@ export function llmExecutor(options: { ask?: Ask; cacheDir?: string; limits?: Ai
       `You transform the data you are given. Reply with ${shape}, and nothing else.`,
       `Today is ${day}.\n${step.instruction}\n\nData:\n${input}`,
     );
-    const answer = parseAnswer(reply, step.output);
+    const answer = parseAnswer(reply, step.output.type);
     if (answer === undefined) return fail(`the model's answer is not ${shape}: ${reply.slice(0, 120)}`);
     if (cached && options.cacheDir) {
       mkdirSync(options.cacheDir, { recursive: true });
@@ -69,75 +69,40 @@ export function llmExecutor(options: { ask?: Ask; cacheDir?: string; limits?: Ai
   };
 }
 
-const SCALAR = {
+const SCALAR: Record<string, string> = {
   text: "plain text",
   number: "a number only, digits and an optional decimal point, no currency or thousands separators",
   boolean: "true or false only",
   date: "a date as YYYY-MM-DD",
-} as const;
-type Scalar = keyof typeof SCALAR;
+};
 
-export function describeOutput(output: LlmOutput): string {
-  const fields = output.fields
-    ? `{ ${Object.entries(output.fields)
-        .map(([k, t]) => `"${k}": ${t}`)
-        .join(", ")} }`
-    : undefined;
-  if (output.type === "object") return `a JSON object ${fields ?? "{}"}`;
-  if (output.type === "list")
-    return `a JSON array of ${fields ? `objects ${fields}` : (output.items ?? "text")} values`;
-  return SCALAR[output.type];
+// How the step's output type is described to the model.
+export function describeOutput(type: VarType): string {
+  if (type.type === "object") return `a JSON object ${shapeOf(type)}`;
+  if (type.type === "list") return `a JSON array of ${shapeOf(type.items)} values`;
+  return SCALAR[type.type] ?? "plain text";
 }
 
-// The reply, checked against the step's output type; undefined when it does not fit.
-export function parseAnswer(reply: string, output: LlmOutput): unknown {
+const shapeOf = (type: VarType): string =>
+  type.type === "object"
+    ? type.fields
+      ? `{ ${Object.entries(type.fields)
+          .map(([k, t]) => `"${k}": ${shapeOf(t)}`)
+          .join(", ")} }`
+      : "{}"
+    : type.type === "list"
+      ? `[${shapeOf(type.items)}]`
+      : type.type;
+
+// The reply, checked against the step's output type (vars.ts fitValue); undefined when it does not fit.
+export function parseAnswer(reply: string, type: VarType): unknown {
   const text = reply.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-  if (output.type === "object" || output.type === "list") {
-    let value: unknown;
+  if (type.type === "object" || type.type === "list") {
     try {
-      value = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ""));
+      return fitValue(type, JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, "")));
     } catch {
       return undefined;
     }
-    if (output.type === "object") return isRecord(value) ? fitObject(value, output.fields) : undefined;
-    if (!Array.isArray(value)) return undefined;
-    const items = value.map((item) =>
-      output.fields
-        ? isRecord(item)
-          ? fitObject(item, output.fields)
-          : undefined
-        : scalar(item, output.items ?? "text"),
-    );
-    return items.every((i) => i !== undefined) ? items : undefined;
   }
-  return scalar(text, output.type);
-}
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-
-function fitObject(value: Record<string, unknown>, fields: LlmOutput["fields"]): Record<string, unknown> | undefined {
-  if (!fields) return value;
-  const out: Record<string, unknown> = {};
-  for (const [name, type] of Object.entries(fields)) {
-    const fitted = scalar(value[name], type);
-    if (fitted === undefined) return undefined;
-    out[name] = fitted;
-  }
-  return out;
-}
-
-function scalar(value: unknown, type: Scalar): unknown {
-  if (value === undefined || value === null) return undefined;
-  const text = String(value).trim();
-  if (type === "number") {
-    if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-    const n = Number(text.replace(/[^\d.-]/g, ""));
-    return text && Number.isFinite(n) ? n : undefined;
-  }
-  if (type === "boolean") {
-    if (typeof value === "boolean") return value;
-    return /^(true|yes)$/i.test(text) ? true : /^(false|no)$/i.test(text) ? false : undefined;
-  }
-  if (type === "date") return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : undefined;
-  return text || undefined;
+  return text ? fitValue(type, text) : undefined;
 }

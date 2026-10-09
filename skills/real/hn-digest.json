@@ -8,16 +8,21 @@
     "constants": ["news.ycombinator.com", "top 5", "~/TaskPlayerTest/digests"],
     "never": []
   },
-  "triggers": [
-    {
-      "type": "manual"
-    },
-    {
-      "type": "schedule",
-      "cron": "30 8 * * *"
-    }
-  ],
   "steps": [
+    {
+      "id": "start",
+      "type": "trigger",
+      "intent": "By hand, or every day at 08:30",
+      "when": [
+        {
+          "type": "manual"
+        },
+        {
+          "type": "schedule",
+          "cron": "30 8 * * *"
+        }
+      ]
+    },
     {
       "id": "s1",
       "type": "action",
@@ -48,7 +53,12 @@
         "each": "- [{{text}}]({{href}})",
         "join": "\n"
       },
-      "save_as": "stories"
+      "output": {
+        "name": "stories",
+        "type": {
+          "type": "text"
+        }
+      }
     },
     {
       "id": "s3",
@@ -58,7 +68,7 @@
       "action": "write",
       "args": {
         "path": "~/TaskPlayerTest/digests/hn-{{today}}.md",
-        "content": "# Hacker News top 5, {{today}}\n\n{{vars.stories}}\n"
+        "content": "# Hacker News top 5, {{today}}\n\n{{stories}}\n"
       },
       "check": {
         "file_exists": "~/TaskPlayerTest/digests/hn-{{today}}.md"

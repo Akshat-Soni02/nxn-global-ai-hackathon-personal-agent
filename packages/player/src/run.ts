@@ -1,6 +1,15 @@
 // The per-skill loop. Runs in the daemon. Web steps are sent to the browser (deps.web);
 // fs and script steps run locally. See "Replay" in the design doc.
-import { type ActionStep, type Check, isAction, isLlm, type Skill, type Step } from "@taskplayer/core";
+import {
+  type ActionStep,
+  type Check,
+  fitValue,
+  isAction,
+  isLlm,
+  type Skill,
+  type Step,
+  typeText,
+} from "@taskplayer/core";
 import { resolveTemplates } from "./template.ts";
 import type { RunContext, RunDeps, RunOutcome, StepResult } from "./types.ts";
 
@@ -19,7 +28,8 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
     runId: options.runId ?? `${skill.id}-${started}`,
     startedAt: started,
     inputs: options.inputs,
-    vars: {},
+    // One namespace: the trigger's inputs, then every output as steps produce it.
+    vars: { ...options.inputs },
   };
   const log = deps.log ?? (() => {});
   const end = (outcome: RunOutcome): RunOutcome => {
@@ -37,6 +47,8 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
   log({ type: "run.start", runId: ctx.runId, skillId: skill.id, version: skill.version, inputs: ctx.inputs });
 
   for (const step of skill.steps) {
+    // The trigger's inputs are already in ctx.vars (resolved before the run).
+    if (step.type === "trigger") continue;
     // TODO(player): the workflow interpreter (loops, branches, asks) replaces this flat loop next.
     if (step.type === "control" || step.ask) {
       const what = step.type === "control" ? `${step.kind} steps` : "asks";
@@ -74,7 +86,20 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
       // TODO(player): agent fallback (on_fail.fallback === "agent") goes here; until then every failure escalates.
       return end({ status: "failed", vars: ctx.vars, failedStep: step.id, error: result.error ?? "check failed" });
     }
-    if ((isAction(resolved) || isLlm(resolved)) && resolved.save_as) ctx.vars[resolved.save_as] = result.value;
+    const output = isAction(resolved) || isLlm(resolved) ? resolved.output : undefined;
+    if (output) {
+      // The value must fit the declared type; text that means a number or date is converted ("1,234" → 1234).
+      const value = fitValue(output.type, result.value);
+      if (value === undefined) {
+        return end({
+          status: "failed",
+          vars: ctx.vars,
+          failedStep: step.id,
+          error: `${output.name} should be ${typeText(output.type)}, got ${JSON.stringify(result.value)?.slice(0, 120)}`,
+        });
+      }
+      ctx.vars[output.name] = value;
+    }
   }
 
   for (const check of resolveTemplates(skill.success, ctx, now())) {
