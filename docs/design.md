@@ -435,7 +435,7 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Recover from a failure: classify, repair agent, verify, pause and show, versions + rollback | ❌ (a TODO in `run.ts`; `on_fail.fallback` is never read; every failure stops the run) | New |
 | `packages/agent` runtime; `core` edit operations and capability briefing | ❌ | New |
 | Triggers from Frequency | ❌ (only manual `run`) | New |
-| `packages/llm` with profiles, structured output, tools, usage meter | ❌ (one `chat()` function; callers build their own wrappers) | New |
+| `packages/llm` with profiles, structured output, tools, usage meter | ✅ client, catalog, fake client, `pnpm llm:check`; compile, llm steps and `pnpm replay` use it (Oct 10) | Confirm the catalog with `pnpm llm:check` and a real key |
 | Consent, redaction, 24-hour retention | ❌ | New |
 | Key in the Keychain, first-run setup, test build | ❌ (`.env` only) | New |
 
@@ -447,7 +447,7 @@ Replay side first: the workflow format and its interpreter are what everything e
 | --- | --- | --- | --- |
 | 1 | Workflow format in `packages/core`: nodes, variables, ask, approval, versions | Both | ✅ Done (Oct 8–9) |
 | 2 | Interpreter: variables, loop, branch, llm node, ask, approval | Replay | ✅ Done (Oct 9) |
-| 3 | `packages/llm`: client, profiles, model catalog, thinking control, structured output, tools, usage meter, fake client, `pnpm llm:check`; existing callers moved onto it | Both | Every model call goes through it; `llm:check` passes with a real key |
+| 3 | `packages/llm`: client, profiles, model catalog, thinking control, structured output, tools, usage meter, fake client, `pnpm llm:check`; existing callers moved onto it | Both | Code done (Oct 10): every model call goes through it. Left: `llm:check` with a real key |
 | 4 | `packages/agent` runtime; `core/edit.ts` and `core/briefing.ts` | Both | An agent with a fake model edits a workflow through the guard, within its budget |
 | 5 | Recover from a failure: failure report, repair agent and its tools, verify, pause and resume, versions, notification and rollback, pause and show | Replay | A drifted page (new banner, renamed button, an action moved into a menu, a new confirmation page) is repaired and saved as v2, then rolled back in one click; a site that is down is retried, not repaired; a fix the agent can't find is shown by the user and the run resumes |
 | 6 | Highlight-only test | Replay | Play highlights each reachable target without acting |

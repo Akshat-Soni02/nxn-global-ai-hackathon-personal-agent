@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { isAction, Skill, type Step, walkSteps } from "../packages/core/src/skill.ts";
-import { chat, configFromEnv } from "../packages/llm/src/index.ts";
+import { configFromEnv, createLlm } from "../packages/llm/src/index.ts";
 import { runSkill } from "../packages/player/src/index.ts";
 import type { DevChrome } from "../packages/player/src/node/index.ts";
 import {
@@ -42,18 +42,9 @@ argv.forEach((a, i) => {
 
 const skill = Skill.parse(JSON.parse(readFileSync(file, "utf8")));
 
-function askModel() {
-  try {
-    const config = configFromEnv(process.env);
-    return (system: string, user: string) =>
-      chat(config, [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ]);
-  } catch {
-    return undefined; // no model configured: llm steps fail with a clear message, data.pick still works
-  }
-}
+// No model configured: llm steps fail with a clear message, data.pick still works.
+const llmConfig = configFromEnv(process.env);
+const model = llmConfig ? createLlm(llmConfig) : undefined;
 const needsBrowser =
   [...walkSteps(skill.steps)].some(({ step }) => isAction(step) && step.channel === "web") ||
   skill.success.some((c) => c.text_visible || c.url_matches || c.element_visible);
@@ -113,9 +104,9 @@ try {
             return { ok: true };
           }
         : scriptChannel,
-      // data.pick rules need no model; llm steps use Nemotron when NEBIUS_* are set (capped, see llm-step.ts).
+      // data.pick rules need no model; llm steps use Nemotron when NEBIUS_API_KEY is set (capped, see llm-step.ts).
       data: dataChannel(),
-      llm: llmExecutor({ ask: askModel() }),
+      llm: llmExecutor({ llm: model }),
       fileExists: (pattern, timeoutMs) => poll(() => fileExists(pattern), timeoutMs),
       webCheck: async (check, timeoutMs) => waitForCheck(await browser(), check, timeoutMs),
       approve,

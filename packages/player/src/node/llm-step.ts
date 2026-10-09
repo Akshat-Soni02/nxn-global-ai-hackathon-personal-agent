@@ -1,11 +1,13 @@
 // llm steps: a transform. Instruction + input data in, a typed value out, saved to the step's variable.
-// The model never drives the UI and gets no tools; it only sees the data the step names in `inputs`.
+// The model never drives the UI and gets no tools; it only sees the data the step names in `inputs`. It is the `fast`
+// profile, asked for the step's output type as structured output.
 // Hard limits, so a workflow that runs every hour cannot quietly run up a bill: calls per run, input size, and an
 // answer cache keyed by the run's date, the instruction, the output type and the data.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fitValue, type LlmStep, type VarType } from "@taskplayer/core";
+import { fitValue, jsonSchemaOf, type LlmStep, typeText, type VarType } from "@taskplayer/core";
+import type { JsonSchema, Llm, UsageMeter } from "@taskplayer/llm";
 import { today } from "../template.ts";
 import type { RunContext, StepResult } from "../types.ts";
 
@@ -23,14 +25,19 @@ export function aiLimitsFromEnv(env: Record<string, string | undefined> = proces
   };
 }
 
-// One model call: a system prompt and a user message in, the reply text out.
-export type Ask = (system: string, user: string) => Promise<string>;
-
 export type LlmExecutor = (step: LlmStep, ctx: RunContext) => Promise<StepResult>;
 
 const fail = (error: string): StepResult => ({ ok: false, error });
 
-export function llmExecutor(options: { ask?: Ask; cacheDir?: string; limits?: AiLimits } = {}): LlmExecutor {
+export interface LlmStepOptions {
+  llm?: Llm;
+  cacheDir?: string;
+  limits?: AiLimits;
+  // Where the calls' tokens and cost are counted (the daemon's meter, say).
+  meter?: UsageMeter;
+}
+
+export function llmExecutor(options: LlmStepOptions = {}): LlmExecutor {
   const limits = options.limits ?? DEFAULT_AI_LIMITS;
   const callsByRun = new Map<string, number>();
 
@@ -45,22 +52,32 @@ export function llmExecutor(options: { ask?: Ask; cacheDir?: string; limits?: Ai
     // The model has no calendar: the run's date goes into the question, and into the cache key, so "today's row"
     // is never answered from yesterday's cache when the data hasn't changed.
     const day = today(new Date(ctx.startedAt || Date.now()));
-    const shape = describeOutput(step.output.type);
-    const key = createHash("sha256").update(`${day}\n${step.instruction}\n${shape}\n${input}`).digest("hex");
+    const type = step.output.type;
+    const key = createHash("sha256")
+      .update(`${day}\n${step.instruction}\n${JSON.stringify(type)}\n${input}`)
+      .digest("hex");
     const cached = options.cacheDir ? join(options.cacheDir, `${key}.json`) : undefined;
     if (cached && existsSync(cached)) return { ok: true, value: JSON.parse(readFileSync(cached, "utf8")).answer };
-    if (!options.ask) return fail("llm steps need a model: set NEBIUS_BASE_URL, NEBIUS_API_KEY and NEMOTRON_MODEL");
+    if (!options.llm) return fail("llm steps need a model: set NEBIUS_API_KEY (see .env.example)");
     const used = callsByRun.get(ctx.runId) ?? 0;
     if (used >= limits.maxCallsPerRun) {
       return fail(`this run already made ${used} model calls, the limit (TASKPLAYER_AI_MAX_CALLS_PER_RUN)`);
     }
     callsByRun.set(ctx.runId, used + 1);
-    const reply = await options.ask(
-      `You transform the data you are given. Reply with ${shape}, and nothing else.`,
-      `Today is ${day}.\n${step.instruction}\n\nData:\n${input}`,
-    );
-    const answer = parseAnswer(reply, step.output.type);
-    if (answer === undefined) return fail(`the model's answer is not ${shape}: ${reply.slice(0, 120)}`);
+    let answer: unknown;
+    try {
+      const result = await options.llm.generate({
+        profile: "fast",
+        system: "You transform the data you are given into the answer asked for.",
+        user: `Today is ${day}.\n${step.instruction}\n\nData:\n${input}`,
+        schema: answerSchema(type),
+        schemaName: "answer",
+        meter: options.meter,
+      });
+      answer = result.value;
+    } catch (error) {
+      return fail(`the model gave no usable answer: ${error instanceof Error ? error.message : String(error)}`);
+    }
     if (cached && options.cacheDir) {
       mkdirSync(options.cacheDir, { recursive: true });
       writeFileSync(cached, JSON.stringify({ answer, at: Date.now() }));
@@ -69,40 +86,24 @@ export function llmExecutor(options: { ask?: Ask; cacheDir?: string; limits?: Ai
   };
 }
 
-const SCALAR: Record<string, string> = {
-  text: "plain text",
-  number: "a number only, digits and an optional decimal point, no currency or thousands separators",
-  boolean: "true or false only",
-  date: "a date as YYYY-MM-DD",
-};
-
-// How the step's output type is described to the model.
-export function describeOutput(type: VarType): string {
-  if (type.type === "object") return `a JSON object ${shapeOf(type)}`;
-  if (type.type === "list") return `a JSON array of ${shapeOf(type.items)} values`;
-  return SCALAR[type.type] ?? "plain text";
-}
-
-const shapeOf = (type: VarType): string =>
-  type.type === "object"
-    ? type.fields
-      ? `{ ${Object.entries(type.fields)
-          .map(([k, t]) => `"${k}": ${shapeOf(t)}`)
-          .join(", ")} }`
-      : "{}"
-    : type.type === "list"
-      ? `[${shapeOf(type.items)}]`
-      : type.type;
-
-// The reply, checked against the step's output type (vars.ts fitValue); undefined when it does not fit.
-export function parseAnswer(reply: string, type: VarType): unknown {
-  const text = reply.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-  if (type.type === "object" || type.type === "list") {
-    try {
-      return fitValue(type, JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, "")));
-    } catch {
-      return undefined;
-    }
-  }
-  return text ? fitValue(type, text) : undefined;
+// The step's output type as structured output: `{"answer": <value>}`, so a number or a list is asked for the same
+// way as an object. The answer is checked and converted by the type (vars.ts fitValue).
+export function answerSchema(type: VarType): JsonSchema<unknown> {
+  return {
+    jsonSchema: {
+      type: "object",
+      properties: { answer: jsonSchemaOf(type) },
+      required: ["answer"],
+      additionalProperties: false,
+    },
+    check(value) {
+      const answer =
+        typeof value === "object" && value !== null && "answer" in value
+          ? fitValue(type, (value as { answer: unknown }).answer)
+          : undefined;
+      return answer === undefined
+        ? { ok: false, error: `"answer" must be ${typeText(type)}${type.type === "date" ? " (YYYY-MM-DD)" : ""}` }
+        : { ok: true, value: answer };
+    },
+  };
 }

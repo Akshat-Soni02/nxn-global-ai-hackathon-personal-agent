@@ -67,7 +67,7 @@ export interface CompileOptions {
   chat?: Chat;
   memory?: Pick<MemoryStore, "search">;
   maxAttempts?: number;
-  // US dollars per million input tokens, to show what a per-run AI step costs (NEMOTRON_PRICE_PER_MTOK).
+  // US dollars per million input tokens, to show what a per-run AI step costs (the fast profile's model price).
   pricePerMTok?: number;
 }
 

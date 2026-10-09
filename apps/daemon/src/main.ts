@@ -14,6 +14,7 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { Skill } from "@taskplayer/core";
 import { dataDir, socketPath } from "@taskplayer/ipc";
+import { configFromEnv, createLlm, UsageMeter } from "@taskplayer/llm";
 import { openMemory } from "@taskplayer/memory";
 import type { RunLogEvent } from "@taskplayer/player";
 import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@taskplayer/player/node";
@@ -22,12 +23,12 @@ import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
 import { startDaemon } from "./daemon.ts";
 import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
-import { askFromEnv, chatFromEnv, finishRecording } from "./record.ts";
+import { finishRecording } from "./record.ts";
 import { runSkillFile } from "./runner.ts";
 import { listSkills, skillDir, versions } from "./skill-store.ts";
 import { listTraces } from "./trace-store.ts";
 
-// NEBIUS_BASE_URL, NEBIUS_API_KEY and NEMOTRON_MODEL from the repo's .env, if there is one (see .env.example).
+// NEBIUS_API_KEY (and optional model overrides) from the repo's .env, if there is one (see .env.example).
 try {
   process.loadEnvFile(join(import.meta.dirname, "../../../.env"));
 } catch {
@@ -48,11 +49,14 @@ const daemon = await startDaemon({
   onRecordCommand: (command) => (command === "start" ? startRecording() : stopRecording()),
 });
 const memory = openMemory(join(home, "memory.db"));
-const chat = chatFromEnv();
+// One model client for everything (compile, llm steps), and one meter counting what it spends.
+const llmConfig = configFromEnv();
+const model = llmConfig ? createLlm(llmConfig) : undefined;
+const usage = new UsageMeter();
 // data.pick rules are free; llm steps call the model on every run, so they are capped (calls per run, input size)
 // and their answers are cached by question and data.
 const data = dataChannel();
-const llm = llmExecutor({ ask: askFromEnv(), cacheDir: join(home, "ai-cache"), limits: aiLimitsFromEnv() });
+const llm = llmExecutor({ llm: model, cacheDir: join(home, "ai-cache"), limits: aiLimitsFromEnv(), meter: usage });
 log("listening on", path);
 // macOS asks once for Desktop, Documents and Downloads: now, rather than when you press Record.
 for (const folder of askFolderAccess(watchDirs)) {
@@ -63,8 +67,10 @@ for (const folder of askFolderAccess(watchDirs)) {
 startMacApp();
 log("data in", home, watchDirs.length > 0 ? `| watching ${watchDirs.join(", ")}` : "| file capture off");
 log(
-  chat
-    ? `model: ${process.env.NEMOTRON_MODEL}`
+  llmConfig
+    ? `models: ${Object.entries(llmConfig.profiles)
+        .map(([name, p]) => `${name} ${p.model}`)
+        .join(", ")}`
     : "no model configured: skills are compiled by code only (.env.example)",
 );
 
@@ -93,10 +99,10 @@ const prompter: Prompter = {
 
 async function compileSession(sessionId: string) {
   compiling = true;
-  status("compiling", chat ? "Compiling with Nemotron…" : "Compiling…");
+  status("compiling", model ? "Compiling with Nemotron…" : "Compiling…");
   try {
     const locate = { searchDirs: defaultSearchDirs(watchDirs) };
-    const saved = await finishRecording(sessionId, { dataDir: home, prompter, chat, memory, locate, log });
+    const saved = await finishRecording(sessionId, { dataDir: home, prompter, llm: model, memory, locate, log });
     if (saved) {
       log(`replay it with: run ${saved.skill.id}`);
       status("saved", `Saved ${saved.skill.id}. Replay: run ${saved.skill.id}`);
@@ -237,9 +243,13 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   else if (command === "skills") for (const s of listSkills(home)) log(`${s.id}  v${s.versions.join(",v")}  ${s.name}`);
   else if (command === "traces")
     for (const t of listTraces(home)) log(`${t.sessionId}  ${t.modified.toLocaleString()}`);
-  else if (command === "status")
+  else if (command === "status") {
     log(`${daemon.extensions.size} extension(s) connected${running ? ", run in progress" : ""}`);
-  else log("commands: record, stop, compile <session>, run <skill>, approve, deny, skills, traces, status");
+    const spent = usage.usage;
+    log(
+      `model use since start: ${spent.calls} call(s), ${spent.input + spent.output} tokens, $${spent.costUsd.toFixed(4)}`,
+    );
+  } else log("commands: record, stop, compile <session>, run <skill>, approve, deny, skills, traces, status");
 });
 
 // Task Player.app: the floating Record / Stop button on the desktop, Mac-app recording and the ax channel. Started

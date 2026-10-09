@@ -123,7 +123,8 @@ Workspace packages are consumed as TypeScript source (no build step); only the e
 
 ```sh
 pnpm install
-cp .env.example .env        # fill in the Nebius endpoint, API key and Nemotron model
+cp .env.example .env        # fill in your Nebius Token Factory API key (models are optional overrides)
+pnpm llm:check              # checks each model profile with that key: answers, json_schema, tool calls, images (< $0.01)
 
 pnpm test                   # schema, framing and daemon socket tests
 pnpm typecheck

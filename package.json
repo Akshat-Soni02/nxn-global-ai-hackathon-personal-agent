@@ -21,6 +21,7 @@
     "seed:sandbox": "tsx scripts/seed-sandbox.ts",
     "snapshot:pages": "tsx scripts/snapshot-pages.ts",
     "replay": "tsx scripts/replay.ts",
+    "llm:check": "tsx scripts/llm-check.ts",
     "daemon:dev": "pnpm --filter @taskplayer/daemon dev"
   },
   "devDependencies": {

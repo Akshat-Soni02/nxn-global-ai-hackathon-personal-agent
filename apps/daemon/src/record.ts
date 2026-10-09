@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, sep } from "node:path";
 import type { Skill, TraceEvent } from "@taskplayer/core";
-import { chat, configFromEnv } from "@taskplayer/llm";
+import type { Llm } from "@taskplayer/llm";
 import type { MemoryStore } from "@taskplayer/memory";
 import { type Chat, compile, drill, normalise, type Prompter } from "@taskplayer/recorder";
 import { type FsChange, watchFiles } from "./fs-watch.ts";
@@ -66,7 +66,8 @@ export function openRecording(
 export interface FinishOptions {
   dataDir: string;
   prompter: Prompter;
-  chat?: Chat;
+  // The model client; without one, skills are compiled by code only.
+  llm?: Llm;
   memory?: MemoryStore;
   // Where to look for files the pages saw (picked or dropped). Off when absent, e.g. in tests.
   locate?: LocateOptions;
@@ -88,12 +89,14 @@ export async function finishRecording(
     return undefined;
   }
 
-  log(options.chat ? "compiling with Nemotron..." : "compiling with code only (no model configured)...");
-  const price = Number(process.env.NEMOTRON_PRICE_PER_MTOK);
+  const { llm } = options;
+  log(llm ? "compiling with Nemotron..." : "compiling with code only (no model configured)...");
+  // Per-run AI steps run on the fast profile: its input price is what the drill shows them costing.
+  const fast = llm?.config.catalog[llm.config.profiles.fast.model];
   const compiled = await compile(steps, {
-    chat: options.chat,
+    chat: llm ? compileChat(llm) : undefined,
     memory: options.memory,
-    pricePerMTok: Number.isFinite(price) && price > 0 ? price : undefined,
+    pricePerMTok: fast?.priceIn,
   });
   for (const warning of compiled.warnings) log(warning);
   if (compiled.model === "nemotron") log(`model answer accepted after ${compiled.attempts} attempt(s)`);
@@ -122,42 +125,9 @@ export async function finishRecording(
   return saved;
 }
 
-// The model client for data.ai steps at run time: plain text answers, not the JSON object compile asks for.
-export function askFromEnv(env: Record<string, string | undefined> = process.env) {
-  let config: ReturnType<typeof configFromEnv>;
-  try {
-    config = configFromEnv(env);
-  } catch {
-    return undefined;
-  }
-  return (system: string, user: string) =>
-    chat(
-      config,
-      [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      { signal: AbortSignal.timeout(60_000) },
-    );
-}
-
-// The model client for compile, or undefined when NEBIUS_BASE_URL / NEBIUS_API_KEY / NEMOTRON_MODEL aren't set.
-export function chatFromEnv(env: Record<string, string | undefined> = process.env): Chat | undefined {
-  let config: ReturnType<typeof configFromEnv>;
-  try {
-    config = configFromEnv(env);
-  } catch {
-    return undefined;
-  }
-  return async (messages) => {
-    try {
-      return await chat(config, messages, { json: true, signal: AbortSignal.timeout(120_000) });
-    } catch (error) {
-      // Some endpoints reject response_format. Ask again without it: compile extracts the JSON itself.
-      if (!/response_format|json_object/i.test(String(error))) throw error;
-      return chat(config, messages, { signal: AbortSignal.timeout(120_000) });
-    }
-  };
+// Compile asks the smart profile for a JSON object; compile checks the answer itself and asks again if it must.
+export function compileChat(llm: Llm): Chat {
+  return async (messages) => (await llm.generate({ profile: "smart", messages, json: true })).text;
 }
 
 function freeId(dataDir: string, id: string): string {
