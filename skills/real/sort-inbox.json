@@ -1,97 +1,172 @@
 {
   "id": "sort-inbox",
   "name": "Sort the inbox",
-  "version": 1,
+  "version": 2,
   "description": {
-    "goal": "The sandbox inbox is sorted into PDFs, images and notes folders",
+    "goal": "Every file in the sandbox inbox is moved to the folder for its kind: PDFs, images or notes",
     "changes": ["the files in the inbox"],
     "constants": ["~/TaskPlayerTest/inbox", "the sorted/ folders"],
     "never": ["delete files"]
   },
-  "triggers": [
-    {
-      "type": "manual"
-    },
-    {
-      "type": "folder_watch",
-      "dir": "~/TaskPlayerTest/inbox"
-    }
-  ],
   "steps": [
+    {
+      "id": "start",
+      "type": "trigger",
+      "intent": "By hand, or when the sandbox inbox changes",
+      "when": [
+        {
+          "type": "manual"
+        },
+        {
+          "type": "folder_watch",
+          "dir": "~/TaskPlayerTest/inbox"
+        }
+      ]
+    },
     {
       "id": "s1",
       "type": "action",
-      "intent": "Find PDFs in the inbox",
+      "intent": "List every file in the inbox",
       "channel": "fs",
       "action": "find",
       "args": {
         "dir": "~/TaskPlayerTest/inbox",
-        "glob": "*.pdf",
+        "glob": "*",
         "pick": "all"
       },
-      "save_as": "pdfs"
-    },
-    {
-      "id": "s2",
-      "type": "action",
-      "intent": "Move PDFs to sorted/pdfs",
-      "channel": "fs",
-      "action": "move",
-      "args": {
-        "from": "{{vars.pdfs}}",
-        "to": "~/TaskPlayerTest/sorted/pdfs/"
+      "output": {
+        "name": "files",
+        "type": {
+          "type": "list",
+          "items": {
+            "type": "file"
+          }
+        }
       }
     },
     {
-      "id": "s3",
-      "type": "action",
-      "intent": "Find images in the inbox",
-      "channel": "fs",
-      "action": "find",
-      "args": {
-        "dir": "~/TaskPlayerTest/inbox",
-        "glob": "*.{png,jpg,jpeg,heic}",
-        "pick": "all"
+      "id": "l1",
+      "type": "control",
+      "kind": "loop",
+      "intent": "For each file in the inbox",
+      "over": "{{files}}",
+      "item": {
+        "name": "file",
+        "type": {
+          "type": "file"
+        }
       },
-      "save_as": "images"
-    },
-    {
-      "id": "s4",
-      "type": "action",
-      "intent": "Move images to sorted/images",
-      "channel": "fs",
-      "action": "move",
-      "args": {
-        "from": "{{vars.images}}",
-        "to": "~/TaskPlayerTest/sorted/images/"
-      }
+      "on_item_fail": "skip",
+      "steps": [
+        {
+          "id": "b1",
+          "type": "control",
+          "kind": "branch",
+          "intent": "PDFs go to sorted/pdfs",
+          "if": {
+            "left": "{{file.name}}",
+            "op": "contains",
+            "right": ".pdf"
+          },
+          "steps": [
+            {
+              "id": "s2",
+              "type": "action",
+              "intent": "Move the PDF to sorted/pdfs",
+              "channel": "fs",
+              "action": "move",
+              "args": {
+                "from": "{{file}}",
+                "to": "~/TaskPlayerTest/sorted/pdfs/"
+              }
+            }
+          ],
+          "else": [
+            {
+              "id": "b2",
+              "type": "control",
+              "kind": "branch",
+              "intent": "Images go to sorted/images",
+              "if": {
+                "any": [
+                  {
+                    "left": "{{file.name}}",
+                    "op": "contains",
+                    "right": ".png"
+                  },
+                  {
+                    "left": "{{file.name}}",
+                    "op": "contains",
+                    "right": ".jpg"
+                  },
+                  {
+                    "left": "{{file.name}}",
+                    "op": "contains",
+                    "right": ".jpeg"
+                  },
+                  {
+                    "left": "{{file.name}}",
+                    "op": "contains",
+                    "right": ".heic"
+                  }
+                ]
+              },
+              "steps": [
+                {
+                  "id": "s3",
+                  "type": "action",
+                  "intent": "Move the image to sorted/images",
+                  "channel": "fs",
+                  "action": "move",
+                  "args": {
+                    "from": "{{file}}",
+                    "to": "~/TaskPlayerTest/sorted/images/"
+                  }
+                }
+              ],
+              "else": [
+                {
+                  "id": "b3",
+                  "type": "control",
+                  "kind": "branch",
+                  "intent": "Notes go to sorted/notes; anything else stays",
+                  "if": {
+                    "any": [
+                      {
+                        "left": "{{file.name}}",
+                        "op": "contains",
+                        "right": ".txt"
+                      },
+                      {
+                        "left": "{{file.name}}",
+                        "op": "contains",
+                        "right": ".md"
+                      }
+                    ]
+                  },
+                  "steps": [
+                    {
+                      "id": "s4",
+                      "type": "action",
+                      "intent": "Move the note to sorted/notes",
+                      "channel": "fs",
+                      "action": "move",
+                      "args": {
+                        "from": "{{file}}",
+                        "to": "~/TaskPlayerTest/sorted/notes/"
+                      }
+                    }
+                  ],
+                  "else": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "s5",
-      "type": "action",
-      "intent": "Find text notes in the inbox",
-      "channel": "fs",
-      "action": "find",
-      "args": {
-        "dir": "~/TaskPlayerTest/inbox",
-        "glob": "*.{txt,md}",
-        "pick": "all"
-      },
-      "save_as": "notes"
-    },
-    {
-      "id": "s6",
-      "type": "action",
-      "intent": "Move notes to sorted/notes",
-      "channel": "fs",
-      "action": "move",
-      "args": {
-        "from": "{{vars.notes}}",
-        "to": "~/TaskPlayerTest/sorted/notes/"
-      }
-    },
-    {
-      "id": "s7",
       "type": "action",
       "intent": "Tell the user the inbox was sorted",
       "channel": "script",
@@ -105,8 +180,14 @@
     {
       "version": 1,
       "by": "user",
-      "summary": "Hand-written test skill",
+      "summary": "Hand-written test skill: one find and move per kind",
       "at": "2026-10-02T10:00:00Z"
+    },
+    {
+      "version": 2,
+      "by": "user",
+      "summary": "For each file, branch on its kind; a file that fails is skipped",
+      "at": "2026-10-09T12:00:00Z"
     }
   ]
 }

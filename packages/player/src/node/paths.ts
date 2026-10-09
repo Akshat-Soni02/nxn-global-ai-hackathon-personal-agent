@@ -1,7 +1,19 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { glob, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import type { FileValue } from "@taskplayer/core";
+
+// A file value ({ path, name, size, modified }), the type a skill's `file` variables hold.
+export function fileValue(path: string): FileValue {
+  const info = statSync(path, { throwIfNoEntry: false });
+  return {
+    path,
+    name: basename(path),
+    size: info?.size ?? 0,
+    modified: info ? info.mtime.toISOString() : "",
+  };
+}
 
 export function expandHome(path: string): string {
   return path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;

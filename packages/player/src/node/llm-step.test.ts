@@ -16,18 +16,18 @@ const step = (extra: Partial<LlmStep> = {}): LlmStep =>
     version: 1,
     description: { goal: "t" },
     steps: [
+      { id: "start", type: "trigger", intent: "t" },
       {
         id: "s1",
         type: "llm",
         intent: "Amount of today's row",
         instruction: "Amount of today's row",
         inputs: [JSON.stringify(rows)],
-        output: { type: "number" },
-        save_as: "amount",
+        output: { name: "amount", type: { type: "number" } },
         ...extra,
       },
     ],
-  }).steps[0] as LlmStep;
+  }).steps[1] as LlmStep;
 const ctx = (runId: string) => ({ runId, startedAt: 0, inputs: {}, vars: {} });
 
 describe("llm steps: one model call, capped, cached, typed", () => {
@@ -61,19 +61,26 @@ describe("llm steps: one model call, capped, cached, typed", () => {
     expect(await dated(step(), tomorrow)).toEqual({ ok: true, value: 990 });
     expect(asked).toMatch(/^Today is \d{4}-\d{2}-\d{2}\./);
     const wrong = llmExecutor({ ask: async () => "about twelve hundred" });
-    expect((await wrong(step({ output: { type: "date" } }), ctx("r4"))).error).toMatch(/not a date as YYYY-MM-DD/);
+    expect((await wrong(step({ output: { name: "amount", type: { type: "date" } } }), ctx("r4"))).error).toMatch(
+      /not a date as YYYY-MM-DD/,
+    );
     expect((await llmExecutor({})(step(), ctx("r5"))).error).toMatch(/need a model/);
   });
 
   it("checks objects and lists against their fields", () => {
-    const kpis = { type: "object" as const, fields: { revenue: "number" as const, note: "text" as const } };
+    const kpis = {
+      type: "object" as const,
+      fields: { revenue: { type: "number" as const }, note: { type: "text" as const } },
+    };
     expect(parseAnswer('```json\n{"revenue": "12,400", "note": "up", "extra": 1}\n```', kpis)).toEqual({
       revenue: 12400,
       note: "up",
     });
     expect(parseAnswer('{"note": "up"}', kpis)).toBeUndefined(); // revenue missing
-    expect(parseAnswer('["a", "b"]', { type: "list", items: "text" })).toEqual(["a", "b"]);
-    expect(parseAnswer('[{"ok": "yes"}]', { type: "list", fields: { ok: "boolean" } })).toEqual([{ ok: true }]);
+    expect(parseAnswer('["a", "b"]', { type: "list", items: { type: "text" } })).toEqual(["a", "b"]);
+    expect(
+      parseAnswer('[{"ok": "yes"}]', { type: "list", items: { type: "object", fields: { ok: { type: "boolean" } } } }),
+    ).toEqual([{ ok: true }]);
     expect(parseAnswer("maybe", { type: "boolean" })).toBeUndefined();
   });
 });

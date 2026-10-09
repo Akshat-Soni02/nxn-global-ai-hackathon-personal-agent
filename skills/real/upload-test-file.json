@@ -8,29 +8,36 @@
     "constants": ["the-internet.herokuapp.com/upload", "the ~/TaskPlayerTest/upload folder", "the done/ folder"],
     "never": ["upload anything outside ~/TaskPlayerTest"]
   },
-  "triggers": [
-    {
-      "type": "manual"
-    },
-    {
-      "type": "folder_watch",
-      "dir": "~/TaskPlayerTest/upload",
-      "glob": "*.txt"
-    }
-  ],
-  "inputs": {
-    "file": {
-      "type": "file",
-      "description": "Newest .txt in the sandbox upload folder. The site is public: never point this at real documents.",
-      "resolve": {
-        "dir": "~/TaskPlayerTest/upload",
-        "glob": "*.txt",
-        "pick": "newest"
-      },
-      "example": "~/TaskPlayerTest/upload/taskplayer-test-2026-10-02T09-52-44-024Z.txt"
-    }
-  },
   "steps": [
+    {
+      "id": "start",
+      "type": "trigger",
+      "intent": "By hand, or when a new .txt lands in the sandbox upload folder",
+      "when": [
+        {
+          "type": "manual"
+        },
+        {
+          "type": "folder_watch",
+          "dir": "~/TaskPlayerTest/upload",
+          "glob": "*.txt"
+        }
+      ],
+      "inputs": {
+        "file": {
+          "type": {
+            "type": "file"
+          },
+          "description": "Newest .txt in the sandbox upload folder. The site is public: never point this at real documents.",
+          "resolve": {
+            "dir": "~/TaskPlayerTest/upload",
+            "glob": "*.txt",
+            "pick": "newest"
+          },
+          "example": "~/TaskPlayerTest/upload/taskplayer-test-2026-10-02T09-52-44-024Z.txt"
+        }
+      }
+    },
     {
       "id": "s1",
       "type": "action",
@@ -64,7 +71,7 @@
         "fallbacks": ["#file-upload", "input[type=file][name=file]"]
       },
       "args": {
-        "file": "{{inputs.file}}"
+        "file": "{{file}}"
       }
     },
     {
@@ -104,7 +111,7 @@
         "fallbacks": ["#uploaded-files"]
       },
       "check": {
-        "text_visible": "{{inputs.file.name}}"
+        "text_visible": "{{file.name}}"
       }
     },
     {
@@ -114,17 +121,17 @@
       "channel": "fs",
       "action": "move",
       "args": {
-        "from": "{{inputs.file}}",
+        "from": "{{file}}",
         "to": "~/TaskPlayerTest/upload/done/"
       },
       "check": {
-        "file_exists": "~/TaskPlayerTest/upload/done/{{inputs.file.name}}"
+        "file_exists": "~/TaskPlayerTest/upload/done/{{file.name}}"
       }
     }
   ],
   "success": [
     {
-      "file_exists": "~/TaskPlayerTest/upload/done/{{inputs.file.name}}"
+      "file_exists": "~/TaskPlayerTest/upload/done/{{file.name}}"
     }
   ],
   "history": [

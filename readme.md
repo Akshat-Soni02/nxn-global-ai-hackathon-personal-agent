@@ -16,7 +16,7 @@ flowchart LR
   T --> E["Edit + approvals"]
   E --> H["Test<br/>(highlight only)"]
   H --> P["Run"]
-  P -- "a step fails" --> G["Debug<br/>self-correct"]
+  P -- "a step fails" --> G["Recover<br/>classify, repair,<br/>or the user shows it"]
   G -- "new version" --> T
 ```
 
@@ -31,7 +31,7 @@ flowchart LR
 6. **Edit.** The user can change any step and toggle **human approval** on any step.
 7. **Test.** Play runs a **highlight-only** replay: it shows each target without acting. This mode may change.
 8. **Run.** The exact tree the user saw runs from its trigger. Actions are deterministic; no model call unless an LLM step needs one or a step fails.
-9. **Debug and self-correct.** When a step fails, a debug step proposes a fix, the player verifies it, and the workflow is saved as a **new version**. Every version is kept; the user is notified and can roll back in one click.
+9. **Recover.** When a step fails, the failure is classified first: a site that is down is retried later, a login the user must do pauses the run, an empty inbox ends it as nothing to do, and only a changed page or app is **repaired**. Repair may change any part of the workflow, but never adds outward actions, changes what the user decided or turns approvals off, and is kept only with evidence it worked: then it becomes the **new version**, the user is notified and can roll back in one click. If repair can't fix it, the run pauses and the user **shows the step once** while Task Player records; that becomes the fix and the run resumes.
 
 **Components.** An always-on **daemon** (workflows, versions, triggers, memory, run log, all model calls), **Task Player.app** (Record button, Mac app capture and replay through the Accessibility API, screenshots and their redaction, voice and transcription), the **Chrome extension** (web capture and replay through `chrome.debugger` in the user's own Chrome) and a tiny **native-host shim** (Chrome launches a fresh process per native messaging connection, so the shim forwards bytes to the daemon's socket). There is **no backend server**: the daemon calls Nebius Token Factory directly with the user's own API key, kept in the macOS Keychain.
 
@@ -39,16 +39,15 @@ flowchart LR
 
 ## NVIDIA Nemotron on Nebius Token Factory
 
-Every model call goes through `packages/llm` to **Nebius Token Factory**. Code asks for a role; the role picks the model.
+Every model call goes through `packages/llm` to **Nebius Token Factory**. Callers pick a profile; understanding recordings and recovering from failures are **agents** built on `packages/agent` ([design](docs/design.md#agents)).
 
-| Role | Model | What it does in Task Player |
+| Profile | Model | Used by |
 | --- | --- | --- |
-| `transform` | **NVIDIA Nemotron 3.5 Lightning** | Runs the workflow's LLM steps on every run: summarise an email, read an invoice, classify a ticket. Cheap and fast ($0.06 / $0.24 per 1M tokens), thinking off, output checked against the step's type |
-| `understand` | **NVIDIA Nemotron 3 Super** | Turns a description, a recording and its transcript into a workflow tree, and writes the drill questions |
-| `debug` | **NVIDIA Nemotron 3 Super** | When a step fails on a changed page, proposes the fix that is verified and saved as a new version |
-| `vision` | GLM-5.3-Flash | Describes redacted screenshots for `understand` and `debug` (the cheapest vision model on Token Factory) |
+| `fast` | **NVIDIA Nemotron 3.5 Lightning** | The workflow's LLM steps on every run: summarise an email, read an invoice, classify a ticket. Cheap and fast ($0.06 / $0.24 per 1M tokens), thinking off, output checked against the step's type |
+| `smart` | **NVIDIA Nemotron 3 Super** | The **repair agent** (works out why a step failed on a changed page, fixes the workflow, verifies, saves a new version) and the **design agent** (turns a description, recording and transcript into a workflow) |
+| `vision` | GLM-5.3-Flash | The agents' screenshot tool: describes redacted screenshots (the cheapest vision model on Token Factory) |
 
-Why Token Factory: one OpenAI-compatible API for every role, structured JSON output with a schema, Nemotron's thinking switched on or off per call, and **Zero Data Retention**, which we require on the account so prompts are neither stored nor used for training. Details, costs and limits: [docs/design.md#models](docs/design.md#models).
+Why Token Factory: one OpenAI-compatible API for every profile, structured JSON output with a schema, Nemotron's thinking switched on or off per call, and **Zero Data Retention**, which we require on the account so prompts are neither stored nor used for training. Details, costs and limits: [docs/design.md#models](docs/design.md#models).
 
 ## Privacy
 
@@ -86,7 +85,8 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 .
 ├── packages/
 │   ├── core/          # JOINT   skill schema (zod; to become the workflow tree), element descriptor, extension↔daemon messages
-│   ├── llm/           # JOINT   all model calls to Nebius Token Factory, by role (transform, understand, debug, vision)
+│   ├── llm/           # JOINT   all model calls to Nebius Token Factory: client, profiles (fast, smart, vision), structured output, usage
+│   ├── agent/         # JOINT   (planned) the agent runtime: loop, tools, guard, budgets, transcript
 │   ├── memory/        # JOINT   persistent memory store (interface now, SQLite later)
 │   ├── ipc/           # JOINT   length-prefixed framing (native messaging + daemon socket), socket path
 │   ├── recorder/      # RECORD  trace normaliser, compiler, drill questions (to become: understand → workflow tree)
@@ -117,7 +117,7 @@ Workspace packages are consumed as TypeScript source (no build step); only the e
 
 ## Running Guide
 
-> These steps run the **current code**: record → compile → `run`. Skills use the new workflow format, but the player runs only top-level action and llm steps for now; loops, branches and asks come with the workflow interpreter.
+> These steps run the **current code**: record → compile → `run`. Skills use the new workflow format, and the player runs the whole tree: loops, branches, llm steps, asks and approvals. Recording does not build loops or branches yet; write them by hand (see `skills/real/sort-inbox.json`).
 
 **Prerequisites**: macOS, Node 22+, pnpm 10 (Node ships it through corepack: run `corepack enable pnpm` once), Google Chrome, and for Mac apps the Xcode command line tools (`swiftc`; `xcode-select --install`).
 

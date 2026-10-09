@@ -8,38 +8,51 @@
     "constants": ["the Selenium web form", "Two in the select", "Default checkbox", "Default radio"],
     "never": ["submit without approval"]
   },
-  "triggers": [
-    {
-      "type": "manual"
-    }
-  ],
-  "inputs": {
-    "full_name": {
-      "type": "string",
-      "description": "Text input",
-      "default": "Ada Lovelace",
-      "example": "Ada Lovelace"
-    },
-    "notes": {
-      "type": "string",
-      "description": "Textarea",
-      "default": "Submitted by Task Player replay test.",
-      "example": "Submitted by Task Player replay test."
-    },
-    "city": {
-      "type": "string",
-      "description": "Datalist city",
-      "default": "Seattle",
-      "example": "Seattle"
-    },
-    "date": {
-      "type": "string",
-      "description": "Date picker, mm/dd/yyyy",
-      "default": "10/15/2026",
-      "example": "10/15/2026"
-    }
-  },
   "steps": [
+    {
+      "id": "start",
+      "type": "trigger",
+      "intent": "By hand, with the values to type",
+      "when": [
+        {
+          "type": "manual"
+        }
+      ],
+      "inputs": {
+        "full_name": {
+          "type": {
+            "type": "text"
+          },
+          "description": "Text input",
+          "default": "Ada Lovelace",
+          "example": "Ada Lovelace"
+        },
+        "notes": {
+          "type": {
+            "type": "text"
+          },
+          "description": "Textarea",
+          "default": "Submitted by Task Player replay test.",
+          "example": "Submitted by Task Player replay test."
+        },
+        "city": {
+          "type": {
+            "type": "text"
+          },
+          "description": "Datalist city",
+          "default": "Seattle",
+          "example": "Seattle"
+        },
+        "date": {
+          "type": {
+            "type": "text"
+          },
+          "description": "Date picker, mm/dd/yyyy",
+          "default": "10/15/2026",
+          "example": "10/15/2026"
+        }
+      }
+    },
     {
       "id": "s1",
       "type": "action",
@@ -69,7 +82,7 @@
         "fallbacks": ["#my-text-id", "input[name=my-text]"]
       },
       "args": {
-        "text": "{{inputs.full_name}}",
+        "text": "{{full_name}}",
         "clear": true
       }
     },
@@ -88,7 +101,7 @@
         "fallbacks": ["textarea[name=my-textarea]"]
       },
       "args": {
-        "text": "{{inputs.notes}}",
+        "text": "{{notes}}",
         "clear": true
       }
     },
@@ -125,7 +138,7 @@
         "fallbacks": ["input[name=my-datalist]"]
       },
       "args": {
-        "text": "{{inputs.city}}",
+        "text": "{{city}}",
         "clear": true
       }
     },
@@ -174,7 +187,7 @@
         "fallbacks": ["input[name=my-date]"]
       },
       "args": {
-        "text": "{{inputs.date}}",
+        "text": "{{date}}",
         "clear": true
       }
     },

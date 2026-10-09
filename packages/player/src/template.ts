@@ -1,32 +1,32 @@
-// Resolves {{...}} placeholders in a step before it is executed. See the template list in packages/core/src/skill.ts.
-import type { RunContext } from "./types.ts";
+// Resolves {{…}} references in a step before it runs. One namespace: every variable is declared by an earlier step
+// (the trigger's inputs, an output, an ask's answer, a loop's item), reached with .field and .N paths, plus {{today}}.
+// See the reference rules at the top of packages/core/src/skill.ts.
+import { parseRef, valueAt } from "@taskplayer/core";
 
-const PLACEHOLDER = /\{\{\s*([^}]+?)\s*\}\}/g;
+const REF = /\{\{\s*([^}]+?)\s*\}\}/g;
 
 export function today(now = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-function lookup(ref: string, ctx: Pick<RunContext, "inputs" | "vars">, now: Date): unknown {
-  if (ref === "today") return today(now);
-  const [scope, name, prop, ...rest] = ref.split(".");
-  if (rest.length > 0 || !name) throw new Error(`unknown placeholder {{${ref}}}`);
-  const source = scope === "inputs" ? ctx.inputs : scope === "vars" ? ctx.vars : undefined;
-  if (!source) throw new Error(`unknown placeholder {{${ref}}}`);
-  if (!(name in source)) throw new Error(`{{${ref}}} has no value`);
-  const value = source[name];
-  if (prop === undefined) return value;
-  if (prop === "name" && typeof value === "string") return value.split("/").pop() ?? value;
-  throw new Error(`unknown placeholder {{${ref}}}`);
+function lookup(expr: string, vars: Record<string, unknown>, now: Date): unknown {
+  const ref = parseRef(expr);
+  if (!ref) throw new Error(`{{${expr}}} is not a variable reference`);
+  if (ref.name === "today" && ref.path.length === 0) return today(now);
+  if (!(ref.name in vars)) throw new Error(`{{${expr}}}: ${ref.name} has no value yet`);
+  return valueAt(ref.name, vars[ref.name], ref.path);
 }
 
-// A string that is exactly one placeholder keeps the value's type (so a list of found files stays a list).
-// Placeholders inside longer strings are stringified. Strings under `keep` keys are left alone
-// (extract's `each` uses {{text}}/{{href}}, filled per element by the web executor).
+const asText = (v: unknown): string =>
+  v === undefined || v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+
+// A string that is exactly one reference keeps the value's type (a list stays a list, a number a number); references
+// inside longer text become text (objects and lists as JSON). Strings under `keep` keys are left alone (extract's
+// `each` uses {{text}}/{{href}}, filled per element by the web executor).
 export function resolveTemplates<T>(
   value: T,
-  ctx: Pick<RunContext, "inputs" | "vars">,
+  ctx: { vars: Record<string, unknown> },
   now = new Date(),
   keep: ReadonlySet<string> = new Set(["each"]),
 ): T {
@@ -34,11 +34,8 @@ export function resolveTemplates<T>(
     if (typeof v === "string") {
       if (key && keep.has(key)) return v;
       const whole = v.match(/^\{\{\s*([^}]+?)\s*\}\}$/);
-      if (whole) return lookup(whole[1] as string, ctx, now);
-      return v.replace(PLACEHOLDER, (_, ref: string) => {
-        const resolved = lookup(ref, ctx, now);
-        return Array.isArray(resolved) ? resolved.join(", ") : String(resolved);
-      });
+      if (whole) return lookup(whole[1] as string, ctx.vars, now);
+      return v.replace(REF, (_, expr: string) => asText(lookup(expr, ctx.vars, now)));
     }
     if (Array.isArray(v)) return v.map((item) => walk(item));
     if (v && typeof v === "object") {

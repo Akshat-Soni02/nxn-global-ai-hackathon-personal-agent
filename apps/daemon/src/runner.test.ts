@@ -48,6 +48,7 @@ describe("runSkillFile through the extension", () => {
         name: "web then fs",
         description: { goal: "web then fs" },
         steps: [
+          { id: "start", type: "trigger", intent: "by hand" },
           {
             id: "s1",
             type: "action",
@@ -55,7 +56,7 @@ describe("runSkillFile through the extension", () => {
             channel: "web",
             action: "extract",
             target: { fallbacks: ["h1"] },
-            save_as: "title",
+            output: { name: "title", type: { type: "text" } },
           },
           {
             id: "s2",
@@ -63,7 +64,7 @@ describe("runSkillFile through the extension", () => {
             intent: "save it",
             channel: "fs",
             action: "write",
-            args: { path: join(dir, "out.txt"), content: "{{vars.title}}" },
+            args: { path: join(dir, "out.txt"), content: "{{title}}" },
             requires_approval: true,
           },
         ],
@@ -113,6 +114,7 @@ describe("runSkillFile through the extension", () => {
         name: "x",
         description: { goal: "x" },
         steps: [
+          { id: "start", type: "trigger", intent: "by hand" },
           {
             id: "s1",
             type: "action",

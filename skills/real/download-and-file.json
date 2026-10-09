@@ -8,16 +8,21 @@
     "constants": ["the Selenium downloads page", "File 1", "~/TaskPlayerTest/downloads"],
     "never": []
   },
-  "triggers": [
-    {
-      "type": "manual"
-    },
-    {
-      "type": "schedule",
-      "cron": "0 9 * * 1-5"
-    }
-  ],
   "steps": [
+    {
+      "id": "start",
+      "type": "trigger",
+      "intent": "By hand, or weekdays at 09:00",
+      "when": [
+        {
+          "type": "manual"
+        },
+        {
+          "type": "schedule",
+          "cron": "0 9 * * 1-5"
+        }
+      ]
+    },
     {
       "id": "s1",
       "type": "action",
@@ -59,8 +64,13 @@
         "pick": "newest",
         "since_run_start": true
       },
-      "save_as": "downloaded",
-      "timeout_ms": 30000
+      "timeout_ms": 30000,
+      "output": {
+        "name": "downloaded",
+        "type": {
+          "type": "file"
+        }
+      }
     },
     {
       "id": "s4",
@@ -69,7 +79,7 @@
       "channel": "fs",
       "action": "move",
       "args": {
-        "from": "{{vars.downloaded}}",
+        "from": "{{downloaded}}",
         "to": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt"
       },
       "check": {
