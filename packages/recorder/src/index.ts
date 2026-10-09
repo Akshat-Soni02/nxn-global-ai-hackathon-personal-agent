@@ -11,11 +11,10 @@ export {
   compile,
   extractJson,
   Question,
-  settleDataSteps,
   systemPrompt,
   templateProblems,
 } from "./compile.ts";
 export { applyAnswer, type DrillResult, drill, type Prompter } from "./drill.ts";
 export { toLocator } from "./locator.ts";
 export { globFor, type NormalisedStep, normalise, type ParamCandidate, sameTarget } from "./normalise.ts";
-export { buildSkeleton, type Skeleton, type SkillDraft, skeletonOf } from "./skeleton.ts";
+export { type ActionDraft, buildSkeleton, type Skeleton, type SkillDraft, skeletonOf } from "./skeleton.ts";

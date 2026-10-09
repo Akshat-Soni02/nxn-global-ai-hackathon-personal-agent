@@ -2,7 +2,7 @@
 // what code can't know: what each step is for, which values change each run, how to tell it worked, what to ask you.
 // The model's answer is merged by step id, validated with the same zod schema the player parses, and sent back with
 // the errors when it fails (at most 3 attempts). If it never passes, the skeleton is saved: a recording is never lost.
-import { ACTIONS, Check, Input, Skill, Trigger } from "@taskplayer/core";
+import { ACTIONS, Check, Input, type LlmStep, Skill, Trigger } from "@taskplayer/core";
 import type { ChatMessage } from "@taskplayer/llm";
 import type { MemoryStore } from "@taskplayer/memory";
 import { z } from "zod";
@@ -147,22 +147,10 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
       ];
     }
     if (issues.length === 0 && merged && notes) {
-      // A rule question for a step the model turned into an AI step now edits the rule it keeps as the alternative.
-      const converted = new Set(merged.steps.filter((st) => st.args?.mode === "ai").map((st) => st.id));
-      const retarget = (q: Question): Question => {
-        const m = /^steps\.([^.]+)\.args\.(.+)$/.exec(q.appliesTo ?? "");
-        return m && converted.has(m[1] ?? "") && m[2] !== "mode"
-          ? { ...q, appliesTo: `steps.${m[1]}.args.rule.${m[2]}` }
-          : q;
-      };
       const asked = new Set(notes.questions.map((q) => q.appliesTo));
       return {
         skill: Skill.parse(merged),
-        questions: [
-          ...costQuestions,
-          ...notes.questions.map(retarget),
-          ...ownQuestions.filter((q) => !asked.has(q.appliesTo)).map(retarget),
-        ],
+        questions: [...costQuestions, ...notes.questions, ...ownQuestions.filter((q) => !asked.has(q.appliesTo))],
         model: "nemotron",
         attempts: attempt,
         warnings,
@@ -266,7 +254,10 @@ function memoryQuery(steps: NormalisedStep[]): string {
 function merge(draft: SkillDraft, notes: Annotations): SkillDraft {
   const out: SkillDraft = JSON.parse(JSON.stringify(draft));
   if (notes.id) out.id = notes.id;
-  if (notes.intent) out.intent = notes.intent;
+  if (notes.intent) {
+    out.name = notes.intent;
+    out.description = { ...out.description, goal: notes.intent };
+  }
   if (notes.inputs) out.inputs = { ...out.inputs, ...notes.inputs };
   if (notes.triggers?.length) out.triggers = notes.triggers;
   if (notes.success) out.success = notes.success;
@@ -274,12 +265,6 @@ function merge(draft: SkillDraft, notes: Annotations): SkillDraft {
     const step = out.steps.find((s) => s.id === note.id);
     if (!step) continue;
     if (note.intent) step.intent = note.intent;
-    if (note.ai && step.channel === "data" && step.action === "pick") {
-      const { from, ...rule } = step.args ?? {};
-      step.action = "ai";
-      // mode and rule let the drill switch back to the free rule (settleDataSteps); the player never sees them.
-      step.args = { instruction: note.ai.instruction, from, output: note.ai.output, mode: "ai", rule };
-    }
     if (note.check) step.check = note.check;
     if (note.wait) step.wait = note.wait;
     if (note.on_fail) step.on_fail = note.on_fail;
@@ -323,8 +308,10 @@ function merge(draft: SkillDraft, notes: Annotations): SkillDraft {
   return out;
 }
 
-// Every per-run AI step is shown to you before the skill is saved, with its cost, and with the recorded rule as the
-// free alternative. Tokens are estimated from the data the step will read (about 4 characters a token).
+// A data.pick step the model says no rule can express becomes a question before the skill is saved: keep it as an
+// llm step (a model call on every run, with its cost shown) or keep the recorded rule (free). Each option carries the
+// whole step, so the drill's answer replaces the step outright. Tokens are estimated from the data the step reads
+// (about 4 characters a token).
 function aiQuestions(
   draft: SkillDraft,
   notes: Annotations,
@@ -332,12 +319,13 @@ function aiQuestions(
   idsByStep: string[][],
   pricePerMTok: number | undefined,
 ): Question[] {
-  return draft.steps.flatMap((step) => {
-    if (step.channel !== "data" || step.action !== "ai") return [];
+  return notes.steps.flatMap((note) => {
+    const step = draft.steps.find((s) => s.id === note.id);
+    if (!note.ai || !step || step.channel !== "data" || step.action !== "pick") return [];
     const source = steps[idsByStep.findIndex((ids) => ids.includes(step.id))];
     const row = JSON.stringify(source?.context?.row ?? {}).length;
     const rows = Number(source?.context?.rows ?? 1);
-    const tokens = Math.ceil((String(step.args?.instruction ?? "").length + row * Math.max(rows, 1)) / 4) + 50;
+    const tokens = Math.ceil((note.ai.instruction.length + row * Math.max(rows, 1)) / 4) + 50;
     const dollars = pricePerMTok ? (tokens * pricePerMTok) / 1_000_000 : undefined;
     const cost =
       dollars === undefined
@@ -345,15 +333,25 @@ function aiQuestions(
         : dollars < 0.0001
           ? " (under $0.0001 a run)"
           : ` (about $${dollars.toPrecision(2)} a run)`;
-    const reason = notes.steps.find((n) => n.id === step.id)?.ai?.reason ?? "";
+    const from = step.args?.from;
+    const llm: LlmStep = {
+      id: step.id,
+      type: "llm",
+      intent: step.intent,
+      instruction: note.ai.instruction,
+      inputs: typeof from === "string" ? [from] : [],
+      output: OUTPUT_OF[note.ai.output],
+      save_as: step.save_as ?? `${step.id}_value`,
+      requires_approval: step.requires_approval ?? false,
+    };
     return [
       {
         id: `ai-${step.id}`,
-        text: `${step.id} asks the model on every run, about ${tokens} tokens${cost}. Why: ${reason}. Keep it?`,
-        appliesTo: `steps.${step.id}.args.mode`,
+        text: `${step.id} asks the model on every run, about ${tokens} tokens${cost}. Why: ${note.ai.reason}. Keep it?`,
+        appliesTo: `steps.${step.id}`,
         options: [
-          { label: "keep the AI step", value: "ai" },
-          { label: "use the recorded rule instead (no model call)", value: "pick" },
+          { label: "keep the AI step", value: llm },
+          { label: "use the recorded rule instead (no model call)", value: step },
         ],
         default: "keep the AI step",
       },
@@ -361,16 +359,12 @@ function aiQuestions(
   });
 }
 
-// After the drill: a data step you switched back to its rule becomes data.pick again; drill-only fields go.
-export function settleDataSteps(skill: Skill): Skill {
-  const steps = skill.steps.map((step) => {
-    if (step.channel !== "data" || step.args.mode === undefined) return step;
-    const { mode, rule, ...args } = step.args as Record<string, unknown> & { rule?: Record<string, unknown> };
-    if (mode === "pick" && rule) return { ...step, action: "pick", args: { from: args.from, ...rule } };
-    return { ...step, args };
-  });
-  return Skill.parse({ ...skill, steps });
-}
+const OUTPUT_OF: Record<"text" | "number" | "date" | "json", LlmStep["output"]> = {
+  text: { type: "text" },
+  number: { type: "number" },
+  date: { type: "date" },
+  json: { type: "object" },
+};
 
 // Templates the player fills (packages/player/src/template.ts): {{inputs.NAME}}, {{inputs.NAME.name}},
 // {{vars.NAME}} (saved by an earlier step's save_as) and {{today}}; extract's `each` also uses {{text}} and {{href}}.
@@ -439,7 +433,12 @@ function codeQuestions(draft: SkillDraft, steps: NormalisedStep[]): Question[] {
 }
 
 function describeQuestion(draft: SkillDraft): Question {
-  return { id: "intent", text: "Describe this task in one sentence", appliesTo: "intent", default: draft.intent };
+  return {
+    id: "intent",
+    text: "Describe this task in one sentence",
+    appliesTo: "description.goal",
+    default: draft.description.goal,
+  };
 }
 
 function sameOrigin(a: unknown, b: unknown): boolean {

@@ -1,4 +1,4 @@
-import type { Check, Skill, Step } from "@taskplayer/core";
+import type { ActionStep, Check, LlmStep, Skill, Step } from "@taskplayer/core";
 
 // What a channel reports back for one attempt at one step.
 export interface StepResult {
@@ -12,7 +12,8 @@ export interface StepResult {
   error?: string;
 }
 
-export type ChannelExecutor = (step: Step, ctx: RunContext) => Promise<StepResult>;
+// Channels only ever run action steps; llm and control steps are handled by the run loop.
+export type ChannelExecutor = (step: ActionStep, ctx: RunContext) => Promise<StepResult>;
 
 export interface RunContext {
   runId: string;
@@ -25,8 +26,10 @@ export interface RunDeps {
   web: ChannelExecutor;
   fs: ChannelExecutor;
   script: ChannelExecutor;
-  // Rules and model calls over saved values (data.pick, data.ai). Optional: skills without data steps never need it.
+  // Rules over saved values (data.pick). Optional: skills without data steps never need it.
   data?: ChannelExecutor;
+  // llm steps: one model call that transforms data. Optional: skills without llm steps never need it.
+  llm?: (step: LlmStep, ctx: RunContext) => Promise<StepResult>;
   // Mac apps through the Accessibility API (Task Player.app). Optional: web-and-file skills never need it.
   ax?: ChannelExecutor;
   // Polls a file_exists check (a path or glob) until it holds or the timeout passes.

@@ -16,7 +16,7 @@ import { Skill } from "@taskplayer/core";
 import { dataDir, socketPath } from "@taskplayer/ipc";
 import { openMemory } from "@taskplayer/memory";
 import type { RunLogEvent } from "@taskplayer/player";
-import { aiLimitsFromEnv, dataChannel } from "@taskplayer/player/node";
+import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@taskplayer/player/node";
 import type { Prompter, Question } from "@taskplayer/recorder";
 import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
 import { startDaemon } from "./daemon.ts";
@@ -49,9 +49,10 @@ const daemon = await startDaemon({
 });
 const memory = openMemory(join(home, "memory.db"));
 const chat = chatFromEnv();
-// data.pick rules are free; data.ai calls the model on every run, so it is capped (calls per run, input size) and
-// its answers are cached by question and data.
-const data = dataChannel({ ask: askFromEnv(), cacheDir: join(home, "ai-cache"), limits: aiLimitsFromEnv() });
+// data.pick rules are free; llm steps call the model on every run, so they are capped (calls per run, input size)
+// and their answers are cached by question and data.
+const data = dataChannel();
+const llm = llmExecutor({ ask: askFromEnv(), cacheDir: join(home, "ai-cache"), limits: aiLimitsFromEnv() });
 log("listening on", path);
 // macOS asks once for Desktop, Documents and Downloads: now, rather than when you press Record.
 for (const folder of askFolderAccess(watchDirs)) {
@@ -172,6 +173,7 @@ async function run(args: string[]) {
       {
         log: printRun,
         data,
+        llm,
         approve: (step) =>
           new Promise((resolve) => {
             log(`approval needed for ${step.id}: "${step.intent}". Type approve or deny.`);
@@ -214,8 +216,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   else if (command === "record") startRecording();
   else if (command === "stop") void stopRecording();
   else if (command === "compile" && args[0]) void compileSession(args[0]);
-  else if (command === "skills")
-    for (const s of listSkills(home)) log(`${s.id}  v${s.versions.join(",v")}  ${s.intent}`);
+  else if (command === "skills") for (const s of listSkills(home)) log(`${s.id}  v${s.versions.join(",v")}  ${s.name}`);
   else if (command === "traces")
     for (const t of listTraces(home)) log(`${t.sessionId}  ${t.modified.toLocaleString()}`);
   else if (command === "status")

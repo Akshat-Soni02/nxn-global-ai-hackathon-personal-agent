@@ -1,5 +1,7 @@
 # 07 · How to proceed: the rest of Sprint 2, and the Sheet6 tracker
 
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+
 > *"How should i proceed and in sheet the task is divided for the current sprint, make the simple task tracker about real work actions in worksheet 6."*
 
 ## The short answer

@@ -5,7 +5,7 @@
 // Production replay goes through the daemon and the extension; this shares the same player code.
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
-import { Skill, type Step } from "../packages/core/src/skill.ts";
+import { isAction, Skill, type Step, walkSteps } from "../packages/core/src/skill.ts";
 import { chat, configFromEnv } from "../packages/llm/src/index.ts";
 import { runSkill } from "../packages/player/src/index.ts";
 import type { DevChrome } from "../packages/player/src/node/index.ts";
@@ -15,6 +15,7 @@ import {
   fileExists,
   fsChannel,
   launchChrome,
+  llmExecutor,
   poll,
   resolveInputs,
   scriptChannel,
@@ -50,11 +51,11 @@ function askModel() {
         { role: "user", content: user },
       ]);
   } catch {
-    return undefined; // no model configured: data.ai steps fail with a clear message, data.pick still works
+    return undefined; // no model configured: llm steps fail with a clear message, data.pick still works
   }
 }
 const needsBrowser =
-  skill.steps.some((s) => s.channel === "web") ||
+  [...walkSteps(skill.steps)].some(({ step }) => isAction(step) && step.channel === "web") ||
   skill.success.some((c) => c.text_visible || c.url_matches || c.element_visible);
 
 let chrome: DevChrome | undefined;
@@ -104,8 +105,9 @@ try {
             return { ok: true };
           }
         : scriptChannel,
-      // data.pick rules need no model; data.ai uses Nemotron when NEBIUS_* are set (capped, see data-channel.ts).
-      data: dataChannel({ ask: askModel() }),
+      // data.pick rules need no model; llm steps use Nemotron when NEBIUS_* are set (capped, see llm-step.ts).
+      data: dataChannel(),
+      llm: llmExecutor({ ask: askModel() }),
       fileExists: (pattern, timeoutMs) => poll(() => fileExists(pattern), timeoutMs),
       webCheck: async (check, timeoutMs) => waitForCheck(await browser(), check, timeoutMs),
       approve,

@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { type Locator, Skill } from "../../packages/core/src/skill.ts";
+import { isAction, type Locator, Skill, walkSteps } from "../../packages/core/src/skill.ts";
 
 const root = join(import.meta.dirname, "../..");
 const load = (id: string) => Skill.parse(JSON.parse(readFileSync(join(root, "skills/real", `${id}.json`), "utf8")));
@@ -60,8 +60,8 @@ describe("real skills", () => {
     const skill = load(id);
     const doc = page(file);
 
-    for (const step of skill.steps) {
-      if (step.channel !== "web" || !step.target || AFTER_SUBMIT.has(`${id}/${step.id}`)) continue;
+    for (const { step } of walkSteps(skill.steps)) {
+      if (!isAction(step) || step.channel !== "web" || !step.target || AFTER_SUBMIT.has(`${id}/${step.id}`)) continue;
       const target = step.target;
 
       it(`${id}/${step.id} finds "${step.intent}"`, () => {
@@ -85,14 +85,14 @@ describe("real skills", () => {
     for (const id of ["upload-test-file", "download-and-file", "hn-digest", "fill-web-form", "sort-inbox"]) {
       const skill = load(id);
       const saved = new Set<string>();
-      for (const step of skill.steps) {
+      for (const { step } of walkSteps(skill.steps)) {
         for (const [, ref] of JSON.stringify(step).matchAll(/\{\{([^}]+)\}\}/g)) {
           const [scope, name] = (ref as string).split(".");
           if (scope === "inputs") expect(skill.inputs, `${id}/${step.id}`).toHaveProperty(name as string);
           else if (scope === "vars") expect(saved.has(name as string), `${id}/${step.id} uses ${ref}`).toBe(true);
           else expect(["today", "text", "href"], `${id}/${step.id}`).toContain(scope);
         }
-        if (step.save_as) saved.add(step.save_as);
+        if ((isAction(step) || step.type === "llm") && step.save_as) saved.add(step.save_as);
       }
     }
   });

@@ -1,7 +1,7 @@
 // script channel: AppleScript, Shortcuts, and a small allow-list of shell commands.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { Step } from "@taskplayer/core";
+import type { ActionStep as Step } from "@taskplayer/core";
 import type { StepResult } from "../types.ts";
 
 const run = promisify(execFile);

@@ -1,5 +1,7 @@
 # 09 · Record, explained and built
 
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+
 > **After the merge with Akshat's replay (3 Oct):** some contract details below changed: select writes `{option}`, type writes `{text, clear}`, the golden test now checks against `skills/real/`. See [10](10-merge-and-hot-edges.md) for the current contract and the hot edges.
 
 **Part A** answers the questions you asked, briefly. **Part B** is what was built to make record work end to end, and why each piece is built that way. **Part C** covers how to run it and what's still open.

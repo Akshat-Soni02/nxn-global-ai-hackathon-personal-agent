@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Skill } from "@taskplayer/core";
+import { type ActionStep, Skill } from "@taskplayer/core";
 import { describe, expect, it } from "vitest";
 import type { RunContext } from "../types.ts";
 import { fsChannel } from "./fs-channel.ts";
@@ -10,10 +10,11 @@ import { resolveInputs } from "./inputs.ts";
 const step = (action: string, args: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
   Skill.parse({
     id: "t",
+    name: "t",
     version: 1,
-    intent: "t",
-    steps: [{ id: "s", intent: "t", channel: "fs", action, args, ...extra }],
-  }).steps[0] as Skill["steps"][number];
+    description: { goal: "t" },
+    steps: [{ id: "s", type: "action", intent: "t", channel: "fs", action, args, ...extra }],
+  }).steps[0] as ActionStep;
 const ctx = (startedAt = 0): RunContext => ({ runId: "r", startedAt, inputs: {}, vars: {} });
 
 function dir() {
@@ -68,9 +69,12 @@ describe("file inputs resolved without asking", () => {
     Skill.parse({
       id: "t",
       version: 1,
-      intent: "t",
+      name: "t",
+      description: { goal: "t" },
       inputs: { doc: { type: "file", resolve } },
-      steps: [{ id: "s", intent: "t", channel: "fs", action: "read", args: { path: "{{inputs.doc}}" } }],
+      steps: [
+        { id: "s", type: "action", intent: "t", channel: "fs", action: "read", args: { path: "{{inputs.doc}}" } },
+      ],
     });
 
   it("takes the newest file the step can use: of the kind it takes, and not empty", async () => {

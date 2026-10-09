@@ -1,5 +1,7 @@
 # 03 · Tools: Chrome, Playwright, Electron, and how OpenAI did it
 
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+
 ## Q1 · Which tool drives the user's own Chrome?
 
 > *"tools to use (Playwright opens a new chrome profile window this behaviour is what i don't want)"*

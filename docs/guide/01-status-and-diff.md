@@ -1,5 +1,7 @@
 # 01 · Status today, and design vs dossier vs code
 
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+
 ## Q1 · What exists today?
 
 > *"understand the codebase end-to-end. explain whats the current thing/status"*

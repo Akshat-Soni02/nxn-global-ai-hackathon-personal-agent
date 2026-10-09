@@ -1,14 +1,16 @@
 // Skeleton: the skill as far as code alone can take it. Channel, action, target and every recorded value come from
 // here, so the model (compile.ts) can only add meaning on top: it can never invent a selector or an action.
 // It is also a complete, valid skill on its own, which is what gets saved when no model is configured.
-import { type AxElement, type Input, kindOf, type Locator, type Skill } from "@taskplayer/core";
+import { type ActionStep, type AxElement, type Input, kindOf, type Locator, type Skill } from "@taskplayer/core";
 import type { z } from "zod";
 import type { Question } from "./compile.ts";
 import { toLocator } from "./locator.ts";
 import type { NormalisedStep } from "./normalise.ts";
 
-export type SkillDraft = z.input<typeof Skill>;
-type StepDraft = SkillDraft["steps"][number];
+// The recorder builds action steps only; an llm step comes from the drill (see aiQuestions in compile.ts).
+export type ActionDraft = z.input<typeof ActionStep>;
+export type SkillDraft = Omit<z.input<typeof Skill>, "steps"> & { steps: ActionDraft[] };
+type StepDraft = Omit<ActionDraft, "type">;
 
 // Steps that commit something you can't take back. Replay pauses for your OK before them.
 const RISKY = /\b(submit|pay|send|delete|remove|post|publish|confirm|purchase|buy|order|transfer|sign)\b/i;
@@ -29,7 +31,7 @@ export interface Skeleton {
 
 export function skeletonOf(steps: NormalisedStep[]): Skeleton {
   const inputs: Record<string, Input> = {};
-  const out: StepDraft[] = [];
+  const out: ActionDraft[] = [];
   const idsByStep: string[][] = [];
   const questions: Question[] = [];
   const copies = new Map<string, string>(); // a copy event's id -> the variable its value is saved as
@@ -37,18 +39,19 @@ export function skeletonOf(steps: NormalisedStep[]): Skeleton {
   for (const step of steps) {
     const first = out.length;
     const id = (k: number) => `s${first + k + 1}`;
-    out.push(
-      ...(step.kind === "copy"
+    const built =
+      step.kind === "copy"
         ? copySteps(step, id, copies, questions)
-        : [toStep(step, id(0), { inputs, copies, questions, files })]),
-    );
+        : [toStep(step, id(0), { inputs, copies, questions, files })];
+    out.push(...built.map((s) => ({ ...s, type: "action" as const })));
     idsByStep.push(out.slice(first).map((s) => s.id));
   }
   return {
     draft: {
       id: guessId(steps),
+      name: guessIntent(steps),
       version: 1,
-      intent: guessIntent(steps),
+      description: { goal: guessIntent(steps) },
       inputs,
       triggers: [{ type: "manual" }],
       steps: out,

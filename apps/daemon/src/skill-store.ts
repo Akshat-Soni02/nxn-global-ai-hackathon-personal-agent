@@ -41,12 +41,12 @@ export function saveSkill(dataDir: string, skill: Skill): { path: string; skill:
   return { path, skill: saved };
 }
 
-export function listSkills(dataDir: string): { id: string; versions: number[]; intent: string }[] {
+export function listSkills(dataDir: string): { id: string; versions: number[]; name: string }[] {
   const root = join(dataDir, "skills");
   if (!existsSync(root)) return [];
   return readdirSync(root).flatMap((id) => {
     const all = /^[a-z0-9][a-z0-9-]*$/.test(id) ? versions(dataDir, id) : [];
     const latest = all.length > 0 ? loadSkill(dataDir, id) : undefined;
-    return latest ? [{ id, versions: all, intent: latest.intent }] : [];
+    return latest ? [{ id, versions: all, name: latest.name }] : [];
   });
 }

@@ -1,5 +1,7 @@
 # 10 · Record meets replay, and the hot edges
 
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+
 > Written 3 Oct 2026, on branch `feat/record-replay-merge`. Nothing committed yet. My pre-merge work is kept as a backup in `git stash list` ("record half 2026-10-03").
 
 **Akshat's replay engine** (`origin/main`, 2 commits) and **my record half** now share one skill file that both sides agree on:

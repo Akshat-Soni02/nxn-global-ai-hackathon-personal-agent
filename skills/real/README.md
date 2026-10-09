@@ -1,5 +1,7 @@
 # Real skills
 
+> **Workflow format** (Oct 8): each skill has a `name`, a `description` (goal, changes, constants, never), typed steps (`"type": "action"`) and a `history`. None uses loops, branches or llm steps yet.
+
 Five hand-written skills against real, public test sites, used as the replay team's test suite.
 Each web target is checked against a saved snapshot of its page by `skills/real/skills.test.ts`.
 
