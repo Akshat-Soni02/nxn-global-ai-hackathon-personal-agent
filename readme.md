@@ -1,7 +1,7 @@
 ## The project is based of the following concept:
 Its an smart automation layer but works for any kind of task we generally do at work. to setup a task you show it how its done (by a screen recording(stretch goal) or in natural language where it might drill you if it has any questions) then it smartly manages the task. The smart layer supports - understand a new task so later on system can replay it, decision making for any common occuring situations (like layout drifts), context gathering while doing the task etc. Its an always on system which differentiates it and make it fully autonomous
 
-Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/): an always-on, private assistant with persistent memory and reusable skills, running on an NVIDIA Nemotron model served from our own Nebius Serverless endpoint.
+Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/): an always-on, private assistant with persistent memory and reusable skills, running on NVIDIA Nemotron models through Nebius Token Factory.
 
 ## How it works
 
@@ -23,9 +23,9 @@ flowchart LR
 1. **Describe.** The user fills in a short form: **Goal**, **Frequency** (a dropdown that becomes the trigger), **What changes each run**, **What stays the same** and, optionally, **Never** (lists are comma-separated). Placeholder text explains each field, because these answers are what separate variables from constants.
 2. **Record.** The user does the task their usual way while Task Player records three streams on one clock:
     - **events** in Chrome, Mac apps and Finder;
-    - **a screenshot at each event**: only the active window, downscaled, sensitive fields blacked out. Screenshots stay on the Mac and need macOS's Screen Recording permission.
-    - **optional voice narration**: transcribed on the Mac and timestamped against the events. Audio never leaves the Mac.
-3. **Understand.** An LLM reads the description, events and transcript and drafts a **workflow**: a click on an email becomes "the newest email from this sender", changing values become variables, repetition becomes a loop.
+    - **a screenshot at each event**, with the user's consent: the active window, with sensitive information blacked out on the Mac before it is stored or sent ([how](#privacy));
+    - **optional voice narration**, with the user's consent: transcribed on the Mac by macOS's built-in speech recognizer and timestamped against the events. The audio never leaves the Mac; the transcript does.
+3. **Understand.** Nemotron 3 Super reads the description, events and transcript (and GLM-5.3-Flash's descriptions of the redacted screenshots) and drafts a **workflow**: a click on an email becomes "the newest email from this sender", changing values become variables, repetition becomes a loop. The raw recording is deleted a day after the skill is finalised.
 4. **Drill.** Questions only on the steps it is unsure about; answers go to memory.
 5. **Workflow tree.** The user sees the workflow as a tree. Each step is a browser or Mac action, or an **LLM step** that transforms data (summarise, classify, read a document). LLM steps never drive the UI. The tree also has **variables**, **loops** and **branches**, and any step can **ask the user** something before it runs.
 6. **Edit.** The user can change any step and toggle **human approval** on any step.
@@ -33,9 +33,32 @@ flowchart LR
 8. **Run.** The exact tree the user saw runs from its trigger. Actions are deterministic; no model call unless an LLM step needs one or a step fails.
 9. **Debug and self-correct.** When a step fails, a debug step proposes a fix, the player verifies it, and the workflow is saved as a **new version**. Every version is kept; the user is notified and can roll back in one click.
 
-**Components.** An always-on **daemon** (workflows, versions, triggers, memory, run log, the Nemotron client), **Task Player.app** (Record button, Mac app capture and replay through the Accessibility API, screenshots, voice), the **Chrome extension** (web capture and replay through `chrome.debugger` in the user's own Chrome) and a tiny **native-host shim** (Chrome launches a fresh process per native messaging connection, so the shim forwards bytes to the daemon's socket). The model is NVIDIA Nemotron on our own Nebius Serverless endpoint and receives text only.
+**Components.** An always-on **daemon** (workflows, versions, triggers, memory, run log, all model calls), **Task Player.app** (Record button, Mac app capture and replay through the Accessibility API, screenshots and their redaction, voice and transcription), the **Chrome extension** (web capture and replay through `chrome.debugger` in the user's own Chrome) and a tiny **native-host shim** (Chrome launches a fresh process per native messaging connection, so the shim forwards bytes to the daemon's socket). There is **no backend server**: the daemon calls Nebius Token Factory directly with the user's own API key, kept in the macOS Keychain.
 
 **Memory.** Local SQLite in the daemon: drill answers, run context, and site notes from debug fixes. Never secrets.
+
+## NVIDIA Nemotron on Nebius Token Factory
+
+Every model call goes through `packages/llm` to **Nebius Token Factory**. Code asks for a role; the role picks the model.
+
+| Role | Model | What it does in Task Player |
+| --- | --- | --- |
+| `transform` | **NVIDIA Nemotron 3.5 Lightning** | Runs the workflow's LLM steps on every run: summarise an email, read an invoice, classify a ticket. Cheap and fast ($0.06 / $0.24 per 1M tokens), thinking off, output checked against the step's type |
+| `understand` | **NVIDIA Nemotron 3 Super** | Turns a description, a recording and its transcript into a workflow tree, and writes the drill questions |
+| `debug` | **NVIDIA Nemotron 3 Super** | When a step fails on a changed page, proposes the fix that is verified and saved as a new version |
+| `vision` | GLM-5.3-Flash | Describes redacted screenshots for `understand` and `debug` (the cheapest vision model on Token Factory) |
+
+Why Token Factory: one OpenAI-compatible API for every role, structured JSON output with a schema, Nemotron's thinking switched on or off per call, and **Zero Data Retention**, which we require on the account so prompts are neither stored nor used for training. Details, costs and limits: [docs/design.md#models](docs/design.md#models).
+
+## Privacy
+
+- **Consent first.** Screenshots and the microphone are separate opt-ins; without them, recording works from events alone.
+- **Redaction before upload.** No screenshot while a password field has focus or a blocked app or site is open; password, payment and user-marked fields are blacked out from the page's or app's own structure; then on-device text recognition (Apple's Vision framework) blacks out emails, phone and card numbers, IBANs, ID numbers, API keys and the description's "Never" terms.
+- **Audio stays on the Mac.** Only its transcript is sent.
+- **Short-lived recordings.** Raw recordings are deleted 24 hours after the skill is finalised; skills never contain images or audio.
+- **Only Nebius sees data.** No server of ours sits in between; Token Factory runs with Zero Data Retention.
+
+Details: [docs/design.md#consent-redaction-and-retention](docs/design.md#consent-redaction-and-retention).
 
 ## Success metric: task coverage
 
@@ -63,7 +86,7 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 .
 ├── packages/
 │   ├── core/          # JOINT   skill schema (zod; to become the workflow tree), element descriptor, extension↔daemon messages
-│   ├── llm/           # JOINT   Nemotron client for our Nebius Serverless endpoint (OpenAI-compatible)
+│   ├── llm/           # JOINT   all model calls to Nebius Token Factory, by role (transform, understand, debug, vision)
 │   ├── memory/        # JOINT   persistent memory store (interface now, SQLite later)
 │   ├── ipc/           # JOINT   length-prefixed framing (native messaging + daemon socket), socket path
 │   ├── recorder/      # RECORD  trace normaliser, compiler, drill questions (to become: understand → workflow tree)
@@ -149,10 +172,17 @@ After `git pull`, run `pnpm build` again and reload the extension in `chrome://e
 The daemon listens on `~/Library/Application Support/TaskPlayer/daemon.sock`. Override it with `TASKPLAYER_SOCKET`, keeping the path at 103 bytes or less (a macOS limit for Unix sockets).
 
 ## Deployed Link
-<!-- populate later -->
+
+Test build: a GitHub Release with the `.dmg` (Task Player.app with the daemon) and the Chrome extension. Link to be added when the first release is published.
 
 ## Deployment Guide
-<!-- populate later -->
+
+There is no server to deploy: everything runs on the user's Mac and calls Nebius Token Factory directly.
+
+1. Create a Nebius Token Factory API key and turn on **Zero Data Retention** for the organization.
+2. Install the release: open the `.dmg` (unsigned, so right-click → Open) and load the extension in `chrome://extensions`.
+3. On first launch, paste the key. It is stored in the macOS Keychain, and a connection check confirms Nemotron answers.
+4. Allow the macOS permissions it asks for: Accessibility; Screen Recording, Microphone and Speech Recognition only if you consent to screenshots and narration.
 
 ## License
 
