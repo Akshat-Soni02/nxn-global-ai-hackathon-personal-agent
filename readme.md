@@ -39,16 +39,15 @@ flowchart LR
 
 ## NVIDIA Nemotron on Nebius Token Factory
 
-Every model call goes through `packages/llm` to **Nebius Token Factory**. Code asks for a role; the role picks the model.
+Every model call goes through `packages/llm` to **Nebius Token Factory**. Callers pick a profile; understanding recordings and recovering from failures are **agents** built on `packages/agent` ([design](docs/design.md#agents)).
 
-| Role | Model | What it does in Task Player |
+| Profile | Model | Used by |
 | --- | --- | --- |
-| `transform` | **NVIDIA Nemotron 3.5 Lightning** | Runs the workflow's LLM steps on every run: summarise an email, read an invoice, classify a ticket. Cheap and fast ($0.06 / $0.24 per 1M tokens), thinking off, output checked against the step's type |
-| `understand` | **NVIDIA Nemotron 3 Super** | Turns a description, a recording and its transcript into a workflow tree, and writes the drill questions |
-| `debug` | **NVIDIA Nemotron 3 Super** | When a step fails on a changed page, proposes the fix that is verified and saved as a new version |
-| `vision` | GLM-5.3-Flash | Describes redacted screenshots for `understand` and `debug` (the cheapest vision model on Token Factory) |
+| `fast` | **NVIDIA Nemotron 3.5 Lightning** | The workflow's LLM steps on every run: summarise an email, read an invoice, classify a ticket. Cheap and fast ($0.06 / $0.24 per 1M tokens), thinking off, output checked against the step's type |
+| `smart` | **NVIDIA Nemotron 3 Super** | The **repair agent** (works out why a step failed on a changed page, fixes the workflow, verifies, saves a new version) and the **design agent** (turns a description, recording and transcript into a workflow) |
+| `vision` | GLM-5.3-Flash | The agents' screenshot tool: describes redacted screenshots (the cheapest vision model on Token Factory) |
 
-Why Token Factory: one OpenAI-compatible API for every role, structured JSON output with a schema, Nemotron's thinking switched on or off per call, and **Zero Data Retention**, which we require on the account so prompts are neither stored nor used for training. Details, costs and limits: [docs/design.md#models](docs/design.md#models).
+Why Token Factory: one OpenAI-compatible API for every profile, structured JSON output with a schema, Nemotron's thinking switched on or off per call, and **Zero Data Retention**, which we require on the account so prompts are neither stored nor used for training. Details, costs and limits: [docs/design.md#models](docs/design.md#models).
 
 ## Privacy
 
@@ -86,7 +85,8 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 .
 ├── packages/
 │   ├── core/          # JOINT   skill schema (zod; to become the workflow tree), element descriptor, extension↔daemon messages
-│   ├── llm/           # JOINT   all model calls to Nebius Token Factory, by role (transform, understand, debug, vision)
+│   ├── llm/           # JOINT   all model calls to Nebius Token Factory: client, profiles (fast, smart, vision), structured output, usage
+│   ├── agent/         # JOINT   (planned) the agent runtime: loop, tools, guard, budgets, transcript
 │   ├── memory/        # JOINT   persistent memory store (interface now, SQLite later)
 │   ├── ipc/           # JOINT   length-prefixed framing (native messaging + daemon socket), socket path
 │   ├── recorder/      # RECORD  trace normaliser, compiler, drill questions (to become: understand → workflow tree)
