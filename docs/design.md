@@ -91,7 +91,7 @@ Vendor invoices → Xero                            trigger: every day at 10:00
 
 ### 6. Edit
 
-The user can edit any step (its target, values, wording), add, remove or reorder steps, and **toggle human approval** on any step. Steps that send, submit, pay, publish or delete start with approval on, and so do steps matching a "Never" entry.
+In the app's window ([The app](#the-app)), the user can edit any step (its target, values, wording), add, remove or reorder steps, and **toggle human approval** on any step. Steps that send, submit, pay, publish or delete start with approval on, and so do steps matching a "Never" entry.
 
 ### 7. Test
 
@@ -309,9 +309,12 @@ Every value a step reads is a **variable declared, with its type, by an earlier 
 ```mermaid
 flowchart TB
   subgraph mac["The user's Mac"]
-    D["Daemon (always on)<br/>workflows + versions, triggers,<br/>memory, run log, LLM client"]
-    A["Task Player.app<br/>Record button, Mac app capture + replay (AX),<br/>screenshots + redaction, voice + transcription"]
-    W["Workflow editor<br/>(location to be decided)"]
+    L["launchd<br/>(starts the daemon at login)"]
+    subgraph app["Task Player.app (what the user installs)"]
+      D["Daemon (always on)<br/>workflows + versions, triggers, inbox,<br/>memory, run log, LLM client, API"]
+      A["Swift side<br/>Record button, menu bar, notifications,<br/>Mac app capture + replay (AX),<br/>screenshots + redaction, voice + transcription"]
+      W["Window (WKWebView)<br/>inbox, workflows, runs,<br/>versions, editor, settings"]
+    end
     subgraph chrome["Chrome"]
       X["Extension<br/>web capture, tab screenshots,<br/>replay via chrome.debugger"]
     end
@@ -319,12 +322,15 @@ flowchart TB
   end
   N[("Nebius Token Factory<br/>Nemotron 3.5 Lightning, Nemotron 3 Super,<br/>GLM-5.3-Flash")]
   X <--> S <--> D
-  A <--> D
-  W <--> D
+  L -- starts --> D
+  A <-- socket --> D
+  W <-- "local HTTP + token" --> D
   D -- "text, and redacted screenshots<br/>with consent; user's own API key" --> N
 ```
 
-There is **no backend server**: the daemon is the backend. It runs on the user's Mac and calls Token Factory directly with the user's own API key. The extension and Task Player.app never call a model; everything goes through the daemon ([Deployment](#deployment)).
+The daemon is the hub, reached through three doors because each side allows a different one: Chrome only through native messaging (the shim), the Swift side through the Unix socket, the window through local HTTP ([The daemon as a service](#the-daemon-as-a-service)).
+
+There is **no backend server**: the daemon is the backend. It runs on the user's Mac and calls Token Factory directly with the user's own API key. The extension, the Swift side and the window never call a model; everything goes through the daemon ([Deployment](#deployment)).
 
 **Why a native host shim.** Chrome launches a fresh process for every native messaging connection, so it cannot attach to the always-on daemon. The shim (`apps/native-host`) is what Chrome launches; it forwards bytes to the daemon's Unix socket (`~/Library/Application Support/TaskPlayer/daemon.sock`, at most 103 bytes long, a macOS limit). Only the extension can open the connection, so it connects on startup and reconnects with `chrome.alarms`.
 
@@ -406,12 +412,132 @@ Each recording keeps its raw files in one folder: screenshots, audio, transcript
 - **Repair is bounded:** only drift changes a workflow; repair cannot add outward actions or scripts, change what the user decided, turn approvals off or reach new sites, and a fix is kept only with evidence that it worked. This is enforced in code by the repair agent's guard on every live action and every edit, within budgets per episode and per run, never by its prompt. Every change is a new version the user can roll back in one click ([Recover from a failure](#9-recover-from-a-failure)).
 - **Permissions (macOS):** Accessibility (Mac app capture and replay), Screen Recording (Mac app window screenshots), Microphone and Speech Recognition (narration), Automation (scripts). Full Disk Access is not needed.
 
+## The daemon as a service
+
+*Decided Oct 10, 2026.* Today the daemon runs in a terminal (`pnpm daemon`), reads the API key from the repo's `.env`, and everything that waits for the user waits on that terminal: approvals, asks, drill questions and paused runs are functions held in memory (`pendingApproval`, `pendingRecovery` in `apps/daemon/src/main.ts`), answered by typing `approve`, `resume` and so on. That cannot run unattended: a daemon started by macOS has no terminal to type into, and a wait held in memory is lost when the daemon restarts. So the daemon changes in three ways.
+
+**Started by macOS.** Task Player.app registers the daemon as a **LaunchAgent** (`SMAppService`): launchd starts it when the user logs in and starts it again if it exits. Only one copy runs (a lock file in the data folder).
+
+**An inbox instead of a terminal.** Everything that waits for the user is a **saved record** in SQLite, not a function in memory:
+
+| Kind | Waits for | Answers |
+| --- | --- | --- |
+| `approval` | a step that needs approval | approve, deny |
+| `ask` | a step's question | a value, or yes / no |
+| `paused` | a run that recovery couldn't finish (or one that needs a login) | resume, skip (done by hand, or shown), cancel |
+| `drill` | a question about a new recording | an answer |
+| `repaired` | nothing: a repair saved a new version | review, roll back |
+
+Each record names the workflow, run, step path and version, what is needed, and when it was asked. Any client can answer it; the first answer wins and the others see it resolved. A paused run's state (its variables and where it stopped) is saved with it, so after a restart it is still paused, never resumed on its own.
+
+**One API, two doors.** The daemon accepts one set of queries and commands:
+
+- **Queries:** workflows, versions and the diff between two, runs and a run's steps, the inbox, health, memory, model usage.
+- **Commands:** run, cancel, turn a trigger on or off, roll back, answer an inbox item, edit a workflow (the edit operations of `core/edit.ts`; saving makes a `by: user` version), start and stop recording, change settings.
+- **Events, pushed:** run progress, inbox changes, health changes.
+
+They are served on the **Unix socket** (as today: the extension through the native host, Task Player.app, and the terminal) and on **local HTTP** for the app's window. HTTP listens on `127.0.0.1` only, on a random port, and needs a random token made at each start and written to a file only the user can read (mode 0600) in the data folder; requests without it, or from another origin, are refused. The token is needed because any web page open in the user's browser can also send requests to `127.0.0.1`.
+
+**The terminal stays** as a client for development: `pnpm daemon` keeps its commands, sent through the same API.
+
+**Triggers** (Frequency) run in the daemon: a scheduler for times, and folder watches for "when a file appears".
+
+## The app
+
+*Decided Oct 10, 2026.* The user installs one app, **Task Player.app**. It is the only thing they open; everything else is started from it.
+
+**Native (Swift), as today plus:** the floating Record button, the Mac-app recorder and the `ax` channel; a **menu bar item** (status, how many things wait in the inbox, Record, Open); **notifications**; the first-run setup; and the window.
+
+**The window is a WKWebView**, macOS's own web engine (the one Safari uses) inside our app, showing a TypeScript/React UI shipped in the app (`Contents/Resources/ui`). It is not a website: nothing is hosted, and it works offline. Why this and not the alternatives:
+
+| Option | Why not |
+| --- | --- |
+| SwiftUI | The workflow tree, its schema, `check.ts` and `edit.ts` are TypeScript; a Swift editor would rebuild all of it |
+| Electron | A second app with its own copy of Chrome and Node, beside Task Player.app |
+| Tauri | Adds Rust to a TypeScript and Swift codebase |
+| Chrome side panel | Exists only while Chrome is open; the inbox must work when it isn't |
+
+The UI imports `@taskplayer/core`, so the editor validates with the same `check.ts` and changes workflows with the same edit operations as the agents. In development the same UI opens in a normal browser against the running daemon.
+
+**It holds no state.** Everything it shows comes from the daemon's API, and every click is a command to it, like the Record button today.
+
+**Screens**, in the order they are built:
+
+1. **Inbox:** what waits for the user (the table above), as cards with their answers.
+2. **Workflows:** each with its trigger and next run, last result, version, on / off, and Run now.
+3. **Run detail:** the steps as a timeline from the run log (where each ran, match score, time, values with secrets hidden), repair episodes (what failed, what the agent tried, what changed), and model cost.
+4. **Workflow detail:** the tree, description and variables; versions with the diff between them and **one-click rollback**.
+5. **Settings and health:** the API key, model profiles, budgets, consent, macOS permissions, and **memory** (view and delete entries).
+6. **Editor:** edit a step's fields and toggle approval, with `check.ts` errors shown on the step; saving makes a new version. Then add, remove and reorder steps, then Play (highlight-only).
+7. **Record:** the description form, recording, then the drill questions shown on the draft tree.
+
+**Notifications** for: needs approval, paused (needs you), repaired → new version (with rollback), failed. Clicking one opens that item in the window.
+
+## Observability
+
+Local only: logs, runs and usage stay on the Mac, in line with the privacy promise. Nothing is sent anywhere except model calls.
+
+- **Logs.** One structured logger for the daemon (time, level, component, run id, message) writing JSON lines to `~/Library/Logs/TaskPlayer/daemon.log`; Task Player.app writes `app.log` there too. Both are rotated (size cap, a few files kept). Console.app shows that folder. Today the daemon logs to the terminal and the app to `NSLog` or `--log`.
+- **Runs.** The per-run JSON lines (`runs/<runId>.jsonl`) stay the detail. A `runs` table indexes them: workflow, version, trigger, status (succeeded, failed, denied, no-op, paused, cancelled), start, duration, failed step, whether it was repaired, model cost. The window lists runs from it.
+- **Repair episodes** are saved next to their run: the failure report, the agent's transcript and the version diff. Today they exist only in memory, through `onEpisode`.
+- **Model usage.** Tokens and estimated cost per call, per run and per day, saved (today `UsageMeter` is in memory only). A daily budget in settings: a warning near it; over it, model calls are refused and the user is told.
+- **Health.** Extension connected; Task Player.app connected and allowed Accessibility; API key present and the model reachable (the last check); triggers and their next times; disk used; the last error. Shown in the window and as the menu bar icon's state.
+- **Retention.** Run logs and repair episodes are kept 30 days (a setting), the `ai-cache` is pruned, logs are rotated. Values of type `secret` are never logged, as today.
+- **Diagnostics export.** A zip of the logs, health and a chosen run, without secrets, for bug reports.
+
 ## Deployment
 
+*Packaging decided Oct 10, 2026.*
+
 - **No backend server.** The daemon on the user's Mac is the backend; it holds the workflows and calls Token Factory directly with the user's key. This keeps the data path short: the user's Mac and Nebius only.
-- **Settings** live in `~/Library/Application Support/TaskPlayer/config.json` (model per profile, budgets, prices), with defaults built in; the API key lives in the Keychain.
-- **Updates** ship with the app: a new build of Task Player.app and the daemon, and a new version of the extension.
-- **Test build for judges:** a GitHub Release with the `.dmg` (Task Player.app with the daemon) and the extension. The first launch asks for the Token Factory key, stores it in the Keychain and runs the connection check, so the user sees "connected to Nemotron" before recording anything. The build is unsigned, so the README says to open it with right-click → Open.
+- **Settings** live in `~/Library/Application Support/TaskPlayer/config.json` (model per profile, budgets, prices, retention), with defaults built in; the API key lives in the Keychain.
+- **Updates** ship with the app: a new build of Task Player.app (with the daemon inside) and a new version of the extension.
+
+### What the user installs
+
+A `.dmg` (a disk image) holding **Task Player.app**. The app is a folder macOS shows as one icon:
+
+```
+Task Player.app/Contents/
+  Info.plist                              name, id (com.taskplayer.mac), version
+  MacOS/Task Player                       the Swift side: button, menu bar, notifications, window, ax channel
+  Resources/node                          a Node 22 binary, so the user needs no Node
+  Resources/daemon.js                     apps/daemon and every package it uses, bundled into one file (esbuild)
+  Resources/native-host.js                the Chrome shim, bundled the same way
+  Resources/ui/                           the window's pages
+  Resources/extension/                    the extension, to load into Chrome
+  Library/LaunchAgents/com.taskplayer.daemon.plist   "run Resources/node daemon.js at login, restart it if it exits"
+```
+
+Bundling into one file works because nothing needs compiling on the user's Mac: memory uses Node's built-in SQLite (`node:sqlite`).
+
+### Who starts what
+
+The user opens Task Player.app. The app registers the daemon's LaunchAgent and itself as **login items** (`SMAppService`), so from then on launchd starts both at login, and the daemon again if it exits. This **reverses today's order**, where the daemon starts the app with `open`: users open apps, not daemons, and macOS asks for permissions (Accessibility, folders) by the name of the app that holds the program, so a daemon inside Task Player.app is asked about as "Task Player", not as "node". If the app isn't running, the daemon still opens it, as today, so the button is there.
+
+### First run
+
+1. Ask for the Token Factory API key and store it in the **Keychain**.
+2. Write Chrome's native-host manifest, pointing at `Resources/node` and `Resources/native-host.js` **inside the app** (today `pnpm setup:native-host` points at the developer's Node and repo).
+3. Run the connection check (what `pnpm llm:check` does) and show **"connected to Nemotron"**.
+4. Guide the user through loading the extension (Load unpacked from the folder shipped in the app, then **Allow access to file URLs**) and allowing **Accessibility**.
+
+The daemon, the app and the extension each send their version in `hello`; a mismatch is shown in health.
+
+### Scripts
+
+- `pnpm package`: builds the extension, compiles the Swift app, bundles the daemon, the native host and the UI, copies Node in, and makes the `.dmg` (`hdiutil`).
+- `pnpm release`: publishes the `.dmg` and the extension as a GitHub Release (`gh release`).
+- CI builds the `.dmg` on a macOS runner.
+- Development is unchanged: `pnpm daemon`, `pnpm replay`, `pnpm setup:*`.
+
+### Signing
+
+The app is signed ad hoc (no Apple developer account). macOS ties the Accessibility permission to a build's signature, so each new build is asked for again; a release is built once, and the README says so. The build is not notarised, so the first open is right-click → Open.
+
+### Test build for judges
+
+The GitHub Release above. The first launch runs the first-run steps, so the judge sees "connected to Nemotron" before recording anything.
 
 ## Status: design vs code
 
@@ -430,14 +556,17 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Description form | ❌ | New |
 | Screenshots per event | ❌ (only cropped element images in web capture) | New |
 | Voice + transcription (macOS SpeechAnalyzer) | ❌ | New |
-| Workflow editor | ❌ (terminal only) | New |
+| Daemon as a service: LaunchAgent, saved inbox, API (socket + local HTTP) | ❌ (`pnpm daemon` in a terminal; approvals, asks, drill and paused runs wait on stdin in memory) | New: [The daemon as a service](#the-daemon-as-a-service) |
+| The app's window, menu bar and notifications | ❌ (only the floating button) | New: [The app](#the-app) |
+| Workflow editor | ❌ (terminal only) | In the app's window (decided Oct 10) |
+| Observability: log files, runs index, saved repair episodes, saved usage and budget, health | Per-run JSON lines only; daemon logs to the terminal; repair transcripts and usage in memory | New: [Observability](#observability) |
 | Highlight-only test | ❌ | New |
 | Recover from a failure: classify, repair agent, verify, pause and show, versions + rollback | ✅ for web steps (Oct 10): pause and resume in the interpreter, classification, the cheap ladder, the repair agent and its tools, evidence, `by: debug` versions, `rollback`, `resume` / `skip` / `cancel` in the daemon and `pnpm replay` | Left: the demonstration recorded as the repair, Mac-app (ax) repair beyond classification, `describe_screen` (needs redaction), notifications beyond the terminal and the button |
 | `packages/agent` runtime; `core` edit operations and capability briefing | ✅ the loop (native tools or JSON actions), guard, budgets, working memory, transcript; `core/edit.ts`, `core/briefing.ts`, and section 9's never-rules in `core/guard.ts` (Oct 10) | The repair agent's tools are milestone 5 |
 | Triggers from Frequency | ❌ (only manual `run`) | New |
 | `packages/llm` with profiles, structured output, tools, usage meter | ✅ client, catalog, fake client, `pnpm llm:check`; compile, llm steps and `pnpm replay` use it (Oct 10) | Confirm the catalog with `pnpm llm:check` and a real key |
 | Consent, redaction, 24-hour retention | ❌ | New |
-| Key in the Keychain, first-run setup, test build | ❌ (`.env` only) | New |
+| Packaging: the `.dmg`, Node and the daemon inside the app, Keychain key, first run, `pnpm package` / `pnpm release` | ❌ (`.env`, `tsx` from source, `pnpm setup:*` by hand) | New: [Deployment](#deployment) |
 
 ## Build order
 
@@ -450,13 +579,16 @@ Replay side first: the workflow format and its interpreter are what everything e
 | 3 | `packages/llm`: client, profiles, model catalog, thinking control, structured output, tools, usage meter, fake client, `pnpm llm:check`; existing callers moved onto it | Both | Code done (Oct 10): every model call goes through it. Left: `llm:check` with a real key |
 | 4 | `packages/agent` runtime; `core/edit.ts` and `core/briefing.ts` | Both | ✅ Done (Oct 10): an agent with a scripted model is refused an outward edit, told about a broken reference, and commits a retarget within its budget (`packages/agent/src/agent.test.ts`) |
 | 5 | Recover from a failure: failure report, repair agent and its tools, verify, pause and resume, versions, notification and rollback, pause and show | Replay | ✅ Mostly done (Oct 10): each drift fixture (`fixtures/pages/drift`: renamed, reworded, banner, menu, confirmation, logged out) is repaired or resolved as expected with a scripted model, saved as v2 and rolled back with `rollback`; a site that is down is retried; the user can do a step by hand and `skip`. Live in Chrome: the ladder repaired `reworded.html`. Left: the scenarios on the real model, and the demonstration recorded as the repair |
-| 6 | Highlight-only test | Replay | Play highlights each reachable target without acting |
-| 7 | Triggers from Frequency | Replay | A scheduled and a folder workflow start on their own |
-| 8 | Description form; consent; screenshots with redaction; voice and transcription; 24-hour retention | Record | A recording carries events, redacted screenshots and a transcript on one clock, and its folder is gone a day after finalising |
-| 9 | Design agent: recording → tree, drill on the tree | Record | Workflow 1 in examples.md becomes a correct tree from a real recording |
-| 10 | Workflow editor (on the same edit operations) | Both | Edit a step, toggle approval, play, see versions |
-| 11 | Keychain key and first-run setup; test build release | Both | A fresh Mac goes from download to "connected to Nemotron" by following the README |
-| 12 | Measure coverage on examples.md; demo video; submission | Both | Submitted |
+| 6 | Daemon as a service: saved inbox, API on the socket and local HTTP, the terminal as a client; log files, runs index, saved repair episodes | Both | Oct 10–15: a run that needs approval, answered after a daemon restart through the API, continues; every run is listed with its status and cost |
+| 7 | The app: owns the daemon (LaunchAgent); window with inbox, workflows, run detail, workflow detail with versions and rollback; menu bar, health, notifications | Both | Oct 14–19: with no terminal open, a paused run's notification opens the inbox, and resume finishes it; a repair is rolled back from the window |
+| 8 | Triggers from Frequency | Replay | Oct 18–23: a scheduled and a folder workflow start on their own |
+| 9 | Packaging and first run: `pnpm package`, the `.dmg`, Keychain key, native host inside the app, connection check; `pnpm release`, CI | Both | Oct 18–23: a fresh Mac goes from download to "connected to Nemotron" by following the README |
+| 10 | Editor and record in the window: field edits, approval toggles, `check.ts` errors on the step; description form and drill on the draft tree; model budget; settings and memory viewer | Both | Oct 22–26: edit a step, toggle approval, record a task and answer its drill in the window |
+| 11 | Description form; consent; screenshots with redaction; voice and transcription; 24-hour retention | Record | A recording carries events, redacted screenshots and a transcript on one clock, and its folder is gone a day after finalising |
+| 12 | Design agent: recording → tree, drill on the tree | Record | Workflow 1 in examples.md becomes a correct tree from a real recording |
+| 13 | Install on a clean Mac; measure coverage on examples.md; demo video; submission | Both | Oct 27–30: submitted |
+
+**Cut first if time runs short:** highlight-only Play, adding, removing and reordering steps in the editor (field edits stay), the diagnostics export, the Chrome Web Store (judges load the extension unpacked), notarisation.
 
 ## Glossary
 
@@ -481,6 +613,12 @@ Replay side first: the workflow format and its interpreter are what everything e
 | CDP / chrome.debugger | Chrome's remote-control protocol, reached by the extension in the user's own Chrome |
 | AX | macOS Accessibility API, for reading and pressing controls in Mac apps |
 | Native host shim | The program Chrome launches for native messaging; forwards bytes to the daemon |
+| launchd, LaunchAgent | launchd is the macOS program that starts others at boot and login; a LaunchAgent is the small file telling it to run the daemon at login and restart it if it exits |
+| Login item | A program macOS starts when the user logs in, listed in System Settings → General → Login Items; the app registers itself and the daemon with `SMAppService` |
+| Inbox | Saved records of everything that waits for the user (approvals, asks, paused runs, drill questions, repairs to review); any client can answer them |
+| Daemon API | The queries, commands and events the daemon serves on its Unix socket and on local HTTP |
+| WKWebView | macOS's own web engine as a component inside an app; Task Player's window shows its TypeScript UI with it |
+| `.dmg` | A disk image file, the usual way to hand a Mac app to someone |
 | Nemotron | NVIDIA's open models; we use Nemotron 3.5 Lightning and Nemotron 3 Super |
 | Token Factory | Nebius's hosted inference service for open models; all our model calls go there |
 
@@ -502,7 +640,10 @@ Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglo
 ## Open questions
 
 - [ ] **Frequency options.** The dropdown list above is a proposal; "when an email arrives" is wanted but needs an email trigger.
-- [ ] **Where the workflow editor lives:** Chrome side panel, a local page served by the daemon, or Task Player.app.
+- [ ] **A schedule missed while the Mac slept:** run it on wake, or skip it until the next time? Maybe per workflow.
+- [ ] **A daemon restart during a step** (not a pause): mark the run failed, or resume from that step? Ties to the halfway question below.
+- [ ] **The window's door:** local HTTP + token is decided for speed of development; if it proves fragile, the app can carry the window's messages over the Unix socket instead (no open port).
+- [ ] **Chrome Web Store** (unlisted) after the hackathon, so users don't load the extension unpacked.
 - [ ] **Highlight-only test** for steps behind an earlier action (see [Test](#7-test)).
 - [ ] **How long a paused run waits** for the user before it ends.
 - [ ] **A run that fails halfway:** after some rows are written or emails labelled, a fresh run would do them again. Resume from the failed step, or require steps that are safe to repeat?
