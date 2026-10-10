@@ -1,12 +1,16 @@
 // Runs a skill in the daemon: fs and script steps locally, web steps and page checks in the extension, ax steps
 // (Mac apps) in Task Player.app.
 // Every run is logged as JSON lines in ~/Library/Application Support/TaskPlayer/runs/<runId>.jsonl.
+//
+// Recovery (runWithRecovery in @taskplayer/player/repair): a step that fails every attempt pauses the run, is
+// repaired or waits for the user, and resumes. Repair transcripts go next to the run log (<runId>.repair-N.json).
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ActionStep, type Message, Skill, type Step } from "@taskplayer/core";
 import { APP_SUPPORT_DIR } from "@taskplayer/ipc";
+import type { MemoryStore } from "@taskplayer/memory";
 import {
   type ChannelExecutor,
   DEFAULT_TIMEOUT_MS,
@@ -17,6 +21,8 @@ import {
   type StepResult,
 } from "@taskplayer/player";
 import { fileExists, fsChannel, type LlmExecutor, poll, resolveInputs, scriptChannel } from "@taskplayer/player/node";
+import { type Recovery as PlayerRecovery, runWithRecovery } from "@taskplayer/player/repair";
+import type { PageOp, PageOpResult } from "@taskplayer/player/web";
 import type { Daemon } from "./daemon.ts";
 
 // Extra time on top of a step's own timeout for the round trip and the extension's work.
@@ -32,7 +38,15 @@ export interface RunHooks {
   data?: ChannelExecutor;
   // llm steps (see llmExecutor in @taskplayer/player/node).
   llm?: LlmExecutor;
+  // Recovery from failures. Without it, a step that fails every attempt fails the run.
+  recovery?: Recovery;
 }
+
+// Recovery as the daemon sets it up: the page, site notes, and transcripts are filled in here.
+export type Recovery = Omit<PlayerRecovery, "page" | "recall" | "note" | "available" | "onEpisode"> & {
+  // Site notes for the repair agent.
+  memory?: MemoryStore;
+};
 
 export async function runSkillFile(
   daemon: Daemon,
@@ -81,31 +95,59 @@ export async function runSkillFile(
     return { ok, value, matchScore, matchedBy, error };
   };
 
+  const page = async (op: PageOp): Promise<PageOpResult> => {
+    await ensureExtension();
+    const reply = await daemon.request({ id: randomUUID(), type: "page.op", runId, op }, 30_000 + EXTENSION_MARGIN_MS);
+    if (reply.type !== "page.op_result") throw new Error(`unexpected reply ${reply.type}`);
+    return reply.ok ? { ok: true, value: reply.value } : { ok: false, error: reply.error ?? "failed" };
+  };
+
   try {
-    return await runSkill(
-      skill,
-      {
-        web,
-        fs: fsChannel,
-        script: scriptChannel,
-        fileExists: (pattern, timeoutMs) => poll(() => fileExists(pattern), timeoutMs),
-        async webCheck(check, timeoutMs) {
-          await ensureExtension();
-          const reply: Message = await daemon.request(
-            { id: randomUUID(), type: "run.check", runId, check, timeoutMs },
-            timeoutMs + EXTENSION_MARGIN_MS,
-          );
-          return reply.type === "run.check_result" && reply.ok;
-        },
-        data: hooks.data,
-        llm: hooks.llm,
-        ax,
-        approve: hooks.approve,
-        ask: hooks.ask,
-        log,
+    const deps: RunDeps = {
+      web,
+      fs: fsChannel,
+      script: scriptChannel,
+      fileExists: (pattern, timeoutMs) => poll(() => fileExists(pattern), timeoutMs),
+      async webCheck(check, timeoutMs) {
+        await ensureExtension();
+        const reply: Message = await daemon.request(
+          { id: randomUUID(), type: "run.check", runId, check, timeoutMs },
+          timeoutMs + EXTENSION_MARGIN_MS,
+        );
+        return reply.type === "run.check_result" && reply.ok;
       },
-      { runId, inputs: await resolveInputs(skill, provided) },
-    );
+      data: hooks.data,
+      llm: hooks.llm,
+      ax,
+      approve: hooks.approve,
+      ask: hooks.ask,
+      log,
+    };
+    const inputs = await resolveInputs(skill, provided);
+    if (!hooks.recovery) return await runSkill(skill, deps, { runId, inputs });
+    const { memory, ...recovery } = hooks.recovery;
+    return await runWithRecovery(skill, deps, {
+      runId,
+      inputs,
+      recovery: {
+        ...recovery,
+        page,
+        recall:
+          memory && (async (query, skillId) => (await memory.search(query, { skillId, limit: 5 })).map((m) => m.text)),
+        note:
+          memory &&
+          (async (text, skillId) => {
+            await memory.add({ kind: "site_note", text, skillId });
+          }),
+        available: () => ({
+          extension: daemon.extensions.size > 0,
+          macApp: daemon.mac().connected,
+          screenConsent: false,
+        }),
+        onEpisode: (n, record) =>
+          writeFileSync(logFile.replace(/\.jsonl$/, `.repair-${n}.json`), `${JSON.stringify(record, null, 1)}\n`),
+      },
+    });
   } finally {
     daemon.notify({ id: randomUUID(), type: "run.end", runId });
   }

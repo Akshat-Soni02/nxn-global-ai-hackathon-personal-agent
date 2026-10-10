@@ -305,6 +305,22 @@ describe("what a repair may never change", () => {
     for (const [edits, problem] of cases) expect(violations(edits).join("; ")).toMatch(problem);
   });
 
+  it("lets a confirmation follow an outward step, only right after it and only with approval", () => {
+    const confirm = (extra: Record<string, unknown>) => ({
+      type: "action",
+      intent: "Confirm sending",
+      channel: "web",
+      action: "click",
+      target: { role: "button", name: "Confirm" },
+      ...extra,
+    });
+    expect(violations([{ op: "insert", at: { after: "s5" }, step: confirm({ requires_approval: true }) }])).toEqual([]);
+    expect(violations([{ op: "insert", at: { after: "s5" }, step: confirm({}) }]).join()).toMatch(/can't act outward/);
+    expect(
+      violations([{ op: "insert", at: { after: "s4" }, step: confirm({ requires_approval: true }) }]).join(),
+    ).toMatch(/can't act outward/);
+  });
+
   it("knows outward steps by their control's words", () => {
     expect(isOutward(findStep(skill, "s5") as never)).toBe(true);
     expect(isOutward(findStep(skill, "s4") as never)).toBe(false);

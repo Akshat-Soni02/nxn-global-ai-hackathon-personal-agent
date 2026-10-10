@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Invoice portal</title>
+<!-- Drift: the submit button is renamed ("Submit" -> "Send invoice") and lost its id. Expected: retarget s4 (the
+     cheap ladder can't: the names share no word; the agent can), verified by "Invoice submitted". -->
+<main>
+  <h1>Invoices</h1>
+  <form onsubmit="return false">
+    <label>Invoice number <input name="number" /></label>
+    <label>Invoice PDF <input type="file" name="invoice" accept="application/pdf" /></label>
+    <button type="button" class="btn-primary">Send invoice</button>
+  </form>
+  <p id="status" role="status"></p>
+</main>
+<script>
+  document.querySelector(".btn-primary").addEventListener("click", () => {
+    document.getElementById("status").textContent = "Invoice submitted";
+  });
+</script>

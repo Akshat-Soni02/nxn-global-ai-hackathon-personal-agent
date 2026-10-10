@@ -134,7 +134,7 @@ pnpm fixtures               # serves fixtures/pages on http://localhost:5173
 pnpm seed:sandbox           # creates ~/TaskPlayerTest with sample files for skills/real (--reset to start over)
 pnpm snapshot:pages         # re-downloads the real pages into fixtures/snapshots
 pnpm extension              # builds apps/extension/dist in watch mode
-pnpm daemon                 # runs the daemon (daemon:dev = watch mode, but it also reads Enter); type record, stop (compiles the recording; answer its questions), run <skill-id | skill.json>, approve, deny, skills, traces, status
+pnpm daemon                 # runs the daemon (daemon:dev = watch mode, but it also reads Enter); type record, stop (compiles the recording; answer its questions), run <skill-id | skill.json>, approve, deny, resume / skip / cancel (a paused run), rollback <skill-id>, skills, traces, status
 ```
 
 **Replay a skill**
@@ -142,8 +142,10 @@ pnpm daemon                 # runs the daemon (daemon:dev = watch mode, but it a
 ```sh
 pnpm seed:sandbox                                        # once: sample files in ~/TaskPlayerTest
 pnpm replay skills/real/fill-web-form.json               # dev runner: separate Chrome profile, no extension needed
-pnpm replay skills/real/upload-test-file.json --yes      # --yes approves gated steps; --headless, --no-scripts, --keep-open
+pnpm replay skills/real/upload-test-file.json --yes      # --yes approves gated steps; --headless, --no-scripts, --no-repair, --keep-open
 ```
+
+**When a step fails**, the run pauses instead of failing. Task Player classifies the failure: a site that is down is retried later, a login page waits for you, and an empty inbox ends as nothing to do. Drift (a renamed button, a new banner, an action moved into a menu) is repaired first by cheap fixes with no model, then by the repair agent (Nemotron 3 Super, with `NEBIUS_API_KEY`). A fix is kept only when trying it on the live page shows it works, and it is saved as the next version; `rollback <skill-id>` undoes it. If no safe fix is found, do the step by hand in the automation window and type `skip`. Try it on the drift fixtures: `pnpm fixtures`, then `pnpm replay fixtures/pages/drift/drift-skill.json --yes --input invoice=<a pdf>` after pointing its URL at one of the drifted pages.
 
 `pnpm replay` launches its own debug-port Chrome (profile in `~/Library/Application Support/TaskPlayer/dev-chrome`). The production path is the daemon: type `run skills/real/<skill>.json` in `pnpm daemon`, and web steps run in an automation window of your own Chrome through the extension. Both paths share the player code, and every daemon run is logged to `~/Library/Application Support/TaskPlayer/runs/<runId>.jsonl`.
 

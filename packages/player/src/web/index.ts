@@ -2,4 +2,15 @@
 export type { Cdp } from "./cdp.ts";
 export { pageCheckHolds, waitForCheck } from "./checks.ts";
 export { DEFAULT_WEB_TIMEOUT_MS, executeWebStep } from "./executor.ts";
+export {
+  type ElementInfo,
+  type FoundElement,
+  locatorFor,
+  PAGE_SCRIPT,
+  type PageOp,
+  type PageOpResult,
+  type PageSignals,
+  pageOp,
+  REF_ATTR,
+} from "./inspect.ts";
 export { equivalentRoles, match, nameSimilarity } from "./match.ts";

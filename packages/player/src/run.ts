@@ -6,6 +6,11 @@
 // gives each item its own scope (the item, plus whatever its steps produce), dropped when the item is done. A branch
 // runs its arm in a scope too; afterwards only the variables both arms produce are kept, as the save-time check
 // (packages/core/src/check.ts) guarantees.
+//
+// Pause and resume (docs/design.md, "Plugging into a run"): a step that fails every attempt asks deps.onFailure,
+// and "pause" ends the run as `paused` with where it stopped and its variables. Recovery happens outside; then
+// runSkill(version, deps, { resume }) goes on from that position, on the same or a repaired version (step ids are
+// kept). A position is a path, e.g. "l1[2] > s3": loops say which item; the tree says which branch arm.
 import {
   type ActionStep,
   type BranchStep,
@@ -19,10 +24,11 @@ import {
   type Step,
   typeText,
   type VarType,
+  walkSteps,
 } from "@taskplayer/core";
 import { evaluate } from "./conditions.ts";
 import { resolveTemplates } from "./template.ts";
-import type { RunContext, RunDeps, RunLogEvent, RunOutcome, RunStatus, StepResult } from "./types.ts";
+import type { Failure, Resume, RunContext, RunDeps, RunLogEvent, RunOutcome, RunStatus, StepResult } from "./types.ts";
 
 export const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -30,6 +36,10 @@ export interface RunOptions {
   runId?: string;
   inputs: Record<string, unknown>; // already resolved (see resolveInputs in @taskplayer/player/node)
   now?: () => Date;
+  // Go on from a paused run's position instead of the start. `inputs` are then only for the log; `vars` carry on.
+  resume?: Resume;
+  // Pause before the action or llm step after this many have run (used to try a few steps of a draft).
+  maxSteps?: number;
 }
 
 // Why the run stopped early, and where.
@@ -37,6 +47,18 @@ interface Halt {
   status: Exclude<RunStatus, "succeeded">;
   failedStep: string;
   error?: string;
+  resume?: Resume;
+  pausedBy?: RunOutcome["pausedBy"];
+  failure?: Failure;
+}
+
+// Where a resumed run is heading: the step to start at, and the item of each loop on the way there. Shared by all
+// the env copies of one run, and switched off once the step is reached.
+interface ResumeState {
+  target: string;
+  items: Map<string, number>;
+  active: boolean;
+  skip?: boolean;
 }
 
 interface Env {
@@ -47,6 +69,9 @@ interface Env {
   log: (event: RunLogEvent) => void;
   // Where the steps being run sit: "" at the top, "l1[2] > " inside the third item of loop l1.
   at: string;
+  resume?: ResumeState;
+  // Action and llm steps still allowed (maxSteps), shared by the whole run.
+  stepsLeft?: { n: number };
 }
 
 type Vars = Record<string, unknown>;
@@ -59,9 +84,18 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
     inputs: options.inputs,
   };
   const log = deps.log ?? (() => {});
-  const env: Env = { skill, deps, ctx, now: options.now ?? (() => new Date()), log, at: "" };
-  // One namespace at the top: the trigger's inputs, then every output as steps produce it.
-  const vars: Vars = { ...options.inputs };
+  const env: Env = {
+    skill,
+    deps,
+    ctx,
+    now: options.now ?? (() => new Date()),
+    log,
+    at: "",
+    stepsLeft: options.maxSteps === undefined ? undefined : { n: options.maxSteps },
+  };
+  // One namespace at the top: the trigger's inputs, then every output as steps produce it. A resumed run starts
+  // with the variables it had when it paused.
+  const vars: Vars = { ...(options.resume?.vars ?? options.inputs) };
   const end = (outcome: RunOutcome): RunOutcome => {
     log({
       type: "run.end",
@@ -74,10 +108,24 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
     return outcome;
   };
 
-  log({ type: "run.start", runId: ctx.runId, skillId: skill.id, version: skill.version, inputs: ctx.inputs });
+  log({
+    type: "run.start",
+    runId: ctx.runId,
+    skillId: skill.id,
+    version: skill.version,
+    inputs: ctx.inputs,
+    resumedAt: options.resume?.at,
+  });
+
+  if (options.resume) {
+    const parsed = parsePosition(skill, options.resume.at);
+    if (typeof parsed === "string")
+      return end({ status: "failed", vars, failedStep: options.resume.at, error: parsed });
+    env.resume = { ...parsed, skip: options.resume.skip };
+  }
 
   const halt = await runSteps(skill.steps, vars, env);
-  if (halt) return end({ ...halt, vars });
+  if (halt) return end({ ...halt, vars: halt.resume?.vars ?? vars });
 
   let checks: Check[];
   try {
@@ -102,6 +150,8 @@ async function runSteps(steps: Step[], vars: Vars, env: Env): Promise<Halt | und
   for (const step of steps) {
     // The trigger's inputs are already in vars (resolved before the run).
     if (step.type === "trigger") continue;
+    // Resuming: steps before the one that holds the position already ran.
+    if (env.resume?.active && !contains(step, env.resume.target)) continue;
     const halt = await runStep(step, vars, env);
     if (halt) return halt;
   }
@@ -111,6 +161,34 @@ async function runSteps(steps: Step[], vars: Vars, env: Env): Promise<Halt | und
 async function runStep(step: Exclude<Step, { type: "trigger" }>, vars: Vars, env: Env): Promise<Halt | undefined> {
   const path = `${env.at}${step.id}`;
   const fail = (error: string, status: Halt["status"] = "failed"): Halt => ({ status, failedStep: path, error });
+
+  // Resuming into a loop or branch that holds the position: no question or approval again, straight in.
+  const resume = env.resume;
+  if (resume?.active && step.id !== resume.target && step.type === "control") {
+    if (step.kind === "loop") return runLoop(step, vars, env, path, resume.items.get(step.id));
+    return runBranch(step, vars, env, path, contains({ ...step, else: [] }, resume.target) ? "steps" : "else");
+  }
+  if (resume?.active) {
+    // The position itself: a loop item ("l1[2]") starts that item; any other step runs from its question on.
+    resume.active = false;
+    if (resume.skip) {
+      const produces = step.type !== "control" && (step.output ?? step.ask?.output);
+      if (produces) return fail(`${step.id} produces ${produces.name}, so it can't be done by hand and skipped`);
+      env.log({ type: "step.skipped", stepId: step.id, path, reason: "done by hand" });
+      return undefined;
+    }
+    if (step.type === "control" && step.kind === "loop" && resume.items.has(step.id)) {
+      return runLoop(step, vars, env, path, resume.items.get(step.id));
+    }
+  }
+
+  // The step limit (maxSteps): pause before an action or llm step once it is reached.
+  if (step.type !== "control" && env.stepsLeft) {
+    if (env.stepsLeft.n <= 0) {
+      return { status: "paused", failedStep: path, pausedBy: "step_limit", resume: { at: path, vars: { ...vars } } };
+    }
+    env.stepsLeft.n--;
+  }
 
   // 1. The step's question, before anything else: its answer may be used by the step itself.
   if (step.ask) {
@@ -172,8 +250,20 @@ async function runLeaf(step: ActionStep | LlmStep, vars: Vars, env: Env, path: s
     env.log({ type: "step.result", stepId: step.id, path, attempt, result, ms: Date.now() - t0 });
     if (result.ok) break;
   }
-  // TODO(player): debug and self-correct (on_fail.fallback === "agent") goes here; until then every failure escalates.
-  if (!result.ok) return fail(result.error ?? "check failed");
+  if (!result.ok) {
+    const failure: Failure = { stepId: step.id, path, step: resolved, result, attempts, vars: { ...vars } };
+    if ((await env.deps.onFailure?.(failure)) === "pause") {
+      return {
+        status: "paused",
+        failedStep: path,
+        error: result.error ?? "check failed",
+        pausedBy: "failure",
+        failure,
+        resume: { at: path, vars: { ...vars } },
+      };
+    }
+    return fail(result.error ?? "check failed");
+  }
 
   const output = resolved.output;
   if (output) {
@@ -189,7 +279,14 @@ async function runLeaf(step: ActionStep | LlmStep, vars: Vars, env: Env, path: s
   return undefined;
 }
 
-async function runLoop(step: LoopStep, vars: Vars, env: Env, path: string): Promise<Halt | undefined> {
+async function runLoop(
+  step: LoopStep,
+  vars: Vars,
+  env: Env,
+  path: string,
+  // Resuming: the item to start at. Its approval was given before the pause.
+  startAt?: number,
+): Promise<Halt | undefined> {
   const fail = (error: string, status: Halt["status"] = "failed"): Halt => ({ status, failedStep: path, error });
   let list: unknown;
   try {
@@ -202,14 +299,18 @@ async function runLoop(step: LoopStep, vars: Vars, env: Env, path: string): Prom
   if (list.length > step.max_items) {
     return fail(`${step.over} has ${list.length} items, more than this loop's max_items (${step.max_items})`);
   }
-  if (step.requires_approval) {
+  if (startAt !== undefined && startAt >= list.length) {
+    return fail(`can't resume at item ${startAt}: ${step.over} has ${list.length} items now`);
+  }
+  if (step.requires_approval && startAt === undefined) {
     const approved = await env.deps.approve(step, env.skill);
     env.log({ type: "step.approval", stepId: step.id, path, approved });
     if (!approved) return fail("you denied it", "denied");
   }
-  env.log({ type: "loop.start", stepId: step.id, path, items: list.length });
+  if (startAt === undefined) env.log({ type: "loop.start", stepId: step.id, path, items: list.length });
 
   for (const [index, raw] of list.entries()) {
+    if (startAt !== undefined && index < startAt) continue;
     const at = `${path}[${index}]`;
     const item = fitValue(step.item.type, raw);
     let halt: Halt | undefined;
@@ -221,7 +322,7 @@ async function runLoop(step: LoopStep, vars: Vars, env: Env, path: string): Prom
       halt = await runSteps(step.steps, { ...vars, [step.item.name]: item }, { ...env, at: `${at} > ` });
     }
     if (!halt) continue;
-    // "skip" goes on with the next item after a failure; a denial always stops the run.
+    // "skip" goes on with the next item after a failure; a denial or a pause always stops the run.
     if (halt.status === "failed" && step.on_item_fail === "skip") {
       env.log({ type: "loop.item_failed", stepId: step.id, path, index, error: `${halt.failedStep}: ${halt.error}` });
       continue;
@@ -231,16 +332,26 @@ async function runLoop(step: LoopStep, vars: Vars, env: Env, path: string): Prom
   return undefined;
 }
 
-async function runBranch(step: BranchStep, vars: Vars, env: Env, path: string): Promise<Halt | undefined> {
+async function runBranch(
+  step: BranchStep,
+  vars: Vars,
+  env: Env,
+  path: string,
+  // Resuming: the arm that holds the position. The condition was decided before the pause.
+  resumeArm?: "steps" | "else",
+): Promise<Halt | undefined> {
   let holdsTrue: boolean;
-  try {
-    holdsTrue = evaluate(step.if, vars, env.now());
-  } catch (error) {
-    return { status: "failed", failedStep: path, error: (error as Error).message };
+  if (resumeArm) holdsTrue = resumeArm === "steps";
+  else {
+    try {
+      holdsTrue = evaluate(step.if, vars, env.now());
+    } catch (error) {
+      return { status: "failed", failedStep: path, error: (error as Error).message };
+    }
   }
   const took = holdsTrue ? "steps" : "else";
-  env.log({ type: "branch", stepId: step.id, path, took });
-  if (step.requires_approval) {
+  if (!resumeArm) env.log({ type: "branch", stepId: step.id, path, took });
+  if (step.requires_approval && !resumeArm) {
     const approved = await env.deps.approve(step, env.skill);
     env.log({ type: "step.approval", stepId: step.id, path, approved });
     if (!approved) return { status: "denied", failedStep: path, error: "you denied it" };
@@ -271,6 +382,33 @@ function levelOutputs(steps: Step[]): Map<string, VarType> {
 function producedByBoth(step: BranchStep): string[] {
   const no = levelOutputs(step.else);
   return [...levelOutputs(step.steps).keys()].filter((name) => no.has(name));
+}
+
+// Whether a step is, or holds, the step with this id.
+function contains(step: Step, id: string): boolean {
+  for (const { step: inner } of walkSteps([step])) if (inner.id === id) return true;
+  return false;
+}
+
+// "l1[2] > s3" -> start at s3, in item 2 of loop l1. Checked against the version being resumed.
+function parsePosition(skill: Skill, at: string): ResumeState | string {
+  const items = new Map<string, number>();
+  let target = "";
+  for (const part of at.split(" > ")) {
+    const m = /^([A-Za-z0-9_-]+)(?:\[(\d+)\])?$/.exec(part.trim());
+    if (!m?.[1]) return `not a position: ${at}`;
+    target = m[1];
+    if (m[2] !== undefined) items.set(m[1], Number(m[2]));
+  }
+  const found = [...walkSteps(skill.steps)].find(({ step }) => step.id === target);
+  if (!found) return `can't resume at ${at}: version ${skill.version} has no step ${target}`;
+  for (const loop of found.parents) {
+    const parent = [...walkSteps(skill.steps)].find(({ step }) => step.id === loop)?.step;
+    if (parent?.type === "control" && parent.kind === "loop" && !items.has(loop)) {
+      return `can't resume at ${at}: ${target} is inside loop ${loop}, and the position doesn't say which item`;
+    }
+  }
+  return { target, items, active: true };
 }
 
 async function executeOnce(step: ActionStep, ctx: RunContext, deps: RunDeps): Promise<StepResult> {

@@ -5,8 +5,9 @@
 // It also drives the Record / Stop controls: the floating button in each page (button.ts) and the toolbar icon. Both
 // only ask the daemon, which owns the session; what they show is what the daemon said back.
 import { type Message, NATIVE_HOST_NAME } from "@taskplayer/core";
+import type { PageOp } from "@taskplayer/player/web";
 import type { ButtonState } from "./button.ts";
-import { endRun, isAutomationTab, runPageCheck, runWebStep } from "./replay.ts";
+import { endRun, isAutomationTab, runPageCheck, runPageOp, runWebStep } from "./replay.ts";
 
 const VERSION = chrome.runtime.getManifest().version;
 const QUICK_RETRY_MS = 3_000;
@@ -71,6 +72,14 @@ async function onDaemonMessage(message: Message) {
     case "run.check": {
       const ok = await runPageCheck(message.check, message.timeoutMs).catch(() => false);
       send({ id: message.id, type: "run.check_result", runId: message.runId, ok });
+      break;
+    }
+    case "page.op": {
+      const result = await runPageOp(message.op as PageOp).catch((error: Error) => ({
+        ok: false,
+        error: error.message,
+      }));
+      send({ ...result, id: message.id, type: "page.op_result" });
       break;
     }
     case "run.end":

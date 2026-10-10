@@ -148,7 +148,7 @@ Cheap signals decide first, with no model: the HTTP status, a URL that is a logi
 
 **What repair may never do** (a repair that needs one of these goes to the user):
 
-- **Outward actions:** add a step that sends, submits, pays, publishes or deletes, or one that matches a **Never** entry. It may retarget an existing outward step to the same control on a changed page ("Submit" → "Submit invoice"), but that step then needs approval the first time it runs.
+- **Outward actions:** add a step that sends, submits, pays, publishes or deletes, or one that matches a **Never** entry. It may retarget an existing outward step to the same control on a changed page ("Submit" → "Submit invoice"), but that step then needs approval the first time it runs. One exception, for a new confirmation page: a step that *finishes* an outward step it directly follows ("Confirm" after "Submit") may be added, and it always needs approval.
 - **What the user decided:** the trigger, the inputs and their defaults, the description, values the user set in `args`, llm step instructions, `max_items` and `on_item_fail`.
 - **Safety switches:** turn approval off on any step, or remove an `ask`.
 - **Reach:** add `script` steps, or navigate to a site the workflow doesn't already use.
@@ -164,7 +164,7 @@ A verified repair **becomes the next version immediately**; later runs use it, w
 #### When repair can't fix it: pause, and the user shows it
 
 - The run **pauses** instead of failing. The browser tab or Mac window, and the run's variables, are kept as they are, and the user is notified with where it stopped and why.
-- The user **does the stuck part by hand while Task Player records**, with the same recorder used to teach the task.
+- The user **does the stuck part by hand while Task Player records**, with the same recorder used to teach the task. *(Built so far, Oct 10: the user does it by hand in the automation window and types `skip`; the run goes on after the step. Recording the demonstration into steps comes with the record side.)*
 - That demonstration **becomes the repair**: it is turned into steps at the failed point, checked like any other recorded steps (approvals on for outward steps), and saved as the next version (`by: user`).
 - The run **resumes** after the demonstrated part.
 
@@ -172,7 +172,7 @@ So asking the user is not a dead end: it is how a fix the model couldn't find is
 
 #### Limits
 
-One repair episode per failed step and at most two per run; per episode at most 12 turns, $0.10 and 20 actions on the live page; per run at most $0.25 of repair. All configurable (`config.json`). An episode that runs out ends as `escalate`: the run pauses for the user. How long a paused run waits before it ends is [still open](#open-questions).
+One repair episode per failed step and at most two per run; per episode at most 12 turns, $0.10 and 20 actions on the live page; per run at most $0.25 of repair (`DEFAULT_REPAIR_LIMITS` in `packages/player/src/repair/repair.ts`; to move to `config.json`). A transient failure is retried after 30 s and 2 min, then handled as environment. An episode that runs out ends as `escalate`: the run pauses for the user. How long a paused run waits before it ends is [still open](#open-questions).
 
 ## Agents
 
@@ -432,7 +432,7 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Voice + transcription (macOS SpeechAnalyzer) | ❌ | New |
 | Workflow editor | ❌ (terminal only) | New |
 | Highlight-only test | ❌ | New |
-| Recover from a failure: classify, repair agent, verify, pause and show, versions + rollback | ❌ (a TODO in `run.ts`; `on_fail.fallback` is never read; every failure stops the run) | New |
+| Recover from a failure: classify, repair agent, verify, pause and show, versions + rollback | ✅ for web steps (Oct 10): pause and resume in the interpreter, classification, the cheap ladder, the repair agent and its tools, evidence, `by: debug` versions, `rollback`, `resume` / `skip` / `cancel` in the daemon and `pnpm replay` | Left: the demonstration recorded as the repair, Mac-app (ax) repair beyond classification, `describe_screen` (needs redaction), notifications beyond the terminal and the button |
 | `packages/agent` runtime; `core` edit operations and capability briefing | ✅ the loop (native tools or JSON actions), guard, budgets, working memory, transcript; `core/edit.ts`, `core/briefing.ts`, and section 9's never-rules in `core/guard.ts` (Oct 10) | The repair agent's tools are milestone 5 |
 | Triggers from Frequency | ❌ (only manual `run`) | New |
 | `packages/llm` with profiles, structured output, tools, usage meter | ✅ client, catalog, fake client, `pnpm llm:check`; compile, llm steps and `pnpm replay` use it (Oct 10) | Confirm the catalog with `pnpm llm:check` and a real key |
@@ -449,7 +449,7 @@ Replay side first: the workflow format and its interpreter are what everything e
 | 2 | Interpreter: variables, loop, branch, llm node, ask, approval | Replay | ✅ Done (Oct 9) |
 | 3 | `packages/llm`: client, profiles, model catalog, thinking control, structured output, tools, usage meter, fake client, `pnpm llm:check`; existing callers moved onto it | Both | Code done (Oct 10): every model call goes through it. Left: `llm:check` with a real key |
 | 4 | `packages/agent` runtime; `core/edit.ts` and `core/briefing.ts` | Both | ✅ Done (Oct 10): an agent with a scripted model is refused an outward edit, told about a broken reference, and commits a retarget within its budget (`packages/agent/src/agent.test.ts`) |
-| 5 | Recover from a failure: failure report, repair agent and its tools, verify, pause and resume, versions, notification and rollback, pause and show | Replay | A drifted page (new banner, renamed button, an action moved into a menu, a new confirmation page) is repaired and saved as v2, then rolled back in one click; a site that is down is retried, not repaired; a fix the agent can't find is shown by the user and the run resumes |
+| 5 | Recover from a failure: failure report, repair agent and its tools, verify, pause and resume, versions, notification and rollback, pause and show | Replay | ✅ Mostly done (Oct 10): each drift fixture (`fixtures/pages/drift`: renamed, reworded, banner, menu, confirmation, logged out) is repaired or resolved as expected with a scripted model, saved as v2 and rolled back with `rollback`; a site that is down is retried; the user can do a step by hand and `skip`. Live in Chrome: the ladder repaired `reworded.html`. Left: the scenarios on the real model, and the demonstration recorded as the repair |
 | 6 | Highlight-only test | Replay | Play highlights each reachable target without acting |
 | 7 | Triggers from Frequency | Replay | A scheduled and a folder workflow start on their own |
 | 8 | Description form; consent; screenshots with redaction; voice and transcription; 24-hour retention | Record | A recording carries events, redacted screenshots and a transcript on one clock, and its folder is gone a day after finalising |

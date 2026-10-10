@@ -312,6 +312,133 @@ describe("asks", () => {
   });
 });
 
+describe("pause and resume", () => {
+  const inbox = skill(
+    [
+      write("s1", "start"),
+      loop("l1", "{{people}}", { name: "p", type: row }, [
+        write("s2", "{{p.name}}"),
+        branch(
+          "b1",
+          { left: "{{p.amount}}", op: "greater_than", right: 1000 },
+          [write("s3", "big {{p.name}}")],
+          [write("s4", "small {{p.name}}")],
+        ),
+      ]),
+      write("s5", "end"),
+    ],
+    { people: { type: rows } },
+  );
+
+  it("pauses at a failed step when asked to, keeping its position and variables", async () => {
+    const failed: string[] = [];
+    const { deps, wrote } = fake(
+      { s3: [{ ok: false, error: "target not found" }] },
+      {
+        onFailure: (f) => {
+          failed.push(`${f.path}: ${f.result.error} (${f.attempts} attempt)`);
+          return "pause";
+        },
+      },
+    );
+    const outcome = await runSkill(inbox, deps, { inputs: { people } });
+    expect(failed).toEqual(["l1[0] > s3: target not found (1 attempt)"]);
+    expect(outcome).toMatchObject({
+      status: "paused",
+      pausedBy: "failure",
+      failedStep: "l1[0] > s3",
+      resume: { at: "l1[0] > s3", vars: { p: people[0] } },
+      failure: { step: { args: { content: "big Acme" } } },
+    });
+    expect(wrote).toEqual(["start", "Acme"]);
+  });
+
+  it("resumes at the position, inside the loop item and branch arm, without asking again", async () => {
+    const { deps, wrote, events } = fake();
+    const outcome = await runSkill(inbox, deps, {
+      inputs: { people },
+      resume: { at: "l1[0] > s3", vars: { people, p: people[0] } },
+    });
+    expect(outcome.status).toBe("succeeded");
+    // s3 for Acme, then the rest of the loop and the run.
+    expect(wrote).toEqual(["big Acme", "Globex", "small Globex", "Initech", "big Initech", "end"]);
+    expect(events[0]).toMatchObject({ type: "run.start", resumedAt: "l1[0] > s3" });
+    expect(events.filter((e) => e.type === "loop.start")).toEqual([]); // not started again
+  });
+
+  it("resumes on a repaired version with an inserted step, at a loop item, or fails clearly", async () => {
+    const repaired = skill(
+      [
+        write("s1", "start"),
+        loop("l1", "{{people}}", { name: "p", type: row }, [
+          write("s2", "{{p.name}}"),
+          write("s6", "dismissed banner"),
+          write("s3", "big {{p.name}}"),
+        ]),
+      ],
+      { people: { type: rows } },
+    );
+    const a = fake();
+    await runSkill(repaired, a.deps, { inputs: {}, resume: { at: "l1[1] > s6", vars: { people, p: people[1] } } });
+    expect(a.wrote).toEqual(["dismissed banner", "big Globex", "Initech", "dismissed banner", "big Initech"]);
+
+    const b = fake();
+    await runSkill(repaired, b.deps, { inputs: {}, resume: { at: "l1[2]", vars: { people } } });
+    expect(b.wrote).toEqual(["Initech", "dismissed banner", "big Initech"]);
+
+    const c = fake();
+    expect(await runSkill(repaired, c.deps, { inputs: {}, resume: { at: "l1[0] > s9", vars: {} } })).toMatchObject({
+      status: "failed",
+      error: "can't resume at l1[0] > s9: version 1 has no step s9",
+    });
+    expect(await runSkill(repaired, c.deps, { inputs: {}, resume: { at: "s3", vars: {} } })).toMatchObject({
+      error: expect.stringMatching(/inside loop l1, and the position doesn't say which item/),
+    });
+  });
+
+  it("handles a failure as before when onFailure says so, so a loop can skip it", async () => {
+    const { deps, wrote } = fake({ s2: [{ ok: false, error: "bad file" }] }, { onFailure: () => "fail" });
+    const skipping = skill(
+      [loop("l1", "{{people}}", { name: "p", type: row }, [write("s2", "{{p.name}}")], { on_item_fail: "skip" })],
+      { people: { type: rows } },
+    );
+    expect((await runSkill(skipping, deps, { inputs: { people } })).status).toBe("succeeded");
+    expect(wrote).toEqual(["Globex", "Initech"]);
+  });
+
+  it("goes on after a step the user did by hand, unless later steps need its output", async () => {
+    const { deps, wrote, events } = fake();
+    await runSkill(inbox, deps, {
+      inputs: {},
+      resume: { at: "l1[2] > s3", vars: { people, p: people[2] }, skip: true },
+    });
+    expect(wrote).toEqual(["end"]);
+    expect(events.find((e) => e.type === "step.skipped")).toMatchObject({ path: "l1[2] > s3", reason: "done by hand" });
+    const reads = skill([read("s1", "note"), write("s2", "{{note}}")]);
+    expect(
+      await runSkill(reads, fake().deps, { inputs: {}, resume: { at: "s1", vars: {}, skip: true } }),
+    ).toMatchObject({
+      status: "failed",
+      error: "s1 produces note, so it can't be done by hand and skipped",
+    });
+  });
+
+  it("pauses after maxSteps and says where to go on", async () => {
+    const { deps, wrote } = fake();
+    const outcome = await runSkill(inbox, deps, {
+      inputs: {},
+      resume: { at: "l1[1] > s2", vars: { people, p: people[1] } },
+      maxSteps: 2,
+    });
+    expect(wrote).toEqual(["Globex", "small Globex"]);
+    expect(outcome).toMatchObject({
+      status: "paused",
+      pausedBy: "step_limit",
+      resume: { at: "l1[2] > s2", vars: { p: people[2] } },
+    });
+  });
+});
+
 describe("conditions", () => {
   const vars = { n: "1,234", d: "2026-10-09", tags: ["urgent", "billing"], name: "Acme Corp", empty: "" };
   const cases: [unknown, boolean][] = [

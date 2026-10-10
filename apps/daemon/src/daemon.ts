@@ -120,7 +120,8 @@ export async function startDaemon(options: {
           else log("record.event", message.event, "(no open trace)");
           break;
         case "run.step_result":
-        case "run.check_result": {
+        case "run.check_result":
+        case "page.op_result": {
           const waiter = pending.get(message.id);
           if (!waiter) break;
           pending.delete(message.id);

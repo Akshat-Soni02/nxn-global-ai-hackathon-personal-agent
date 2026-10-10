@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Invoice portal</title>
+<!-- Drift: "Submit" -> "Submit invoice", id gone. Expected: fixed by the cheap ladder (one clear fuzzy match). -->
+<main>
+  <h1>Invoices</h1>
+  <form onsubmit="return false">
+    <label>Invoice number <input name="number" /></label>
+    <label>Invoice PDF <input type="file" name="invoice" accept="application/pdf" /></label>
+    <button type="button" class="primary">Submit invoice</button>
+    <button type="button" class="secondary">Cancel</button>
+  </form>
+  <p id="status" role="status"></p>
+</main>
+<script>
+  document.querySelector(".primary").addEventListener("click", () => {
+    document.getElementById("status").textContent = "Invoice submitted";
+  });
+</script>

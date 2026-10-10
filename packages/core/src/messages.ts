@@ -74,6 +74,17 @@ export const Message = z.discriminatedUnion("type", [
   // daemon -> extension: wait for a page check (used by a skill's success list)
   z.object({ ...base, type: z.literal("run.check"), runId: z.string(), check: Check, timeoutMs: z.number() }),
   z.object({ ...base, type: z.literal("run.check_result"), runId: z.string(), ok: z.boolean() }),
+  // daemon -> extension: look at or safely probe the automation tab while a paused run is repaired (PageOp in
+  // packages/player/src/web/inspect.ts: outline, find, inspect, signals, click, press, scroll, back, navigate, wait).
+  // The daemon's repair guard has already allowed it.
+  z.object({ ...base, type: z.literal("page.op"), runId: z.string(), op: z.record(z.string(), z.unknown()) }),
+  z.object({
+    ...base,
+    type: z.literal("page.op_result"),
+    ok: z.boolean(),
+    value: z.unknown().optional(),
+    error: z.string().optional(),
+  }),
   // daemon -> extension: the run is over; detach the debugger
   z.object({ ...base, type: z.literal("run.end"), runId: z.string() }),
 ]);

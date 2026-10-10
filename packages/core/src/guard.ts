@@ -1,6 +1,7 @@
 // What an automatic repair may never change (docs/design.md, section 9 "Repair"). Enforced in code by comparing the
 // draft with the original, never by the prompt: a repair that needs one of these goes to the user instead.
-//   outward actions   no new step that sends, submits, pays, publishes or deletes, or matches a Never entry
+//   outward actions   no new step that sends, submits, pays, publishes or deletes (except a confirmation that
+//                     finishes an outward step it follows, needing approval), or matches a Never entry
 //   user's decisions  the trigger, inputs and defaults, the description, args the user set, llm instructions,
 //                     max_items, on_item_fail
 //   safety switches   approval never turned off, no ask removed
@@ -103,7 +104,11 @@ export function repairViolations(original: Skill, draft: Skill): string[] {
     const old = before.get(id);
     if (!old) {
       if (isAction(step) && step.channel === "script") problems.push(`${id}: repairs can't add scripts`);
-      if (isOutward(step)) problems.push(`${id}: a new step can't act outward (${actionText(step)})`);
+      if (isOutward(step) && !completesOutward(draft, step, before)) {
+        problems.push(
+          `${id}: a new step can't act outward (${actionText(step)}), except to finish an outward step it directly follows, with requires_approval`,
+        );
+      }
     }
     const never = neverMatch(step, draft.description.never);
     if (never && !(old && neverMatch(old, original.description.never) === never && same(old, step))) {
@@ -113,6 +118,27 @@ export function repairViolations(original: Skill, draft: Skill): string[] {
     if (host && !hosts.has(host)) problems.push(`${id}: ${host} is a site this workflow doesn't use`);
   }
   return problems;
+}
+
+// A new outward step is allowed in one case: it finishes what an existing outward step started (a "Confirm" after
+// "Submit", on a new confirmation page). It must directly follow that step and need approval itself.
+function completesOutward(draft: Skill, step: Step, before: Map<string, Step>): boolean {
+  if (!("requires_approval" in step && step.requires_approval)) return false;
+  const previous = previousSibling(draft.steps, step.id);
+  const original = previous ? before.get(previous.id) : undefined;
+  return !!original && isOutward(original) && isOutward(previous as Step);
+}
+
+function previousSibling(steps: Step[], id: string): Step | undefined {
+  for (const [i, step] of steps.entries()) {
+    if (step.id === id) return i > 0 ? steps[i - 1] : undefined;
+    if (step.type === "control") {
+      const inner =
+        previousSibling(step.steps, id) ?? (step.kind === "branch" ? previousSibling(step.else, id) : undefined);
+      if (inner) return inner;
+    }
+  }
+  return undefined;
 }
 
 function hostOf(step: Step): string | undefined {

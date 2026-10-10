@@ -5,6 +5,9 @@
 //   run <skill-id | skill.json> [name=value ... | path]   replay a skill (web steps go through the extension); a
 //                                       file it needs can be given here, else it is asked for before the first step
 //   approve | deny                      answer a pending approval
+//   resume | skip | cancel              a paused run that needs you: try the stuck step again, go on after it (you
+//                                       did it by hand in the automation window), or end the run
+//   rollback <skill-id>                 undo the latest version (e.g. a repair): the one before becomes the next
 //   skills | traces | status
 
 import { execFile } from "node:child_process";
@@ -18,6 +21,7 @@ import { configFromEnv, createLlm, UsageMeter } from "@taskplayer/llm";
 import { openMemory } from "@taskplayer/memory";
 import type { RunLogEvent } from "@taskplayer/player";
 import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@taskplayer/player/node";
+import { createRepairer } from "@taskplayer/player/repair";
 import type { Prompter, Question } from "@taskplayer/recorder";
 import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
 import { startDaemon } from "./daemon.ts";
@@ -25,7 +29,7 @@ import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
 import { finishRecording } from "./record.ts";
 import { runSkillFile } from "./runner.ts";
-import { listSkills, skillDir, versions } from "./skill-store.ts";
+import { listSkills, rollbackSkill, saveSkill, skillDir, versions } from "./skill-store.ts";
 import { listTraces } from "./trace-store.ts";
 
 // NEBIUS_API_KEY (and optional model overrides) from the repo's .env, if there is one (see .env.example).
@@ -76,6 +80,7 @@ log(
 
 let answer: ((line: string) => void) | undefined; // a drill question is waiting for you
 let pendingApproval: ((approved: boolean) => void) | undefined; // a replay step is waiting for approve/deny
+let pendingRecovery: ((choice: "retry" | "skip" | "stop") => void) | undefined; // a paused run is waiting for you
 let compiling = false; // from stop until the skill is saved: no new recording meanwhile (its questions are open here)
 let running = false;
 
@@ -147,6 +152,13 @@ function printRun(e: RunLogEvent) {
   if (e.type === "loop.item_failed") log(`  ↷ ${e.path}[${e.index}] skipped: ${e.error}`);
   if (e.type === "branch") log(`  ⑂ ${e.path}: ${e.took === "steps" ? "condition holds" : "else"}`);
   if (e.type === "step.skipped") log(`  – ${e.path} skipped (${e.reason})`);
+  if (e.type === "repair") {
+    const what =
+      e.outcome === "commit"
+        ? `repaired (${e.by}), saved as v${e.version}: ${e.summary}`
+        : `${e.outcome} (${e.class}): ${e.summary}`;
+    log(`  ⚒ ${e.path} ${what}${e.costUsd > 0 ? ` · $${e.costUsd.toFixed(4)}` : ""}`);
+  }
   if (e.type === "run.end")
     log(`■ ${e.status} in ${e.ms} ms${e.failedStep ? ` at ${e.failedStep}` : ""}${e.error ? `: ${e.error}` : ""}`);
 }
@@ -190,6 +202,24 @@ async function run(args: string[]) {
             log(`approval needed for ${step.id}: "${step.intent}". Type approve or deny.`);
             pendingApproval = resolve;
           }),
+        // A failed step pauses the run: repair, then resume (docs/design.md, section 9).
+        recovery: {
+          repairer: createRepairer({ llm: model, meter: usage }),
+          memory,
+          saveVersion: (repaired) => {
+            const saved = saveSkill(home, repaired);
+            log(`  saved ${saved.skill.id} v${saved.skill.version} (undo it with: rollback ${saved.skill.id})`);
+            status("replay", `Repaired ${saved.skill.id}: now v${saved.skill.version}`);
+            return saved.skill;
+          },
+          waitForUser: (message) =>
+            new Promise((resolve) => {
+              log(`⏸ ${message}`);
+              log("  type resume (try that step again), skip (you did it by hand: go on after it) or cancel");
+              status("question", `Paused: ${message} Answer in the daemon terminal.`);
+              pendingRecovery = resolve;
+            }),
+        },
         // A step's question: typed here, like the drill's. A yes/no question takes yes or no.
         ask: async (ask, step) => {
           if (ask.kind === "confirm") {
@@ -207,6 +237,7 @@ async function run(args: string[]) {
       join(home, "runs"),
     );
     if (outcome.status === "succeeded") status("saved", `Replayed ${skill.id}`);
+    else if (outcome.status === "nothing_to_do") status("saved", `Nothing to do for ${skill.id} this time`);
     else
       status(
         "failed",
@@ -235,9 +266,21 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     pendingApproval = undefined;
     return;
   }
+  if ((command === "resume" || command === "skip" || command === "cancel") && pendingRecovery) {
+    pendingRecovery(command === "resume" ? "retry" : command === "skip" ? "skip" : "stop");
+    pendingRecovery = undefined;
+    return;
+  }
   if (compiling) return refuse();
   if (command === "run") void run(args);
-  else if (command === "record") startRecording();
+  else if (command === "rollback" && args[0]) {
+    try {
+      const saved = rollbackSkill(home, args[0]);
+      log(`rolled back: ${saved.skill.id} v${saved.skill.version} is ${saved.skill.history.at(-1)?.summary}`);
+    } catch (error) {
+      log((error as Error).message);
+    }
+  } else if (command === "record") startRecording();
   else if (command === "stop") void stopRecording();
   else if (command === "compile" && args[0]) void compileSession(args[0]);
   else if (command === "skills") for (const s of listSkills(home)) log(`${s.id}  v${s.versions.join(",v")}  ${s.name}`);
@@ -249,7 +292,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     log(
       `model use since start: ${spent.calls} call(s), ${spent.input + spent.output} tokens, $${spent.costUsd.toFixed(4)}`,
     );
-  } else log("commands: record, stop, compile <session>, run <skill>, approve, deny, skills, traces, status");
+  } else
+    log(
+      "commands: record, stop, compile <session>, run <skill>, approve, deny, resume, skip, cancel, rollback <skill>, skills, traces, status",
+    );
 });
 
 // Task Player.app: the floating Record / Stop button on the desktop, Mac-app recording and the ax channel. Started

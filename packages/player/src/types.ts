@@ -41,12 +41,44 @@ export interface RunDeps {
   // output's type). "confirm": true runs the step, false skips it. Without it, a step that asks fails the run:
   // nothing is guessed.
   ask?(ask: Ask, step: Step): Promise<string | boolean>;
+  // A step failed every attempt. "pause" stops the run where it is (the tab or window, the variables and the
+  // position are kept) so it can be recovered and resumed; "fail" handles it as a failure (a loop with
+  // on_item_fail: skip goes on). Without it, every failure is a failure.
+  onFailure?(failure: Failure): "pause" | "fail" | Promise<"pause" | "fail">;
   log?(event: RunLogEvent): void;
+}
+
+// A step that failed every attempt: what recovery starts from.
+export interface Failure {
+  stepId: string;
+  // Where it ran, e.g. "l1[2] > s3".
+  path: string;
+  // The step with its references resolved, as it was run.
+  step: ActionStep | LlmStep;
+  result: StepResult;
+  attempts: number;
+  // Every variable visible at the step.
+  vars: Record<string, unknown>;
+}
+
+// Where a paused run goes on: the step at `at` runs next (its question and approval included), with `vars`.
+// skip: the user did that step by hand, so the run goes on after it.
+export interface Resume {
+  at: string;
+  vars: Record<string, unknown>;
+  skip?: boolean;
 }
 
 // `path` says where a step ran: its id, inside loops with the item number, e.g. "l1[2] > s3".
 export type RunLogEvent =
-  | { type: "run.start"; runId: string; skillId: string; version: number; inputs: Record<string, unknown> }
+  | {
+      type: "run.start";
+      runId: string;
+      skillId: string;
+      version: number;
+      inputs: Record<string, unknown>;
+      resumedAt?: string;
+    }
   | { type: "step.start"; stepId: string; path: string; channel: string; action: string; attempt: number }
   | { type: "step.result"; stepId: string; path: string; attempt: number; result: StepResult; ms: number }
   | { type: "step.approval"; stepId: string; path: string; approved: boolean }
@@ -56,13 +88,30 @@ export type RunLogEvent =
   | { type: "loop.item"; stepId: string; path: string; index: number }
   | { type: "loop.item_failed"; stepId: string; path: string; index: number; error: string }
   | { type: "branch"; stepId: string; path: string; took: "steps" | "else" }
+  | {
+      // A paused run's recovery (packages/player/src/repair): what kind of failure, and what was done about it.
+      type: "repair";
+      path: string;
+      outcome: "resolve" | "commit" | "escalate";
+      class: string;
+      by?: "ladder" | "agent";
+      summary: string;
+      version?: number;
+      costUsd: number;
+    }
   | { type: "run.end"; runId: string; status: RunStatus; failedStep?: string; error?: string; ms: number };
 
-export type RunStatus = "succeeded" | "failed" | "denied";
+// paused: stopped on purpose, with `resume` saying where to go on (after a failure, or after maxSteps).
+// nothing_to_do: recovery found there was nothing to do this time (the inbox is empty): not a failure.
+export type RunStatus = "succeeded" | "failed" | "denied" | "paused" | "nothing_to_do";
 
 export interface RunOutcome {
   status: RunStatus;
   vars: Record<string, unknown>;
   failedStep?: string;
   error?: string;
+  // Paused runs only.
+  resume?: Resume;
+  pausedBy?: "failure" | "step_limit";
+  failure?: Failure;
 }

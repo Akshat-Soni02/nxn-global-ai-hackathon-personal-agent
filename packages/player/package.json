@@ -7,14 +7,17 @@
     ".": "./src/index.ts",
     "./web": "./src/web/index.ts",
     "./node": "./src/node/index.ts",
-    "./csv": "./src/web/csv.ts"
+    "./csv": "./src/web/csv.ts",
+    "./repair": "./src/repair/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ."
   },
   "dependencies": {
     "@taskplayer/core": "workspace:*",
-    "@taskplayer/llm": "workspace:*"
+    "@taskplayer/llm": "workspace:*",
+    "@taskplayer/agent": "workspace:*",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.3"
