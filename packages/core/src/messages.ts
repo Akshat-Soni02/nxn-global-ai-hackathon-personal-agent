@@ -87,5 +87,18 @@ export const Message = z.discriminatedUnion("type", [
   }),
   // daemon -> extension: the run is over; detach the debugger
   z.object({ ...base, type: z.literal("run.end"), runId: z.string() }),
+
+  // The daemon's API (apps/daemon/src/api.ts), for any client on the socket (Shadow.app, tools). Replies reuse the id.
+  z.object({ ...base, type: z.literal("api.call"), method: z.string(), params: z.unknown().optional() }),
+  z.object({
+    ...base,
+    type: z.literal("api.result"),
+    ok: z.boolean(),
+    value: z.unknown().optional(),
+    error: z.string().optional(),
+  }),
+  // client -> daemon: send me events (runs, steps, inbox) from now on, as api.event.
+  z.object({ ...base, type: z.literal("api.subscribe") }),
+  z.object({ ...base, type: z.literal("api.event"), event: z.unknown() }),
 ]);
 export type Message = z.infer<typeof Message>;

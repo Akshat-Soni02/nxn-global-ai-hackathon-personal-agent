@@ -15,9 +15,10 @@
   "dependencies": {
     "@shadow/core": "workspace:*",
     "@shadow/ipc": "workspace:*",
-    "@shadow/player": "workspace:*",
     "@shadow/llm": "workspace:*",
     "@shadow/memory": "workspace:*",
-    "@shadow/recorder": "workspace:*"
+    "@shadow/player": "workspace:*",
+    "@shadow/recorder": "workspace:*",
+    "zod": "^4.6.5"
   }
 }

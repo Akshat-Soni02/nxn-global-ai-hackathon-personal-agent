@@ -26,6 +26,8 @@ export interface Daemon {
   mac(): { connected: boolean; trusted: boolean };
   // Sends an ax step to Shadow.app and resolves with its reply.
   requestMac(message: Message, timeoutMs: number): Promise<Message>;
+  // An API event (runs, steps, inbox) to every connection that sent api.subscribe.
+  publish(event: unknown): void;
   close(): Promise<void>;
 }
 
@@ -48,6 +50,8 @@ export async function startDaemon(options: {
   // The Record / Stop button in Chrome. main.ts routes it to the same code as a typed `record` / `stop`, so a click
   // is refused while a recording is still being compiled. Without it, the button only starts and stops the session.
   onRecordCommand?(command: "start" | "stop"): void;
+  // The daemon's API (api.ts) for api.call messages. Without it, they are answered "not ready".
+  api?: { call(method: string, params: unknown): Promise<unknown> };
 }): Promise<Daemon> {
   const log = options.log ?? (() => {});
   const extensions = new Set<Connection>();
@@ -56,6 +60,7 @@ export async function startDaemon(options: {
   let startedAt = 0;
   let recording: Recording | undefined; // the open trace; kept briefly after stop for late events
   const pending = new Map<string, Pending>();
+  const subscribers = new Set<Connection>(); // connections that asked for API events
   const extensionWaiters = new Set<() => void>();
 
   const send = (connection: Connection, message: Message) => connection.send(message);
@@ -119,6 +124,23 @@ export async function startDaemon(options: {
           if (recording && message.sessionId === recording.sessionId) recording.append(message);
           else log("record.event", message.event, "(no open trace)");
           break;
+        case "api.call": {
+          const reply = (result: { ok: boolean; value?: unknown; error?: string }) =>
+            send(connection, { id: message.id, type: "api.result", ...result });
+          if (!options.api) {
+            reply({ ok: false, error: "the API is not ready" });
+            break;
+          }
+          options.api.call(message.method, message.params).then(
+            (value) => reply({ ok: true, value }),
+            (error: Error) => reply({ ok: false, error: error.message }),
+          );
+          break;
+        }
+        case "api.subscribe":
+          subscribers.add(connection);
+          send(connection, { id: message.id, type: "api.result", ok: true });
+          break;
         case "run.step_result":
         case "run.check_result":
         case "page.op_result": {
@@ -134,6 +156,7 @@ export async function startDaemon(options: {
       }
     },
     onClose(connection) {
+      subscribers.delete(connection);
       if (extensions.delete(connection)) log("extension disconnected");
       if (macs.delete(connection)) {
         log("Shadow.app disconnected");
@@ -223,6 +246,9 @@ export async function startDaemon(options: {
     notify(message) {
       const connection = [...extensions][0];
       if (connection) send(connection, message);
+    },
+    publish(event) {
+      for (const connection of subscribers) send(connection, { id: randomUUID(), type: "api.event", event });
     },
     broadcast,
     // server.close() alone waits for every open connection to end, and Chrome's native host and Shadow.app
