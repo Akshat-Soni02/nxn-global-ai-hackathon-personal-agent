@@ -118,6 +118,9 @@ export function openStore(path: string): Store {
       return getRun(run.id) as RunRow;
     },
     updateRun(id, patch) {
+      // A field left out stays as it is. failedStep, error and checkpoint given as undefined are cleared (a run that
+      // waited at a step and then succeeded has no failed step).
+      const clearable = (key: "failedStep" | "error") => (key in patch ? (patch[key] ?? null) : undefined);
       const columns: Record<string, unknown> = {
         skill_id: patch.skillId,
         version: patch.version,
@@ -125,8 +128,8 @@ export function openStore(path: string): Store {
         status: patch.status,
         started_at: patch.startedAt,
         ended_at: patch.endedAt,
-        failed_step: patch.failedStep,
-        error: patch.error,
+        failed_step: clearable("failedStep"),
+        error: clearable("error"),
         repaired: patch.repaired === undefined ? undefined : patch.repaired ? 1 : 0,
         cost_usd: patch.costUsd,
         checkpoint: "checkpoint" in patch ? (patch.checkpoint ? JSON.stringify(patch.checkpoint) : null) : undefined,

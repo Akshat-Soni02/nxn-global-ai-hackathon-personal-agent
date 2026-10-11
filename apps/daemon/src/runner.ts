@@ -8,7 +8,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ActionStep, type Message, Skill, type Step } from "@shadow/core";
+import { type ActionStep, type Message, Skill } from "@shadow/core";
 import { APP_SUPPORT_DIR } from "@shadow/ipc";
 import type { MemoryStore } from "@shadow/memory";
 import {
@@ -31,8 +31,9 @@ const EXTENSION_MARGIN_MS = 20_000;
 const CHROME_START_MS = 30_000;
 
 export interface RunHooks {
-  approve(step: Step, skill: Skill): Promise<boolean>;
-  // A step's question for you (an ask), answered in the daemon terminal.
+  // A step's approval. The service answers WAIT: the run then waits in the inbox (service.ts).
+  approve: RunDeps["approve"];
+  // A step's question for you (an ask); WAIT too.
   ask?: RunDeps["ask"];
   log(event: RunLogEvent): void;
   // data.pick steps (see dataChannel in @shadow/player/node).

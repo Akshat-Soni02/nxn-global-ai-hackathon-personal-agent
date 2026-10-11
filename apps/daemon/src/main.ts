@@ -1,14 +1,19 @@
 // Daemon entry point: the always-on process (launched at login later; `pnpm daemon` for now).
+// Everything that waits for you is in the inbox (shadow.db), answered here, over the socket, or over local HTTP
+// (api.json says where); a run that needs you waits there and goes on when it is answered, even after a restart.
 // Record and Stop are also a floating button in Chrome (and the extension's toolbar icon). Type commands on stdin:
-//   record | stop                       record a task; stop compiles it into a skill (questions are asked here)
+//   record | stop                       record a task; stop compiles it into a skill (its questions go to the inbox)
 //   compile <session>                   recompile a kept trace
 //   run <skill-id | skill.json> [name=value ... | path]   replay a skill (web steps go through the extension); a
 //                                       file it needs can be given here, else it is asked for before the first step
-//   approve | deny                      answer a pending approval
-//   resume | skip | cancel              a paused run that needs you: try the stuck step again, go on after it (you
-//                                       did it by hand in the automation window), or end the run
+//   inbox                               what waits for you
+//   approve | deny                      answer the oldest approval
+//   resume | skip | cancel              a run that needs you: try the stuck step again, go on after it (you did it by
+//                                       hand in the automation window), or end the run
+//   cancel <run-id>                     end a waiting run
 //   rollback <skill-id>                 undo the latest version (e.g. a repair): the one before becomes the next
-//   skills | traces | status
+//   runs | skills | traces | status
+// A question (the drill, which file, a step's question) is answered by typing the answer.
 
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -23,13 +28,17 @@ import type { RunLogEvent } from "@shadow/player";
 import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@shadow/player/node";
 import { createRepairer } from "@shadow/player/repair";
 import type { Prompter, Question } from "@shadow/recorder";
+import { type Api, createApi } from "./api.ts";
 import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
 import { startDaemon } from "./daemon.ts";
 import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
+import { startHttp } from "./http.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
 import { finishRecording } from "./record.ts";
-import { runSkillFile } from "./runner.ts";
-import { listSkills, rollbackSkill, saveSkill, skillDir, versions } from "./skill-store.ts";
+import { runSkillOn } from "./runner.ts";
+import { createService, type Execute, type ServiceEvent } from "./service.ts";
+import { listSkills, saveSkill, versions } from "./skill-store.ts";
+import { type InboxItem, openStore, type RunRow } from "./store.ts";
 import { listTraces } from "./trace-store.ts";
 
 // NEBIUS_API_KEY (and optional model overrides) from the repo's .env, if there is one (see .env.example).
@@ -48,15 +57,18 @@ const userCwd = process.env.INIT_CWD ?? process.cwd();
 const path = socketPath();
 const home = dataDir();
 const watchDirs = watchDirsFromEnv();
+let api: Api | undefined; // set once the service exists; api.call messages before then are answered "not ready"
 const daemon = await startDaemon({
   socketPath: path,
   log,
   dataDir: home,
   watchDirs,
   onRecordCommand: (command) => (command === "start" ? startRecording() : stopRecording()),
+  api: { call: (method, params) => (api ? api.call(method, params) : Promise.reject(new Error("not ready"))) },
 });
 const memory = openMemory(join(home, "memory.db"));
-// One model client for everything (compile, llm steps), and one meter counting what it spends.
+const store = openStore(join(home, "shadow.db"));
+// One model client for everything (compile, llm steps, repair), and one meter counting what it spends.
 const llmConfig = configFromEnv();
 const model = llmConfig ? createLlm(llmConfig) : undefined;
 const usage = new UsageMeter();
@@ -81,29 +93,135 @@ log(
     : "no model configured: skills are compiled by code only (.env.example)",
 );
 
-let answer: ((line: string) => void) | undefined; // a drill question is waiting for you
-let pendingApproval: ((approved: boolean) => void) | undefined; // a replay step is waiting for approve/deny
-let pendingRecovery: ((choice: "retry" | "skip" | "stop") => void) | undefined; // a paused run is waiting for you
-let compiling = false; // from stop until the skill is saved: no new recording meanwhile (its questions are open here)
-let running = false;
+// One leg of a run (service.ts): through the extension and Shadow.app, with recovery. The service's hooks make a
+// run that needs you end its leg as waiting, so nothing waits in memory here.
+const execute: Execute = (skill, leg) =>
+  runSkillOn(
+    daemon,
+    skill,
+    { runId: leg.runId, provided: leg.provided, resume: leg.resume },
+    {
+      log: leg.log,
+      data,
+      llm,
+      approve: leg.hooks.approve,
+      ask: leg.hooks.ask,
+      // A failed step pauses the run: repair, then resume (docs/design.md, section 9).
+      recovery: {
+        repairer: createRepairer({ llm: model, meter: usage }),
+        memory,
+        saveVersion: (repaired) => saveSkill(home, repaired).skill,
+        waitForUser: leg.hooks.waitForUser,
+      },
+    },
+    join(home, "runs"),
+  );
 
-// The status line on the button in Chrome. The questions themselves are asked here, in the terminal.
+let httpPort: number | undefined;
+const service = createService({
+  dataDir: home,
+  store,
+  execute,
+  spent: () => usage.usage.costUsd,
+  health: () => ({
+    extensions: daemon.extensions.size,
+    macApp: daemon.mac(),
+    model: llmConfig ? "configured" : "none",
+    api: httpPort,
+  }),
+});
+api = createApi(service);
+const http = await startHttp({
+  api,
+  subscribe: (listener) => service.subscribe(listener),
+  infoFile: join(home, "api.json"),
+  log,
+});
+httpPort = http.port;
+
+let compiling = false; // from stop until the skill is saved: no new recording meanwhile (its questions are open)
+// The question or step question the next typed line answers.
+let focus: string | undefined;
+
+// The status line on the button in Chrome and on the desktop.
 type Phase = "compiling" | "question" | "saved" | "empty" | "failed" | "busy" | "replay";
 const status = (phase: Phase, text: string) =>
   daemon.broadcast({ id: randomUUID(), type: "record.status", phase, text });
 
+// Everything the service does reaches socket subscribers, this terminal, and the button.
+service.subscribe((event: ServiceEvent) => {
+  daemon.publish(event);
+  if (event.type === "step") printRun(event.event);
+  if (event.type === "inbox") {
+    if (event.item.answeredAt === undefined) announce(event.item);
+    else if (focus === event.item.id) focus = nextFocus();
+  }
+  if (event.type === "run") showRun(event.run);
+});
+
+const recovered = service.recover();
+if (recovered.interrupted.length > 0)
+  log(`the daemon stopped during ${recovered.interrupted.length} run(s); see "runs"`);
+const open = service.inbox({ open: true });
+if (open.length > 0) {
+  log(`${open.length} thing(s) wait for you:`);
+  for (const item of [...open].reverse()) announce(item);
+}
+
+// The drill and "which file?" put their questions in the inbox.
 const prompter: Prompter = {
-  ask(question: Question) {
-    status("question", `Answer in the daemon terminal: ${question.text}`);
-    const choices = question.options?.map((o, i) => `${i + 1}) ${o.label}`).join("   ");
-    console.error(`\n? ${question.text}`);
-    if (choices) console.error(`  ${choices}`);
-    if (question.default) console.error(`  (Enter = ${question.default})`);
-    return new Promise((resolve) => {
-      answer = resolve;
-    });
-  },
+  ask: (question: Question) =>
+    service.ask({ title: question.text, options: question.options?.map((o) => o.label), default: question.default }),
 };
+
+function announce(item: InboxItem) {
+  const options = (item.detail.options as string[] | undefined) ?? [];
+  if (item.kind === "question" || item.kind === "ask") {
+    console.error(`\n? ${item.title}`);
+    if (options.length > 0) console.error(`  ${options.map((o, i) => `${i + 1}) ${o}`).join("   ")}`);
+    if (item.detail.default) console.error(`  (Enter = ${item.detail.default})`);
+    focus ??= item.id;
+    status("question", `Answer in Shadow: ${item.title}`);
+  } else if (item.kind === "approval") {
+    log(`⏸ ${item.path}: ${item.title}. Type approve or deny.`);
+    status("question", `${item.skillId} is waiting for your approval`);
+  } else if (item.kind === "recovery") {
+    log(`⏸ ${item.title}`);
+    log("  type resume (try that step again), skip (you did it by hand: go on after it) or cancel");
+    status("question", `${item.skillId} needs you: ${item.title}`);
+  } else if (item.kind === "repaired") {
+    log(`  ${item.title} (undo it with: rollback ${item.skillId})`);
+  }
+}
+
+// The oldest open question or step question.
+function nextFocus(): string | undefined {
+  return service
+    .inbox({ open: true })
+    .filter((i) => i.kind === "question" || i.kind === "ask")
+    .at(-1)?.id;
+}
+function oldest(kind: InboxItem["kind"]): InboxItem | undefined {
+  return service
+    .inbox({ open: true })
+    .filter((i) => i.kind === kind)
+    .at(-1);
+}
+function reply(itemId: string, answer: unknown) {
+  try {
+    service.answer(itemId, answer);
+  } catch (error) {
+    log((error as Error).message);
+  }
+}
+
+function showRun(run: RunRow) {
+  if (run.status === "running") status("replay", `Replaying ${run.skillId}…`);
+  else if (run.status === "succeeded") status("saved", `Replayed ${run.skillId}`);
+  else if (run.status === "nothing_to_do") status("saved", `Nothing to do for ${run.skillId} this time`);
+  else if (run.status !== "waiting")
+    status("failed", `Replay ${run.status}${run.failedStep ? ` at ${run.failedStep}` : ""}: see the terminal`);
+}
 
 async function compileSession(sessionId: string) {
   compiling = true;
@@ -141,11 +259,11 @@ async function stopRecording() {
 }
 function refuse() {
   log("still compiling the last recording; answer its questions first");
-  status("busy", "Still compiling the last recording: answer its questions in the daemon terminal");
+  status("busy", "Still compiling the last recording: answer its questions first");
 }
 
 function printRun(e: RunLogEvent) {
-  if (e.type === "run.start") log(`▶ ${e.skillId} v${e.version}`);
+  if (e.type === "run.start") log(`▶ ${e.skillId} v${e.version}${e.resumedAt ? ` (going on at ${e.resumedAt})` : ""}`);
   if (e.type === "step.result") {
     const r = e.result;
     const match = r.matchScore !== undefined ? ` match ${r.matchScore}` : "";
@@ -166,13 +284,13 @@ function printRun(e: RunLogEvent) {
     log(`■ ${e.status} in ${e.ms} ms${e.failedStep ? ` at ${e.failedStep}` : ""}${e.error ? `: ${e.error}` : ""}`);
 }
 
-// A recorded skill by id (its latest version in the skill store), or a skill file by path.
-function skillFile(ref: string): string | undefined {
+// A skill file by path, or a recorded skill by id (its latest version in the store). Returns what the service takes:
+// the file's absolute path, or the id.
+function skillRef(ref: string): string | undefined {
   const asPath = resolve(userCwd, ref);
-  if (ref.endsWith(".json") && existsSync(asPath)) return asPath;
+  if (ref.endsWith(".json")) return existsSync(asPath) ? asPath : undefined;
   try {
-    const latest = versions(home, ref).at(-1);
-    return latest === undefined ? undefined : join(skillDir(home, ref), `v${latest}.json`);
+    return versions(home, ref).length > 0 ? ref : undefined;
   } catch {
     return undefined; // not a valid skill id
   }
@@ -181,105 +299,74 @@ function skillFile(ref: string): string | undefined {
 async function run(args: string[]) {
   const [ref, ...given] = args;
   if (!ref) return log("usage: run <skill-id | skill.json> [name=value ... | path]");
-  if (running) return log("a run is already in progress");
-  const file = skillFile(ref);
-  if (!file) return log(`no skill ${ref} (see "skills")`);
-  running = true;
+  const target = skillRef(ref);
+  if (!target) return log(`no skill ${ref} (see "skills")`);
   try {
-    // Which files to use, settled before the first step: given with the command, else asked here (Enter takes the
-    // newest like the recorded one; or drag one in from Finder). A wrong file stops the run before anything runs.
+    // Which files to use, settled before the first step: given with the command, else asked (Enter takes the newest
+    // like the recorded one; or drag one in from Finder). A wrong file stops the run before anything runs.
+    const file = target.endsWith(".json")
+      ? target
+      : join(home, "skills", target, `v${versions(home, target).at(-1)}.json`);
     const skill = Skill.parse(JSON.parse(readFileSync(file, "utf8")));
     const provided = givenInputs(skill, given);
     await chooseFiles(skill, provided, (question) => prompter.ask(question), log);
-    status("replay", `Replaying ${skill.id}…`);
-    const outcome = await runSkillFile(
-      daemon,
-      file,
-      provided,
-      {
-        log: printRun,
-        data,
-        llm,
-        approve: (step) =>
-          new Promise((resolve) => {
-            log(`approval needed for ${step.id}: "${step.intent}". Type approve or deny.`);
-            pendingApproval = resolve;
-          }),
-        // A failed step pauses the run: repair, then resume (docs/design.md, section 9).
-        recovery: {
-          repairer: createRepairer({ llm: model, meter: usage }),
-          memory,
-          saveVersion: (repaired) => {
-            const saved = saveSkill(home, repaired);
-            log(`  saved ${saved.skill.id} v${saved.skill.version} (undo it with: rollback ${saved.skill.id})`);
-            status("replay", `Repaired ${saved.skill.id}: now v${saved.skill.version}`);
-            return saved.skill;
-          },
-          waitForUser: (message) =>
-            new Promise((resolve) => {
-              log(`⏸ ${message}`);
-              log("  type resume (try that step again), skip (you did it by hand: go on after it) or cancel");
-              status("question", `Paused: ${message} Answer in the daemon terminal.`);
-              pendingRecovery = resolve;
-            }),
-        },
-        // A step's question: typed here, like the drill's. A yes/no question takes yes or no.
-        ask: async (ask, step) => {
-          if (ask.kind === "confirm") {
-            const reply = await prompter.ask({
-              id: `ask-${step.id}`,
-              text: ask.question,
-              options: [{ label: "yes" }, { label: "no" }],
-              default: "yes",
-            });
-            return !/^(n|no|2)$/i.test(reply.trim());
-          }
-          return prompter.ask({ id: `ask-${step.id}`, text: ask.question });
-        },
-      },
-      join(home, "runs"),
-    );
-    if (outcome.status === "succeeded") status("saved", `Replayed ${skill.id}`);
-    else if (outcome.status === "nothing_to_do") status("saved", `Nothing to do for ${skill.id} this time`);
-    else
-      status(
-        "failed",
-        `Replay ${outcome.status}${outcome.failedStep ? ` at ${outcome.failedStep}` : ""}: see the terminal`,
-      );
+    const started = service.start(target, provided);
+    log(`run ${started.id}`);
   } catch (error) {
     log("run failed:", (error as Error).message);
     status("failed", "Replay failed: see the daemon terminal");
-  } finally {
-    running = false;
   }
 }
 
 createInterface({ input: process.stdin }).on("line", (line) => {
-  if (answer) {
-    const reply = answer;
-    answer = undefined;
-    reply(line);
+  if (focus) {
+    const item = focus;
+    focus = undefined;
+    reply(item, line);
+    focus ??= nextFocus();
     return;
   }
   const [command, ...args] = splitArgs(line);
   if (!command) return;
   if (command === "approve" || command === "deny") {
-    if (!pendingApproval) return log("nothing to approve");
-    pendingApproval(command === "approve");
-    pendingApproval = undefined;
+    const item = oldest("approval");
+    if (!item) return log("nothing to approve");
+    return reply(item.id, command);
+  }
+  if (command === "resume" || command === "skip" || (command === "cancel" && args.length === 0)) {
+    const item = oldest("recovery");
+    if (!item) return log("no run needs you");
+    return reply(item.id, command === "resume" ? "retry" : command === "skip" ? "skip" : "stop");
+  }
+  if (command === "cancel" && args[0]) {
+    try {
+      log(`cancelled ${service.cancel(args[0]).id}`);
+    } catch (error) {
+      log((error as Error).message);
+    }
     return;
   }
-  if ((command === "resume" || command === "skip" || command === "cancel") && pendingRecovery) {
-    pendingRecovery(command === "resume" ? "retry" : command === "skip" ? "skip" : "stop");
-    pendingRecovery = undefined;
+  if (command === "inbox") {
+    const items = service.inbox({ open: true });
+    if (items.length === 0) return log("nothing waits for you");
+    for (const item of [...items].reverse()) log(`${item.kind.padEnd(9)} ${item.skillId ?? ""} ${item.title}`);
+    return;
+  }
+  if (command === "runs") {
+    for (const r of service.runs({ limit: 10 })) {
+      const cost = r.costUsd > 0 ? ` $${r.costUsd.toFixed(4)}` : "";
+      log(
+        `${r.id}  v${r.version}  ${r.status}${r.failedStep ? ` at ${r.failedStep}` : ""}${r.repaired ? " (repaired)" : ""}${cost}`,
+      );
+    }
     return;
   }
   if (compiling) return refuse();
   if (command === "run") void run(args);
   else if (command === "rollback" && args[0]) {
     try {
-      const saved = rollbackSkill(home, args[0]);
-      log(`rolled back: ${saved.skill.id} v${saved.skill.version} is ${saved.skill.history.at(-1)?.summary}`);
+      const rolled = service.rollback(args[0]);
+      log(`rolled back: ${rolled.id} v${rolled.version} is ${rolled.summary}`);
     } catch (error) {
       log((error as Error).message);
     }
@@ -290,14 +377,16 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   else if (command === "traces")
     for (const t of listTraces(home)) log(`${t.sessionId}  ${t.modified.toLocaleString()}`);
   else if (command === "status") {
-    log(`${daemon.extensions.size} extension(s) connected${running ? ", run in progress" : ""}`);
+    const health = service.health();
+    log(`${daemon.extensions.size} extension(s) connected; API on port ${http.port}`);
+    log(`${health.waitingForYou} thing(s) wait for you; running: ${(health.running as string[]).join(", ") || "none"}`);
     const spent = usage.usage;
     log(
-      `model use since start: ${spent.calls} call(s), ${spent.input + spent.output} tokens, $${spent.costUsd.toFixed(4)}`,
+      `model use since start: ${spent.calls} call(s), ${spent.input + spent.output} tokens, $${spent.costUsd.toFixed(4)}; today's runs: $${service.usage().todayUsd.toFixed(4)}`,
     );
   } else
     log(
-      "commands: record, stop, compile <session>, run <skill>, approve, deny, resume, skip, cancel, rollback <skill>, skills, traces, status",
+      "commands: record, stop, compile <session>, run <skill>, inbox, approve, deny, resume, skip, cancel [run], rollback <skill>, runs, skills, traces, status",
     );
 });
 
@@ -312,10 +401,12 @@ function startMacApp() {
   });
 }
 
-const shutdown = () =>
-  daemon.close().then(() => {
-    memory.close();
-    process.exit(0);
-  });
+const shutdown = async () => {
+  await http.close();
+  await daemon.close();
+  memory.close();
+  store.close();
+  process.exit(0);
+};
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

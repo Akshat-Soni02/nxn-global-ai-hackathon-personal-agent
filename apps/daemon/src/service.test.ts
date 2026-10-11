@@ -77,7 +77,11 @@ describe("the daemon as a service", () => {
     expect(second.service.recover()).toEqual({ interrupted: [], expired: [] });
     second.service.answer(item?.id as string, "approve");
     await second.service.idle();
-    expect(second.service.runs()[0]).toMatchObject({ status: "succeeded", checkpoint: undefined });
+    expect(second.service.runs()[0]).toMatchObject({
+      status: "succeeded",
+      checkpoint: undefined,
+      failedStep: undefined,
+    });
     expect(ran).toEqual(["s1", "s2", "s3"]);
     expect(second.service.inbox({ open: true })).toEqual([]);
     expect(second.events.map((e) => (e.type === "run" ? e.run.status : e.type))).toContain("succeeded");
