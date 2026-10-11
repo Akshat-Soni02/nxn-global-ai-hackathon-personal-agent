@@ -6,7 +6,7 @@
 // repaired or waits for the user, and resumes. Repair transcripts go next to the run log (<runId>.repair-N.json).
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ActionStep, type Message, Skill, type Step } from "@shadow/core";
 import { APP_SUPPORT_DIR } from "@shadow/ipc";
@@ -14,6 +14,7 @@ import type { MemoryStore } from "@shadow/memory";
 import {
   type ChannelExecutor,
   DEFAULT_TIMEOUT_MS,
+  type Resume,
   type RunDeps,
   type RunLogEvent,
   type RunOutcome,
@@ -56,7 +57,22 @@ export async function runSkillFile(
   logDir = join(APP_SUPPORT_DIR, "runs"),
 ): Promise<RunOutcome> {
   const skill = Skill.parse(JSON.parse(readFileSync(path, "utf8")));
-  const runId = `${skill.id}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  return runSkillOn(daemon, skill, { provided }, hooks, logDir);
+}
+
+export const newRunId = (skillId: string, now = new Date()) => `${skillId}-${now.toISOString().replace(/[:.]/g, "-")}`;
+
+// One leg of a run: from the start, or from a waiting run's checkpoint (`resume`). A run's legs share its id, so they
+// share one log file. Going on from a checkpoint doesn't resolve inputs again: the saved variables carry on.
+export async function runSkillOn(
+  daemon: Daemon,
+  skill: Skill,
+  options: { runId?: string; provided?: Record<string, unknown>; resume?: Resume },
+  hooks: RunHooks,
+  logDir = join(APP_SUPPORT_DIR, "runs"),
+): Promise<RunOutcome> {
+  const runId = options.runId ?? newRunId(skill.id);
+  const provided = options.provided ?? {};
   mkdirSync(logDir, { recursive: true });
   const logFile = join(logDir, `${runId}.jsonl`);
   const log = (event: RunLogEvent) => {
@@ -123,12 +139,16 @@ export async function runSkillFile(
       ask: hooks.ask,
       log,
     };
-    const inputs = await resolveInputs(skill, provided);
-    if (!hooks.recovery) return await runSkill(skill, deps, { runId, inputs });
+    const resume = options.resume;
+    const inputs = resume ? provided : await resolveInputs(skill, provided);
+    if (!hooks.recovery) return await runSkill(skill, deps, { runId, inputs, resume });
     const { memory, ...recovery } = hooks.recovery;
+    // Episodes are numbered across the run's legs, so a leg after a wait doesn't overwrite an earlier transcript.
+    const earlier = readdirSync(logDir).filter((f) => f.startsWith(`${runId}.repair-`)).length;
     return await runWithRecovery(skill, deps, {
       runId,
       inputs,
+      resume,
       recovery: {
         ...recovery,
         page,
@@ -145,7 +165,10 @@ export async function runSkillFile(
           screenConsent: false,
         }),
         onEpisode: (n, record) =>
-          writeFileSync(logFile.replace(/\.jsonl$/, `.repair-${n}.json`), `${JSON.stringify(record, null, 1)}\n`),
+          writeFileSync(
+            logFile.replace(/\.jsonl$/, `.repair-${earlier + n}.json`),
+            `${JSON.stringify(record, null, 1)}\n`,
+          ),
       },
     });
   } finally {
