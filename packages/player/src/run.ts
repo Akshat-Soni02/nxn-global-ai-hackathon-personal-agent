@@ -25,7 +25,7 @@ import {
   typeText,
   type VarType,
   walkSteps,
-} from "@taskplayer/core";
+} from "@shadow/core";
 import { evaluate } from "./conditions.ts";
 import { resolveTemplates } from "./template.ts";
 import type { Failure, Resume, RunContext, RunDeps, RunLogEvent, RunOutcome, RunStatus, StepResult } from "./types.ts";
@@ -34,7 +34,7 @@ export const DEFAULT_TIMEOUT_MS = 10_000;
 
 export interface RunOptions {
   runId?: string;
-  inputs: Record<string, unknown>; // already resolved (see resolveInputs in @taskplayer/player/node)
+  inputs: Record<string, unknown>; // already resolved (see resolveInputs in @shadow/player/node)
   now?: () => Date;
   // Go on from a paused run's position instead of the start. `inputs` are then only for the log; `vars` carry on.
   resume?: Resume;

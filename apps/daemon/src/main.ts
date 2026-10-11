@@ -15,14 +15,14 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { Skill } from "@taskplayer/core";
-import { dataDir, socketPath } from "@taskplayer/ipc";
-import { configFromEnv, createLlm, UsageMeter } from "@taskplayer/llm";
-import { openMemory } from "@taskplayer/memory";
-import type { RunLogEvent } from "@taskplayer/player";
-import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@taskplayer/player/node";
-import { createRepairer } from "@taskplayer/player/repair";
-import type { Prompter, Question } from "@taskplayer/recorder";
+import { Skill } from "@shadow/core";
+import { dataDir, migrateLegacyDataDir, socketPath } from "@shadow/ipc";
+import { configFromEnv, createLlm, UsageMeter } from "@shadow/llm";
+import { openMemory } from "@shadow/memory";
+import type { RunLogEvent } from "@shadow/player";
+import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@shadow/player/node";
+import { createRepairer } from "@shadow/player/repair";
+import type { Prompter, Question } from "@shadow/recorder";
 import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
 import { startDaemon } from "./daemon.ts";
 import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
@@ -40,6 +40,9 @@ try {
 }
 
 const log = (...args: unknown[]) => console.error("[daemon]", ...args);
+// Data from before the rename (Task Player → Shadow) moves to the new folder, once.
+if (!process.env.SHADOW_HOME && migrateLegacyDataDir())
+  log("moved your data from Application Support/TaskPlayer to Shadow");
 // `pnpm daemon` runs inside apps/daemon; resolve paths typed at the prompt from where pnpm was started.
 const userCwd = process.env.INIT_CWD ?? process.cwd();
 const path = socketPath();
@@ -298,14 +301,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     );
 });
 
-// Task Player.app: the floating Record / Stop button on the desktop, Mac-app recording and the ax channel. Started
+// Shadow.app: the floating Record / Stop button on the desktop, Mac-app recording and the ax channel. Started
 // through `open`, so macOS asks for Accessibility in its own name (not your terminal's). It quits when the daemon does.
 function startMacApp() {
-  const app = join(import.meta.dirname, "../../mac/build/Task Player.app");
-  if (process.env.TASKPLAYER_MAC === "off") return;
+  const app = join(import.meta.dirname, "../../mac/build/Shadow.app");
+  if (process.env.SHADOW_MAC === "off") return;
   if (!existsSync(app)) return log("no desktop button: build it with pnpm setup:mac");
   execFile("open", ["-g", app, "--args", "--socket", resolve(path)], (error) => {
-    if (error) log("could not start Task Player.app:", error.message);
+    if (error) log("could not start Shadow.app:", error.message);
   });
 }
 

@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { glob, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import type { FileValue } from "@taskplayer/core";
+import type { FileValue } from "@shadow/core";
 
 // A file value ({ path, name, size, modified }), the type a skill's `file` variables hold.
 export function fileValue(path: string): FileValue {

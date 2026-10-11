@@ -3,7 +3,7 @@
 // fix is saved as the next version and the run resumes from where it stopped. A site that is down is retried
 // later; anything that needs the user waits for them (retry the step, skip it because they did it by hand, or stop).
 // Used by the daemon and by `pnpm replay`; each supplies the hooks.
-import { type Availability, type Skill, walkSteps } from "@taskplayer/core";
+import { type Availability, type Skill, walkSteps } from "@shadow/core";
 import { type RunOptions, runSkill } from "../run.ts";
 import type { Failure, Resume, RunDeps, RunLogEvent, RunOutcome } from "../types.ts";
 import type { RepairEnv } from "./env.ts";

@@ -1,5 +1,5 @@
-import { applyEdits, briefing, Edit, type EditInput, findStep, repairViolations, Skill } from "@taskplayer/core";
-import { type FakeReply, fakeLlm, UsageMeter } from "@taskplayer/llm";
+import { applyEdits, briefing, Edit, type EditInput, findStep, repairViolations, Skill } from "@shadow/core";
+import { type FakeReply, fakeLlm, UsageMeter } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { runAgent } from "./agent.ts";

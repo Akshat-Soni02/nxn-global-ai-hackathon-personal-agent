@@ -4,10 +4,10 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, sep } from "node:path";
-import type { Skill, TraceEvent } from "@taskplayer/core";
-import type { Llm } from "@taskplayer/llm";
-import type { MemoryStore } from "@taskplayer/memory";
-import { type Chat, compile, drill, normalise, type Prompter } from "@taskplayer/recorder";
+import type { Skill, TraceEvent } from "@shadow/core";
+import type { Llm } from "@shadow/llm";
+import type { MemoryStore } from "@shadow/memory";
+import { type Chat, compile, drill, normalise, type Prompter } from "@shadow/recorder";
 import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
 import { saveSkill, versions } from "./skill-store.ts";

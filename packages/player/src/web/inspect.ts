@@ -3,7 +3,7 @@
 // alike. Elements are named by short refs ("e12") the page script stamps on them (data-tp-ref), so an agent can say
 // which element it means; a ref turns into a stored Locator (role, name, attrs, a CSS fallback) through `inspect`.
 // No zod or core values here: this file is bundled into the extension.
-import type { ActionStep, Locator } from "@taskplayer/core";
+import type { ActionStep, Locator } from "@shadow/core";
 import { type Cdp, evaluate, sleep } from "./cdp.ts";
 import { executeWebStep } from "./executor.ts";
 import { axNodeOf, selectAll } from "./match.ts";

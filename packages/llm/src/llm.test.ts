@@ -194,7 +194,7 @@ describe("reliability", () => {
 describe("config and helpers", () => {
   it("reads development settings from env, and none without a key", () => {
     expect(configFromEnv({})).toBeUndefined();
-    const config = configFromEnv({ NEBIUS_API_KEY: "k", TASKPLAYER_MODEL_SMART: "nvidia/Nemotron-3-Ultra-550b-a55b" });
+    const config = configFromEnv({ NEBIUS_API_KEY: "k", SHADOW_MODEL_SMART: "nvidia/Nemotron-3-Ultra-550b-a55b" });
     expect(config?.baseUrl).toBe("https://api.tokenfactory.nebius.com/v1");
     expect(config?.profiles.smart.model).toBe("nvidia/Nemotron-3-Ultra-550b-a55b");
     expect(config?.profiles.fast.model).toBe("nvidia/Nemotron-3_5-Lightning");

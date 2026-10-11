@@ -62,9 +62,7 @@ const needsBrowser =
 let chrome: DevChrome | undefined;
 const browser = async () => {
   chrome ??= await launchChrome({
-    profileDir: expandHome(
-      process.env.TASKPLAYER_CHROME_PROFILE ?? "~/Library/Application Support/TaskPlayer/dev-chrome",
-    ),
+    profileDir: expandHome(process.env.SHADOW_CHROME_PROFILE ?? "~/Library/Application Support/Shadow/dev-chrome"),
     downloadDir: expandHome("~/Downloads"),
     headless: flag("--headless"),
   });

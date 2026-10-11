@@ -3,8 +3,8 @@
 // scripted model plays the repair agent. Each scenario is one kind of failure from docs/design.md, section 9.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ActionStep, type Check, findStep, type Locator, Skill } from "@taskplayer/core";
-import { type FakeReply, fakeLlm } from "@taskplayer/llm";
+import { type ActionStep, type Check, findStep, type Locator, Skill } from "@shadow/core";
+import { type FakeReply, fakeLlm } from "@shadow/llm";
 import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 import { runSkill } from "../run.ts";

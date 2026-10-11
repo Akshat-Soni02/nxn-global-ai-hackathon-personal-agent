@@ -1,8 +1,8 @@
 // Replay inside the user's Chrome: one dedicated automation window, driven through chrome.debugger.
 // The window is unfocused and fixed at 1280x800 so pages lay out the same way on every run.
 // Chrome shows a "started debugging this browser" bar while attached; we attach only during a run.
-import type { Check, ActionStep as Step } from "@taskplayer/core";
-import { type Cdp, executeWebStep, type PageOp, type PageOpResult, pageOp, waitForCheck } from "@taskplayer/player/web";
+import type { Check, ActionStep as Step } from "@shadow/core";
+import { type Cdp, executeWebStep, type PageOp, type PageOpResult, pageOp, waitForCheck } from "@shadow/player/web";
 
 const PROTOCOL_VERSION = "1.3";
 const STORE_KEY = "automationTab";

@@ -5,7 +5,7 @@ import AppKit
 import ApplicationServices
 
 final class Player {
-  private let queue = DispatchQueue(label: "taskplayer.player")
+  private let queue = DispatchQueue(label: "shadow.player")
 
   // Runs off the main thread, so the floating button stays responsive; replies on the main thread.
   func run(_ step: JSON, reply: @escaping (JSON) -> Void) {
@@ -17,7 +17,7 @@ final class Player {
 
   private func fail(_ message: String) -> JSON { ["ok": false, "error": message] }
 
-  // Task Player's own window (test mode) answers the Accessibility API on its main thread: acting on it from this
+  // Shadow's own window (test mode) answers the Accessibility API on its main thread: acting on it from this
   // queue does the action but reports a failure. Other apps answer across processes, from any thread.
   private func onTarget<T>(_ isSelf: Bool, _ work: () -> T) -> T {
     isSelf ? DispatchQueue.main.sync(execute: work) : work()
@@ -35,7 +35,7 @@ final class Player {
     let isSelf = bundle == Bundle.main.bundleIdentifier
     if !isSelf && !AXIsProcessTrusted() {
       return fail(
-        "Task Player may not use other apps yet: right-click the floating button and choose Allow Mac apps "
+        "Shadow may not use other apps yet: right-click the floating button and choose Allow Mac apps "
           + "(System Settings > Privacy & Security > Accessibility)")
     }
     guard let pid = running(bundle) ?? launch(bundle, timeout: timeout) else {

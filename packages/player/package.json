@@ -1,5 +1,5 @@
 {
-  "name": "@taskplayer/player",
+  "name": "@shadow/player",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -14,9 +14,9 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@taskplayer/core": "workspace:*",
-    "@taskplayer/llm": "workspace:*",
-    "@taskplayer/agent": "workspace:*",
+    "@shadow/core": "workspace:*",
+    "@shadow/llm": "workspace:*",
+    "@shadow/agent": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {

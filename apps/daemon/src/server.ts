@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
-import { createDecoder, encode } from "@taskplayer/ipc";
+import { createDecoder, encode } from "@shadow/ipc";
 
 export interface Connection {
   send(message: unknown): void;

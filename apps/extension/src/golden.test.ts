@@ -34,7 +34,7 @@ describe("golden: recorder output vs skills/real/upload-test-file.json", () => {
       ev("e2", 4_000, {
         event: "file",
         target: input,
-        file: { name: "taskplayer-test-1.txt", size: 12, type: "text/plain" },
+        file: { name: "shadow-test-1.txt", size: 12, type: "text/plain" },
       }),
       ev("e3", 6_000, { target: submit }),
       ev("e4", 6_010, { event: "submit", target: describeElement(document.querySelector("form") as Element) }),

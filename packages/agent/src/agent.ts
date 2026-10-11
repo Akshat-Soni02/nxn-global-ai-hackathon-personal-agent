@@ -11,7 +11,7 @@ import {
   type ToolDef,
   type Usage,
   UsageMeter,
-} from "@taskplayer/llm";
+} from "@shadow/llm";
 import { z } from "zod";
 import type { AnyTool, ToolKind } from "./tool.ts";
 

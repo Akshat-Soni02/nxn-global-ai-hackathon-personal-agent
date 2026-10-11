@@ -1,7 +1,7 @@
 // Branch conditions: { left, op, right } comparisons, combined with all / any / not. References in left and right are
 // resolved first, keeping their types. Values read from pages and models are often text, so numbers written as text
 // ("1,234") compare as numbers and ISO dates compare as dates.
-import type { Comparison, Condition } from "@taskplayer/core";
+import type { Comparison, Condition } from "@shadow/core";
 import { resolveTemplates } from "./template.ts";
 
 export function evaluate(condition: Condition, vars: Record<string, unknown>, now = new Date()): boolean {

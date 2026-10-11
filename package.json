@@ -1,5 +1,5 @@
 {
-  "name": "taskplayer",
+  "name": "shadow",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.15.1",
@@ -13,8 +13,8 @@
     "test:watch": "vitest",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "daemon": "pnpm --filter @taskplayer/daemon start",
-    "extension": "pnpm --filter @taskplayer/extension dev",
+    "daemon": "pnpm --filter @shadow/daemon start",
+    "extension": "pnpm --filter @shadow/extension dev",
     "fixtures": "node scripts/serve-fixtures.mjs",
     "setup:native-host": "tsx scripts/install-native-host.ts",
     "setup:mac": "tsx scripts/build-mac.ts",
@@ -22,7 +22,7 @@
     "snapshot:pages": "tsx scripts/snapshot-pages.ts",
     "replay": "tsx scripts/replay.ts",
     "llm:check": "tsx scripts/llm-check.ts",
-    "daemon:dev": "pnpm --filter @taskplayer/daemon dev"
+    "daemon:dev": "pnpm --filter @shadow/daemon dev"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

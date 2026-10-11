@@ -1,6 +1,6 @@
 // The failure report: collected before the repair agent's first turn, so it starts from evidence, not a blank page
 // (docs/design.md, "The failure report"). Text, for the model; page content in it is marked as untrusted.
-import { type Skill, walkSteps } from "@taskplayer/core";
+import { type Skill, walkSteps } from "@shadow/core";
 import type { Failure, RunLogEvent } from "../types.ts";
 import type { FoundElement, PageSignals } from "../web/inspect.ts";
 import type { Classification } from "./classify.ts";

@@ -6,8 +6,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fitValue, jsonSchemaOf, type LlmStep, typeText, type VarType } from "@taskplayer/core";
-import type { JsonSchema, Llm, UsageMeter } from "@taskplayer/llm";
+import { fitValue, jsonSchemaOf, type LlmStep, typeText, type VarType } from "@shadow/core";
+import type { JsonSchema, Llm, UsageMeter } from "@shadow/llm";
 import { today } from "../template.ts";
 import type { RunContext, StepResult } from "../types.ts";
 
@@ -20,8 +20,8 @@ export const DEFAULT_AI_LIMITS: AiLimits = { maxCallsPerRun: 3, maxInputChars: 2
 export function aiLimitsFromEnv(env: Record<string, string | undefined> = process.env): AiLimits {
   const num = (v: string | undefined, fallback: number) => (v && Number.isFinite(Number(v)) ? Number(v) : fallback);
   return {
-    maxCallsPerRun: num(env.TASKPLAYER_AI_MAX_CALLS_PER_RUN, DEFAULT_AI_LIMITS.maxCallsPerRun),
-    maxInputChars: num(env.TASKPLAYER_AI_MAX_INPUT_CHARS, DEFAULT_AI_LIMITS.maxInputChars),
+    maxCallsPerRun: num(env.SHADOW_AI_MAX_CALLS_PER_RUN, DEFAULT_AI_LIMITS.maxCallsPerRun),
+    maxInputChars: num(env.SHADOW_AI_MAX_INPUT_CHARS, DEFAULT_AI_LIMITS.maxInputChars),
   };
 }
 
@@ -61,7 +61,7 @@ export function llmExecutor(options: LlmStepOptions = {}): LlmExecutor {
     if (!options.llm) return fail("llm steps need a model: set NEBIUS_API_KEY (see .env.example)");
     const used = callsByRun.get(ctx.runId) ?? 0;
     if (used >= limits.maxCallsPerRun) {
-      return fail(`this run already made ${used} model calls, the limit (TASKPLAYER_AI_MAX_CALLS_PER_RUN)`);
+      return fail(`this run already made ${used} model calls, the limit (SHADOW_AI_MAX_CALLS_PER_RUN)`);
     }
     callsByRun.set(ctx.runId, used + 1);
     let answer: unknown;

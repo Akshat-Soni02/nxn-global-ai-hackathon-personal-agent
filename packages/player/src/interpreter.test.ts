@@ -1,6 +1,6 @@
 // The workflow interpreter: loops, branches, asks and approvals, with scopes. Channels are fakes that record what
 // they were asked to do, after references were resolved.
-import { type ActionStep, type Skill, Skill as SkillSchema, type Step } from "@taskplayer/core";
+import { type ActionStep, type Skill, Skill as SkillSchema, type Step } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { evaluate } from "./conditions.ts";
 import { runSkill } from "./run.ts";

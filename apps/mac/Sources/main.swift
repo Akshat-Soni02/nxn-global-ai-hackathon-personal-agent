@@ -1,11 +1,11 @@
-// Task Player.app: the desktop side of Task Player. The daemon launches it (`open`, so macOS treats it as its own app
+// Shadow.app: the desktop side of Shadow. The daemon launches it (`open`, so macOS treats it as its own app
 // and asks permission for it by name, not for your terminal) and it connects back over the daemon's socket.
 // It is three things:
 //   - the floating Record / Stop button, above every app (Panel.swift);
 //   - the Mac-app recorder, through the Accessibility API (Recorder.swift);
 //   - the ax channel: replays Mac-app steps (Player.swift).
 // It quits when the daemon goes away; the daemon starts it again.
-// Arguments: --socket <path>   the daemon's socket (default ~/Library/Application Support/TaskPlayer/daemon.sock)
+// Arguments: --socket <path>   the daemon's socket (default ~/Library/Application Support/Shadow/daemon.sock)
 //            --fixture --state <file>   test mode: a timesheet window inside the app and a scripted user (Fixture.swift)
 //            --snapshot <dir>  draw each look of the button to PNG files and exit
 //            --log <file>      append diagnostics to a file (an app started by `open` has no terminal)
@@ -18,7 +18,7 @@ func argument(_ name: String) -> String? {
   return arguments[i + 1]
 }
 let socketPath =
-  argument("--socket") ?? (NSHomeDirectory() + "/Library/Application Support/TaskPlayer/daemon.sock")
+  argument("--socket") ?? (NSHomeDirectory() + "/Library/Application Support/Shadow/daemon.sock")
 let logPath = argument("--log")
 
 func log(_ line: String) {
@@ -66,7 +66,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
     DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
       if self?.everConnected == false { NSApp.terminate(nil) }
     }
-    log("Task Player.app started, socket \(socketPath), Accessibility \(trusted ? "allowed" : "not allowed")")
+    log("Shadow.app started, socket \(socketPath), Accessibility \(trusted ? "allowed" : "not allowed")")
   }
 
   private func connection(_ up: Bool) {
@@ -130,7 +130,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
     link.send(["id": UUID().uuidString, "type": "record.command", "command": panel.isRecording ? "stop" : "start"])
   }
 
-  // macOS's own prompt, then the Accessibility pane of System Settings, where the switch for Task Player is.
+  // macOS's own prompt, then the Accessibility pane of System Settings, where the switch for Shadow is.
   private func askForAccessibility() {
     let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
     _ = AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)

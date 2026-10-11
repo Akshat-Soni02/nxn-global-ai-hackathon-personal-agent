@@ -1,7 +1,7 @@
 // The repair agent's tools (docs/design.md, "The repair agent's tools"), over one session: the original workflow, the
 // draft being repaired, and what the last try showed. Look tools read; probe tools act on the live page within the
 // guard; edit tools change the draft through core's edit operations; try runs the draft live; finish ends.
-import { type AnyTool, tool } from "@taskplayer/agent";
+import { type AnyTool, tool } from "@shadow/agent";
 import {
   applyEdits,
   Edit,
@@ -12,7 +12,7 @@ import {
   type Skill,
   type Step,
   walkSteps,
-} from "@taskplayer/core";
+} from "@shadow/core";
 import { z } from "zod";
 import type { Failure, Resume } from "../types.ts";
 import type { PageOp } from "../web/inspect.ts";

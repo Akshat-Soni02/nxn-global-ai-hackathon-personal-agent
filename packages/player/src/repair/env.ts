@@ -1,6 +1,6 @@
-// What repair works with. The daemon (and `pnpm replay`) connect it to the extension, Task Player.app, memory and
+// What repair works with. The daemon (and `pnpm replay`) connect it to the extension, Shadow.app, memory and
 // the run's channels; tests connect it to fakes. Repair never imports any of those itself.
-import type { Availability } from "@taskplayer/core";
+import type { Availability } from "@shadow/core";
 import type { RunDeps, RunLogEvent } from "../types.ts";
 import type { PageOp, PageOpResult } from "../web/inspect.ts";
 

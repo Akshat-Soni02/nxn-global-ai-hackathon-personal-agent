@@ -1,4 +1,4 @@
-// Test mode (--fixture): a small timesheet window inside Task Player itself, and a scripted user. An app may always
+// Test mode (--fixture): a small timesheet window inside Shadow itself, and a scripted user. An app may always
 // use the Accessibility API on itself, so this runs the real describe / find / press code with no permission granted.
 // The scripted user hit-tests a screen point and then calls the recorder's own entry points (recordClick,
 // recordTyping), as the global monitors do; only the monitors and other apps are left out.
@@ -30,7 +30,7 @@ final class Fixture: NSObject {
     window = NSWindow(
       contentRect: NSRect(x: 60, y: 140, width: 340, height: 190), styleMask: [.titled], backing: .buffered,
       defer: false)
-    window.title = "Timesheet (Task Player fixture)"
+    window.title = "Timesheet (Shadow fixture)"
     window.isReleasedWhenClosed = false
     super.init()
 
@@ -52,7 +52,7 @@ final class Fixture: NSObject {
     // A menu bar menu, for menu steps (Timesheet > Mark urgent).
     let main = NSMenu()
     let appItem = NSMenuItem()
-    appItem.submenu = NSMenu(title: "Task Player")
+    appItem.submenu = NSMenu(title: "Shadow")
     main.addItem(appItem)
     let sheetItem = NSMenuItem()
     let sheet = NSMenu(title: "Timesheet")
@@ -156,7 +156,7 @@ final class Fixture: NSObject {
       { self.type("weekly report", into: self.notes) },
       { self.click(self.billable, press: true) },
       {
-        // A menu bar item, as the recorder sees a click on it (Task Player is an accessory app, so this menu bar
+        // A menu bar item, as the recorder sees a click on it (Shadow is an accessory app, so this menu bar
         // exists for the Accessibility API but is not on screen).
         if let item = AX.menuItem(["Timesheet", "Mark urgent"], in: self.me) {
           self.menuSeen = true
@@ -165,7 +165,7 @@ final class Fixture: NSObject {
           // which a person's click on a real menu bar never does.)
           self.markUrgent()
         } else {
-          self.log("fixture: no AX menu bar for Task Player")
+          self.log("fixture: no AX menu bar for Shadow")
         }
       },
       { self.click(self.save, press: true) },

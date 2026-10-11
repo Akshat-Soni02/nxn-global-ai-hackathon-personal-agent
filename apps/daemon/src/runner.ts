@@ -1,16 +1,16 @@
 // Runs a skill in the daemon: fs and script steps locally, web steps and page checks in the extension, ax steps
-// (Mac apps) in Task Player.app.
-// Every run is logged as JSON lines in ~/Library/Application Support/TaskPlayer/runs/<runId>.jsonl.
+// (Mac apps) in Shadow.app.
+// Every run is logged as JSON lines in ~/Library/Application Support/Shadow/runs/<runId>.jsonl.
 //
-// Recovery (runWithRecovery in @taskplayer/player/repair): a step that fails every attempt pauses the run, is
+// Recovery (runWithRecovery in @shadow/player/repair): a step that fails every attempt pauses the run, is
 // repaired or waits for the user, and resumes. Repair transcripts go next to the run log (<runId>.repair-N.json).
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ActionStep, type Message, Skill, type Step } from "@taskplayer/core";
-import { APP_SUPPORT_DIR } from "@taskplayer/ipc";
-import type { MemoryStore } from "@taskplayer/memory";
+import { type ActionStep, type Message, Skill, type Step } from "@shadow/core";
+import { APP_SUPPORT_DIR } from "@shadow/ipc";
+import type { MemoryStore } from "@shadow/memory";
 import {
   type ChannelExecutor,
   DEFAULT_TIMEOUT_MS,
@@ -19,10 +19,10 @@ import {
   type RunOutcome,
   runSkill,
   type StepResult,
-} from "@taskplayer/player";
-import { fileExists, fsChannel, type LlmExecutor, poll, resolveInputs, scriptChannel } from "@taskplayer/player/node";
-import { type Recovery as PlayerRecovery, runWithRecovery } from "@taskplayer/player/repair";
-import type { PageOp, PageOpResult } from "@taskplayer/player/web";
+} from "@shadow/player";
+import { fileExists, fsChannel, type LlmExecutor, poll, resolveInputs, scriptChannel } from "@shadow/player/node";
+import { type Recovery as PlayerRecovery, runWithRecovery } from "@shadow/player/repair";
+import type { PageOp, PageOpResult } from "@shadow/player/web";
 import type { Daemon } from "./daemon.ts";
 
 // Extra time on top of a step's own timeout for the round trip and the extension's work.
@@ -34,9 +34,9 @@ export interface RunHooks {
   // A step's question for you (an ask), answered in the daemon terminal.
   ask?: RunDeps["ask"];
   log(event: RunLogEvent): void;
-  // data.pick steps (see dataChannel in @taskplayer/player/node).
+  // data.pick steps (see dataChannel in @shadow/player/node).
   data?: ChannelExecutor;
-  // llm steps (see llmExecutor in @taskplayer/player/node).
+  // llm steps (see llmExecutor in @shadow/player/node).
   llm?: LlmExecutor;
   // Recovery from failures. Without it, a step that fails every attempt fails the run.
   recovery?: Recovery;
@@ -82,10 +82,10 @@ export async function runSkillFile(
     return { ok, value, matchScore, matchedBy, failedCheck, error };
   };
 
-  // Mac-app steps act through the Accessibility API, which only Task Player.app is allowed to use. The app itself says
+  // Mac-app steps act through the Accessibility API, which only Shadow.app is allowed to use. The app itself says
   // when macOS hasn't allowed it yet (the step fails with how to allow it).
   const ax = async (step: ActionStep, ctx: { runId: string }): Promise<StepResult> => {
-    if (!daemon.mac().connected) throw new Error("Task Player.app is not running: build it with pnpm setup:mac");
+    if (!daemon.mac().connected) throw new Error("Shadow.app is not running: build it with pnpm setup:mac");
     const reply = await daemon.requestMac(
       { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
       (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 2 + EXTENSION_MARGIN_MS,

@@ -3,7 +3,7 @@
 // on the page or its wait holds, or for the last step the workflow's success checks pass. A click that simply didn't
 // throw is not evidence. Steps whose effect the player verifies itself (typing, choosing, uploading, extracting)
 // are their own evidence.
-import { isAction, isOutward, type Skill, type Step, walkSteps } from "@taskplayer/core";
+import { isAction, isOutward, type Skill, type Step, walkSteps } from "@shadow/core";
 import { runSkill } from "../run.ts";
 import { resolveTemplates } from "../template.ts";
 import type { Resume, RunLogEvent } from "../types.ts";

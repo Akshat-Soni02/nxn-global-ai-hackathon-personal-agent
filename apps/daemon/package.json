@@ -1,5 +1,5 @@
 {
-  "name": "@taskplayer/daemon",
+  "name": "@shadow/daemon",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,11 +13,11 @@
     "tsx": "^4.23.15"
   },
   "dependencies": {
-    "@taskplayer/core": "workspace:*",
-    "@taskplayer/ipc": "workspace:*",
-    "@taskplayer/player": "workspace:*",
-    "@taskplayer/llm": "workspace:*",
-    "@taskplayer/memory": "workspace:*",
-    "@taskplayer/recorder": "workspace:*"
+    "@shadow/core": "workspace:*",
+    "@shadow/ipc": "workspace:*",
+    "@shadow/player": "workspace:*",
+    "@shadow/llm": "workspace:*",
+    "@shadow/memory": "workspace:*",
+    "@shadow/recorder": "workspace:*"
   }
 }

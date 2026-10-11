@@ -1,7 +1,7 @@
 // The capability briefing: what a workflow can do, generated from this package's code, so an agent's picture of the
 // player changes when the code does. It opens every agent episode (repair, design): the kinds of step, the actions
 // per channel with their args and outputs, variables and references, the edit operations, and what is available
-// right now (extension connected, Task Player.app running, consents given).
+// right now (extension connected, Shadow.app running, consents given).
 import { EDIT_DOCS, STEP_FIELDS } from "./edit.ts";
 import { ACTIONS, CHANNELS } from "./skill.ts";
 import { SCALAR_TYPES } from "./vars.ts";
@@ -125,7 +125,7 @@ export function briefing(options: BriefingOptions = {}): string {
       "",
       "## Available now",
       yes(a.extension, "Chrome extension connected", "web steps can't run or be tried"),
-      yes(a.macApp, "Task Player.app running", "ax steps can't run or be tried"),
+      yes(a.macApp, "Shadow.app running", "ax steps can't run or be tried"),
       yes(a.screenConsent, "Screen consent", "no screenshots may be described"),
     );
   }

@@ -1,5 +1,5 @@
 // A tool an agent can call. Tools are written against interfaces (look at the page, act on it, run steps), and the
-// caller connects them to the extension, Task Player.app, memory and the skill store, so agents also run in tests.
+// caller connects them to the extension, Shadow.app, memory and the skill store, so agents also run in tests.
 import type { z } from "zod";
 
 //   look      read-only: the failure report, a page outline, the workflow

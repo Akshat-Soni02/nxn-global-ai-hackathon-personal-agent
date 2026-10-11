@@ -1,4 +1,4 @@
-import type { ActionStep, Ask, Check, LlmStep, Skill, Step } from "@taskplayer/core";
+import type { ActionStep, Ask, Check, LlmStep, Skill, Step } from "@shadow/core";
 
 // What a channel reports back for one attempt at one step.
 export interface StepResult {
@@ -30,7 +30,7 @@ export interface RunDeps {
   data?: ChannelExecutor;
   // llm steps: one model call that transforms data. Optional: skills without llm steps never need it.
   llm?: (step: LlmStep, ctx: RunContext) => Promise<StepResult>;
-  // Mac apps through the Accessibility API (Task Player.app). Optional: web-and-file skills never need it.
+  // Mac apps through the Accessibility API (Shadow.app). Optional: web-and-file skills never need it.
   ax?: ChannelExecutor;
   // Polls a file_exists check (a path or glob) until it holds or the timeout passes.
   fileExists(pattern: string, timeoutMs: number): Promise<boolean>;

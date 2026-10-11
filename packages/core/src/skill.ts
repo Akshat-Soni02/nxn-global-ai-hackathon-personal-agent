@@ -69,7 +69,7 @@ export const ACTIONS = {
   script: ["applescript", "shortcut", "shell"],
   // A rule over rows saved by an earlier step. Judgement and text work are llm steps, not data actions.
   data: ["pick"],
-  // Mac apps through the Accessibility API, run by Task Player.app (apps/mac).
+  // Mac apps through the Accessibility API, run by Shadow.app (apps/mac).
   ax: ["open", "press", "set_value", "focus", "menu", "key"],
   vision: ["click", "type"],
 } as const satisfies Record<Channel, readonly string[]>;

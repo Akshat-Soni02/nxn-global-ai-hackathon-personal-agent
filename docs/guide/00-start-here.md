@@ -1,4 +1,4 @@
-# Task Player: the guide
+# Shadow: the guide
 
 > **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
 
@@ -17,7 +17,7 @@
 
 ## The whole product in one picture
 
-![Task Player: how the pieces fit together](architecture-map.png)
+![Shadow: how the pieces fit together](architecture-map.png)
 
 How to read it:
 

@@ -3,7 +3,7 @@
 // version is the one replay runs; a rollback saves the version before it again, as the next one.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Skill } from "@taskplayer/core";
+import { Skill } from "@shadow/core";
 
 const VERSION_FILE = /^v(\d+)\.json$/;
 

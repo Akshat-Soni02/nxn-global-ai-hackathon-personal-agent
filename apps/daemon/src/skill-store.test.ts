@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Skill } from "@taskplayer/core";
+import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { loadSkill, rollbackSkill, saveSkill, versions } from "./skill-store.ts";
 

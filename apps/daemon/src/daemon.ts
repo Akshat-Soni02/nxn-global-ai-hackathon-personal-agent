@@ -1,8 +1,8 @@
-// Daemon core: tracks connected extensions and Task Player.app, owns recording sessions, and sends replay work out:
-// web steps to the extension, ax steps (Mac apps) to Task Player.app. Each connection says which it is in its hello.
+// Daemon core: tracks connected extensions and Shadow.app, owns recording sessions, and sends replay work out:
+// web steps to the extension, ax steps (Mac apps) to Shadow.app. Each connection says which it is in its hello.
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:net";
-import { Message } from "@taskplayer/core";
+import { Message } from "@shadow/core";
 import { openRecording, type Recording } from "./record.ts";
 import { type Connection, listen } from "./server.ts";
 
@@ -22,9 +22,9 @@ export interface Daemon {
   // To every connected extension (one per Chrome profile): recording state and the button's status line.
   broadcast(message: Message): void;
   waitForExtension(timeoutMs: number): Promise<boolean>;
-  // Task Player.app (apps/mac): the desktop button, Mac-app recording and the ax channel.
+  // Shadow.app (apps/mac): the desktop button, Mac-app recording and the ax channel.
   mac(): { connected: boolean; trusted: boolean };
-  // Sends an ax step to Task Player.app and resolves with its reply.
+  // Sends an ax step to Shadow.app and resolves with its reply.
   requestMac(message: Message, timeoutMs: number): Promise<Message>;
   close(): Promise<void>;
 }
@@ -51,7 +51,7 @@ export async function startDaemon(options: {
 }): Promise<Daemon> {
   const log = options.log ?? (() => {});
   const extensions = new Set<Connection>();
-  const macs = new Map<Connection, { trusted: boolean }>(); // Task Player.app; one at a time in practice
+  const macs = new Map<Connection, { trusted: boolean }>(); // Shadow.app; one at a time in practice
   let sessionId: string | undefined;
   let startedAt = 0;
   let recording: Recording | undefined; // the open trace; kept briefly after stop for late events
@@ -81,7 +81,7 @@ export async function startDaemon(options: {
           if (message.from === "mac") {
             macs.set(connection, { trusted: message.trusted === true });
             log(
-              "Task Player.app connected,",
+              "Shadow.app connected,",
               message.trusted ? "Accessibility allowed" : "Accessibility not allowed yet: Mac apps are not recorded",
             );
             desktopButton();
@@ -136,7 +136,7 @@ export async function startDaemon(options: {
     onClose(connection) {
       if (extensions.delete(connection)) log("extension disconnected");
       if (macs.delete(connection)) {
-        log("Task Player.app disconnected");
+        log("Shadow.app disconnected");
         desktopButton();
       }
       for (const [id, waiter] of pending) {
@@ -169,7 +169,7 @@ export async function startDaemon(options: {
     return new Promise<Message>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(message.id);
-        const who = macs.has(connection) ? "Task Player.app" : "extension";
+        const who = macs.has(connection) ? "Shadow.app" : "extension";
         reject(new Error(`${who} did not answer ${message.type} within ${timeoutMs} ms`));
       }, timeoutMs);
       pending.set(message.id, { connection, resolve, reject, timer });
@@ -217,7 +217,7 @@ export async function startDaemon(options: {
     },
     async requestMac(message, timeoutMs) {
       const [connection] = macs.keys();
-      if (!connection) throw new Error("Task Player.app is not running (it starts with the daemon: pnpm setup:mac)");
+      if (!connection) throw new Error("Shadow.app is not running (it starts with the daemon: pnpm setup:mac)");
       return ask(connection, message, timeoutMs);
     },
     notify(message) {
@@ -225,8 +225,8 @@ export async function startDaemon(options: {
       if (connection) send(connection, message);
     },
     broadcast,
-    // server.close() alone waits for every open connection to end, and Chrome's native host and Task Player.app
-    // keep theirs open: so end them (Task Player.app quits when its connection ends), with a short backstop.
+    // server.close() alone waits for every open connection to end, and Chrome's native host and Shadow.app
+    // keep theirs open: so end them (Shadow.app quits when its connection ends), with a short backstop.
     close: () =>
       new Promise((resolve) => {
         for (const connection of [...extensions, ...macs.keys()]) connection.close();

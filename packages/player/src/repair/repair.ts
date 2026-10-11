@@ -4,10 +4,10 @@
 //
 //   const repairer = createRepairer({ llm, meter });           one per run: it keeps the per-run limits
 //   const outcome = await repairer.repair(skill, failure, env); resolve | commit | escalate
-import { type Budget, type Episode, runAgent } from "@taskplayer/agent";
-import { briefing, type EditInput, isOutward, Skill, type Step, walkSteps } from "@taskplayer/core";
-import type { Llm, UsageMeter } from "@taskplayer/llm";
-import { UsageMeter as Meter } from "@taskplayer/llm";
+import { type Budget, type Episode, runAgent } from "@shadow/agent";
+import { briefing, type EditInput, isOutward, Skill, type Step, walkSteps } from "@shadow/core";
+import type { Llm, UsageMeter } from "@shadow/llm";
+import { UsageMeter as Meter } from "@shadow/llm";
 import type { Failure, Resume } from "../types.ts";
 import type { PageSignals } from "../web/inspect.ts";
 import { type Classification, classify, type FailureClass } from "./classify.ts";
@@ -166,7 +166,7 @@ export function createRepairer(options: RepairerOptions = {}): Repairer {
   };
 }
 
-const ROLE = `You are Task Player's repair agent. A saved workflow failed at one step while running on its own, and you get
+const ROLE = `You are Shadow's repair agent. A saved workflow failed at one step while running on its own, and you get
 it going again, safely. First decide what kind of failure it is: only drift (the site or app changed: a renamed
 button, a new banner or dialog, an action moved into a menu, a new confirmation page) may change the workflow. A site
 that is down, a login page, an empty inbox or bad data is resolved without changing anything.

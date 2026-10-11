@@ -1,5 +1,5 @@
 {
-  "name": "@taskplayer/extension",
+  "name": "@shadow/extension",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -14,8 +14,8 @@
     "@types/node": "^26.6.3"
   },
   "dependencies": {
-    "@taskplayer/core": "workspace:*",
-    "@taskplayer/player": "workspace:*",
+    "@shadow/core": "workspace:*",
+    "@shadow/player": "workspace:*",
     "dom-accessibility-api": "^0.7.1"
   }
 }

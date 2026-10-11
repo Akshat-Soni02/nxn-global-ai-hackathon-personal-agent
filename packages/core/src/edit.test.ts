@@ -338,7 +338,7 @@ describe("the briefing", () => {
     expect(text).toContain("- fs.find { dir, glob");
     expect(text).toContain("{ op: retarget, step, target: Locator }");
     expect(text).toContain("- action: intent, requires_approval");
-    expect(text).toContain("Task Player.app running: no (ax steps can't run or be tried)");
+    expect(text).toContain("Shadow.app running: no (ax steps can't run or be tried)");
     expect(briefing()).not.toContain("Edit operations");
   });
 

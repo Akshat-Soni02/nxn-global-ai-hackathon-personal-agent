@@ -34,21 +34,21 @@ export function classify(failure: Failure, signals?: PageSignals): Classificatio
   }
 
   // Channel errors that need something from the user.
-  if (/Task Player\.app is not running/i.test(error)) {
-    return { class: "environment", reason: error, need: "start Task Player.app" };
+  if (/Shadow\.app is not running/i.test(error)) {
+    return { class: "environment", reason: error, need: "start Shadow.app" };
   }
   if (/accessibility|not trusted|not allowed to (control|send)/i.test(error)) {
-    return { class: "environment", reason: error, need: "allow Task Player in System Settings > Privacy & Security" };
+    return { class: "environment", reason: error, need: "allow Shadow in System Settings > Privacy & Security" };
   }
   if (/extension did not connect|Chrome has no page target|cannot connect to/i.test(error)) {
-    return { class: "environment", reason: error, need: "open Chrome (the Task Player extension connects on its own)" };
+    return { class: "environment", reason: error, need: "open Chrome (the Shadow extension connects on its own)" };
   }
   if (/is not installed, or did not start/i.test(error)) return { class: "environment", reason: error, need: error };
   if (/operation not permitted|EACCES|EPERM/i.test(error)) {
     return {
       class: "environment",
       reason: error,
-      need: "allow Task Player to use that folder (Privacy & Security > Files and Folders)",
+      need: "allow Shadow to use that folder (Privacy & Security > Files and Folders)",
     };
   }
   if (TRANSIENT.test(error)) return { class: "transient", reason: error };

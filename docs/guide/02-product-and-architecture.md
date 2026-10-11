@@ -35,7 +35,7 @@ The Idea tab lists seven scope items and five layers. Each one, located:
 | auth management | none needed as a layer; a per-site "logged in?" check plus keychain secrets |
 | task management layer [status, triggering, scheduling, deferring] | daemon: `Trigger` (`skill.ts:50`), run lifecycle (`design.md:181`) — ⬜ |
 | context layer [multi-format inputs, drilling while intake] | `packages/recorder` (`capture/`, `trace.ts`, `compile.ts`, `drill.ts`) + `packages/memory` — **your part** |
-| task player | `packages/player` + `run.step` handler in `apps/extension/src/background.ts:48` — Akshat |
+| shadow | `packages/player` + `run.step` handler in `apps/extension/src/background.ts:48` — Akshat |
 | user interface layer [drilling to user, reporting back] | today: daemon stdin (`main.ts:12`); later a menu bar or Electron shell ([03](03-tools-chrome-electron-openai.md#q2--electron-desktop-app-or-chrome-extension)) |
 
 ---
@@ -135,7 +135,7 @@ Notice what the two sides did *not* share. Record saw a click plus an OS dialog 
 
 ### Why the shim, mechanically
 
-Chrome's native messaging works like this: the extension calls `chrome.runtime.connectNative("com.taskplayer.daemon")`. Chrome looks up the host manifest that `install-native-host.ts:32-38` wrote, **spawns** the program at its `path`, and talks to it over that process's stdin and stdout.
+Chrome's native messaging works like this: the extension calls `chrome.runtime.connectNative("com.shadow.daemon")`. Chrome looks up the host manifest that `install-native-host.ts:32-38` wrote, **spawns** the program at its `path`, and talks to it over that process's stdin and stdout.
 
 That spawned process is new every time. It cannot *be* the always-on daemon, which was started earlier by you or at login. So the spawned program is a ~30-line pipe (`native-host/main.ts`):
 

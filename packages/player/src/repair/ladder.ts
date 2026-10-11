@@ -3,7 +3,7 @@
 //   1. wait longer      the page was slow: the same step with twice the time
 //   2. fuzzy match      the control was renamed or restyled: one clear winner among controls of the same kind
 // A fix is a set of edits on the workflow, so it is saved as a new version like any other repair.
-import { applyEdits, type EditInput, findStep, isAction, repairViolations, type Skill } from "@taskplayer/core";
+import { applyEdits, type EditInput, findStep, isAction, repairViolations, type Skill } from "@shadow/core";
 import { DEFAULT_TIMEOUT_MS } from "../run.ts";
 import type { Failure } from "../types.ts";
 import type { FoundElement } from "../web/inspect.ts";

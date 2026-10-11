@@ -1,8 +1,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type LlmStep, Skill, type VarType } from "@taskplayer/core";
-import { fakeLlm } from "@taskplayer/llm";
+import { type LlmStep, Skill, type VarType } from "@shadow/core";
+import { fakeLlm } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
 import { answerSchema, llmExecutor } from "./llm-step.ts";
 

@@ -31,11 +31,11 @@ export function llmConfig(settings: LlmSettings): LlmConfig {
   };
 }
 
-// Development only: NEBIUS_API_KEY (required), NEBIUS_BASE_URL, and TASKPLAYER_MODEL_FAST / _SMART / _VISION to swap
+// Development only: NEBIUS_API_KEY (required), NEBIUS_BASE_URL, and SHADOW_MODEL_FAST / _SMART / _VISION to swap
 // a profile's model. Undefined when there is no key, so callers can run without a model.
 export function configFromEnv(env: Record<string, string | undefined> = process.env): LlmConfig | undefined {
   if (!env.NEBIUS_API_KEY) return undefined;
-  const model = (name: ProfileName) => env[`TASKPLAYER_MODEL_${name.toUpperCase()}`];
+  const model = (name: ProfileName) => env[`SHADOW_MODEL_${name.toUpperCase()}`];
   return llmConfig({
     apiKey: env.NEBIUS_API_KEY,
     baseUrl: env.NEBIUS_BASE_URL,

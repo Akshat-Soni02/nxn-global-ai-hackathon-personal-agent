@@ -107,7 +107,7 @@ final class Panel {
     view.toolTip =
       l.kind == .idle
       ? (trusted
-        ? "Record a task (Task Player)"
+        ? "Record a task (Shadow)"
         : "Record a task. Mac apps are not recorded until you allow Accessibility: right-click.")
       : l.text
     view.setAccessibilityLabel(l.kind == .idle ? "Record a task" : l.text)
@@ -152,7 +152,7 @@ final class Panel {
     allow.isEnabled = !trusted
     menu.addItem(allow)
     menu.addItem(.separator())
-    let quit = NSMenuItem(title: "Quit Task Player", action: #selector(MenuTarget.quit), keyEquivalent: "")
+    let quit = NSMenuItem(title: "Quit Shadow", action: #selector(MenuTarget.quit), keyEquivalent: "")
     quit.target = menuTarget
     menu.addItem(quit)
     NSMenu.popUpContextMenu(menu, with: event, for: view)

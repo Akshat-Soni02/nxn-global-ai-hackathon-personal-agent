@@ -126,7 +126,7 @@ If the two sides computed "name" differently, replay would fail on an unchanged 
 
 ```ts
 // apps/extension/src/describe.ts  (proposed; dom-accessibility-api is a new dependency)
-import type { ElementDescriptor } from "@taskplayer/core";
+import type { ElementDescriptor } from "@shadow/core";
 import { computeAccessibleName, getRole } from "dom-accessibility-api";
 
 const KEEP = ["id", "name", "type", "placeholder", "aria-label", "data-testid", "data-test", "data-qa", "href"];

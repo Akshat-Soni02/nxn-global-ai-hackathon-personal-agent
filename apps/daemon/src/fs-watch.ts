@@ -77,10 +77,10 @@ export function classify(batch: FsObservation[]): FsChange[] {
   return changes.sort((a, b) => a.at - b.at);
 }
 
-// Your home folder unless TASKPLAYER_WATCH_DIRS says otherwise ("~/Work:/Volumes/Drive", ":"-separated like PATH).
+// Your home folder unless SHADOW_WATCH_DIRS says otherwise ("~/Work:/Volumes/Drive", ":"-separated like PATH).
 // Empty turns file capture off.
 export function watchDirsFromEnv(env: Record<string, string | undefined> = process.env): string[] {
-  const raw = env.TASKPLAYER_WATCH_DIRS;
+  const raw = env.SHADOW_WATCH_DIRS;
   if (raw === undefined) return [homedir()];
   return raw
     .split(delimiter)
