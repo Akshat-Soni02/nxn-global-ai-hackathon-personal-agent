@@ -471,7 +471,7 @@ Each recording keeps its raw files in one folder: screenshots, audio, transcript
 
 *Decided Oct 10, 2026.* Today the daemon runs in a terminal (`pnpm daemon`), reads the API key from the repo's `.env`, and everything that waits for the user waits on that terminal: approvals, asks, drill questions and runs waiting for the user are functions held in memory (`pendingApproval`, `pendingRecovery` in `apps/daemon/src/main.ts`), answered by typing `approve`, `resume` and so on. That cannot run unattended: a daemon started by macOS has no terminal to type into, and a wait held in memory is lost when the daemon restarts. So the daemon changes in three ways.
 
-**Started by macOS.** Shadow.app registers the daemon as a **LaunchAgent** (`SMAppService`): launchd starts it when the user logs in and starts it again if it exits. Only one copy runs (a lock file in the data folder).
+**Started by macOS.** Shadow.app registers the daemon as a **LaunchAgent** (`SMAppService`): launchd starts it when the user logs in and starts it again if it exits. Only one copy runs: a second daemon refuses to start while one listens on the socket.
 
 **An inbox instead of a terminal.** Everything that waits for the user is a **saved record** in SQLite, not a function in memory:
 
@@ -479,11 +479,13 @@ Each recording keeps its raw files in one folder: screenshots, audio, transcript
 | --- | --- | --- |
 | `approval` | a step that needs approval | approve, deny |
 | `ask` | a step's question | a value, or yes / no |
-| `waiting` | a run that recovery couldn't finish, or one that needs a login ("waiting for you"; the workflow stays live) | resume, skip (done by hand, or shown), cancel |
-| `drill` | a question about a new recording | an answer |
+| `recovery` | a run that recovery couldn't finish, or one that needs a login ("waiting for you"; the workflow stays live) | retry, skip (done by hand, or shown), stop |
+| `question` | a question outside a run: the drill after a recording, which file to use | an answer |
 | `repaired` | nothing: a repair saved a new version | review, roll back |
 
-Each record names the workflow, run, step path and version, what is needed, and when it was asked. Any client can answer it; the first answer wins and the others see it resolved. A waiting run's state (its variables and where it stopped) is saved with it, so after a restart it is still waiting, never resumed on its own.
+Each record names the workflow, run, step path and version, what is needed, and when it was asked. Any client can answer it; the first answer wins and the others see it resolved.
+
+**How a run waits** (built Oct 11). A run that needs the user does not wait in memory. The approval, ask and recovery hooks answer `WAIT` (`packages/player`): the run ends its leg as `waiting`, with a checkpoint (the version, where it stopped, its variables, what the user already answered for that step) saved on its row in the `runs` table, and an inbox item. Answering the item starts the next leg from the checkpoint, with the answer, without asking again. So a run can wait for hours, or across a daemon restart, and resumes only when answered. A run the daemon was in the middle of when it stopped (a crash, a restart) is marked `interrupted` and does not go on by itself; questions outside a run (the drill) can't survive a restart and expire. One leg acts at a time, because there is one automation window; waiting runs hold nothing.
 
 **One API, two doors.** The daemon accepts one set of queries and commands:
 
@@ -493,7 +495,7 @@ Each record names the workflow, run, step path and version, what is needed, and 
 
 They are served on the **Unix socket** (as today: the extension through the native host, Shadow.app, and the terminal) and on **local HTTP** for the app's window. HTTP listens on `127.0.0.1` only, on a random port, and needs a random token made at each start and written to a file only the user can read (mode 0600) in the data folder; requests without it, or from another origin, are refused. The token is needed because any web page open in the user's browser can also send requests to `127.0.0.1`.
 
-**The terminal stays** as a client for development: `pnpm daemon` keeps its commands, sent through the same API.
+**The terminal stays** as a client for development: `pnpm daemon` keeps its commands, which answer inbox items (`approve`, `deny`, `resume`, `skip`, `cancel`, or the typed answer to a question), plus `inbox`, `runs` and `cancel <run>`. Over the API, `start` takes a workflow id from the store, never a file path, since a workflow can hold script steps; the terminal may still run a file.
 
 **Triggers** (Frequency) run in the daemon: a scheduler for times, and folder watches for "when a file appears".
 
@@ -534,7 +536,7 @@ Local only: logs, runs and usage stay on the Mac, in line with the privacy promi
 
 - **Logs.** One structured logger for the daemon (time, level, component, run id, message) writing JSON lines to `~/Library/Logs/Shadow/daemon.log`; Shadow.app writes `app.log` there too. Both are rotated (size cap, a few files kept). Console.app shows that folder. Today the daemon logs to the terminal and the app to `NSLog` or `--log`.
 - **Runs.** The per-run JSON lines (`runs/<runId>.jsonl`) stay the detail. A `runs` table indexes them: workflow, version, trigger, status (succeeded, failed, denied, no-op, waiting, cancelled), start, duration, failed step, whether it was repaired, model cost. The window lists runs from it.
-- **Repair episodes** are saved next to their run: the failure report, the agent's transcript and the version diff. Today they exist only in memory, through `onEpisode`.
+- **Repair episodes** are saved next to their run (`runs/<runId>.repair-N.json`, numbered across the run's legs): the failure report, the agent's transcript and the version diff.
 - **Model usage.** Tokens and estimated cost per call, per run and per day, saved (today `UsageMeter` is in memory only). A daily budget in settings: a warning near it; over it, model calls are refused and the user is told.
 - **Health.** Extension connected; Shadow.app connected and allowed Accessibility; API key present and the model reachable (the last check); triggers and their next times; disk used; the last error. Shown in the window and as the menu bar icon's state.
 - **Retention.** Run logs and repair episodes are kept 30 days (a setting), the `ai-cache` is pruned, logs are rotated. Values of type `secret` are never logged, as today.
@@ -611,10 +613,10 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Description form | ❌ | New |
 | Screenshots per event | ❌ (only cropped element images in web capture) | New |
 | Voice + transcription (macOS SpeechAnalyzer) | ❌ | New |
-| Daemon as a service: LaunchAgent, saved inbox, API (socket + local HTTP) | ❌ (`pnpm daemon` in a terminal; approvals, asks, drill and waiting runs wait on stdin in memory) | New: [The daemon as a service](#the-daemon-as-a-service) |
+| Daemon as a service: LaunchAgent, saved inbox, API (socket + local HTTP) | ✅ except the LaunchAgent (Oct 11): runs wait in the inbox with a checkpoint and go on after an answer, also after a restart (`apps/daemon/src/service.ts`, `store.ts`); the API on the socket and on local HTTP with a token (`api.ts`, `http.ts`); the terminal is a client | Left: the LaunchAgent (with the app, milestone 7); API methods for go live / pause, edits, recording, settings, memory and version diffs; stopping a run in the middle of a step |
 | The app's window, menu bar and notifications | ❌ (only the floating button) | New: [The app](#the-app) |
 | Workflow editor | ❌ (terminal only) | In the app's window (decided Oct 10) |
-| Observability: log files, runs index, saved repair episodes, saved usage and budget, health | Per-run JSON lines only; daemon logs to the terminal; repair transcripts and usage in memory | New: [Observability](#observability) |
+| Observability: log files, runs index, saved repair episodes, saved usage and budget, health | ✅ in part (Oct 11): the daemon's log in `~/Library/Logs/Shadow` (rotated JSON lines, `logger.ts`) and Shadow.app's `app.log` there; the `runs` table with status, version, repaired and cost; repair transcripts next to each run log; per-run cost and today's spend; a `health` query | Left: a daily budget that refuses model calls, retention, the diagnostics export, health in the menu bar |
 | Highlight-only test | ❌ | New |
 | Recover from a failure: classify, repair agent, verify, pause and show, versions + rollback | ✅ for web steps (Oct 10): pause and resume in the interpreter, classification, the cheap ladder, the repair agent and its tools, evidence, `by: debug` versions, `rollback`, `resume` / `skip` / `cancel` in the daemon and `pnpm replay` | Left: the demonstration recorded as the repair, Mac-app (ax) repair beyond classification, `describe_screen` (needs redaction), notifications beyond the terminal and the button |
 | `packages/agent` runtime; `core` edit operations and capability briefing | ✅ the loop (native tools or JSON actions), guard, budgets, working memory, transcript; `core/edit.ts`, `core/briefing.ts`, and section 9's never-rules in `core/guard.ts` (Oct 10) | The repair agent's tools are milestone 5 |
@@ -635,7 +637,7 @@ Replay side first: the workflow format and its interpreter are what everything e
 | 3 | `packages/llm`: client, profiles, model catalog, thinking control, structured output, tools, usage meter, fake client, `pnpm llm:check`; existing callers moved onto it | Both | Code done (Oct 10): every model call goes through it. Left: `llm:check` with a real key |
 | 4 | `packages/agent` runtime; `core/edit.ts` and `core/briefing.ts` | Both | ✅ Done (Oct 10): an agent with a scripted model is refused an outward edit, told about a broken reference, and commits a retarget within its budget (`packages/agent/src/agent.test.ts`) |
 | 5 | Recover from a failure: failure report, repair agent and its tools, verify, pause and resume, versions, notification and rollback, pause and show | Replay | ✅ Mostly done (Oct 10): each drift fixture (`fixtures/pages/drift`: renamed, reworded, banner, menu, confirmation, logged out) is repaired or resolved as expected with a scripted model, saved as v2 and rolled back with `rollback`; a site that is down is retried; the user can do a step by hand and `skip`. Live in Chrome: the ladder repaired `reworded.html`. Left: the scenarios on the real model, and the demonstration recorded as the repair |
-| 6 | Daemon as a service: saved inbox, API on the socket and local HTTP, the terminal as a client; log files, runs index, saved repair episodes | Both | Oct 10–15: a run that needs approval, answered after a daemon restart through the API, continues; every run is listed with its status and cost |
+| 6 | Daemon as a service: saved inbox, API on the socket and local HTTP, the terminal as a client; log files, runs index, saved repair episodes | Both | ✅ Done (Oct 11): a run that needed approval waited, the daemon was killed and restarted, the approval was answered over HTTP, and the run went on at that step and succeeded without rerunning earlier ones (by hand, on the real daemon; and in `service.test.ts`); every run is listed with its status and cost |
 | 7 | The app: owns the daemon (LaunchAgent); window with inbox, workflows, run detail, workflow detail with versions and rollback; menu bar, health, notifications | Both | Oct 14–19: with no terminal open, a "waiting for you" notification opens the inbox, and resume finishes the run; a repair is rolled back from the window |
 | 8 | Triggers from Frequency; live and paused workflows | Replay | Oct 18–23: a scheduled and a folder workflow start on their own once live, and not while paused; three failed runs in a row pause it |
 | 9 | Packaging and first run: `pnpm package`, the `.dmg`, Keychain key, native host inside the app, connection check; `pnpm release`, CI | Both | Oct 18–23: a fresh Mac goes from download to "connected to Nemotron" by following the README |
@@ -700,7 +702,7 @@ Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglo
 
 - [ ] **Frequency options.** The dropdown list above is a proposal; "when an email arrives" is wanted but needs an email trigger.
 - [ ] **A schedule missed while the Mac slept:** run it on wake, or skip it until the next time? Maybe per workflow.
-- [ ] **A daemon restart during a step** (not a pause): mark the run failed, or resume from that step? Ties to the halfway question below.
+- [x] **A daemon restart during a step** (not a pause): decided Oct 11, the run is marked `interrupted` and does not go on by itself. A run *waiting* for the user is not affected: it goes on when answered.
 - [ ] **The window's door:** local HTTP + token is decided for speed of development; if it proves fragile, the app can carry the window's messages over the Unix socket instead (no open port).
 - [ ] **Chrome Web Store** (unlisted) after the hackathon, so users don't load the extension unpacked.
 - [ ] **Highlight-only test** for steps behind an earlier action (see [Test](#7-test)).

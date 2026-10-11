@@ -19,6 +19,14 @@ export function dataDir(env: Record<string, string | undefined> = process.env): 
   return env.SHADOW_HOME ?? APP_SUPPORT_DIR;
 }
 
+// Where the daemon and the app write their logs: ~/Library/Logs/Shadow, which Console.app shows. With SHADOW_HOME set
+// (tests, trial runs) inside that folder instead, so they don't mix into the real logs. SHADOW_LOG_DIR overrides both.
+export function logDir(env: Record<string, string | undefined> = process.env): string {
+  if (env.SHADOW_LOG_DIR) return env.SHADOW_LOG_DIR;
+  if (env.SHADOW_HOME) return join(env.SHADOW_HOME, "logs");
+  return join(homedir(), "Library", "Logs", "Shadow");
+}
+
 // Where the always-on daemon listens and the native host connects. Overridable for tests.
 export function socketPath(env: Record<string, string | undefined> = process.env): string {
   const path = env.SHADOW_SOCKET ?? join(APP_SUPPORT_DIR, "daemon.sock");

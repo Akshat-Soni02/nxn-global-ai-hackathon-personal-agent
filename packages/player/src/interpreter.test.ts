@@ -4,7 +4,7 @@ import { type ActionStep, type Skill, Skill as SkillSchema, type Step } from "@s
 import { describe, expect, it } from "vitest";
 import { evaluate } from "./conditions.ts";
 import { runSkill } from "./run.ts";
-import { type RunDeps, type RunLogEvent, type StepResult, WAIT } from "./types.ts";
+import { type Resume, type RunDeps, type RunLogEvent, type RunOutcome, type StepResult, WAIT } from "./types.ts";
 
 const T = { text: { type: "text" }, number: { type: "number" } } as const;
 const row = { type: "object", fields: { name: T.text, amount: T.number } } as const;
@@ -441,7 +441,10 @@ describe("pause and resume", () => {
 
 describe("waiting", () => {
   // A checkpoint goes through JSON on its way to the daemon's store and back, as it would across a restart.
-  const saved = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+  const saved = (outcome: RunOutcome): Resume => {
+    if (!outcome.resume) throw new Error("no resume");
+    return JSON.parse(JSON.stringify(outcome.resume));
+  };
 
   it("stops at an approval nobody can answer now, then goes on from it without running earlier steps again", async () => {
     const s = skill([write("s1", "one"), write("s2", "two", { requires_approval: true }), write("s3", "three")]);
@@ -473,7 +476,7 @@ describe("waiting", () => {
         },
       },
     );
-    const resume = { ...saved(waiting.resume), answers: [{ kind: "approval" as const, approved: true }] };
+    const resume = { ...saved(waiting), answers: [{ kind: "approval" as const, approved: true }] };
     expect((await runSkill(s, later.deps, { inputs: {}, resume })).status).toBe("succeeded");
     expect(later.wrote).toEqual(["two", "three"]);
     expect(asked).toBe(1); // the answer was used; the hook wasn't asked again
@@ -495,7 +498,7 @@ describe("waiting", () => {
     expect(waiting.waiting).toMatchObject({ kind: "ask", path: "s1", question: "How many?" });
 
     const later = fake({}, { ask: async () => WAIT });
-    const resume = { ...saved(waiting.resume), answers: [{ kind: "ask" as const, value: "1,200" }] };
+    const resume = { ...saved(waiting), answers: [{ kind: "ask" as const, value: "1,200" }] };
     expect((await runSkill(s, later.deps, { inputs: {}, resume })).status).toBe("succeeded");
     expect(later.wrote).toEqual(["1200 items"]);
   });
@@ -528,8 +531,7 @@ describe("waiting", () => {
         approve: async () => WAIT,
       },
     );
-    const resume = saved(waiting.resume);
-    if (!resume) throw new Error("no resume");
+    const resume = saved(waiting);
     resume.answers = [...(resume.answers ?? []), { kind: "approval", approved: true }];
     expect((await runSkill(s, later.deps, { inputs: {}, resume })).status).toBe("succeeded");
     expect(later.wrote).toEqual(["to Acme"]);
@@ -549,7 +551,7 @@ describe("waiting", () => {
     expect(first.wrote).toEqual(["Acme"]);
 
     const later = fake({}, { approve: async () => true });
-    const resume = { ...saved(waiting.resume), answers: [{ kind: "approval" as const, approved: true }] };
+    const resume = { ...saved(waiting), answers: [{ kind: "approval" as const, approved: true }] };
     expect((await runSkill(s, later.deps, { inputs: { list: people }, resume })).status).toBe("succeeded");
     expect(later.wrote).toEqual(["Globex", "Initech"]);
   });

@@ -21,7 +21,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { Skill } from "@shadow/core";
-import { dataDir, migrateLegacyDataDir, socketPath } from "@shadow/ipc";
+import { dataDir, logDir, migrateLegacyDataDir, socketPath } from "@shadow/ipc";
 import { configFromEnv, createLlm, UsageMeter } from "@shadow/llm";
 import { openMemory } from "@shadow/memory";
 import type { RunLogEvent } from "@shadow/player";
@@ -34,6 +34,7 @@ import { startDaemon } from "./daemon.ts";
 import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
 import { startHttp } from "./http.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
+import { createLogger } from "./logger.ts";
 import { finishRecording } from "./record.ts";
 import { runSkillOn } from "./runner.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
@@ -48,7 +49,8 @@ try {
   // no .env: compile falls back to code only
 }
 
-const log = (...args: unknown[]) => console.error("[daemon]", ...args);
+// Printed here, and written to the log folder (~/Library/Logs/Shadow, which Console.app shows).
+const log = createLogger({ dir: logDir() });
 // Data from before the rename (Task Player → Shadow) moves to the new folder, once.
 if (!process.env.SHADOW_HOME && migrateLegacyDataDir())
   log("moved your data from Application Support/TaskPlayer to Shadow");
@@ -79,8 +81,8 @@ const llm = llmExecutor({ llm: model, cacheDir: join(home, "ai-cache"), limits: 
 log("listening on", path);
 // macOS asks once for Desktop, Documents and Downloads: now, rather than when you press Record.
 for (const folder of askFolderAccess(watchDirs)) {
-  log(
-    `!! macOS blocked ${folder}: file moves there are not recorded. Allow your terminal in Privacy & Security > Files and Folders`,
+  log.warn(
+    `macOS blocked ${folder}: file moves there are not recorded. Allow your terminal in Privacy & Security > Files and Folders`,
   );
 }
 startMacApp();
@@ -234,7 +236,7 @@ async function compileSession(sessionId: string) {
       status("saved", `Saved ${saved.skill.id}. Replay: run ${saved.skill.id}`);
     } else status("empty", "Nothing to save: no steps were recorded");
   } catch (error) {
-    log("compile failed:", error instanceof Error ? error.message : error);
+    log.error("compile failed:", error instanceof Error ? error.message : error);
     log(`the trace is kept: retry with "compile ${sessionId}"`);
     status("failed", "Compile failed: see the daemon terminal");
   } finally {
@@ -396,7 +398,7 @@ function startMacApp() {
   const app = join(import.meta.dirname, "../../mac/build/Shadow.app");
   if (process.env.SHADOW_MAC === "off") return;
   if (!existsSync(app)) return log("no desktop button: build it with pnpm setup:mac");
-  execFile("open", ["-g", app, "--args", "--socket", resolve(path)], (error) => {
+  execFile("open", ["-g", app, "--args", "--socket", resolve(path), "--log", join(logDir(), "app.log")], (error) => {
     if (error) log("could not start Shadow.app:", error.message);
   });
 }

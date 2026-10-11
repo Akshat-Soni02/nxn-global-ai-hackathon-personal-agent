@@ -134,7 +134,7 @@ pnpm fixtures               # serves fixtures/pages on http://localhost:5173
 pnpm seed:sandbox           # creates ~/ShadowTest with sample files for skills/real (--reset to start over)
 pnpm snapshot:pages         # re-downloads the real pages into fixtures/snapshots
 pnpm extension              # builds apps/extension/dist in watch mode
-pnpm daemon                 # runs the daemon (daemon:dev = watch mode, but it also reads Enter); type record, stop (compiles the recording; answer its questions), run <skill-id | skill.json>, approve, deny, resume / skip / cancel (a paused run), rollback <skill-id>, skills, traces, status
+pnpm daemon                 # runs the daemon (daemon:dev = watch mode, but it also reads Enter); type record, stop (compiles the recording; answer its questions), run <skill-id | skill.json>, inbox, approve, deny, resume / skip / cancel (a run that needs you), cancel <run-id>, rollback <skill-id>, runs, skills, traces, status
 ```
 
 **Replay a skill**
@@ -148,6 +148,17 @@ pnpm replay skills/real/upload-test-file.json --yes      # --yes approves gated 
 **When a step fails**, the run pauses instead of failing. Shadow classifies the failure: a site that is down is retried later, a login page waits for you, and an empty inbox ends as nothing to do. Drift (a renamed button, a new banner, an action moved into a menu) is repaired first by cheap fixes with no model, then by the repair agent (Nemotron 3 Super, with `NEBIUS_API_KEY`). A fix is kept only when trying it on the live page shows it works, and it is saved as the next version; `rollback <skill-id>` undoes it. If no safe fix is found, do the step by hand in the automation window and type `skip`. Try it on the drift fixtures: `pnpm fixtures`, then `pnpm replay fixtures/pages/drift/drift-skill.json --yes --input invoice=<a pdf>` after pointing its URL at one of the drifted pages.
 
 `pnpm replay` launches its own debug-port Chrome (profile in `~/Library/Application Support/Shadow/dev-chrome`). The production path is the daemon: type `run skills/real/<skill>.json` in `pnpm daemon`, and web steps run in an automation window of your own Chrome through the extension. Both paths share the player code, and every daemon run is logged to `~/Library/Application Support/Shadow/runs/<runId>.jsonl`.
+
+**What waits for you, and the API.** A run that needs you (an approval, a step's question, a failure only you can fix) doesn't hold the terminal: it waits in the **inbox** (`shadow.db` in the data folder) and goes on when you answer, even after the daemon restarts. Answer in the terminal (`inbox` lists what waits), or through the daemon's API: the Unix socket (`api.call`), or local HTTP, whose port and token are in `~/Library/Application Support/Shadow/api.json` (readable only by you):
+
+```sh
+PORT=$(node -p "require(process.env.HOME+'/Library/Application Support/Shadow/api.json').port")
+TOKEN=$(node -p "require(process.env.HOME+'/Library/Application Support/Shadow/api.json').token")
+curl -s -X POST http://127.0.0.1:$PORT/api/inbox -H "Authorization: Bearer $TOKEN" -d '{"open":true}'
+curl -s -X POST http://127.0.0.1:$PORT/api/answer -H "Authorization: Bearer $TOKEN" -d '{"itemId":"<id>","answer":"approve"}'
+```
+
+Methods: `workflows`, `workflow`, `runs`, `run`, `inbox`, `usage`, `health`, `start` (a workflow id), `answer`, `cancel`, `rollback`; `GET /api/events?token=…` streams changes. The daemon's own log is in `~/Library/Logs/Shadow/daemon.log` (Console.app shows it).
 
 **Connect Chrome to the daemon** (once per machine):
 
