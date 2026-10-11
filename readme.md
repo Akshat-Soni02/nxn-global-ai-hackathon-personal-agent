@@ -166,6 +166,10 @@ Methods: `workflows`, `workflow`, `runs`, `run`, `inbox`, `usage`, `health`, `st
 2. Open `chrome://extensions`, enable Developer mode, click "Load unpacked" and pick `apps/extension/dist`. The manifest's `key` pins the extension ID to `eloljjdiofhdlhoankjbhfeihjankikk`, which is the only origin the host allows. Then open the extension's Details and turn on **Allow access to file URLs**: without it Chrome refuses to hand local files to a page, so upload steps fail with "Not allowed".
 3. Run `pnpm daemon`. The extension reconnects within a minute, or immediately if you reload it. `status` in the daemon shows connected extensions.
 
+**The window and the menu bar.** Shadow.app puts Shadow in the menu bar (how many things wait for you, Record, health) and opens the window: the inbox (approve, answer, retry or skip a stuck step, review or roll back a repair), workflows with their steps and versions, and runs step by step. A notification arrives when something waits for you; clicking it opens the inbox. The window's pages are built with `pnpm build` (or `pnpm ui`, which rebuilds on change) and served by the daemon, which also prints a link to open them in a browser.
+
+**Keep Shadow running without a terminal** (optional): `pnpm setup:daemon` starts the daemon at login and again if it stops; it opens Shadow.app. `pnpm setup:daemon --uninstall` stops it (do that before running `pnpm daemon` in a terminal: only one daemon runs at a time). Its logs are in `~/Library/Logs/Shadow`.
+
 **Record Mac apps and get the desktop button** (once):
 
 1. `pnpm setup:mac` builds `apps/mac/build/Shadow.app` (rebuilt only when its sources change). `pnpm daemon` starts it; it quits when the daemon does.

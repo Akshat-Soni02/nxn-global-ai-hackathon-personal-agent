@@ -403,7 +403,8 @@ function startMacApp() {
   const app = join(import.meta.dirname, "../../mac/build/Shadow.app");
   if (process.env.SHADOW_MAC === "off") return;
   if (!existsSync(app)) return log("no desktop button: build it with pnpm setup:mac");
-  execFile("open", ["-g", app, "--args", "--socket", resolve(path), "--log", join(logDir(), "app.log")], (error) => {
+  const args = ["--socket", resolve(path), "--api", join(home, "api.json"), "--log", join(logDir(), "app.log")];
+  execFile("open", ["-g", app, "--args", ...args], (error) => {
     if (error) log("could not start Shadow.app:", error.message);
   });
 }
