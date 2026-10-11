@@ -174,6 +174,61 @@ So asking the user is not a dead end: it is how a fix the model couldn't find is
 
 One repair episode per failed step and at most two per run; per episode at most 12 turns, $0.10 and 20 actions on the live page; per run at most $0.25 of repair (`DEFAULT_REPAIR_LIMITS` in `packages/player/src/repair/repair.ts`; to move to `config.json`). A transient failure is retried after 30 s and 2 min, then handled as environment. An episode that runs out ends as `escalate`: the run pauses for the user. How long a paused run waits before it ends is [still open](#open-questions).
 
+## Workflow lifecycle
+
+*Planned, not built yet (Oct 10).* What a workflow is doing, apart from any single run: being made or changed (**draft**), running on its trigger (**live**), or stopped on purpose (**paused**). Built with triggers (milestone 7) and the editor (milestone 10).
+
+```mermaid
+stateDiagram-v2
+  [*] --> Draft: describe and record
+  Draft --> Live: go live (checks pass)
+  Live --> Paused: pause, or auto-pause
+  Paused --> Live: resume
+  Live --> Live: edit → a draft beside it → go live = next version
+```
+
+| State | Its trigger | Runs by hand | What it means |
+| --- | --- | --- | --- |
+| **Draft** | Off | Yes, as tests | Being made or changed. Never runs on its own |
+| **Live** | On | Yes | Runs its live version whenever its trigger fires |
+| **Paused** | Off | Yes | Kept as it is, nothing starts on its own. Resume to make it live again |
+
+**Drafts and versions.** Versions stay immutable, and runs execute exactly the tree the user saw:
+
+- A **new workflow** is a draft from the moment the description form is started, through recording, understanding and the drill, until it first goes live as v1. Each stage saves its progress, so a draft left halfway reopens where it stopped.
+- **Editing a live workflow** opens a draft *beside* it. The live version keeps running unchanged until the draft goes live as the next version (`by: user`). Leaving the draft never touches the live workflow.
+- **One draft per workflow** at a time.
+
+**Autosave.** A draft is saved after every change: a base version plus the list of edit operations made on it ([`core/edit.ts`](#edit-operations-shared-by-agents-and-people)), not a copy of the tree. So:
+
+- undo and redo are dropping or replaying the last operation;
+- "what changed" is the operation list;
+- a draft survives a repair that lands underneath it.
+
+**When repair lands under a draft.** Repair saves a new live version at once (section 9). The draft's operations, addressed by step id, are then replayed onto the new version when the draft goes live. One that no longer applies (its step was replaced) is shown to the user to redo or drop.
+
+**Going live.** These must hold:
+
+- the workflow parses and passes `check.ts`, as always;
+- the trigger is set;
+- every input has a default or a way to be resolved (a scheduled run has nobody to ask).
+
+Proposed, not decided: also require a test since the last change.
+
+**Pausing.**
+
+- Pausing stops new runs; a run already going finishes (or is cancelled from the run view).
+- **Auto-pause**: after 3 runs in a row that end failed or waiting for the user, the workflow pauses itself and the user is told why. A workflow that keeps breaking stops instead of piling up failed runs.
+- Not to confuse with a **run** that waits for the user (section 9): in the product that is shown as "waiting for you", and the workflow stays live.
+
+**Where it is kept.** Next to the versions, never inside them, so pausing never rewrites a version file:
+
+- `skills/<id>/state.json`: state, live version, when and why it was paused;
+- `skills/<id>/draft.json`: base version, operations, the stage of a new workflow;
+- `skills/<id>/vN.json`: the versions, as now.
+
+The daemon commands until the editor exists: `drafts`, `live <id>`, `pause <id>`, `resume-workflow <id>`.
+
 ## Agents
 
 Understanding a recording and recovering from a failure both need looking, acting, checking the result and trying again, with a memory of what was already tried. So both are **agents**: a model in a loop with tools. One runtime, two agents:
@@ -435,6 +490,7 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Recover from a failure: classify, repair agent, verify, pause and show, versions + rollback | ✅ for web steps (Oct 10): pause and resume in the interpreter, classification, the cheap ladder, the repair agent and its tools, evidence, `by: debug` versions, `rollback`, `resume` / `skip` / `cancel` in the daemon and `pnpm replay` | Left: the demonstration recorded as the repair, Mac-app (ax) repair beyond classification, `describe_screen` (needs redaction), notifications beyond the terminal and the button |
 | `packages/agent` runtime; `core` edit operations and capability briefing | ✅ the loop (native tools or JSON actions), guard, budgets, working memory, transcript; `core/edit.ts`, `core/briefing.ts`, and section 9's never-rules in `core/guard.ts` (Oct 10) | The repair agent's tools are milestone 5 |
 | Triggers from Frequency | ❌ (only manual `run`) | New |
+| Workflow lifecycle: draft, live, paused, autosave | ❌ (every saved version is runnable; nothing runs on its own yet) | New ([Workflow lifecycle](#workflow-lifecycle)) |
 | `packages/llm` with profiles, structured output, tools, usage meter | ✅ client, catalog, fake client, `pnpm llm:check`; compile, llm steps and `pnpm replay` use it (Oct 10) | Confirm the catalog with `pnpm llm:check` and a real key |
 | Consent, redaction, 24-hour retention | ❌ | New |
 | Key in the Keychain, first-run setup, test build | ❌ (`.env` only) | New |
@@ -451,10 +507,10 @@ Replay side first: the workflow format and its interpreter are what everything e
 | 4 | `packages/agent` runtime; `core/edit.ts` and `core/briefing.ts` | Both | ✅ Done (Oct 10): an agent with a scripted model is refused an outward edit, told about a broken reference, and commits a retarget within its budget (`packages/agent/src/agent.test.ts`) |
 | 5 | Recover from a failure: failure report, repair agent and its tools, verify, pause and resume, versions, notification and rollback, pause and show | Replay | ✅ Mostly done (Oct 10): each drift fixture (`fixtures/pages/drift`: renamed, reworded, banner, menu, confirmation, logged out) is repaired or resolved as expected with a scripted model, saved as v2 and rolled back with `rollback`; a site that is down is retried; the user can do a step by hand and `skip`. Live in Chrome: the ladder repaired `reworded.html`. Left: the scenarios on the real model, and the demonstration recorded as the repair |
 | 6 | Highlight-only test | Replay | Play highlights each reachable target without acting |
-| 7 | Triggers from Frequency | Replay | A scheduled and a folder workflow start on their own |
+| 7 | Triggers from Frequency; live and paused workflows | Replay | A scheduled and a folder workflow start on their own once live, and not while paused; three failed runs in a row pause it |
 | 8 | Description form; consent; screenshots with redaction; voice and transcription; 24-hour retention | Record | A recording carries events, redacted screenshots and a transcript on one clock, and its folder is gone a day after finalising |
 | 9 | Design agent: recording → tree, drill on the tree | Record | Workflow 1 in examples.md becomes a correct tree from a real recording |
-| 10 | Workflow editor (on the same edit operations) | Both | Edit a step, toggle approval, play, see versions |
+| 10 | Workflow editor (on the same edit operations); drafts with autosave | Both | Edit a step, toggle approval, play, see versions; a draft beside a live workflow autosaves, undoes, and goes live as the next version |
 | 11 | Keychain key and first-run setup; test build release | Both | A fresh Mac goes from download to "connected to Nemotron" by following the README |
 | 12 | Measure coverage on examples.md; demo video; submission | Both | Submitted |
 
@@ -475,6 +531,9 @@ Replay side first: the workflow format and its interpreter are what everything e
 | Outbound filter | The redaction every image passes in Task Player.app before the daemon sends it |
 | Zero Data Retention | A Token Factory organization setting: prompts and responses are not stored or used for training |
 | Drill | Questions on the uncertain parts of a draft workflow |
+| Draft | A workflow being made, or changes to a live one kept beside it; never runs on its trigger. Autosaved as edit operations |
+| Live | A workflow whose trigger is on: it runs its live version on its own |
+| Paused (workflow) | Kept, but nothing starts on its own until it is resumed. Not to confuse with a run waiting for the user |
 | Highlight-only test | A replay that finds and highlights each target without acting |
 | Repair | The fix for a drifted step, by the cheap ladder or the repair agent, or shown by the user; saved as a new version once verified |
 | Locator | How a control is remembered: role, accessible name, nearby text, attributes and fallback selectors. Never coordinates |
@@ -505,6 +564,7 @@ Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglo
 - [ ] **Where the workflow editor lives:** Chrome side panel, a local page served by the daemon, or Task Player.app.
 - [ ] **Highlight-only test** for steps behind an earlier action (see [Test](#7-test)).
 - [ ] **How long a paused run waits** for the user before it ends.
+- [ ] **Going live:** require a test run since the last change, or only the checks? And should auto-pause count runs that wait for the user, or only failures?
 - [ ] **A run that fails halfway:** after some rows are written or emails labelled, a fresh run would do them again. Resume from the failed step, or require steps that are safe to repeat?
 - [ ] **Telling "nothing to do" from drift:** an empty inbox and a changed inbox page both look like "target not found". Each step may need to say what "nothing to do" looks like.
 - [ ] **Wrong but "successful" steps:** a weak match on the wrong element never fails, so recovery never starts. A check before acting on a low-margin match, and a "that was wrong" button on the run report.
