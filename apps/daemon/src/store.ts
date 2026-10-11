@@ -8,64 +8,9 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Resume, Waiting } from "@shadow/player";
+import type { Checkpoint, InboxItem, InboxKind, RunRow, RunState } from "./types.ts";
 
-// running → one of the others. waiting: stopped until an inbox item is answered. interrupted: the daemon stopped
-// while the run was going (a restart, a crash); it does not go on by itself.
-export type RunState =
-  | "running"
-  | "waiting"
-  | "succeeded"
-  | "failed"
-  | "denied"
-  | "nothing_to_do"
-  | "cancelled"
-  | "interrupted";
-
-export interface Checkpoint {
-  // The version the run was on when it stopped (a repair may have made a newer one during the run).
-  version: number;
-  // The inputs the run was started with (its variables are in resume.vars).
-  inputs: Record<string, unknown>;
-  resume: Resume;
-  waiting: Waiting;
-  // A run started from a workflow file rather than the store: the file, to load that version again.
-  file?: string;
-}
-
-export interface RunRow {
-  id: string;
-  skillId: string;
-  version: number;
-  trigger: string;
-  status: RunState;
-  startedAt: number;
-  endedAt?: number;
-  failedStep?: string;
-  error?: string;
-  repaired: boolean;
-  costUsd: number;
-  checkpoint?: Checkpoint;
-}
-
-// approval, ask, recovery: a waiting run's step ("waiting for you"). question: a question outside a run (the drill
-// after a recording, which file to use). repaired: nothing to answer; a repair saved a new version, to review.
-export type InboxKind = "approval" | "ask" | "recovery" | "question" | "repaired";
-
-export interface InboxItem {
-  id: string;
-  kind: InboxKind;
-  runId?: string;
-  skillId?: string;
-  path?: string;
-  // What the user reads.
-  title: string;
-  // Kind-specific: the run's Waiting, a question's options and default, a repair's version and summary.
-  detail: Record<string, unknown>;
-  createdAt: number;
-  answeredAt?: number;
-  answer?: unknown;
-}
+export type { Checkpoint, InboxItem, InboxKind, RunRow, RunState } from "./types.ts";
 
 export interface Store {
   startRun(run: Pick<RunRow, "id" | "skillId" | "version" | "trigger" | "startedAt">): RunRow;

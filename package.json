@@ -15,6 +15,7 @@
     "format": "biome check --write .",
     "daemon": "pnpm --filter @shadow/daemon start",
     "extension": "pnpm --filter @shadow/extension dev",
+    "ui": "pnpm --filter @shadow/ui dev",
     "fixtures": "node scripts/serve-fixtures.mjs",
     "setup:native-host": "tsx scripts/install-native-host.ts",
     "setup:mac": "tsx scripts/build-mac.ts",

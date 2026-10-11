@@ -137,9 +137,14 @@ const http = await startHttp({
   api,
   subscribe: (listener) => service.subscribe(listener),
   infoFile: join(home, "api.json"),
+  // The window's pages: built by `pnpm ui` (apps/ui/dist); inside the app when packaged.
+  staticDir: process.env.SHADOW_UI_DIR ?? join(import.meta.dirname, "../../ui/dist"),
   log,
 });
 httpPort = http.port;
+// The window in a browser, for development. The link carries the token, so it is printed only to a terminal, never
+// to the log file.
+if (process.stderr.isTTY) console.error(`[daemon] open Shadow: http://127.0.0.1:${http.port}/#token=${http.token}`);
 
 let compiling = false; // from stop until the skill is saved: no new recording meanwhile (its questions are open)
 // The question or step question the next typed line answers.

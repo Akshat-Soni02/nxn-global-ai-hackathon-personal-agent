@@ -8,14 +8,28 @@
 //
 //   POST /api/<method>   JSON params in, { ok, value } or { ok: false, error } out (api.ts has the methods)
 //   GET  /api/events     server-sent events: runs, steps and inbox changes as they happen
+//   GET  /, /<file>      the window's pages (apps/ui/dist), with no token: they hold no data. The window gets the token
+//                        in the URL's fragment (#token=…), which a browser never sends to the server.
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { extname, join, normalize, sep } from "node:path";
 import type { Api } from "./api.ts";
 
 const MAX_BODY = 1_000_000;
 const HEARTBEAT_MS = 15_000;
+const TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".map": "application/json",
+};
+// The window's pages may only load their own files and talk to this server.
+const CSP =
+  "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'";
 
 export interface HttpApi {
   port: number;
@@ -30,6 +44,8 @@ export async function startHttp(options: {
   infoFile?: string;
   port?: number;
   allowedOrigins?: string[];
+  // The window's built pages (apps/ui/dist). Without it, only the API is served.
+  staticDir?: string;
   log?: (...args: unknown[]) => void;
 }): Promise<HttpApi> {
   const token = randomBytes(32).toString("hex");
@@ -64,6 +80,29 @@ export async function startHttp(options: {
     res.end(JSON.stringify(body));
   };
 
+  // A file of the window, confined to staticDir. "/" is index.html; the window routes by the URL's fragment.
+  const serveFile = (res: ServerResponse, pathname: string) => {
+    const root = options.staticDir;
+    if (!root) return json(res, 404, { ok: false, error: "not found" });
+    let relative: string;
+    try {
+      relative = normalize(decodeURIComponent(pathname === "/" ? "/index.html" : pathname));
+    } catch {
+      return json(res, 400, { ok: false, error: "bad path" });
+    }
+    const file = join(root, relative);
+    const inside = file.startsWith(root.endsWith(sep) ? root : root + sep);
+    if (!inside || !existsSync(file) || !statSync(file).isFile())
+      return json(res, 404, { ok: false, error: "not found" });
+    res.writeHead(200, {
+      "content-type": TYPES[extname(file)] ?? "application/octet-stream",
+      "content-security-policy": CSP,
+      "x-content-type-options": "nosniff",
+      "cache-control": "no-store",
+    });
+    res.end(readFileSync(file));
+  };
+
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const origin = req.headers.origin;
@@ -81,6 +120,7 @@ export async function startHttp(options: {
       });
       return res.end();
     }
+    if (req.method === "GET" && !url.pathname.startsWith("/api/")) return serveFile(res, url.pathname);
     if (!authorized(req, url)) return json(res, 401, { ok: false, error: "missing or wrong token" });
 
     if (req.method === "GET" && url.pathname === "/api/events") {

@@ -1,5 +1,5 @@
 // The API's two doors: local HTTP (token, Host and Origin checks, events) and the Unix socket (api.call, api.event).
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -104,6 +104,43 @@ describe("the API on local HTTP", () => {
     const started = await send(http.port, "/api/start", { headers: auth, body: JSON.stringify({ id: "report" }) });
     expect(JSON.parse(started.body)).toEqual({ ok: true, value: { id: "run-1", status: "running" } });
     expect(calls).toEqual([["start", "report", {}, "manual"]]);
+  });
+
+  it("serves the window's files without the token, and nothing outside their folder", async () => {
+    const root = mkdtempSync(join(tmpdir(), "shadow-ui-"));
+    const staticDir = join(root, "dist");
+    mkdirSync(staticDir);
+    writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Shadow</title>");
+    writeFileSync(join(staticDir, "app.js"), "console.log(1)");
+    writeFileSync(join(root, "secret.txt"), "nope");
+    http = await startHttp({ api: createApi(fakeService().service), subscribe, staticDir });
+    const page = await new Promise<{ status: number; type?: string; csp?: string; body: string }>((resolve) => {
+      request({ host: "127.0.0.1", port: http?.port, path: "/", method: "GET" }, (res) => {
+        let body = "";
+        res.on("data", (c) => {
+          body += c;
+        });
+        res.on("end", () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            type: res.headers["content-type"],
+            csp: res.headers["content-security-policy"] as string,
+            body,
+          }),
+        );
+      }).end();
+    });
+    expect(page).toMatchObject({
+      status: 200,
+      type: "text/html; charset=utf-8",
+      body: expect.stringContaining("Shadow"),
+    });
+    expect(page.csp).toContain("connect-src 'self'");
+    expect((await send(http.port, "/app.js", { method: "GET" })).status).toBe(200);
+    expect((await send(http.port, "/%2e%2e/secret.txt", { method: "GET" })).status).toBe(404);
+    expect((await send(http.port, "/..%2fsecret.txt", { method: "GET" })).status).toBe(404);
+    // The API itself still needs the token.
+    expect((await send(http.port, "/api/events", { method: "GET" })).status).toBe(401);
   });
 
   it("streams events to a subscriber", async () => {

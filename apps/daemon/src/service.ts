@@ -22,6 +22,7 @@ import {
 import { newRunId } from "./runner.ts";
 import { listSkills, loadSkill, rollbackSkill, versions } from "./skill-store.ts";
 import type { Checkpoint, InboxItem, RunRow, RunState, Store } from "./store.ts";
+import type { Question, ServiceEvent, WorkflowSummary } from "./types.ts";
 
 // One leg of a run, as main.ts runs it (runSkillOn). `hooks` must be passed to the run as they are: they make a run
 // that needs the user end its leg as `waiting` instead of waiting in memory.
@@ -36,24 +37,7 @@ export type Execute = (
   },
 ) => Promise<RunOutcome>;
 
-export type ServiceEvent =
-  | { type: "run"; run: RunRow }
-  | { type: "step"; runId: string; event: RunLogEvent }
-  | { type: "inbox"; item: InboxItem };
-
-export interface WorkflowSummary {
-  id: string;
-  name: string;
-  versions: number[];
-  lastRun?: RunRow;
-}
-
-// A question outside a run: the drill after a recording, which file to use.
-export interface Question {
-  title: string;
-  options?: string[];
-  default?: string;
-}
+export type { Question, ServiceEvent, WorkflowSummary } from "./types.ts";
 
 export interface ServiceOptions {
   dataDir: string;
