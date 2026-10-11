@@ -33,7 +33,7 @@ flowchart LR
 8. **Run.** The exact tree the user saw runs from its trigger. Actions are deterministic; no model call unless an LLM step needs one or a step fails.
 9. **Recover.** When a step fails, the failure is classified first: a site that is down is retried later, a login the user must do pauses the run, an empty inbox ends it as nothing to do, and only a changed page or app is **repaired**. Repair may change any part of the workflow, but never adds outward actions, changes what the user decided or turns approvals off, and is kept only with evidence it worked: then it becomes the **new version**, the user is notified and can roll back in one click. If repair can't fix it, the run pauses and the user **shows the step once** while Task Player records; that becomes the fix and the run resumes.
 
-**Components.** An always-on **daemon** (workflows, versions, triggers, memory, run log, all model calls), **Task Player.app** (Record button, Mac app capture and replay through the Accessibility API, screenshots and their redaction, voice and transcription), the **Chrome extension** (web capture and replay through `chrome.debugger` in the user's own Chrome) and a tiny **native-host shim** (Chrome launches a fresh process per native messaging connection, so the shim forwards bytes to the daemon's socket). There is **no backend server**: the daemon calls Nebius Token Factory directly with the user's own API key, kept in the macOS Keychain.
+**Components.** The user installs one app, **Task Player.app**. Inside it: an always-on **daemon**, started by macOS at login (workflows, versions, triggers, the inbox of things waiting for the user, memory, run log, all model calls); the Swift side (Record button, menu bar, notifications, Mac app capture and replay through the Accessibility API, screenshots and their redaction, voice and transcription); and a **window** where the user sees and answers the inbox, workflows, runs and versions, and edits workflows. Outside it: the **Chrome extension** (web capture and replay through `chrome.debugger` in the user's own Chrome) and a tiny **native-host shim** (Chrome launches a fresh process per native messaging connection, so the shim forwards bytes to the daemon's socket). There is **no backend server**: the daemon calls Nebius Token Factory directly with the user's own API key, kept in the macOS Keychain.
 
 **Memory.** Local SQLite in the daemon: drill answers, run context, and site notes from debug fixes. Never secrets.
 
@@ -183,8 +183,8 @@ Test build: a GitHub Release with the `.dmg` (Task Player.app with the daemon) a
 There is no server to deploy: everything runs on the user's Mac and calls Nebius Token Factory directly.
 
 1. Create a Nebius Token Factory API key and turn on **Zero Data Retention** for the organization.
-2. Install the release: open the `.dmg` (unsigned, so right-click → Open) and load the extension in `chrome://extensions`.
-3. On first launch, paste the key. It is stored in the macOS Keychain, and a connection check confirms Nemotron answers.
+2. Install the release: open the `.dmg`, drag Task Player into Applications and open it (unsigned, so right-click → Open the first time). It adds itself and its daemon to your login items, so it keeps running after a restart.
+3. On first launch, paste the key. It is stored in the macOS Keychain, Chrome is connected to the daemon, and a connection check confirms Nemotron answers. Then load the extension shipped with the app in `chrome://extensions` (Load unpacked) and turn on **Allow access to file URLs**.
 4. Allow the macOS permissions it asks for: Accessibility; Screen Recording, Microphone and Speech Recognition only if you consent to screenshots and narration.
 
 ## License
