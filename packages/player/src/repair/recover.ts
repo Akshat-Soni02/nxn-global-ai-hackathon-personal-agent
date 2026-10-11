@@ -5,7 +5,15 @@
 // Used by the daemon and by `pnpm replay`; each supplies the hooks.
 import { type Availability, type Skill, walkSteps } from "@shadow/core";
 import { type RunOptions, runSkill } from "../run.ts";
-import type { Failure, Resume, RunDeps, RunLogEvent, RunOutcome } from "../types.ts";
+import {
+  type Failure,
+  type Resume,
+  type RunDeps,
+  type RunLogEvent,
+  type RunOutcome,
+  WAIT,
+  type Wait,
+} from "../types.ts";
 import type { RepairEnv } from "./env.ts";
 import type { Repairer, RepairOutcome } from "./repair.ts";
 
@@ -15,8 +23,9 @@ export interface Recovery {
   // Saves a repaired version; the run goes on with what is returned.
   saveVersion(skill: Skill): Skill | Promise<Skill>;
   // The run needs the user: something to do first (log in), or a fix repair couldn't find. "retry" runs the stuck
-  // step again, "skip" goes on after it (the user did it by hand), "stop" ends the run.
-  waitForUser(message: string, failure: Failure): Promise<"retry" | "skip" | "stop">;
+  // step again, "skip" goes on after it (the user did it by hand), "stop" ends the run. WAIT: nobody can answer now,
+  // so the run ends as `waiting` (kind "recovery"); its resume, with skip for "skip", goes on later.
+  waitForUser(message: string, failure: Failure): Promise<"retry" | "skip" | "stop" | Wait>;
   // The browser tab, for web failures.
   page?: RepairEnv["page"];
   // Site notes, by skill.
@@ -50,13 +59,17 @@ export async function runWithRecovery(
   const sleep = recovery.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   let current = skill;
   let resume: Resume | undefined = options.resume;
-  // Retargeted outward steps the repair's try didn't run: approval the first time they run.
-  let approveOnce: string[] = [];
+  // Retargeted outward steps the repair's try didn't run: approval the first time they run. Kept across a wait.
+  let approveOnce: string[] = options.resume?.approveOnce ?? [];
   let transient = 0;
   let episodes = 0;
+  // A waiting run carries approveOnce in its resume, so going on later can't skip a retargeted step's approval.
+  const keep = (outcome: RunOutcome): RunOutcome =>
+    outcome.resume && approveOnce.length > 0 ? { ...outcome, resume: { ...outcome.resume, approveOnce } } : outcome;
 
   for (;;) {
     const outcome = await runSkill(withApproval(current, approveOnce), logged, { ...options, runId, resume });
+    if (outcome.status === "waiting") return keep(outcome);
     if (outcome.status !== "paused" || outcome.pausedBy !== "failure" || !outcome.failure || !outcome.resume) {
       return outcome;
     }
@@ -121,6 +134,13 @@ export async function runWithRecovery(
           ? `${failure.path} needs you: ${repaired.need}.`
           : `${failure.path} failed: ${failure.result.error}.`;
     const choice = await recovery.waitForUser(message, failure);
+    if (choice === WAIT) {
+      return keep({
+        ...outcome,
+        status: "waiting",
+        waiting: { kind: "recovery", path: failure.path, stepId: failure.stepId, message, error: failure.result.error },
+      });
+    }
     if (choice === "stop") return { ...outcome, status: "failed" };
     resume = { ...outcome.resume, skip: choice === "skip" };
   }

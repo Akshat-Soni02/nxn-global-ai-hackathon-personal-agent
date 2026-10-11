@@ -11,6 +11,10 @@
 // and "pause" ends the run as `paused` with where it stopped and its variables. Recovery happens outside; then
 // runSkill(version, deps, { resume }) goes on from that position, on the same or a repaired version (step ids are
 // kept). A position is a path, e.g. "l1[2] > s3": loops say which item; the tree says which branch arm.
+//
+// Waiting: an approval or ask hook that returns WAIT (nobody can answer now) ends the run as `waiting`, with its
+// position and what it waits for. runSkill(version, deps, { resume: { ...resume, answers } }) goes on from there with
+// the answer, without asking again. Nothing is held in memory meanwhile, so a run can wait across a daemon restart.
 import {
   type ActionStep,
   type BranchStep,
@@ -28,7 +32,20 @@ import {
 } from "@shadow/core";
 import { evaluate } from "./conditions.ts";
 import { resolveTemplates } from "./template.ts";
-import type { Failure, Resume, RunContext, RunDeps, RunLogEvent, RunOutcome, RunStatus, StepResult } from "./types.ts";
+import {
+  type Answer,
+  type Failure,
+  type Resume,
+  type RunContext,
+  type RunDeps,
+  type RunLogEvent,
+  type RunOutcome,
+  type RunStatus,
+  type StepResult,
+  WAIT,
+  type Wait,
+  type Waiting,
+} from "./types.ts";
 
 export const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -50,15 +67,19 @@ interface Halt {
   resume?: Resume;
   pausedBy?: RunOutcome["pausedBy"];
   failure?: Failure;
+  waiting?: Waiting;
 }
 
 // Where a resumed run is heading: the step to start at, and the item of each loop on the way there. Shared by all
-// the env copies of one run, and switched off once the step is reached.
+// the env copies of one run, and switched off once the step is reached. `at` and `answers`: what the user already
+// answered for the step at that position, each taken once.
 interface ResumeState {
   target: string;
   items: Map<string, number>;
   active: boolean;
   skip?: boolean;
+  at: string;
+  answers: Answer[];
 }
 
 interface Env {
@@ -121,7 +142,12 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
     const parsed = parsePosition(skill, options.resume.at);
     if (typeof parsed === "string")
       return end({ status: "failed", vars, failedStep: options.resume.at, error: parsed });
-    env.resume = { ...parsed, skip: options.resume.skip };
+    env.resume = {
+      ...parsed,
+      skip: options.resume.skip,
+      at: options.resume.at,
+      answers: [...(options.resume.answers ?? [])],
+    };
   }
 
   const halt = await runSteps(skill.steps, vars, env);
@@ -190,6 +216,9 @@ async function runStep(step: Exclude<Step, { type: "trigger" }>, vars: Vars, env
     env.stepsLeft.n--;
   }
 
+  // What the user answered for this step so far, kept if the run then waits for its approval.
+  const given: Answer[] = [];
+
   // 1. The step's question, before anything else: its answer may be used by the step itself.
   if (step.ask) {
     let question: string;
@@ -198,8 +227,15 @@ async function runStep(step: Exclude<Step, { type: "trigger" }>, vars: Vars, env
     } catch (error) {
       return fail((error as Error).message);
     }
-    if (!env.deps.ask) return fail(`needs an answer from you: "${question}"`);
-    const answer = await env.deps.ask({ ...step.ask, question }, step);
+    const prior = answered(env, path, "ask");
+    let answer: string | boolean | Wait;
+    if (prior) answer = prior.value;
+    else if (!env.deps.ask) return fail(`needs an answer from you: "${question}"`);
+    else answer = await env.deps.ask({ ...step.ask, question }, step);
+    if (answer === WAIT) {
+      return waitFor({ kind: "ask", path, stepId: step.id, question, ask: { ...step.ask, question } }, vars, given);
+    }
+    given.push({ kind: "ask", value: answer });
     env.log({ type: "step.ask", stepId: step.id, path, question, answer });
     if (step.ask.kind === "confirm") {
       if (!answer) {
@@ -215,12 +251,46 @@ async function runStep(step: Exclude<Step, { type: "trigger" }>, vars: Vars, env
   }
 
   if (step.type === "control")
-    return step.kind === "loop" ? runLoop(step, vars, env, path) : runBranch(step, vars, env, path);
-  return runLeaf(step, vars, env, path);
+    return step.kind === "loop"
+      ? runLoop(step, vars, env, path, undefined, given)
+      : runBranch(step, vars, env, path, undefined, given);
+  return runLeaf(step, vars, env, path, given);
+}
+
+// What a resumed run already knows for the step at `path` (its question's answer, its approval). Each is taken once.
+function answered<K extends Answer["kind"]>(env: Env, path: string, kind: K): Extract<Answer, { kind: K }> | undefined {
+  const resume = env.resume;
+  if (!resume || resume.at !== path) return undefined;
+  const i = resume.answers.findIndex((a) => a.kind === kind);
+  return i < 0 ? undefined : (resume.answers.splice(i, 1)[0] as Extract<Answer, { kind: K }>);
+}
+
+// A step's approval: what a resumed run brought, else the hook. WAIT: nobody can answer now.
+async function approval(step: Step, path: string, env: Env): Promise<boolean | Wait> {
+  const prior = answered(env, path, "approval");
+  const approved = prior ? prior.approved : await env.deps.approve(step, env.skill);
+  if (approved !== WAIT) env.log({ type: "step.approval", stepId: step.id, path, approved });
+  return approved;
+}
+
+// Ends the run until the user answers. `given`: what they already answered for this step, so it isn't asked again.
+function waitFor(waiting: Waiting, vars: Vars, given: Answer[]): Halt {
+  return {
+    status: "waiting",
+    failedStep: waiting.path,
+    waiting,
+    resume: { at: waiting.path, vars: { ...vars }, ...(given.length > 0 ? { answers: [...given] } : {}) },
+  };
 }
 
 // An action or llm step: approval, attempts with retries, then its output checked against the declared type.
-async function runLeaf(step: ActionStep | LlmStep, vars: Vars, env: Env, path: string): Promise<Halt | undefined> {
+async function runLeaf(
+  step: ActionStep | LlmStep,
+  vars: Vars,
+  env: Env,
+  path: string,
+  given: Answer[] = [],
+): Promise<Halt | undefined> {
   const fail = (error: string, status: Halt["status"] = "failed"): Halt => ({ status, failedStep: path, error });
   let resolved: ActionStep | LlmStep;
   try {
@@ -230,8 +300,10 @@ async function runLeaf(step: ActionStep | LlmStep, vars: Vars, env: Env, path: s
   }
 
   if (resolved.requires_approval) {
-    const approved = await env.deps.approve(resolved, env.skill);
-    env.log({ type: "step.approval", stepId: step.id, path, approved });
+    const approved = await approval(resolved, path, env);
+    if (approved === WAIT) {
+      return waitFor({ kind: "approval", path, stepId: step.id, intent: resolved.intent }, vars, given);
+    }
     if (!approved) return fail("you denied it", "denied");
   }
 
@@ -286,6 +358,7 @@ async function runLoop(
   path: string,
   // Resuming: the item to start at. Its approval was given before the pause.
   startAt?: number,
+  given: Answer[] = [],
 ): Promise<Halt | undefined> {
   const fail = (error: string, status: Halt["status"] = "failed"): Halt => ({ status, failedStep: path, error });
   let list: unknown;
@@ -303,8 +376,9 @@ async function runLoop(
     return fail(`can't resume at item ${startAt}: ${step.over} has ${list.length} items now`);
   }
   if (step.requires_approval && startAt === undefined) {
-    const approved = await env.deps.approve(step, env.skill);
-    env.log({ type: "step.approval", stepId: step.id, path, approved });
+    const approved = await approval(step, path, env);
+    if (approved === WAIT)
+      return waitFor({ kind: "approval", path, stepId: step.id, intent: step.intent }, vars, given);
     if (!approved) return fail("you denied it", "denied");
   }
   if (startAt === undefined) env.log({ type: "loop.start", stepId: step.id, path, items: list.length });
@@ -339,6 +413,7 @@ async function runBranch(
   path: string,
   // Resuming: the arm that holds the position. The condition was decided before the pause.
   resumeArm?: "steps" | "else",
+  given: Answer[] = [],
 ): Promise<Halt | undefined> {
   let holdsTrue: boolean;
   if (resumeArm) holdsTrue = resumeArm === "steps";
@@ -352,8 +427,9 @@ async function runBranch(
   const took = holdsTrue ? "steps" : "else";
   if (!resumeArm) env.log({ type: "branch", stepId: step.id, path, took });
   if (step.requires_approval && !resumeArm) {
-    const approved = await env.deps.approve(step, env.skill);
-    env.log({ type: "step.approval", stepId: step.id, path, approved });
+    const approved = await approval(step, path, env);
+    if (approved === WAIT)
+      return waitFor({ kind: "approval", path, stepId: step.id, intent: step.intent }, vars, given);
     if (!approved) return { status: "denied", failedStep: path, error: "you denied it" };
   }
   const arm = holdsTrue ? step.steps : step.else;
@@ -391,7 +467,7 @@ function contains(step: Step, id: string): boolean {
 }
 
 // "l1[2] > s3" -> start at s3, in item 2 of loop l1. Checked against the version being resumed.
-function parsePosition(skill: Skill, at: string): ResumeState | string {
+function parsePosition(skill: Skill, at: string): Pick<ResumeState, "target" | "items" | "active"> | string {
   const items = new Map<string, number>();
   let target = "";
   for (const part of at.split(" > ")) {

@@ -12,6 +12,12 @@ export interface StepResult {
   error?: string;
 }
 
+// What an approval or ask hook returns when nobody can answer now: the run stops as `waiting`, with where it stopped
+// (its `resume`) and what it waits for, and goes on later with the answer (Resume.answers). Lets a run wait for hours,
+// or across a daemon restart, holding nothing in memory.
+export const WAIT: unique symbol = Symbol("wait");
+export type Wait = typeof WAIT;
+
 // Channels only ever run action steps; llm and control steps are handled by the run loop.
 export type ChannelExecutor = (step: ActionStep, ctx: RunContext) => Promise<StepResult>;
 
@@ -36,11 +42,11 @@ export interface RunDeps {
   fileExists(pattern: string, timeoutMs: number): Promise<boolean>;
   // Web checks used by the skill's `success` list (text_visible, url_matches, element_visible).
   webCheck(check: Check, timeoutMs: number): Promise<boolean>;
-  approve(step: Step, skill: Skill): Promise<boolean>;
+  approve(step: Step, skill: Skill): Promise<boolean | Wait>;
   // A step's question for the user, asked before it runs. "value": the typed answer (text, converted to the
   // output's type). "confirm": true runs the step, false skips it. Without it, a step that asks fails the run:
   // nothing is guessed.
-  ask?(ask: Ask, step: Step): Promise<string | boolean>;
+  ask?(ask: Ask, step: Step): Promise<string | boolean | Wait>;
   // A step failed every attempt. "pause" stops the run where it is (the tab or window, the variables and the
   // position are kept) so it can be recovered and resumed; "fail" handles it as a failure (a loop with
   // on_item_fail: skip goes on). Without it, every failure is a failure.
@@ -61,13 +67,26 @@ export interface Failure {
   vars: Record<string, unknown>;
 }
 
-// Where a paused run goes on: the step at `at` runs next (its question and approval included), with `vars`.
-// skip: the user did that step by hand, so the run goes on after it.
+// Where a paused or waiting run goes on: the step at `at` runs next (its question and approval included), with
+// `vars`. skip: the user did that step by hand, so the run goes on after it. answers: what the user already answered
+// for the step at `at` (its question, its approval), used instead of asking again. approveOnce: retargeted outward
+// steps that still need approval the first time they run (recovery keeps them across a wait).
 export interface Resume {
   at: string;
   vars: Record<string, unknown>;
   skip?: boolean;
+  answers?: Answer[];
+  approveOnce?: string[];
 }
+
+export type Answer = { kind: "approval"; approved: boolean } | { kind: "ask"; value: string | boolean };
+
+// What a waiting run waits for, at `path`. recovery: a failure repair couldn't fix, or something only the user can do
+// (log in); answered with retry, skip or stop.
+export type Waiting =
+  | { kind: "approval"; path: string; stepId: string; intent: string }
+  | { kind: "ask"; path: string; stepId: string; question: string; ask: Ask }
+  | { kind: "recovery"; path: string; stepId: string; message: string; error?: string };
 
 // `path` says where a step ran: its id, inside loops with the item number, e.g. "l1[2] > s3".
 export type RunLogEvent =
@@ -102,16 +121,19 @@ export type RunLogEvent =
   | { type: "run.end"; runId: string; status: RunStatus; failedStep?: string; error?: string; ms: number };
 
 // paused: stopped on purpose, with `resume` saying where to go on (after a failure, or after maxSteps).
+// waiting: stopped until the user answers (`waiting` says what), with `resume` to go on from.
 // nothing_to_do: recovery found there was nothing to do this time (the inbox is empty): not a failure.
-export type RunStatus = "succeeded" | "failed" | "denied" | "paused" | "nothing_to_do";
+export type RunStatus = "succeeded" | "failed" | "denied" | "paused" | "waiting" | "nothing_to_do";
 
 export interface RunOutcome {
   status: RunStatus;
   vars: Record<string, unknown>;
   failedStep?: string;
   error?: string;
-  // Paused runs only.
+  // Paused and waiting runs only.
   resume?: Resume;
   pausedBy?: "failure" | "step_limit";
   failure?: Failure;
+  // Waiting runs only.
+  waiting?: Waiting;
 }
