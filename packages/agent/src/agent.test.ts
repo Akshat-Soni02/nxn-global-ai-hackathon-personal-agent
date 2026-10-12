@@ -120,7 +120,10 @@ describe("the loop", () => {
     expect(turns).toMatchObject({ outcome: { kind: "out_of_budget", budget: "turns" }, turns: 3 });
 
     // Nemotron 3 Super: 100k tokens in costs $0.03, so the fourth turn would pass $0.10.
-    const pricey = fakeLlm(() => ({ ...call("look", {}), usage: { input: 100_000, output: 0 } }) as FakeReply);
+    const pricey = fakeLlm(() => ({
+      toolCalls: [{ name: "look", arguments: {} }],
+      usage: { input: 100_000, output: 0 },
+    }));
     const cost = await runAgent({ llm: pricey, system: "s", task: "t", tools: [look, done] });
     expect(cost).toMatchObject({ outcome: { kind: "out_of_budget", budget: "cost" }, turns: 4 });
 

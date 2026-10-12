@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "pnpm -r --if-present build",
-    "typecheck": "tsc -p . && pnpm -r --if-present typecheck",
+    "typecheck": "tsc -p . && pnpm -r --no-bail --if-present typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check .",

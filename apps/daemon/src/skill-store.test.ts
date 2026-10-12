@@ -26,7 +26,10 @@ describe("rollback", () => {
       version: 2,
       steps: [
         v1.steps[0] as Skill["steps"][number],
-        { ...(v1.steps[1] as object), target: { name: "Send now", fallbacks: [] } } as Skill["steps"][number],
+        {
+          ...(v1.steps[1] as Skill["steps"][number]),
+          target: { name: "Send now", fallbacks: [] },
+        } as Skill["steps"][number],
       ],
       history: [
         ...v1.history,
