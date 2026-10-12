@@ -192,11 +192,13 @@ describe("the workflow lifecycle", () => {
     error: "target not found",
   });
 
-  it("goes live only with a trigger; setting the Frequency saves a version by you", () => {
+  it("goes live run by hand too; on a schedule only once it can run without you; the Frequency saves a version", () => {
     const { open } = setup([write("s1")]);
     const { service } = open();
     expect(service.state("report")).toMatchObject({ state: "draft" });
-    expect(() => service.goLive("report")).toThrow("it has no trigger");
+    // Only by hand: live at once, nothing to check (you are there when it starts).
+    expect(service.goLive("report")).toMatchObject({ state: "live" });
+    expect(service.workflows()[0]?.nextRunAt).toBeUndefined();
     expect(service.setTrigger("report", [{ type: "schedule", cron: "0 9 * * 1-5" }])).toEqual({ version: 2 });
     expect(service.workflow("report")?.latest.history.at(-1)).toMatchObject({
       by: "user",

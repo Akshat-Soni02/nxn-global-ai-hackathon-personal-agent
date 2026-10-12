@@ -210,8 +210,9 @@ stateDiagram-v2
 **Going live.** These must hold:
 
 - the workflow parses and passes `check.ts`, as always;
-- the trigger is set;
-- every input has a default or a way to be resolved (a scheduled run has nobody to ask).
+- if it starts on its own (a schedule or a folder): the schedule is valid, a folder trigger has a file input to fill, and every input has a default or a way to be resolved (an unattended run has nobody to ask).
+
+A workflow that only runs when you start it can always go live (*decided Oct 12*): you are there to give it what it needs. Live then means "finished, not being worked on"; it starts on its own only once it has a schedule or a folder.
 
 *Decided Oct 12:* the checks are enough; no test run is required. A first bad run is still caught by approvals, the inbox and auto-pause.
 

@@ -69,7 +69,7 @@ export function Workflow({ id }: { id: string }) {
           </div>
         ) : state?.state === "draft" ? (
           <p className="muted small">
-            A draft: it runs only when you start it. Set its Frequency, then Go live to let it run on its own.
+            A draft: Go live when it is ready. To let it start on its own, set its Frequency first.
           </p>
         ) : null}
       </header>

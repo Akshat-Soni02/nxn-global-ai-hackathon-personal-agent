@@ -43,11 +43,12 @@ export function folderInput(skill: Skill, trigger: Extract<Trigger, { type: "fol
 }
 
 // Why a workflow can't go live, in words; empty when it can. The workflow already parses and passes check.ts (it
-// was saved), so these are the things only an unattended run needs.
+// was saved), so these are the things only an unattended run needs. A workflow that only runs when you start it can
+// always go live: you are there to give it what it needs, so there is nothing more to check.
 export function goLiveProblems(skill: Skill): string[] {
   const problems: string[] = [];
   const triggers = autoTriggers(skill);
-  if (triggers.length === 0) problems.push("it has no trigger: set its Frequency first");
+  if (triggers.length === 0) return problems;
   const filledByFolder = new Set<string>();
   for (const trigger of triggers) {
     if (trigger.type === "schedule") {
@@ -69,7 +70,7 @@ export function goLiveProblems(skill: Skill): string[] {
     }
   }
   // A folder trigger fills its input only when every trigger is a folder trigger: a scheduled run has no file.
-  const allFolders = triggers.length > 0 && triggers.every((t) => t.type === "folder_watch");
+  const allFolders = triggers.every((t) => t.type === "folder_watch");
   for (const [name, input] of Object.entries(triggerOf(skill).inputs)) {
     if (input.default !== undefined || input.resolve) continue;
     if (allFolders && filledByFolder.has(name)) continue;
