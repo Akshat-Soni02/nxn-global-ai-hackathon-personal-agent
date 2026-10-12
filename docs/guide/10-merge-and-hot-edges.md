@@ -56,7 +56,7 @@ Also:
 | compile, after `stop` | 1 per recording (up to 3 if it must fix its JSON) | — |
 | drill | 0 | — |
 | a replay with rules only | **0** | — |
-| `data.ai` step | 1 per run per step | `TASKPLAYER_AI_MAX_CALLS_PER_RUN` (3), `TASKPLAYER_AI_MAX_INPUT_CHARS` (20 000), answers cached by question + data |
+| `data.ai` step | 1 per run per step | `SHADOW_AI_MAX_CALLS_PER_RUN` (3), `SHADOW_AI_MAX_INPUT_CHARS` (20 000), answers cached by question + data |
 | Akshat's agent fallback (planned) | per failed step | his to set |
 
 **How compile decides:**
@@ -125,7 +125,7 @@ page: ✓ Saved timesheet. Replay: run timesheet  ◀── record.status {phase
 
 Checked end to end with the real extension (Chrome for Testing, native host registered in a scratch profile, real daemon): press → record the timesheet task → Stop → question → saved → `run timesheet` through the automation window → "Draft saved". 16 of 16 checks; the button never appears in the trace. Not checked: clicking the toolbar icon (only its REC badge), dragging the button, stable Chrome (the run used Chrome for Testing 153).
 
-> Later on 3 Oct: Finder moves and renames now find "the newest file like the one you moved" at run time, as uploads do, and the floating button moved to the desktop (Task Player.app, [11](11-mac-apps.md)).
+> Later on 3 Oct: Finder moves and renames now find "the newest file like the one you moved" at run time, as uploads do, and the floating button moved to the desktop (Shadow.app, [11](11-mac-apps.md)).
 
 ## Run it
 

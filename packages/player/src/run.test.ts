@@ -1,5 +1,5 @@
-import type { ActionStep, Skill, Step } from "@taskplayer/core";
-import { Skill as SkillSchema } from "@taskplayer/core";
+import type { ActionStep, Skill, Step } from "@shadow/core";
+import { Skill as SkillSchema } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { runSkill } from "./run.ts";
 import type { RunDeps, StepResult } from "./types.ts";

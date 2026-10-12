@@ -11,7 +11,7 @@ import {
   type Locator,
   type Skill,
   type Trigger,
-} from "@taskplayer/core";
+} from "@shadow/core";
 import type { z } from "zod";
 import type { Question } from "./compile.ts";
 import { toLocator } from "./locator.ts";

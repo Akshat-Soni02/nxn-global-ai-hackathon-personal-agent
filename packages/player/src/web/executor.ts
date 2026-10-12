@@ -1,7 +1,7 @@
 // Executes one web step against one tab: wait -> match -> act -> verify. Runs in the extension (chrome.debugger)
 // or, for development, against a debug-port Chrome. Templates are already resolved by the daemon.
-import type { Locator, ActionStep as Step } from "@taskplayer/core";
-import { wrongKind } from "@taskplayer/core/accept";
+import type { Locator, ActionStep as Step } from "@shadow/core";
+import { wrongKind } from "@shadow/core/accept";
 
 // A path where a file is expected: a file value's path ({ path, … }) or plain text. Inlined, not imported from core's
 // vars.ts, so the extension bundle does not pull in zod.
@@ -165,10 +165,10 @@ async function fileInputFor(cdp: Cdp, backendNodeId: number): Promise<number | u
   const inside = await callOn<string | null>(
     cdp,
     backendNodeId,
-    `function () { const i = this.querySelector('input[type="file"]') || (this.control && this.control.type === "file" ? this.control : null); if (!i) return null; i.setAttribute("data-taskplayer-upload", "1"); return "1"; }`,
+    `function () { const i = this.querySelector('input[type="file"]') || (this.control && this.control.type === "file" ? this.control : null); if (!i) return null; i.setAttribute("data-shadow-upload", "1"); return "1"; }`,
   );
   if (!inside) return undefined;
-  const [id] = await selectAll(cdp, '[data-taskplayer-upload="1"]');
+  const [id] = await selectAll(cdp, '[data-shadow-upload="1"]');
   return id;
 }
 

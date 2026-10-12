@@ -1,6 +1,6 @@
 // Page checks (url_matches, text_visible, element_visible), polled until they hold or time runs out.
 // file_exists is checked by the daemon, not here.
-import type { Check } from "@taskplayer/core";
+import type { Check } from "@shadow/core";
 import { type Cdp, evaluate, pollUntil } from "./cdp.ts";
 import { match } from "./match.ts";
 

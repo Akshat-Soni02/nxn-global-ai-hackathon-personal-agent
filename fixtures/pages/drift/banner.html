@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Invoice portal</title>
+<!-- Drift: a cookie banner now covers the page until it is dismissed. Expected: insert a step that clicks
+     "Accept all" before s2, verified by s2 going through. -->
+<div role="dialog" aria-modal="true" aria-label="Cookie settings" id="cookies"
+  style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center">
+  <div style="background: white; padding: 24px">
+    <h2>Cookie settings</h2>
+    <p>We use cookies to run this site.</p>
+    <button type="button" onclick="document.getElementById('cookies').remove()">Accept all</button>
+    <button type="button">Manage choices</button>
+  </div>
+</div>
+<main>
+  <h1>Invoices</h1>
+  <form id="upload-form" onsubmit="return false">
+    <label>Invoice number <input name="number" /></label>
+    <label>Invoice PDF <input type="file" name="invoice" accept="application/pdf" /></label>
+    <button type="button" id="submit">Submit</button>
+  </form>
+  <p id="status" role="status"></p>
+</main>
+<script>
+  document.getElementById("submit").addEventListener("click", () => {
+    document.getElementById("status").textContent = "Invoice submitted";
+  });
+</script>

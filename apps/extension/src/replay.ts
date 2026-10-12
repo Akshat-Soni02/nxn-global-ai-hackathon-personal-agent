@@ -2,8 +2,8 @@
 // The window is fixed at 1280x800 so pages lay out the same way on every run, and comes to the front when a run
 // starts, so you can watch it. Your own windows and tabs are never used.
 // Chrome shows a "started debugging this browser" bar while attached; we attach only during a run.
-import type { Check, ActionStep as Step } from "@taskplayer/core";
-import { type Cdp, executeWebStep, waitForCheck } from "@taskplayer/player/web";
+import type { Check, ActionStep as Step } from "@shadow/core";
+import { type Cdp, executeWebStep, type PageOp, type PageOpResult, pageOp, waitForCheck } from "@shadow/player/web";
 
 const PROTOCOL_VERSION = "1.3";
 const STORE_KEY = "automationTab";
@@ -70,6 +70,11 @@ export async function runWebStep(step: Step) {
 
 export async function runPageCheck(check: Check, timeoutMs: number): Promise<boolean> {
   return waitForCheck(await cdpFor(await automationTab()), check, timeoutMs);
+}
+
+// Repair looking at, or safely probing, the automation tab (the daemon's guard has allowed the op).
+export async function runPageOp(op: PageOp): Promise<PageOpResult> {
+  return pageOp(await cdpFor(await automationTab()), op);
 }
 
 export async function endRun(): Promise<void> {

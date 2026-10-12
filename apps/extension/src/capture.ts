@@ -1,8 +1,8 @@
 // Page-side capture: turns your clicks, typing and choices into trace events, each with its element described by
 // meaning. Listeners run in the capture phase, so a page that stops propagation can't hide an event from us.
-// Only `import type` from @taskplayer/core here: a runtime import would bundle zod into every frame of every page.
-import type { ElementDescriptor, TraceEvent } from "@taskplayer/core";
-import { rowsOf, sheetExportUrl } from "@taskplayer/player/csv";
+// Only `import type` from @shadow/core here: a runtime import would bundle zod into every frame of every page.
+import type { ElementDescriptor, TraceEvent } from "@shadow/core";
+import { rowsOf, sheetExportUrl } from "@shadow/player/csv";
 import { actionableTarget, describeElement, hasVerifiedSelector } from "./describe.ts";
 
 export type PageEvent = Pick<
@@ -58,10 +58,10 @@ export interface CaptureOptions {
   fetchSheet?(url: string): Promise<string>;
 }
 
-// Task Player's own UI in the page (the floating Record / Stop button) carries this attribute. Nothing done to it is
+// Shadow's own UI in the page (the floating Record / Stop button) carries this attribute. Nothing done to it is
 // recorded: pressing Stop is not a step of your task. Its shadow root is closed, so events from inside it reach these
 // listeners retargeted to that element.
-export const OWN_UI = "data-taskplayer-ui";
+export const OWN_UI = "data-shadow-ui";
 const isOwnUi = (node: EventTarget) => node instanceof Element && node.hasAttribute(OWN_UI);
 
 const COPY_LIMIT = 2_000; // characters of copied text kept in the trace
@@ -300,7 +300,7 @@ export function startCapture(
           }
           handler(event);
         } catch (error) {
-          console.warn("[task player] capture failed", error);
+          console.warn("[shadow] capture failed", error);
         }
       };
       root.addEventListener(type, wrapped, true);

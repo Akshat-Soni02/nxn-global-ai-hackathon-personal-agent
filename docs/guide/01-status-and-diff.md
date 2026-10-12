@@ -70,13 +70,13 @@ Two details in this trace are deliberate:
 $ npx vitest run
  ❯ apps/daemon/src/daemon.test.ts (0 test)
  ❯ packages/core/src/skill.test.ts (0 test)
- FAIL  apps/daemon/src/daemon.test.ts  Error: Cannot find package '@taskplayer/ipc'
+ FAIL  apps/daemon/src/daemon.test.ts  Error: Cannot find package '@shadow/ipc'
  FAIL  packages/core/src/skill.test.ts Error: Cannot find package 'zod'
  Test Files  2 failed | 1 passed (3)
       Tests  3 passed (3)
 ```
 
-**Why:** this checkout was installed with **npm** (an untracked `package-lock.json` is present, and `pnpm` is not on the PATH). npm does not understand the `workspace:*` protocol (`apps/daemon/package.json:16`), so `@taskplayer/*` links and `zod` were never installed. CI uses pnpm (`.github/workflows/ci.yml:18`). The code is not broken; the install is. Fix it yourself:
+**Why:** this checkout was installed with **npm** (an untracked `package-lock.json` is present, and `pnpm` is not on the PATH). npm does not understand the `workspace:*` protocol (`apps/daemon/package.json:16`), so `@shadow/*` links and `zod` were never installed. CI uses pnpm (`.github/workflows/ci.yml:18`). The code is not broken; the install is. Fix it yourself:
 
 ```sh
 rm package-lock.json && rm -rf node_modules
@@ -179,7 +179,7 @@ Some of its names don't match the code.
 | postconditions `post` | `check` (and `wait` for preconditions) | `skill.ts:32-40` |
 | R0–R6 fallback ladder | per-step loop steps 2–9 | `design.md:141-151`; same idea, different numbering |
 | heal, `plan.patch` | **learn-back**, new skill `version` | `design.md:153` |
-| `com.nxn.daemon` | `com.taskplayer.daemon` | `messages.ts:9` |
+| `com.nxn.daemon` | `com.shadow.daemon` | `messages.ts:9` |
 | Vite/CRXJS | esbuild | `apps/extension/build.mjs` |
 | Record button in the extension popup | **the daemon owns the session** | Commit `55fd9fb` *"update record activation from extention to deamon"* |
 | plan runner (S2-13, "manual trigger from popup") | **daemon runs the loop**, extension executes one `run.step` at a time | `messages.ts:40`; `player/index.ts:5` |

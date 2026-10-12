@@ -88,8 +88,8 @@ The daemon is already a library. `apps/daemon/src/daemon.ts:18` exports `startDa
 ```ts
 // apps/desktop/src/main.ts  (proposed, not in the repo)
 import { app, Tray, Menu } from "electron";
-import { socketPath } from "@taskplayer/ipc";
-import { startDaemon } from "@taskplayer/daemon/daemon";   // needs an "exports" entry in apps/daemon/package.json
+import { socketPath } from "@shadow/ipc";
+import { startDaemon } from "@shadow/daemon/daemon";   // needs an "exports" entry in apps/daemon/package.json
 
 app.whenReady().then(async () => {
   const daemon = await startDaemon({ socketPath: socketPath(), log: console.error });
@@ -138,7 +138,7 @@ Several 2026 explainers (eesel.ai, techtimes.com, kingy.ai and others) describe 
 
 **OpenAI's skill is a prompt for an agent. Ours is a program, with an agent as its exception handler.**
 
-Every Codex replay is a full agent run. The model reads the instructions, looks at the screen, decides, acts and repeats. A Task Player replay executes stored targets and checks deterministically, and calls Nemotron only when a step fails (`design.md:132`).
+Every Codex replay is a full agent run. The model reads the instructions, looks at the screen, decides, acts and repeats. A Shadow replay executes stored targets and checks deterministically, and calls Nemotron only when a step fails (`design.md:132`).
 
 There is a neat overlap: **our skill already contains their artefact.** Every `Step.intent` is a sentence of what the step achieves (`skill.ts:60-61`: *"The agent fallback relies on it"*). Read them in order and you have a `SKILL.md`:
 
@@ -155,7 +155,7 @@ What we keep *in addition* is everything their agent rediscovers on every run: `
 
 ### Side by side
 
-| | OpenAI Codex Record & Replay | Task Player |
+| | OpenAI Codex Record & Replay | Shadow |
 |---|---|---|
 | Sensing during the demo | Screen and accessibility, via Computer Use (permission-gated) | DOM events + element descriptors in the user's Chrome; FSEvents |
 | Artefact | Natural-language `SKILL.md` (intent per step) | `Skill` JSON: intent per step **plus** locator, args, check, approval |
@@ -163,7 +163,7 @@ What we keep *in addition* is everything their agent rediscovers on every run: `
 | Model calls per clean replay | Many (one or more per step) | **Zero** |
 | Drift handling | Implicit: the agent re-reads the screen each time | Ladder of fallbacks → agent → learn-back writes v2 ([06](06-processing-and-learning.md)) |
 | Unattended or scheduled | Scheduled tasks can use skills, if the app stays running ([automations](https://learn.chatgpt.com/docs/automations?surface=app)); whether a Computer Use skill runs unattended isn't documented | `Trigger`: schedule, folder watch are in the format; only manual `run` is built (Oct 2026) |
-| Scope | macOS apps, through Computer Use, except terminal apps and ChatGPT itself ([computer use](https://learn.chatgpt.com/docs/computer-use)) | Chrome, files, and Mac apps through the Accessibility API (Task Player.app, [11](11-mac-apps.md)) |
+| Scope | macOS apps, through Computer Use, except terminal apps and ChatGPT itself ([computer use](https://learn.chatgpt.com/docs/computer-use)) | Chrome, files, and Mac apps through the Accessibility API (Shadow.app, [11](11-mac-apps.md)) |
 | Auditability | The agent's reasoning | Run log: matched target, score and check per step |
 
 ### What to copy, and what not to

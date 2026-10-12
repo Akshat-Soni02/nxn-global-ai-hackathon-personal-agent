@@ -209,6 +209,36 @@ export function fitValue(type: VarType, value: unknown): unknown {
   }
 }
 
+// A type as JSON Schema, for asking a model for a value of it (structured output). Objects are closed and every
+// field required, as strict structured output wants; fitValue still checks and converts the answer.
+export function jsonSchemaOf(type: VarType): Record<string, unknown> {
+  switch (type.type) {
+    case "text":
+    case "secret":
+      return { type: "string" };
+    case "number":
+      return { type: "number" };
+    case "boolean":
+      return { type: "boolean" };
+    case "date":
+      return { type: "string", description: "a date as YYYY-MM-DD" };
+    case "file":
+      return jsonSchemaOf({ type: "object", fields: { path: { type: "text" } } });
+    case "list":
+      return { type: "array", items: jsonSchemaOf(type.items) };
+    case "object": {
+      if (!type.fields) return { type: "object" };
+      const fields = Object.entries(type.fields);
+      return {
+        type: "object",
+        properties: Object.fromEntries(fields.map(([name, field]) => [name, jsonSchemaOf(field)])),
+        required: fields.map(([name]) => name),
+        additionalProperties: false,
+      };
+    }
+  }
+}
+
 // A path where a value used as a file is expected: a file value's path, or a plain string.
 export function pathOf(value: unknown): string | undefined {
   if (typeof value === "string") return value;

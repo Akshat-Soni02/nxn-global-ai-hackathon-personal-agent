@@ -6,14 +6,14 @@ import { z } from "zod";
 import { ActionStep, Check } from "./skill.ts";
 import { TraceEvent } from "./trace.ts";
 
-export const NATIVE_HOST_NAME = "com.taskplayer.daemon";
+export const NATIVE_HOST_NAME = "com.shadow.daemon";
 // Fixed by the "key" in apps/extension/manifest.json, so the native host manifest can allow exactly this extension.
 export const EXTENSION_ID = "eloljjdiofhdlhoankjbhfeihjankikk";
 
 const base = { id: z.string() };
 
 export const Message = z.discriminatedUnion("type", [
-  // Handshake: extension (and Task Player.app, "mac") send hello on connect, daemon replies with hello.
+  // Handshake: extension (and Shadow.app, "mac") send hello on connect, daemon replies with hello.
   // mac also says whether macOS lets it use the Accessibility API (trusted).
   z.object({
     ...base,
@@ -46,7 +46,7 @@ export const Message = z.discriminatedUnion("type", [
   // unknown event kind is rejected here instead of reaching the compiler.
   TraceEvent.extend({ type: z.literal("record.event") }),
 
-  // daemon -> extension: whether Task Player.app's floating button is on screen (Chrome then hides its own).
+  // daemon -> extension: whether Shadow.app's floating button is on screen (Chrome then hides its own).
   z.object({ ...base, type: z.literal("desktop.button"), present: z.boolean() }),
   // mac -> daemon: Accessibility was allowed or taken away while the app was running.
   z.object({ ...base, type: z.literal("mac.trusted"), trusted: z.boolean() }),
@@ -54,7 +54,7 @@ export const Message = z.discriminatedUnion("type", [
   // drive, /Users/Shared) is watched from then on, so a file you move there is recorded.
   z.object({ ...base, type: z.literal("watch.folder"), path: z.string() }),
 
-  // Replay: the daemon runs the skill; web work goes to the extension, ax work to Task Player.app (same messages).
+  // Replay: the daemon runs the skill; web work goes to the extension, ax work to Shadow.app (same messages).
   // Replies reuse the request's id.
   // daemon -> extension: run one web step (templates already resolved) in the automation window
   // Only action steps go to the browser: the daemon runs llm and control steps itself.
@@ -74,7 +74,31 @@ export const Message = z.discriminatedUnion("type", [
   // daemon -> extension: wait for a page check (used by a skill's success list)
   z.object({ ...base, type: z.literal("run.check"), runId: z.string(), check: Check, timeoutMs: z.number() }),
   z.object({ ...base, type: z.literal("run.check_result"), runId: z.string(), ok: z.boolean() }),
+  // daemon -> extension: look at or safely probe the automation tab while a paused run is repaired (PageOp in
+  // packages/player/src/web/inspect.ts: outline, find, inspect, signals, click, press, scroll, back, navigate, wait).
+  // The daemon's repair guard has already allowed it.
+  z.object({ ...base, type: z.literal("page.op"), runId: z.string(), op: z.record(z.string(), z.unknown()) }),
+  z.object({
+    ...base,
+    type: z.literal("page.op_result"),
+    ok: z.boolean(),
+    value: z.unknown().optional(),
+    error: z.string().optional(),
+  }),
   // daemon -> extension: the run is over; detach the debugger
   z.object({ ...base, type: z.literal("run.end"), runId: z.string() }),
+
+  // The daemon's API (apps/daemon/src/api.ts), for any client on the socket (Shadow.app, tools). Replies reuse the id.
+  z.object({ ...base, type: z.literal("api.call"), method: z.string(), params: z.unknown().optional() }),
+  z.object({
+    ...base,
+    type: z.literal("api.result"),
+    ok: z.boolean(),
+    value: z.unknown().optional(),
+    error: z.string().optional(),
+  }),
+  // client -> daemon: send me events (runs, steps, inbox) from now on, as api.event.
+  z.object({ ...base, type: z.literal("api.subscribe") }),
+  z.object({ ...base, type: z.literal("api.event"), event: z.unknown() }),
 ]);
 export type Message = z.infer<typeof Message>;

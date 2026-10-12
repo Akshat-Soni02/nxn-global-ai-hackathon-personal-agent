@@ -26,7 +26,7 @@ export const TRACE_EVENTS = [
   "fs_create",
   "fs_move",
   "fs_rename",
-  // Mac apps, from Task Player.app through the Accessibility API (apps/mac). Chrome is left to the extension.
+  // Mac apps, from Shadow.app through the Accessibility API (apps/mac). Chrome is left to the extension.
   "app_activate", // you switched to an app
   "app_click", // a control pressed, described by its AX element
   "app_type", // a text field's final value (characters are never recorded one by one)

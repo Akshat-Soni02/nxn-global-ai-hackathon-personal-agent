@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDecoder, encode } from "@taskplayer/ipc";
+import { createDecoder, encode } from "@shadow/ipc";
 import { afterEach, describe, expect, it } from "vitest";
 import { type Daemon, startDaemon } from "./daemon.ts";
 
@@ -84,7 +84,7 @@ describe("daemon socket", () => {
     ext.end();
   });
 
-  it("keeps Task Player.app apart from Chrome: ax steps go to it, web steps never do", async () => {
+  it("keeps Shadow.app apart from Chrome: ax steps go to it, web steps never do", async () => {
     const socketPath = path();
     daemon = await startDaemon({ socketPath });
     const mac = client(socketPath);
@@ -108,7 +108,7 @@ describe("daemon socket", () => {
     ext.end();
   });
 
-  it("shuts down while Chrome and Task Player.app are still connected, and ends their connections", async () => {
+  it("shuts down while Chrome and Shadow.app are still connected, and ends their connections", async () => {
     const socketPath = path();
     const d = await startDaemon({ socketPath });
     const mac = client(socketPath);
@@ -116,7 +116,7 @@ describe("daemon socket", () => {
     await mac.next("hello");
     const ended = new Promise((resolve) => mac.socket.once("end", resolve));
     await d.close(); // used to wait forever for the open connection
-    await ended; // Task Player.app quits when this happens
+    await ended; // Shadow.app quits when this happens
   });
 
   it("refuses to start twice on the same socket", async () => {

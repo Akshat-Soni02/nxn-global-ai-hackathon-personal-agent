@@ -1,8 +1,8 @@
-# Task Player Design
+# Shadow Design
 
 > **Updated Oct 8, 2026: the workflow pivot.** A task is now taught by **describing it and recording it** (with optional voice narration), turned into an **editable workflow tree** by an LLM, tested, and replayed with **self-correction**. This file is the source of truth. The earlier live design doc (Sep 30) describes the old flat-skill flow and is out of date. The skill format is migrated (Oct 8); most of the rest of the flow is not built yet: see [Status: design vs code](#status-design-vs-code).
 
-Task Player learns a work task from a description and one demonstration, shows the user the workflow it understood, lets them correct it, and then runs it for them, fixing itself when a site changes.
+Shadow learns a work task from a description and one demonstration, shows the user the workflow it understood, lets them correct it, and then runs it for them, fixing itself when a site changes.
 
 ## Why the pivot
 
@@ -39,7 +39,7 @@ Before recording, the user fills in a short form. Each field has placeholder tex
 
 The user presses Record and does the task their usual way. Three streams are captured on one clock, so each piece lines up with the others by timestamp:
 
-- **Events:** web clicks, typing, selects, files, drops, drags, copy and paste (extension); Mac app clicks, values, menus and shortcuts (Task Player.app, Accessibility API); file moves and renames (daemon, FSEvents). As today.
+- **Events:** web clicks, typing, selects, files, drops, drags, copy and paste (extension); Mac app clicks, values, menus and shortcuts (Shadow.app, Accessibility API); file moves and renames (daemon, FSEvents). As today.
 - **A screenshot at each event** (only with the user's **screen** consent): only the active window, with sensitive information blacked out before it is stored (see [Consent, redaction and retention](#consent-redaction-and-retention)). Mac app windows need macOS's **Screen Recording** permission; Chrome's visible tab is captured by the extension without it.
 - **Voice** (optional, only with the user's **microphone** consent): the user can narrate while working ("I always take the newest one from Reporting Bot"). macOS's built-in speech recognizer (**SpeechAnalyzer**, macOS 26) transcribes it on the Mac with word timestamps; the transcript is split into segments aligned with the events. The audio itself is never sent anywhere; the transcript text is.
 
@@ -91,7 +91,7 @@ Vendor invoices → Xero                            trigger: every day at 10:00
 
 ### 6. Edit
 
-The user can edit any step (its target, values, wording), add, remove or reorder steps, and **toggle human approval** on any step. Steps that send, submit, pay, publish or delete start with approval on, and so do steps matching a "Never" entry.
+In the app's window ([The app](#the-app)), the user can edit any step (its target, values, wording), add, remove or reorder steps, and **toggle human approval** on any step. Steps that send, submit, pay, publish or delete start with approval on, and so do steps matching a "Never" entry.
 
 ### 7. Test
 
@@ -128,7 +128,7 @@ When a step fails after its retries, the failure is classified **before anything
 | Class | Examples | What happens | New version? |
 | --- | --- | --- | --- |
 | **Transient** | site down, 5xx, timeout, no network | The run is retried later with backoff; after the last retry it is handled as *environment* | No |
-| **Environment** | logged out, a one-time code, Task Player.app not running, a macOS permission missing | The run **pauses** and the user is told exactly what is needed ("log in to Xero"); it resumes from the failed step when they are done | No |
+| **Environment** | logged out, a one-time code, Shadow.app not running, a macOS permission missing | The run **pauses** and the user is told exactly what is needed ("log in to Xero"); it resumes from the failed step when they are done | No |
 | **Nothing to do** | the email hasn't arrived, the folder is empty, no unread invoices | The run ends as **no-op**, which is not a failure | No |
 | **Data** | this invoice has no due date, an extracted value doesn't fit its type | This item fails (or is skipped, with `on_item_fail: "skip"`); outside a loop the run fails and the user is told | No |
 | **Drift** | a button renamed, a new banner or dialog, an action moved into a menu, a new confirmation page, a changed layout | **Repair** (below) | Yes |
@@ -148,7 +148,7 @@ Cheap signals decide first, with no model: the HTTP status, a URL that is a logi
 
 **What repair may never do** (a repair that needs one of these goes to the user):
 
-- **Outward actions:** add a step that sends, submits, pays, publishes or deletes, or one that matches a **Never** entry. It may retarget an existing outward step to the same control on a changed page ("Submit" → "Submit invoice"), but that step then needs approval the first time it runs.
+- **Outward actions:** add a step that sends, submits, pays, publishes or deletes, or one that matches a **Never** entry. It may retarget an existing outward step to the same control on a changed page ("Submit" → "Submit invoice"), but that step then needs approval the first time it runs. One exception, for a new confirmation page: a step that *finishes* an outward step it directly follows ("Confirm" after "Submit") may be added, and it always needs approval.
 - **What the user decided:** the trigger, the inputs and their defaults, the description, values the user set in `args`, llm step instructions, `max_items` and `on_item_fail`.
 - **Safety switches:** turn approval off on any step, or remove an `ask`.
 - **Reach:** add `script` steps, or navigate to a site the workflow doesn't already use.
@@ -164,7 +164,7 @@ A verified repair **becomes the next version immediately**; later runs use it, w
 #### When repair can't fix it: pause, and the user shows it
 
 - The run **pauses** instead of failing. The browser tab or Mac window, and the run's variables, are kept as they are, and the user is notified with where it stopped and why.
-- The user **does the stuck part by hand while Task Player records**, with the same recorder used to teach the task.
+- The user **does the stuck part by hand while Shadow records**, with the same recorder used to teach the task. *(Built so far, Oct 10: the user does it by hand in the automation window and types `skip`; the run goes on after the step. Recording the demonstration into steps comes with the record side.)*
 - That demonstration **becomes the repair**: it is turned into steps at the failed point, checked like any other recorded steps (approvals on for outward steps), and saved as the next version (`by: user`).
 - The run **resumes** after the demonstrated part.
 
@@ -172,7 +172,83 @@ So asking the user is not a dead end: it is how a fix the model couldn't find is
 
 #### Limits
 
-One repair episode per failed step and at most two per run; per episode at most 12 turns, $0.10 and 20 actions on the live page; per run at most $0.25 of repair. All configurable (`config.json`). An episode that runs out ends as `escalate`: the run pauses for the user. How long a paused run waits before it ends is [still open](#open-questions).
+One repair episode per failed step and at most two per run; per episode at most 12 turns, $0.10 and 20 actions on the live page; per run at most $0.25 of repair (`DEFAULT_REPAIR_LIMITS` in `packages/player/src/repair/repair.ts`; to move to `config.json`). A transient failure is retried after 30 s and 2 min, then handled as environment. An episode that runs out ends as `escalate`: the run pauses for the user. How long a paused run waits before it ends is [still open](#open-questions).
+
+## Workflow lifecycle
+
+*Planned, not built yet (Oct 10).* What a workflow is doing, apart from any single run: being made or changed (**draft**), running on its trigger (**live**), or stopped on purpose (**paused**). Built with triggers (milestone 8) and the editor (milestone 10).
+
+```mermaid
+stateDiagram-v2
+  [*] --> Draft: describe and record
+  Draft --> Live: go live (checks pass)
+  Live --> Paused: pause, or auto-pause
+  Paused --> Live: resume
+  Live --> Live: edit → a draft beside it → go live = next version
+```
+
+| State | Its trigger | Runs by hand | What it means |
+| --- | --- | --- | --- |
+| **Draft** | Off | Yes, as tests | Being made or changed. Never runs on its own |
+| **Live** | On | Yes | Runs its live version whenever its trigger fires |
+| **Paused** | Off | Yes | Kept as it is, nothing starts on its own. Resume to make it live again |
+
+**Drafts and versions.** Versions stay immutable, and runs execute exactly the tree the user saw:
+
+- A **new workflow** is a draft from the moment the description form is started, through recording, understanding and the drill, until it first goes live as v1. Each stage saves its progress, so a draft left halfway reopens where it stopped.
+- **Editing a live workflow** opens a draft *beside* it. The live version keeps running unchanged until the draft goes live as the next version (`by: user`). Leaving the draft never touches the live workflow.
+- **One draft per workflow** at a time.
+
+**Autosave.** A draft is saved after every change: a base version plus the list of edit operations made on it ([`core/edit.ts`](#edit-operations-shared-by-agents-and-people)), not a copy of the tree. So:
+
+- undo and redo are dropping or replaying the last operation;
+- "what changed" is the operation list;
+- a draft survives a repair that lands underneath it.
+
+**When repair lands under a draft.** Repair saves a new live version at once (section 9). The draft's operations, addressed by step id, are then replayed onto the new version when the draft goes live. One that no longer applies (its step was replaced) is shown to the user to redo or drop.
+
+**Going live.** These must hold:
+
+- the workflow parses and passes `check.ts`, as always;
+- if it starts on its own (a schedule or a folder): the schedule is valid, a folder trigger has a file input to fill, and every input has a default or a way to be resolved (an unattended run has nobody to ask).
+
+A workflow that only runs when you start it can always go live (*decided Oct 12*): you are there to give it what it needs. Live then means "finished, not being worked on"; it starts on its own only once it has a schedule or a folder.
+
+*Decided Oct 12:* the checks are enough; no test run is required. A first bad run is still caught by approvals, the inbox and auto-pause.
+
+**Pausing.**
+
+- Pausing stops new runs; a run already going finishes (or is cancelled from the run view).
+- **Auto-pause**: after 3 runs in a row, started by its trigger, that fail (failed or interrupted), the workflow pauses itself and the user is told why: an inbox item and a notification, with Resume. A workflow that keeps breaking stops instead of piling up failed runs. Runs started by hand, runs that end waiting for the user, nothing-to-do runs and denials don't count (decided Oct 12).
+- Not to confuse with a **run** that waits for the user (section 9): in the product that is shown as "waiting for you", and the workflow stays live.
+
+**Where it is kept.** Next to the versions, never inside them, so pausing never rewrites a version file:
+
+- `skills/<id>/state.json`: state, live version, when and why it was paused;
+- `skills/<id>/draft.json`: base version, operations, the stage of a new workflow;
+- `skills/<id>/vN.json`: the versions, as now.
+
+The daemon commands until the editor exists: `drafts`, `live <id>`, `pause <id>`, `resume-workflow <id>`.
+
+A workflow with no `state.json` (everything recorded before milestone 8) counts as a **draft**: nothing starts on its own until it is made live. Until drafts are kept beside a live workflow (milestone 10), the live version is the latest one, so a repair's new version is live at once.
+
+### Triggers
+
+*Planned Oct 12, milestone 8.* A live workflow starts on its own when its trigger fires; a draft or a paused one never does. Run by hand, any workflow runs.
+
+**Setting the Frequency.** Until the description form exists (milestone 11), the workflow page has a Frequency picker: only when I start it, every hour, every day at…, weekdays at…, every week on… at…, every month on day… at…, when a file appears in a folder…. Choosing one sets the trigger step's `when` (the existing `set` edit operation) and saves the next version (`by: user`). Times are in the Mac's own time zone.
+
+**Schedules** (`{ type: "schedule", cron }`). The daemon works out each live workflow's next time with `croner` (handles daylight-saving changes) and looks every minute, which also notices the clock jumping after the Mac wakes. When each workflow last fired is saved, so a restart never runs the same time twice.
+
+**A missed time** (the Mac was asleep, or Shadow wasn't running) is chosen **per workflow** on its trigger: `missed: "run_once"` (the default) runs it once when the Mac wakes or the daemon starts, never once per missed slot, and the run shows how late it was; `missed: "skip"` waits for the next time. *Decided Oct 12.*
+
+**A folder** (`{ type: "folder_watch", dir, glob?, input? }`). Only that folder is watched, apart from the recording watcher. A file has appeared once its size has stayed the same for a few seconds, so downloads and copies still being written don't start a run; temporary and hidden names (`.crdownload`, `.part`, `.*`) are ignored. The file becomes the workflow's file input (`input` names it; without it, the workflow's only file input), and each file starts one run. Files that started a run are remembered, so none starts two; on start the daemon looks for files that arrived while it was off, following the same `missed` setting.
+
+**Overlap.** When a workflow's schedule fires while its previous run is still going or still waiting for the user, the new run is **skipped**, and its runs list says so ("skipped: the last run still waits for you"), so runs can't pile up while the user is away. *Decided Oct 12.* A **file** is different: it is work that must not be lost (drop five invoices at once and four would be skipped). A file that appears while the workflow is busy **waits its turn**: it is not marked as seen, and a later scan starts it once the previous run has ended. One run at a time per workflow either way.
+
+**Unattended runs** need nobody at start (going live checks that every input has a default or a way to be found); an approval, a step's question or a failure only the user can fix waits in the inbox as for any run.
+
+**Not covered.** A sleeping Mac runs nothing: waking it on a schedule needs administrator rights. Web steps need Chrome; the daemon opens it in the background when a run needs it. Watching Downloads, Desktop or Documents needs macOS's folder permission: started by `pnpm setup:daemon`, macOS asks for it as "node" until the packaged app (milestone 9).
 
 ## Agents
 
@@ -202,7 +278,7 @@ A caller that needs one model call (an llm step in a workflow) calls `packages/l
 
 | Part | What it does |
 | --- | --- |
-| **Tools** | `{ name, kind, description, input (zod), run(input, ctx) }`, where kind is look, probe, edit, try or finish. Tools are written against interfaces ("look at the page", "act on the page", "run steps"); the daemon connects them to the extension, Task Player.app, memory and the skill store, so agents also run in tests without Chrome |
+| **Tools** | `{ name, kind, description, input (zod), run(input, ctx) }`, where kind is look, probe, edit, try or finish. Tools are written against interfaces ("look at the page", "act on the page", "run steps"); the daemon connects them to the extension, Shadow.app, memory and the skill store, so agents also run in tests without Chrome |
 | **The loop** | Briefing and task in; the model picks one tool; the **guard** allows or refuses it; the result goes back into working memory; until a `finish` tool or the budget ends it |
 | **Guard** | A function each agent supplies. A refusal is returned to the model as a result, never a crash |
 | **Budgets** | Turns, dollars (from `llm`'s usage meter), live actions, time. Running out ends the episode cleanly |
@@ -214,16 +290,16 @@ A caller that needs one model call (an llm step in a workflow) calls `packages/l
 
 ### What an agent knows it can do
 
-- **A capability briefing, generated from code** (`packages/core/src/briefing.ts`), opens every episode: the actions per channel with their args, the variable types and reference rules, and what is available right now (extension connected, Task Player.app running, consents given). When the code changes, the briefing does.
+- **A capability briefing, generated from code** (`packages/core/src/briefing.ts`), opens every episode: the actions per channel with their args, the variable types and reference rules, and what is available right now (extension connected, Shadow.app running, consents given). When the code changes, the briefing does.
 - **The tools are the rules.** Every workflow edit is a typed operation checked by the schema and `check.ts`; an impossible edit comes back as an error the agent reads (`{{pdf.pth}} has no such field: pdf is a file`).
-- **What may never change is enforced in code**, not in the prompt: the draft is compared with the original against [section 9's list](#repair).
+- **What may never change is enforced in code**, not in the prompt: the draft is compared with the original against [section 9's list](#repair) (`packages/core/src/guard.ts`).
 
 ### Memory
 
 | Layer | Holds | Lives |
 | --- | --- | --- |
 | **Working memory** | This episode: what was looked at, changed, tried, and what happened | In the loop |
-| **Episode record** | The whole transcript: tool calls, results, cost, the final patch | With the run log; the editor shows it as "what Task Player did to fix this", and it explains a rollback |
+| **Episode record** | The whole transcript: tool calls, results, cost, the final patch | With the run log; the editor shows it as "what Shadow did to fix this", and it explains a rollback |
 | **Workflow history** | Earlier versions with their `by: debug` / `by: user` notes | The skill store |
 | **Long-term memory** | Site notes ("the billing portal shows a cookie banner first"), earlier fixes per site, drill answers | SQLite memory, recalled at the start of an episode and written by a `note` tool |
 
@@ -309,9 +385,12 @@ Every value a step reads is a **variable declared, with its type, by an earlier 
 ```mermaid
 flowchart TB
   subgraph mac["The user's Mac"]
-    D["Daemon (always on)<br/>workflows + versions, triggers,<br/>memory, run log, LLM client"]
-    A["Task Player.app<br/>Record button, Mac app capture + replay (AX),<br/>screenshots + redaction, voice + transcription"]
-    W["Workflow editor<br/>(location to be decided)"]
+    L["launchd<br/>(starts the daemon at login)"]
+    subgraph app["Shadow.app (what the user installs)"]
+      D["Daemon (always on)<br/>workflows + versions, triggers, inbox,<br/>memory, run log, LLM client, API"]
+      A["Swift side<br/>Record button, menu bar, notifications,<br/>Mac app capture + replay (AX),<br/>screenshots + redaction, voice + transcription"]
+      W["Window (WKWebView)<br/>inbox, workflows, runs,<br/>versions, editor, settings"]
+    end
     subgraph chrome["Chrome"]
       X["Extension<br/>web capture, tab screenshots,<br/>replay via chrome.debugger"]
     end
@@ -319,14 +398,17 @@ flowchart TB
   end
   N[("Nebius Token Factory<br/>Nemotron 3.5 Lightning, Nemotron 3 Super,<br/>GLM-5.3-Flash")]
   X <--> S <--> D
-  A <--> D
-  W <--> D
+  L -- starts --> D
+  A <-- socket --> D
+  W <-- "local HTTP + token" --> D
   D -- "text, and redacted screenshots<br/>with consent; user's own API key" --> N
 ```
 
-There is **no backend server**: the daemon is the backend. It runs on the user's Mac and calls Token Factory directly with the user's own API key. The extension and Task Player.app never call a model; everything goes through the daemon ([Deployment](#deployment)).
+The daemon is the hub, reached through three doors because each side allows a different one: Chrome only through native messaging (the shim), the Swift side through the Unix socket, the window through local HTTP ([The daemon as a service](#the-daemon-as-a-service)).
 
-**Why a native host shim.** Chrome launches a fresh process for every native messaging connection, so it cannot attach to the always-on daemon. The shim (`apps/native-host`) is what Chrome launches; it forwards bytes to the daemon's Unix socket (`~/Library/Application Support/TaskPlayer/daemon.sock`, at most 103 bytes long, a macOS limit). Only the extension can open the connection, so it connects on startup and reconnects with `chrome.alarms`.
+There is **no backend server**: the daemon is the backend. It runs on the user's Mac and calls Token Factory directly with the user's own API key. The extension, the Swift side and the window never call a model; everything goes through the daemon ([Deployment](#deployment)).
+
+**Why a native host shim.** Chrome launches a fresh process for every native messaging connection, so it cannot attach to the always-on daemon. The shim (`apps/native-host`) is what Chrome launches; it forwards bytes to the daemon's Unix socket (`~/Library/Application Support/Shadow/daemon.sock`, at most 103 bytes long, a macOS limit). Only the extension can open the connection, so it connects on startup and reconnects with `chrome.alarms`.
 
 ## Replay engine
 
@@ -335,7 +417,7 @@ Built and unchanged by the pivot; the workflow interpreter will call it for ever
 - **Matching, never coordinates.** A stored target is found again on the live page by Chrome's own accessibility tree (role, with equivalent roles grouped, and accessible name), stored attributes and fallback selectors, weighted 0.45 / 0.25 / 0.30. One clear winner (score ≥ 0.5, margin 0.15 over the runner-up) is required; otherwise the step reports "not found" or "ambiguous" with the top candidates. Positions are read at the moment of acting.
 - **Acting like a person.** Trusted CDP input: a mouse press at the element's current centre after checking nothing covers it; typing as keyDown/keyUp per character (inserting text at once leaves widgets such as date pickers with stale state). Uploads hand the file to the page's file input (in the target, its dialog, the page or a shadow root) or drop it, with no native dialog.
 - **Waiting.** Navigation waits until the document is parsed; each step then waits for its own target and checks its result.
-- **Where it runs.** Web steps run in a dedicated, unfocused 1280×800 Chrome window through `chrome.debugger`; Mac app steps through Task Player.app; files and scripts in the daemon. `pnpm replay` runs the same code in a separate debug-port Chrome for development.
+- **Where it runs.** Web steps run in a dedicated, unfocused 1280×800 Chrome window through `chrome.debugger`; Mac app steps through Shadow.app; files and scripts in the daemon. `pnpm replay` runs the same code in a separate debug-port Chrome for development.
 - **The interpreter.** Walks the tree in order. A loop resolves `over`, refuses more than `max_items`, gives each item its own scope (the item and whatever its steps produce, dropped afterwards), and on a failing item stops or, with `on_item_fail: "skip"`, logs it and goes on; a denial always stops. A branch evaluates its condition (numbers written as text compare as numbers, ISO dates as dates, a reference with no value counts as missing for `exists`), runs one arm in its own scope and keeps only the variables both arms produce. An `ask` runs before its step: a value answer is converted to the output's type, a "no" to a confirm skips the step, and with no way to ask the run stops rather than guess. Approval on a loop is asked once; on a step inside it, once per item.
 - **Run log.** Every run records each step with where it ran (`l1[2] > s3`: step s3 on the third item of loop l1), its match score, result and retries, plus loop items, branch choices, asks and skipped steps; its first line names the skill version that ran.
 
@@ -377,14 +459,14 @@ Prices are from Token Factory's catalog (Oct 8, 2026) and live in config, not co
 
 Before the first recording, the user is asked two separate questions, explained in plain words:
 
-- **Screen:** "Task Player takes a screenshot of the active window at each step you record, hides sensitive information, and sends it to the model to understand your task."
-- **Microphone:** "Task Player records your voice while you narrate, turns it into text on your Mac, and sends the text to the model."
+- **Screen:** "Shadow takes a screenshot of the active window at each step you record, hides sensitive information, and sends it to the model to understand your task."
+- **Microphone:** "Shadow records your voice while you narrate, turns it into text on your Mac, and sends the text to the model."
 
 Each can be turned off at any time. Without them, recording works from events alone.
 
 ### Redaction (before any image leaves the Mac)
 
-Every screenshot passes through layers, and every image goes through one outbound filter in Task Player.app before the daemon sends it:
+Every screenshot passes through layers, and every image goes through one outbound filter in Shadow.app before the daemon sends it:
 
 1. **Don't capture.** No screenshot while a password field has focus, or while the active app or site is on the block list (password managers, banking, messaging, plus the user's own list).
 2. **Mask known fields.** On web pages the content script knows the rectangles of password inputs, payment fields (`autocomplete="cc-*"`) and fields the user marked; in Mac apps the Accessibility API reports secure text fields and their frames. They are blacked out when the screenshot is taken.
@@ -406,12 +488,138 @@ Each recording keeps its raw files in one folder: screenshots, audio, transcript
 - **Repair is bounded:** only drift changes a workflow; repair cannot add outward actions or scripts, change what the user decided, turn approvals off or reach new sites, and a fix is kept only with evidence that it worked. This is enforced in code by the repair agent's guard on every live action and every edit, within budgets per episode and per run, never by its prompt. Every change is a new version the user can roll back in one click ([Recover from a failure](#9-recover-from-a-failure)).
 - **Permissions (macOS):** Accessibility (Mac app capture and replay), Screen Recording (Mac app window screenshots), Microphone and Speech Recognition (narration), Automation (scripts). Full Disk Access is not needed.
 
+## The daemon as a service
+
+*Decided Oct 10, 2026.* Today the daemon runs in a terminal (`pnpm daemon`), reads the API key from the repo's `.env`, and everything that waits for the user waits on that terminal: approvals, asks, drill questions and runs waiting for the user are functions held in memory (`pendingApproval`, `pendingRecovery` in `apps/daemon/src/main.ts`), answered by typing `approve`, `resume` and so on. That cannot run unattended: a daemon started by macOS has no terminal to type into, and a wait held in memory is lost when the daemon restarts. So the daemon changes in three ways.
+
+**Started by macOS.** Shadow.app registers the daemon as a **LaunchAgent** (`SMAppService`): launchd starts it when the user logs in and starts it again if it exits. Only one copy runs: a second daemon refuses to start while one listens on the socket.
+
+**An inbox instead of a terminal.** Everything that waits for the user is a **saved record** in SQLite, not a function in memory:
+
+| Kind | Waits for | Answers |
+| --- | --- | --- |
+| `approval` | a step that needs approval | approve, deny |
+| `ask` | a step's question | a value, or yes / no |
+| `recovery` | a run that recovery couldn't finish, or one that needs a login ("waiting for you"; the workflow stays live) | retry, skip (done by hand, or shown), stop |
+| `question` | a question outside a run: the drill after a recording, which file to use | an answer |
+| `repaired` | nothing: a repair saved a new version | review, roll back |
+
+Each record names the workflow, run, step path and version, what is needed, and when it was asked. Any client can answer it; the first answer wins and the others see it resolved.
+
+**How a run waits** (built Oct 11). A run that needs the user does not wait in memory. The approval, ask and recovery hooks answer `WAIT` (`packages/player`): the run ends its leg as `waiting`, with a checkpoint (the version, where it stopped, its variables, what the user already answered for that step) saved on its row in the `runs` table, and an inbox item. Answering the item starts the next leg from the checkpoint, with the answer, without asking again. So a run can wait for hours, or across a daemon restart, and resumes only when answered. A run the daemon was in the middle of when it stopped (a crash, a restart) is marked `interrupted` and does not go on by itself; questions outside a run (the drill) can't survive a restart and expire. One leg acts at a time, because there is one automation window; waiting runs hold nothing.
+
+**One API, two doors.** The daemon accepts one set of queries and commands:
+
+- **Queries:** workflows, versions and the diff between two, runs and a run's steps, the inbox, health, memory, model usage.
+- **Commands:** run, cancel, go live, pause and resume a workflow ([Workflow lifecycle](#workflow-lifecycle)), roll back, answer an inbox item, edit a workflow (the edit operations of `core/edit.ts`, autosaved to its draft; going live makes a `by: user` version), start and stop recording, change settings.
+- **Events, pushed:** run progress, inbox changes, health changes.
+
+They are served on the **Unix socket** (as today: the extension through the native host, Shadow.app, and the terminal) and on **local HTTP** for the app's window. HTTP listens on `127.0.0.1` only, on a random port, and needs a random token made at each start and written to a file only the user can read (mode 0600) in the data folder; requests without it, or from another origin, are refused. The token is needed because any web page open in the user's browser can also send requests to `127.0.0.1`.
+
+**The terminal stays** as a client for development: `pnpm daemon` keeps its commands, which answer inbox items (`approve`, `deny`, `resume`, `skip`, `cancel`, or the typed answer to a question), plus `inbox`, `runs` and `cancel <run>`. Over the API, `start` takes a workflow id from the store, never a file path, since a workflow can hold script steps; the terminal may still run a file.
+
+**Triggers** (Frequency) run in the daemon: a scheduler for times, and folder watches for "when a file appears" ([Triggers](#triggers)).
+
+## The app
+
+*Decided Oct 10, 2026.* The user installs one app, **Shadow.app**. It is the only thing they open; everything else is started from it.
+
+**Native (Swift), as today plus:** the floating Record button, the Mac-app recorder and the `ax` channel; a **menu bar item** (status, how many things wait in the inbox, Record, Open); **notifications**; the first-run setup; and the window.
+
+**The window is a WKWebView**, macOS's own web engine (the one Safari uses) inside our app, showing a TypeScript/React UI shipped in the app (`Contents/Resources/ui`). It is not a website: nothing is hosted, and it works offline. Why this and not the alternatives:
+
+| Option | Why not |
+| --- | --- |
+| SwiftUI | The workflow tree, its schema, `check.ts` and `edit.ts` are TypeScript; a Swift editor would rebuild all of it |
+| Electron | A second app with its own copy of Chrome and Node, beside Shadow.app |
+| Tauri | Adds Rust to a TypeScript and Swift codebase |
+| Chrome side panel | Exists only while Chrome is open; the inbox must work when it isn't |
+
+The UI imports `@shadow/core`, so the editor validates with the same `check.ts` and changes workflows with the same edit operations as the agents. In development the same UI opens in a normal browser against the running daemon.
+
+**It holds no state.** Everything it shows comes from the daemon's API, and every click is a command to it, like the Record button today.
+
+**How the window gets its pages** (built Oct 11). The daemon serves the built UI (`apps/ui/dist`) at `http://127.0.0.1:<port>/`, so the pages and the API share one origin. The pages need no token (they hold no data); every `/api` call does. Shadow.app reads the port and token from `api.json` and opens `http://127.0.0.1:<port>/#token=…&to=/inbox`: the token is in the URL's fragment, which a browser never sends to a server, and the page keeps it for the session and takes it out of the address. A notification opens its screen the same way, in a window already open too. A strict Content-Security-Policy keeps the pages to their own files and this server. In development, `pnpm ui` rebuilds the pages on change and the daemon prints the window's link to its terminal (never to the log file).
+
+**Starting at login, for now.** `pnpm setup:daemon` installs a LaunchAgent that runs the daemon from the repo at login and again if it exits; the daemon opens Shadow.app. The packaged app registers the daemon inside itself with `SMAppService` instead (milestone 9).
+
+**Screens**, in the order they are built:
+
+1. **Inbox:** what waits for the user (the table above), as cards with their answers.
+2. **Workflows:** each with its state (draft, live, paused, and why it auto-paused), trigger and next run, last result, live version, and Run now.
+3. **Run detail:** the steps as a timeline from the run log (where each ran, match score, time, values with secrets hidden), repair episodes (what failed, what the agent tried, what changed), and model cost.
+4. **Workflow detail:** the tree, description and variables; versions with the diff between them and **one-click rollback**.
+5. **Settings and health:** the API key, model profiles, budgets, consent, macOS permissions, and **memory** (view and delete entries).
+6. **Editor:** works on the workflow's draft: edit a step's fields and toggle approval, with `check.ts` errors shown on the step; every change autosaves, undo and redo; going live makes the next version. Then add, remove and reorder steps, then Play (highlight-only).
+7. **Record:** the description form, recording, then the drill questions shown on the draft tree.
+
+**Notifications** for: needs approval, waiting for you, repaired → new version (with rollback), failed, auto-paused. Clicking one opens that item in the window.
+
+## Observability
+
+Local only: logs, runs and usage stay on the Mac, in line with the privacy promise. Nothing is sent anywhere except model calls.
+
+- **Logs.** One structured logger for the daemon (time, level, component, run id, message) writing JSON lines to `~/Library/Logs/Shadow/daemon.log`; Shadow.app writes `app.log` there too. Both are rotated (size cap, a few files kept). Console.app shows that folder. Today the daemon logs to the terminal and the app to `NSLog` or `--log`.
+- **Runs.** The per-run JSON lines (`runs/<runId>.jsonl`) stay the detail. A `runs` table indexes them: workflow, version, trigger, status (succeeded, failed, denied, no-op, waiting, cancelled), start, duration, failed step, whether it was repaired, model cost. The window lists runs from it.
+- **Repair episodes** are saved next to their run (`runs/<runId>.repair-N.json`, numbered across the run's legs): the failure report, the agent's transcript and the version diff.
+- **Model usage.** Tokens and estimated cost per call, per run and per day, saved (today `UsageMeter` is in memory only). A daily budget in settings: a warning near it; over it, model calls are refused and the user is told.
+- **Health.** Extension connected; Shadow.app connected and allowed Accessibility; API key present and the model reachable (the last check); triggers and their next times; disk used; the last error. Shown in the window and as the menu bar icon's state.
+- **Retention.** Run logs and repair episodes are kept 30 days (a setting), the `ai-cache` is pruned, logs are rotated. Values of type `secret` are never logged, as today.
+- **Diagnostics export.** A zip of the logs, health and a chosen run, without secrets, for bug reports.
+
 ## Deployment
 
+*Packaging decided Oct 10, 2026.*
+
 - **No backend server.** The daemon on the user's Mac is the backend; it holds the workflows and calls Token Factory directly with the user's key. This keeps the data path short: the user's Mac and Nebius only.
-- **Settings** live in `~/Library/Application Support/TaskPlayer/config.json` (model per profile, budgets, prices), with defaults built in; the API key lives in the Keychain.
-- **Updates** ship with the app: a new build of Task Player.app and the daemon, and a new version of the extension.
-- **Test build for judges:** a GitHub Release with the `.dmg` (Task Player.app with the daemon) and the extension. The first launch asks for the Token Factory key, stores it in the Keychain and runs the connection check, so the user sees "connected to Nemotron" before recording anything. The build is unsigned, so the README says to open it with right-click → Open.
+- **Settings** live in `~/Library/Application Support/Shadow/config.json` (model per profile, budgets, prices, retention), with defaults built in; the API key lives in the Keychain.
+- **Updates** ship with the app: a new build of Shadow.app (with the daemon inside) and a new version of the extension.
+
+### What the user installs
+
+A `.dmg` (a disk image) holding **Shadow.app**. The app is a folder macOS shows as one icon:
+
+```
+Shadow.app/Contents/
+  Info.plist                              name, id (com.shadow.mac), version
+  MacOS/Shadow                       the Swift side: button, menu bar, notifications, window, ax channel
+  Resources/node                          a Node 22 binary, so the user needs no Node
+  Resources/daemon.js                     apps/daemon and every package it uses, bundled into one file (esbuild)
+  Resources/native-host.js                the Chrome shim, bundled the same way
+  Resources/ui/                           the window's pages
+  Resources/extension/                    the extension, to load into Chrome
+  Library/LaunchAgents/com.shadow.daemon.plist   "run Resources/node daemon.js at login, restart it if it exits"
+```
+
+Bundling into one file works because nothing needs compiling on the user's Mac: memory uses Node's built-in SQLite (`node:sqlite`).
+
+### Who starts what
+
+The user opens Shadow.app. The app registers the daemon's LaunchAgent and itself as **login items** (`SMAppService`), so from then on launchd starts both at login, and the daemon again if it exits. This **reverses today's order**, where the daemon starts the app with `open`: users open apps, not daemons, and macOS asks for permissions (Accessibility, folders) by the name of the app that holds the program, so a daemon inside Shadow.app is asked about as "Shadow", not as "node". If the app isn't running, the daemon still opens it, as today, so the button is there.
+
+### First run
+
+1. Ask for the Token Factory API key and store it in the **Keychain**.
+2. Write Chrome's native-host manifest, pointing at `Resources/node` and `Resources/native-host.js` **inside the app** (today `pnpm setup:native-host` points at the developer's Node and repo).
+3. Run the connection check (what `pnpm llm:check` does) and show **"connected to Nemotron"**.
+4. Guide the user through loading the extension (Load unpacked from the folder shipped in the app, then **Allow access to file URLs**) and allowing **Accessibility**.
+
+The daemon, the app and the extension each send their version in `hello`; a mismatch is shown in health.
+
+### Scripts
+
+- `pnpm package`: builds the extension, compiles the Swift app, bundles the daemon, the native host and the UI, copies Node in, and makes the `.dmg` (`hdiutil`).
+- `pnpm release`: publishes the `.dmg` and the extension as a GitHub Release (`gh release`).
+- CI builds the `.dmg` on a macOS runner.
+- Development is unchanged: `pnpm daemon`, `pnpm replay`, `pnpm setup:*`.
+
+### Signing
+
+The app is signed ad hoc (no Apple developer account). macOS ties the Accessibility permission to a build's signature, so each new build is asked for again; a release is built once, and the README says so. The build is not notarised, so the first open is right-click → Open.
+
+### Test build for judges
+
+The GitHub Release above. The first launch runs the first-run steps, so the judge sees "connected to Nemotron" before recording anything.
 
 ## Status: design vs code
 
@@ -419,8 +627,8 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 
 | Part | In the code today | For the new design |
 | --- | --- | --- |
-| Web, Mac app and file capture | ✅ extension, Task Player.app, daemon file watcher | Stays |
-| Replay engine (matching, acting, waiting) | ✅ `packages/player`, extension, Task Player.app | Stays; called by the new interpreter |
+| Web, Mac app and file capture | ✅ extension, Shadow.app, daemon file watcher | Stays |
+| Replay engine (matching, acting, waiting) | ✅ `packages/player`, extension, Shadow.app | Stays; called by the new interpreter |
 | Approvals, run log, memory, IPC, native host | ✅ | Stays; run log adds the version |
 | `data.pick` (rules over rows), `data.ai` (capped model call) | ✅ | `data.ai` becomes the **llm** node; `data.pick` stays as a data action |
 | Skill format | ✅ workflow tree: trigger step, action, llm, loop, branch, ask, approval, history; typed variables declared by the steps that produce them, checked when a skill is parsed | Done |
@@ -430,14 +638,18 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Description form | ❌ | New |
 | Screenshots per event | ❌ (only cropped element images in web capture) | New |
 | Voice + transcription (macOS SpeechAnalyzer) | ❌ | New |
-| Workflow editor | ❌ (terminal only) | New |
+| Daemon as a service: LaunchAgent, saved inbox, API (socket + local HTTP) | ✅ except the LaunchAgent (Oct 11): runs wait in the inbox with a checkpoint and go on after an answer, also after a restart (`apps/daemon/src/service.ts`, `store.ts`); the API on the socket and on local HTTP with a token (`api.ts`, `http.ts`); the terminal is a client | Left: the LaunchAgent (with the app, milestone 7); API methods for go live / pause, edits, recording, settings, memory and version diffs; stopping a run in the middle of a step |
+| The app's window, menu bar and notifications | ✅ built (Oct 11): the window (`apps/ui`, React; inbox, workflows, a workflow's steps, versions and rollback, runs, a run's timeline and repairs, health), served by the daemon; Shadow.app's menu bar item, window (`Window.swift`) and inbox notifications (`Notifier.swift`); `pnpm setup:daemon` for starting at login | The window was checked in a headless Chrome (every screen, and Approve finishing a waiting run); the Swift side compiles but has not been tried by a person yet. Left: `SMAppService` and the daemon inside the app (milestone 9) |
+| Workflow editor | ❌ (terminal only) | In the app's window (decided Oct 10) |
+| Observability: log files, runs index, saved repair episodes, saved usage and budget, health | ✅ in part (Oct 11): the daemon's log in `~/Library/Logs/Shadow` (rotated JSON lines, `logger.ts`) and Shadow.app's `app.log` there; the `runs` table with status, version, repaired and cost; repair transcripts next to each run log; per-run cost and today's spend; a `health` query | Left: a daily budget that refuses model calls, retention, the diagnostics export, health in the menu bar |
 | Highlight-only test | ❌ | New |
-| Recover from a failure: classify, repair agent, verify, pause and show, versions + rollback | ❌ (a TODO in `run.ts`; `on_fail.fallback` is never read; every failure stops the run) | New |
-| `packages/agent` runtime; `core` edit operations and capability briefing | ❌ | New |
-| Triggers from Frequency | ❌ (only manual `run`) | New |
-| `packages/llm` with profiles, structured output, tools, usage meter | ❌ (one `chat()` function; callers build their own wrappers) | New |
+| Recover from a failure: classify, repair agent, verify, pause and show, versions + rollback | ✅ for web steps (Oct 10): pause and resume in the interpreter, classification, the cheap ladder, the repair agent and its tools, evidence, `by: debug` versions, `rollback`, `resume` / `skip` / `cancel` in the daemon and `pnpm replay` | Left: the demonstration recorded as the repair, Mac-app (ax) repair beyond classification, `describe_screen` (needs redaction), notifications beyond the terminal and the button |
+| `packages/agent` runtime; `core` edit operations and capability briefing | ✅ the loop (native tools or JSON actions), guard, budgets, working memory, transcript; `core/edit.ts`, `core/briefing.ts`, and section 9's never-rules in `core/guard.ts` (Oct 10) | The repair agent's tools are milestone 5 |
+| Triggers from Frequency; live, paused and draft workflows | ✅ (Oct 12): `lifecycle.ts` (state, going live), `triggers.ts` (schedules with croner, missed times per workflow, folder watches), skip on overlap, auto-pause, the Frequency picker and state in the window, the next run in the menu bar, `live` / `pause` / `resume-workflow` in the terminal | Left: drafts kept beside a live workflow (milestone 10); "when an email arrives" |
+| Workflow lifecycle: draft, live, paused, autosave | ❌ (every saved version is runnable; nothing runs on its own yet) | New ([Workflow lifecycle](#workflow-lifecycle)) |
+| `packages/llm` with profiles, structured output, tools, usage meter | ✅ client, catalog, fake client, `pnpm llm:check`; compile, llm steps and `pnpm replay` use it (Oct 10) | Confirm the catalog with `pnpm llm:check` and a real key |
 | Consent, redaction, 24-hour retention | ❌ | New |
-| Key in the Keychain, first-run setup, test build | ❌ (`.env` only) | New |
+| Packaging: the `.dmg`, Node and the daemon inside the app, Keychain key, first run, `pnpm package` / `pnpm release` | ❌ (`.env`, `tsx` from source, `pnpm setup:*` by hand) | New: [Deployment](#deployment) |
 
 ## Build order
 
@@ -447,16 +659,19 @@ Replay side first: the workflow format and its interpreter are what everything e
 | --- | --- | --- | --- |
 | 1 | Workflow format in `packages/core`: nodes, variables, ask, approval, versions | Both | ✅ Done (Oct 8–9) |
 | 2 | Interpreter: variables, loop, branch, llm node, ask, approval | Replay | ✅ Done (Oct 9) |
-| 3 | `packages/llm`: client, profiles, model catalog, thinking control, structured output, tools, usage meter, fake client, `pnpm llm:check`; existing callers moved onto it | Both | Every model call goes through it; `llm:check` passes with a real key |
-| 4 | `packages/agent` runtime; `core/edit.ts` and `core/briefing.ts` | Both | An agent with a fake model edits a workflow through the guard, within its budget |
-| 5 | Recover from a failure: failure report, repair agent and its tools, verify, pause and resume, versions, notification and rollback, pause and show | Replay | A drifted page (new banner, renamed button, an action moved into a menu, a new confirmation page) is repaired and saved as v2, then rolled back in one click; a site that is down is retried, not repaired; a fix the agent can't find is shown by the user and the run resumes |
-| 6 | Highlight-only test | Replay | Play highlights each reachable target without acting |
-| 7 | Triggers from Frequency | Replay | A scheduled and a folder workflow start on their own |
-| 8 | Description form; consent; screenshots with redaction; voice and transcription; 24-hour retention | Record | A recording carries events, redacted screenshots and a transcript on one clock, and its folder is gone a day after finalising |
-| 9 | Design agent: recording → tree, drill on the tree | Record | Workflow 1 in examples.md becomes a correct tree from a real recording |
-| 10 | Workflow editor (on the same edit operations) | Both | Edit a step, toggle approval, play, see versions |
-| 11 | Keychain key and first-run setup; test build release | Both | A fresh Mac goes from download to "connected to Nemotron" by following the README |
-| 12 | Measure coverage on examples.md; demo video; submission | Both | Submitted |
+| 3 | `packages/llm`: client, profiles, model catalog, thinking control, structured output, tools, usage meter, fake client, `pnpm llm:check`; existing callers moved onto it | Both | Code done (Oct 10): every model call goes through it. Left: `llm:check` with a real key |
+| 4 | `packages/agent` runtime; `core/edit.ts` and `core/briefing.ts` | Both | ✅ Done (Oct 10): an agent with a scripted model is refused an outward edit, told about a broken reference, and commits a retarget within its budget (`packages/agent/src/agent.test.ts`) |
+| 5 | Recover from a failure: failure report, repair agent and its tools, verify, pause and resume, versions, notification and rollback, pause and show | Replay | ✅ Mostly done (Oct 10): each drift fixture (`fixtures/pages/drift`: renamed, reworded, banner, menu, confirmation, logged out) is repaired or resolved as expected with a scripted model, saved as v2 and rolled back with `rollback`; a site that is down is retried; the user can do a step by hand and `skip`. Live in Chrome: the ladder repaired `reworded.html`. Left: the scenarios on the real model, and the demonstration recorded as the repair |
+| 6 | Daemon as a service: saved inbox, API on the socket and local HTTP, the terminal as a client; log files, runs index, saved repair episodes | Both | ✅ Done (Oct 11): a run that needed approval waited, the daemon was killed and restarted, the approval was answered over HTTP, and the run went on at that step and succeeded without rerunning earlier ones (by hand, on the real daemon; and in `service.test.ts`); every run is listed with its status and cost |
+| 7 | The app: owns the daemon (LaunchAgent); window with inbox, workflows, run detail, workflow detail with versions and rollback; menu bar, health, notifications | Both | Built (Oct 11); to try by hand: with no terminal open, a "waiting for you" notification opens the inbox, and resume finishes the run; a repair is rolled back from the window |
+| 8 | Triggers from Frequency; live and paused workflows: state and going live; the Frequency picker; the scheduler (croner, missed times per workflow); the folder trigger; skip on overlap; auto-pause; state, next run and Go live / Pause / Resume in the window and the menu bar | Replay | ✅ Done (Oct 12): on a throwaway daemon, an every-minute workflow started on its own and stopped once paused, a PDF dropped in a folder was filed by a run (a half-written .crdownload was ignored), and going live without a trigger was refused; three failed runs in a row pause it, and the rest, in `triggers.test.ts` and `service.test.ts` |
+| 9 | Packaging and first run: `pnpm package`, the `.dmg`, Keychain key, native host inside the app, connection check; `pnpm release`, CI | Both | Oct 18–23: a fresh Mac goes from download to "connected to Nemotron" by following the README |
+| 10 | Editor and record in the window, on the same edit operations: field edits, approval toggles, `check.ts` errors on the step; drafts with autosave; description form and drill on the draft tree; model budget; settings and memory viewer | Both | Oct 22–26: edit a step, toggle approval, record a task and answer its drill in the window; a draft beside a live workflow autosaves, undoes, and goes live as the next version |
+| 11 | Description form; consent; screenshots with redaction; voice and transcription; 24-hour retention | Record | A recording carries events, redacted screenshots and a transcript on one clock, and its folder is gone a day after finalising |
+| 12 | Design agent: recording → tree, drill on the tree | Record | Workflow 1 in examples.md becomes a correct tree from a real recording |
+| 13 | Install on a clean Mac; measure coverage on examples.md; demo video; submission | Both | Oct 27–30: submitted |
+
+**Cut first if time runs short:** highlight-only Play, adding, removing and reordering steps in the editor (field edits stay), the diagnostics export, the Chrome Web Store (judges load the extension unpacked), notarisation.
 
 ## Glossary
 
@@ -472,15 +687,24 @@ Replay side first: the workflow format and its interpreter are what everything e
 | Guard | The code between an agent and its tools that allows or refuses each call |
 | Failure report | The evidence collected when a step fails, before the repair agent's first turn |
 | Edit operation | One typed change to a workflow's step tree (`core/edit.ts`), shared by agents and the editor |
-| Outbound filter | The redaction every image passes in Task Player.app before the daemon sends it |
+| Outbound filter | The redaction every image passes in Shadow.app before the daemon sends it |
 | Zero Data Retention | A Token Factory organization setting: prompts and responses are not stored or used for training |
 | Drill | Questions on the uncertain parts of a draft workflow |
+| Draft | A workflow being made, or changes to a live one kept beside it; never runs on its trigger. Autosaved as edit operations |
+| Live | A workflow whose trigger is on: it runs its live version on its own |
+| Paused (workflow) | Kept, but nothing starts on its own until it is resumed. Not to confuse with a run waiting for the user |
 | Highlight-only test | A replay that finds and highlights each target without acting |
 | Repair | The fix for a drifted step, by the cheap ladder or the repair agent, or shown by the user; saved as a new version once verified |
 | Locator | How a control is remembered: role, accessible name, nearby text, attributes and fallback selectors. Never coordinates |
 | CDP / chrome.debugger | Chrome's remote-control protocol, reached by the extension in the user's own Chrome |
 | AX | macOS Accessibility API, for reading and pressing controls in Mac apps |
 | Native host shim | The program Chrome launches for native messaging; forwards bytes to the daemon |
+| launchd, LaunchAgent | launchd is the macOS program that starts others at boot and login; a LaunchAgent is the small file telling it to run the daemon at login and restart it if it exits |
+| Login item | A program macOS starts when the user logs in, listed in System Settings → General → Login Items; the app registers itself and the daemon with `SMAppService` |
+| Inbox | Saved records of everything that waits for the user (approvals, asks, runs waiting for the user, drill questions, repairs to review); any client can answer them |
+| Daemon API | The queries, commands and events the daemon serves on its Unix socket and on local HTTP |
+| WKWebView | macOS's own web engine as a component inside an app; Shadow's window shows its TypeScript UI with it |
+| `.dmg` | A disk image file, the usual way to hand a Mac app to someone |
 | Nemotron | NVIDIA's open models; we use Nemotron 3.5 Lightning and Nemotron 3 Super |
 | Token Factory | Nebius's hosted inference service for open models; all our model calls go there |
 
@@ -502,9 +726,13 @@ Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglo
 ## Open questions
 
 - [ ] **Frequency options.** The dropdown list above is a proposal; "when an email arrives" is wanted but needs an email trigger.
-- [ ] **Where the workflow editor lives:** Chrome side panel, a local page served by the daemon, or Task Player.app.
+- [x] **A schedule missed while the Mac slept:** decided Oct 12, per workflow (`missed` on the trigger), run once on wake by default ([Triggers](#triggers)).
+- [x] **A daemon restart during a step** (not a pause): decided Oct 11, the run is marked `interrupted` and does not go on by itself. A run *waiting* for the user is not affected: it goes on when answered.
+- [ ] **The window's door:** local HTTP + token is decided for speed of development; if it proves fragile, the app can carry the window's messages over the Unix socket instead (no open port).
+- [ ] **Chrome Web Store** (unlisted) after the hackathon, so users don't load the extension unpacked.
 - [ ] **Highlight-only test** for steps behind an earlier action (see [Test](#7-test)).
 - [ ] **How long a paused run waits** for the user before it ends.
+- [x] **Going live:** decided Oct 12, the checks only; auto-pause counts only failed runs started by the trigger ([Workflow lifecycle](#workflow-lifecycle)).
 - [ ] **A run that fails halfway:** after some rows are written or emails labelled, a fresh run would do them again. Resume from the failed step, or require steps that are safe to repeat?
 - [ ] **Telling "nothing to do" from drift:** an empty inbox and a changed inbox page both look like "target not found". Each step may need to say what "nothing to do" looks like.
 - [ ] **Wrong but "successful" steps:** a weak match on the wrong element never fails, so recovery never starts. A check before acting on a low-margin match, and a "that was wrong" button on the run report.

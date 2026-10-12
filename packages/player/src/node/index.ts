@@ -6,13 +6,12 @@ export { fsChannel } from "./fs-channel.ts";
 export { checkFile, type FileRule, resolveInputs } from "./inputs.ts";
 export {
   type AiLimits,
-  type Ask,
   aiLimitsFromEnv,
+  answerSchema,
   DEFAULT_AI_LIMITS,
-  describeOutput,
   type LlmExecutor,
+  type LlmStepOptions,
   llmExecutor,
-  parseAnswer,
 } from "./llm-step.ts";
 export { expandHome, fileExists, findFiles, poll } from "./paths.ts";
 export { SHELL_ALLOW_LIST, scriptChannel } from "./script-channel.ts";

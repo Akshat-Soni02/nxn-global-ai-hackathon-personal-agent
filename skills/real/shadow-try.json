@@ -1,0 +1,26 @@
+{
+  "id": "try-shadow",
+  "name": "Try Shadow",
+  "version": 1,
+  "description": { "goal": "write two files, the second only when approved" },
+  "steps": [
+    { "id": "start", "type": "trigger", "intent": "by hand", "inputs": {} },
+    {
+      "id": "s1",
+      "type": "action",
+      "intent": "write the first file",
+      "channel": "fs",
+      "action": "write",
+      "args": { "path": "/tmp/shadow-one.txt", "content": "one" }
+    },
+    {
+      "id": "s2",
+      "type": "action",
+      "intent": "write the second file",
+      "channel": "fs",
+      "action": "write",
+      "args": { "path": "/tmp/shadow-two.txt", "content": "two" },
+      "requires_approval": true
+    }
+  ]
+}

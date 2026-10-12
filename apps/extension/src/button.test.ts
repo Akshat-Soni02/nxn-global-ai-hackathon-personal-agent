@@ -57,14 +57,14 @@ describe("the button on a page", () => {
       () => recording,
     );
 
-    const host = document.querySelector("[data-taskplayer-ui]") as HTMLElement;
+    const host = document.querySelector("[data-shadow-ui]") as HTMLElement;
     const inner = roots[0]?.querySelector("button") as HTMLButtonElement;
     expect(host.shadowRoot).toBeNull(); // closed to the page
     expect(host.style.display).toBe("none"); // no state yet: no daemon
 
     button.update({ daemon: true });
     expect(host.style.display).toBe("block");
-    expect(inner.getAttribute("aria-label")).toBe("Record a task (Task Player)");
+    expect(inner.getAttribute("aria-label")).toBe("Record a task (Shadow)");
     inner.click();
     await Promise.resolve();
     expect(press).toHaveBeenLastCalledWith("start");
@@ -91,7 +91,7 @@ describe("the button on a page", () => {
     const old = mountButton(document, { press: async () => undefined, alive: () => alive });
     alive = false; // the extension was reloaded
     button = mountButton(document, { press: async () => undefined });
-    expect(document.querySelectorAll("[data-taskplayer-ui]")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-shadow-ui]")).toHaveLength(1);
     old.remove();
   });
 });

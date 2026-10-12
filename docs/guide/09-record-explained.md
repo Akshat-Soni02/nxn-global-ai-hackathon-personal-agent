@@ -63,7 +63,7 @@ The reason is that a model retyping `//section[h2='Documents']//input[@type='fil
 
 ### What does memory do in this product?
 
-Memory is a small local database: SQLite, at `…/TaskPlayer/memory.db`.
+Memory is a small local database: SQLite, at `…/Shadow/memory.db`.
 
 | Who writes | What | Who reads it, and when |
 |---|---|---|
@@ -74,7 +74,7 @@ Memory never stores secrets (`design.md:174`).
 
 ### Skill versions: when is a new one made, where is it stored, and which one is used?
 
-- **Stored at:** `~/Library/Application Support/TaskPlayer/skills/<id>/v1.json`, `v2.json`, …
+- **Stored at:** `~/Library/Application Support/Shadow/skills/<id>/v1.json`, `v2.json`, …
 - **A new version is made when:**
   - you record the same skill again (the drill asks: "new version or new skill?"), or
   - replay's learn-back fixes a step and you approve it (`design.md:153`).
@@ -141,7 +141,7 @@ stop ─▶ normalise (code) ─▶ skeleton (code) ─▶ compile (Nemotron) �
 | 4 | **Capture** | `apps/extension/src/capture.ts` | listeners in the capture phase; describes on `pointerdown`, sends on `click` | <ul><li>Describing early beats pages that re-render on click.</li><li>Typing becomes one value, and it's sent *before* Enter.</li><li>Passwords and OTP codes never leave the page.</li><li>A picked file is recorded by name only.</li><li>Core is imported as types only, so zod stays out of every page: `content.js` is 43 KB</li></ul> |
 | 5 | **Background hooks** | `apps/extension/src/background.ts` | adds tab/frame/url from `sender`; records navigations, tabs and finished downloads; injects the content script into tabs opened before install | Only the background knows which tab and frame an event came from. A download's path is what links a web step to a later file step |
 | 6 | **Trace store** | `apps/daemon/src/trace-store.ts` | appends one JSON line per event | Append-only: a crash loses at most one line, and the trace can be recompiled later (`compile <session>`) |
-| 7 | **Mac files** | `apps/daemon/src/fs-watch.ts` | FSEvents on the whole home folder, minus `~/Library`, hidden folders and `node_modules` (narrow it with `TASKPLAYER_WATCH_DIRS`; folders outside home are added when Finder shows them, see 11) → create, move, rename | Matches by inode to tell a move from delete+create. Ignores `.crdownload`, `.DS_Store` and dotfiles. A macOS privacy block is logged loudly instead of failing silently |
+| 7 | **Mac files** | `apps/daemon/src/fs-watch.ts` | FSEvents on the whole home folder, minus `~/Library`, hidden folders and `node_modules` (narrow it with `SHADOW_WATCH_DIRS`; folders outside home are added when Finder shows them, see 11) → create, move, rename | Matches by inode to tell a move from delete+create. Ignores `.crdownload`, `.DS_Store` and dotfiles. A macOS privacy block is logged loudly instead of failing silently |
 | 8 | **Normalise** | `packages/recorder/src/normalise.ts` | rules only, no AI | <ul><li>Many keystrokes become one value.</li><li>Click + file pick become one `upload`.</li><li>A focus click is dropped.</li><li>A navigation caused by a click becomes that click's check.</li><li>A starting page is added.</li><li>Values likely to change are flagged.</li></ul>Stable input means testable output, and fewer tokens |
 | 9 | **Skeleton + locator** | `skeleton.ts`, `locator.ts` | code writes every channel, action, target and recorded value | A complete, valid skill even with no model. Risky buttons (`Submit`, `Pay`, …) get `requires_approval`. Paths become `~/…` |
 | 10 | **Compile (AI)** | `packages/recorder/src/compile.ts` | Nemotron adds intents, inputs, checks, approvals, triggers and questions, **by step id** | <ul><li>The model can't write targets, channels or actions.</li><li>It can add an approval, never remove one.</li><li>A `navigate` can't leave the recorded site.</li><li>Every `{{inputs.X}}` must be declared.</li><li>Failures go back to the model with the errors, at most 3 tries.</li><li>`<think>` blocks and code fences are stripped.</li><li>If the model is down or never valid, the skeleton is saved, so the recording is never lost</li></ul> |
@@ -184,7 +184,7 @@ pnpm fixtures                   # optional: test pages on http://localhost:5173
 pnpm daemon                     # type: record → do the task in Chrome → stop → answer → skills
 ```
 
-Files land in `~/Library/Application Support/TaskPlayer/`: `traces/`, `skills/` and `memory.db`.
+Files land in `~/Library/Application Support/Shadow/`: `traces/`, `skills/` and `memory.db`.
 
 **Still open (decisions, not bugs):**
 - **How long to keep traces.** Today they're kept forever.

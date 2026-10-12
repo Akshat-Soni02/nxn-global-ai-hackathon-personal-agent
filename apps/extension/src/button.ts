@@ -8,7 +8,7 @@ import { OWN_UI } from "./capture.ts";
 
 export interface ButtonState {
   daemon: boolean; // the daemon is connected; without it the button is hidden
-  desktop?: boolean; // Task Player.app's floating button is on screen: this one steps aside (one Record button)
+  desktop?: boolean; // Shadow.app's floating button is on screen: this one steps aside (one Record button)
   recording?: { since: number };
   // The last word from the daemon after stop: compiling, a question waiting in the terminal, saved, ...
   status?: {
@@ -34,7 +34,7 @@ export interface Button {
   remove(): void;
 }
 
-const HOST = "taskplayer-button"; // a custom tag: generic page selectors (div, span) miss it
+const HOST = "shadow-button"; // a custom tag: generic page selectors (div, span) miss it
 const NOTE_MS = 15_000; // how long "Saved ..." stays before the button is Record again
 const ERROR_MS = 6_000;
 const SVG = "http://www.w3.org/2000/svg";
@@ -118,7 +118,7 @@ export function viewOf(
   if (s && now - s.at < NOTE_MS) {
     return { kind: "note", icon: s.phase === "saved" ? "check" : "alert", text: s.text, label: s.text };
   }
-  return { kind: "idle", icon: "record", text: "Record", label: "Record a task (Task Player)" };
+  return { kind: "idle", icon: "record", text: "Record", label: "Record a task (Shadow)" };
 }
 
 export function mountButton(doc: Document, options: ButtonOptions): Button {

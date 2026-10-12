@@ -1,10 +1,11 @@
 // Skill store: skills/<id>/v<N>.json. Every recording is a new skill with its own id, even when it is the same task
-// as one you already have (newSkillId), so two recordings never land in one skill. Versions are fixes to one skill
-// (replay's learn-back): a version is never overwritten, and the highest one is the one replay runs.
+// as one you already have (newSkillId), so two recordings never land in one skill. A version is never overwritten: a
+// repair made during a run (by: debug) or a change you make becomes the next version and the older ones stay as
+// history. The highest version is the one replay runs; a rollback saves the version before it again, as the next one.
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Skill } from "@taskplayer/core";
+import { Skill } from "@shadow/core";
 
 const VERSION_FILE = /^v(\d+)\.json$/;
 
@@ -67,4 +68,26 @@ export function newSkillId(dataDir: string, name: string): string {
 export function findSkills(dataDir: string, ref: string): string[] {
   const all = listSkills(dataDir).map((s) => s.id);
   return all.includes(ref) ? [ref] : all.filter((id) => id.startsWith(ref));
+}
+
+// One-step rollback: the version before the latest becomes the next version, with a note saying what was undone.
+export function rollbackSkill(dataDir: string, id: string, now = new Date()): { path: string; skill: Skill } {
+  const all = versions(dataDir, id);
+  const latest = loadSkill(dataDir, id);
+  const previous = all.length >= 2 ? loadSkill(dataDir, id, all[all.length - 2]) : undefined;
+  if (!latest || !previous) throw new Error(`${id} has no earlier version to roll back to`);
+  const undone = latest.history.find((h) => h.version === latest.version)?.summary ?? `v${latest.version}`;
+  const next = latest.version + 1;
+  return saveSkill(dataDir, {
+    ...previous,
+    history: [
+      ...latest.history,
+      {
+        version: next,
+        by: "user",
+        summary: `rolled back to v${previous.version} (undid: ${undone})`,
+        at: now.toISOString(),
+      },
+    ],
+  });
 }

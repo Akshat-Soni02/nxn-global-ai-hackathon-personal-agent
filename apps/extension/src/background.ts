@@ -4,9 +4,10 @@
 // An open native port also keeps this MV3 service worker alive.
 // It also drives the Record / Stop controls: the floating button in each page (button.ts) and the toolbar icon. Both
 // only ask the daemon, which owns the session; what they show is what the daemon said back.
-import { type Message, NATIVE_HOST_NAME } from "@taskplayer/core";
+import { type Message, NATIVE_HOST_NAME } from "@shadow/core";
+import type { PageOp } from "@shadow/player/web";
 import type { ButtonState } from "./button.ts";
-import { endRun, isAutomationTab, runPageCheck, runWebStep } from "./replay.ts";
+import { endRun, isAutomationTab, runPageCheck, runPageOp, runWebStep } from "./replay.ts";
 
 const VERSION = chrome.runtime.getManifest().version;
 const QUICK_RETRY_MS = 3_000;
@@ -73,6 +74,14 @@ async function onDaemonMessage(message: Message) {
       send({ id: message.id, type: "run.check_result", runId: message.runId, ok });
       break;
     }
+    case "page.op": {
+      const result = await runPageOp(message.op as PageOp).catch((error: Error) => ({
+        ok: false,
+        error: error.message,
+      }));
+      send({ ...result, id: message.id, type: "page.op_result" });
+      break;
+    }
     case "run.end":
       await endRun();
       break;
@@ -131,12 +140,12 @@ function paintToolbar() {
   void chrome.action.setBadgeText({ text: ui.recording ? "REC" : busy ? "…" : "" });
   void chrome.action.setBadgeBackgroundColor({ color: ui.recording ? "#dc2626" : "#52525b" });
   const title = !ui.daemon
-    ? "Task Player: the daemon isn't running (pnpm daemon)"
+    ? "Shadow: the daemon isn't running (pnpm daemon)"
     : ui.recording
-      ? "Task Player: stop recording"
+      ? "Shadow: stop recording"
       : busy
-        ? `Task Player: ${ui.status?.text}`
-        : "Task Player: record a task";
+        ? `Shadow: ${ui.status?.text}`
+        : "Shadow: record a task";
   void chrome.action.setTitle({ title });
 }
 

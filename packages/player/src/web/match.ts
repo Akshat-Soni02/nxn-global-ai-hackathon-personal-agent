@@ -2,7 +2,7 @@
 // Signals: Chrome's own accessibility tree (role + accessible name), stored attributes, fallback selectors.
 // Positions are never stored; they are looked up after matching. See "Per-step loop" step 3 in the design doc.
 // Not yet used: `near`, `text`, `label`, frames and shadow roots (TODO).
-import type { Locator } from "@taskplayer/core";
+import type { Locator } from "@shadow/core";
 import type { Cdp } from "./cdp.ts";
 
 // Roles a recorder or Chrome may report for the same kind of control.

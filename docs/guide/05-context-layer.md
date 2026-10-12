@@ -116,7 +116,7 @@ export type TraceEvent = z.infer<typeof TraceEvent>;
 
 `messages.ts:34` then becomes `event: z.enum(TRACE_EVENTS)`, so a typo in the content script is rejected at the daemon instead of reaching the compiler.
 
-**On disk**: one JSON object per line, appended to `~/Library/Application Support/TaskPlayer/traces/<sessionId>.jsonl` (under `APP_SUPPORT_DIR`, `paths.ts:4`).
+**On disk**: one JSON object per line, appended to `~/Library/Application Support/Shadow/traces/<sessionId>.jsonl` (under `APP_SUPPORT_DIR`, `paths.ts:4`).
 
 Why JSONL:
 
@@ -176,7 +176,7 @@ Expected result for the trace above: **3 normalised steps**. `navigate`, then `f
 The splice is a pure function from `ElementDescriptor` to `Locator`:
 
 ```ts
-import type { ElementDescriptor, Locator } from "@taskplayer/core";
+import type { ElementDescriptor, Locator } from "@shadow/core";
 
 export function toLocator(d: ElementDescriptor): Locator {
   const { role, name, label, text, near, attrs, framePath } = d;
@@ -191,8 +191,8 @@ It drops `crop` on purpose. `run.step` ships the whole skill (`messages.ts:40`) 
 
 ```ts
 // packages/recorder/src/compile.ts  (proposed)
-import { ACTIONS, Skill } from "@taskplayer/core";
-import { chat, configFromEnv, type ChatMessage } from "@taskplayer/llm";
+import { ACTIONS, Skill } from "@shadow/core";
+import { chat, configFromEnv, type ChatMessage } from "@shadow/llm";
 
 export async function compile(steps: NormalisedStep[], notes: string[]) {
   const messages: ChatMessage[] = [

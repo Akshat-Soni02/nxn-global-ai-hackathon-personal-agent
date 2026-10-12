@@ -12,7 +12,7 @@ const PAGES: Record<string, string> = {
 
 const dir = join(import.meta.dirname, "../fixtures/snapshots");
 for (const [file, url] of Object.entries(PAGES)) {
-  const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 (TaskPlayer snapshot)" } });
+  const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 (Shadow snapshot)" } });
   if (!res.ok) throw new Error(`${url}: ${res.status}`);
   writeFileSync(join(dir, file), await res.text());
   console.log("saved", file);

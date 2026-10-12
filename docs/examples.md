@@ -1,8 +1,8 @@
 # Real-world workflows
 
-Fifteen tasks people do at work, described **the way a person actually does them**: what they see, click, select, copy and type, not how a program would do it. They are the test cases for Task Player and the basis of the **task coverage** metric in the [readme](../readme.md#success-metric-task-coverage).
+Fifteen tasks people do at work, described **the way a person actually does them**: what they see, click, select, copy and type, not how a program would do it. They are the test cases for Shadow and the basis of the **task coverage** metric in the [readme](../readme.md#success-metric-task-coverage).
 
-The point of writing them this way: nobody searches Gmail with `from:reports@ newer_than:7d`. They open the inbox, spot the email, and click it. Turning that click into "the newest email from that sender" is Task Player's job, so it must not be written into the test.
+The point of writing them this way: nobody searches Gmail with `from:reports@ newer_than:7d`. They open the inbox, spot the email, and click it. Turning that click into "the newest email from that sender" is Shadow's job, so it must not be written into the test.
 
 Each workflow lists:
 
@@ -293,7 +293,7 @@ What replay is missing on top of that (the [design doc](design.md) has the detai
 
 ## Scoring
 
-The test for each workflow: **a person who normally does the task fills in the description form, then does the task their usual way while Task Player records (narrating if they want), with no instructions on how. They answer the drill and may edit the tree. Then the next real occurrence runs by itself.**
+The test for each workflow: **a person who normally does the task fills in the description form, then does the task their usual way while Shadow records (narrating if they want), with no instructions on how. They answer the drill and may edit the tree. Then the next real occurrence runs by itself.**
 
 - **1, done:** the description, recording and drill answers (plus any edits the user makes in the tree) become a workflow that runs unattended from its trigger and gets the right result on three real occurrences in a row.
 - **0.5, partly:** right result when started by hand, possibly with the user doing one step (an approval, a code) or answering one question.

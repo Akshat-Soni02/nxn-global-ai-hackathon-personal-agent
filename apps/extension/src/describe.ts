@@ -1,7 +1,7 @@
 // describeElement: everything we know about one control, by meaning, never by position.
 // The recorder calls it on the element you used. The player will call it on each candidate and score that against the
 // stored Locator, so both sides must compute role and name the same way (descriptor.ts).
-import type { ElementDescriptor } from "@taskplayer/core";
+import type { ElementDescriptor } from "@shadow/core";
 import { computeAccessibleName, getRole } from "dom-accessibility-api";
 
 // What a click is "on": a click on the <span> inside a button is a click on the button.

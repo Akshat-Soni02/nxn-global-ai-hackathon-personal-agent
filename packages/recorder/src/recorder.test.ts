@@ -1,4 +1,4 @@
-import { type ActionStep, type ElementDescriptor, Skill, type TraceEvent, triggerOf } from "@taskplayer/core";
+import { type ActionStep, type ElementDescriptor, Skill, type TraceEvent, triggerOf } from "@shadow/core";
 import { describe, expect, it, vi } from "vitest";
 import { type Chat, compile, extractJson, type Question } from "./compile.ts";
 import { applyAnswer, drill } from "./drill.ts";
@@ -601,7 +601,9 @@ describe("drill", () => {
       },
       "2",
     );
-    expect(trigger.ok && triggerOf(trigger.skill).when).toEqual([{ type: "folder_watch", dir: "~/Downloads" }]);
+    expect(trigger.ok && triggerOf(trigger.skill).when).toEqual([
+      { type: "folder_watch", dir: "~/Downloads", missed: "run_once" },
+    ]);
   });
 
   it("refuses answers that would change a target or break the schema", async () => {

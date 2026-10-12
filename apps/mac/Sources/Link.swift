@@ -1,5 +1,5 @@
 // The daemon's Unix socket, with the framing the extension and native host use: a 4-byte little-endian length, then
-// UTF-8 JSON (packages/ipc/src/framing.ts). Task Player.app is launched by the daemon through `open`, so it gets no
+// UTF-8 JSON (packages/ipc/src/framing.ts). Shadow.app is launched by the daemon through `open`, so it gets no
 // stdin/stdout from it: this socket is its only line to the daemon.
 import Foundation
 
@@ -8,7 +8,7 @@ final class Link {
   private var fd: Int32 = -1
   private var buffer = Data()
   private var source: DispatchSourceRead?
-  private let queue = DispatchQueue(label: "taskplayer.link")
+  private let queue = DispatchQueue(label: "shadow.link")
   var onMessage: (JSON) -> Void = { _ in }
   var onState: (Bool) -> Void = { _ in }
 

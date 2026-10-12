@@ -1,11 +1,14 @@
-// Task Player.app: the desktop side of Task Player. The daemon launches it (`open`, so macOS treats it as its own app
+// Shadow.app: the desktop side of Shadow. The daemon launches it (`open`, so macOS treats it as its own app
 // and asks permission for it by name, not for your terminal) and it connects back over the daemon's socket.
-// It is three things:
+// It is:
 //   - the floating Record / Stop button, above every app (Panel.swift);
+//   - Shadow in the menu bar: what waits for the user, health, Record (StatusMenu.swift);
+//   - the window, the daemon's pages in a web view (Window.swift), and notifications for the inbox (Notifier.swift);
 //   - the Mac-app recorder, through the Accessibility API (Recorder.swift);
 //   - the ax channel: replays Mac-app steps (Player.swift).
 // It quits when the daemon goes away; the daemon starts it again.
-// Arguments: --socket <path>   the daemon's socket (default ~/Library/Application Support/TaskPlayer/daemon.sock)
+// Arguments: --socket <path>   the daemon's socket (default ~/Library/Application Support/Shadow/daemon.sock)
+//            --api <file>      the daemon's api.json (HTTP port and token), for the window (default: next to the socket)
 //            --fixture --state <file>   test mode: a timesheet window inside the app and a scripted user (Fixture.swift)
 //            --snapshot <dir>  draw each look of the button to PNG files and exit
 //            --log <file>      append diagnostics to a file (an app started by `open` has no terminal)
@@ -18,8 +21,12 @@ func argument(_ name: String) -> String? {
   return arguments[i + 1]
 }
 let socketPath =
-  argument("--socket") ?? (NSHomeDirectory() + "/Library/Application Support/TaskPlayer/daemon.sock")
+  argument("--socket") ?? (NSHomeDirectory() + "/Library/Application Support/Shadow/daemon.sock")
 let logPath = argument("--log")
+// Where the daemon writes its HTTP API's port and token, for the window. The daemon passes it; by default it sits
+// next to the socket, in the data folder.
+let apiInfoPath =
+  argument("--api") ?? ((socketPath as NSString).deletingLastPathComponent as NSString).appendingPathComponent("api.json")
 
 func log(_ line: String) {
   guard let logPath else { return NSLog("%@", line) }
@@ -38,12 +45,29 @@ final class AppMain: NSObject, NSApplicationDelegate {
   let panel = Panel()
   let recorder = Recorder()
   let player = Player()
+  let window = AppWindow(infoPath: apiInfoPath)
+  var statusMenu: StatusMenu?
+  let notifier = Notifier()
   var fixture: Fixture?
   var sessionId: String?
   var trusted = AXIsProcessTrusted()
   var everConnected = false
+  // The daemon's API over the socket (api.call): replies by request id.
+  private var calls: [String: (JSON) -> Void] = [:]
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    // The menu bar item, the window and notifications: not in the fixture's test mode.
+    if !arguments.contains("--fixture") {
+      let menu = StatusMenu()
+      menu.onOpen = { [weak self] route in self?.window.show(route: route) }
+      menu.onRecord = { [weak self] in self?.press() }
+      menu.onQuit = { NSApp.terminate(nil) }
+      menu.isRecording = { [weak self] in self?.panel.isRecording ?? false }
+      statusMenu = menu
+      notifier.onOpen = { [weak self] route in self?.window.show(route: route) }
+      notifier.start()
+      panel.onOpen = { [weak self] in self?.window.show() }
+    }
     recorder.emit = { [weak self] event in self?.record(event) }
     recorder.onFolder = { [weak self] path in
       self?.link.send(["id": UUID().uuidString, "type": "watch.folder", "path": path])
@@ -66,7 +90,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
     DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
       if self?.everConnected == false { NSApp.terminate(nil) }
     }
-    log("Task Player.app started, socket \(socketPath), Accessibility \(trusted ? "allowed" : "not allowed")")
+    log("Shadow.app started, socket \(socketPath), Accessibility \(trusted ? "allowed" : "not allowed")")
   }
 
   private func connection(_ up: Bool) {
@@ -75,6 +99,13 @@ final class AppMain: NSObject, NSApplicationDelegate {
       link.send(["id": UUID().uuidString, "type": "hello", "from": "mac", "version": "0.0.0", "trusted": trusted])
       panel.show()
       log("connected to the daemon")
+      if statusMenu != nil {
+        // Runs, steps and inbox changes from now on; what waits already, and how things are.
+        link.send(["id": UUID().uuidString, "type": "api.subscribe"])
+        refreshInbox()
+        refreshHealth()
+        Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.refreshHealth() }
+      }
     } else if everConnected {
       recorder.stop()
       log("the daemon went away: quitting")
@@ -112,8 +143,42 @@ final class AppMain: NSObject, NSApplicationDelegate {
         let outcome = result["ok"] as? Bool == true ? "ok" : (result["error"] as? String ?? "failed")
         log("ran \(step["id"] as? String ?? "?") \(step["action"] as? String ?? "?"): \(outcome)")
       }
+    case "api.result":
+      if let id = message["id"] as? String { calls.removeValue(forKey: id)?(message) }
+    case "api.event":
+      guard let event = message["event"] as? JSON, event["type"] as? String == "inbox",
+        let item = event["item"] as? JSON, let id = item["id"] as? String
+      else { return }
+      if item["answeredAt"] == nil || item["answeredAt"] is NSNull {
+        notifier.notify(item)
+      } else {
+        notifier.clear(id)
+      }
+      refreshInbox()
     default:
       break
+    }
+  }
+
+  // One call to the daemon's API (apps/daemon/src/api.ts); `done` gets the value, or nil when it failed.
+  private func api(_ method: String, _ params: JSON = [:], done: @escaping (Any?) -> Void) {
+    let id = UUID().uuidString
+    calls[id] = { reply in done(reply["ok"] as? Bool == true ? reply["value"] : nil) }
+    link.send(["id": id, "type": "api.call", "method": method, "params": params])
+  }
+
+  private func refreshInbox() {
+    api("inbox", ["open": true]) { [weak self] value in
+      self?.statusMenu?.waiting = (value as? [Any])?.count ?? 0
+    }
+  }
+
+  private func refreshHealth() {
+    api("health") { [weak self] value in
+      if let health = value as? JSON { self?.statusMenu?.health = health }
+    }
+    api("usage") { [weak self] value in
+      self?.statusMenu?.todayUsd = (value as? JSON)?["todayUsd"] as? Double ?? 0
     }
   }
 
@@ -130,7 +195,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
     link.send(["id": UUID().uuidString, "type": "record.command", "command": panel.isRecording ? "stop" : "start"])
   }
 
-  // macOS's own prompt, then the Accessibility pane of System Settings, where the switch for Task Player is.
+  // macOS's own prompt, then the Accessibility pane of System Settings, where the switch for Shadow is.
   private func askForAccessibility() {
     let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
     _ = AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)

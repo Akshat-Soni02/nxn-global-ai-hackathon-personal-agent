@@ -1,5 +1,5 @@
 {
-  "name": "taskplayer",
+  "name": "shadow",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.15.1",
@@ -8,20 +8,23 @@
   },
   "scripts": {
     "build": "pnpm -r --if-present build",
-    "typecheck": "tsc -p . && pnpm -r --if-present typecheck",
+    "typecheck": "tsc -p . && pnpm -r --no-bail --if-present typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "daemon": "pnpm --filter @taskplayer/daemon start",
-    "extension": "pnpm --filter @taskplayer/extension dev",
+    "daemon": "pnpm --filter @shadow/daemon start",
+    "extension": "pnpm --filter @shadow/extension dev",
+    "ui": "pnpm --filter @shadow/ui dev",
     "fixtures": "node scripts/serve-fixtures.mjs",
     "setup:native-host": "tsx scripts/install-native-host.ts",
     "setup:mac": "tsx scripts/build-mac.ts",
+    "setup:daemon": "tsx scripts/install-daemon.ts",
     "seed:sandbox": "tsx scripts/seed-sandbox.ts",
     "snapshot:pages": "tsx scripts/snapshot-pages.ts",
     "replay": "tsx scripts/replay.ts",
-    "daemon:dev": "pnpm --filter @taskplayer/daemon dev"
+    "llm:check": "tsx scripts/llm-check.ts",
+    "daemon:dev": "pnpm --filter @shadow/daemon dev"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

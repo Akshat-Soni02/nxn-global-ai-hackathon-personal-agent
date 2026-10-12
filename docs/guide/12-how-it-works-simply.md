@@ -1,4 +1,4 @@
-# 12 · How Task Player works, in plain words
+# 12 · How Shadow works, in plain words
 
 > **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
 
@@ -12,13 +12,13 @@
 |---|---|---|
 | **Daemon** (`pnpm daemon`, in a terminal) | the brain | starts and stops recordings, saves everything, turns a recording into a skill, runs skills, asks you questions |
 | **Chrome extension** | eyes and hands in **web pages** | sees your clicks and typing in pages; replays them in its own Chrome window |
-| **Task Player.app** (the floating button) | eyes and hands in **Mac apps** | sees which button or field you used in any Mac app; presses it again on replay |
+| **Shadow.app** (the floating button) | eyes and hands in **Mac apps** | sees which button or field you used in any Mac app; presses it again on replay |
 | **File watcher** (part of the daemon) | eyes on your **files** | notices a file being moved or renamed; moves it again on replay |
 
 ## 2. Starting: `pnpm daemon`
 
 1. The daemon opens a "socket", a private line on your Mac that the other parts plug into.
-2. It starts **Task Player.app**, which plugs in and shows the round button.
+2. It starts **Shadow.app**, which plugs in and shows the round button.
 3. **Chrome's extension** plugs in too, if Chrome is open. If Chrome opens later, it plugs in then.
 4. Nothing is recorded yet. Everything is connected and waiting.
 
@@ -34,12 +34,12 @@ The button tells the daemon "start". The daemon tells every helper "recording no
 - From then on, when you click "Save draft", it writes down *which element*: `button "Save draft"`. That goes to the extension's background part, which adds the tab and page address, and on to the daemon.
 - The extension's background part also notices things a page can't see: page loads, new tabs, finished downloads.
 
-### Mac apps: Task Player.app and the Accessibility API
+### Mac apps: Shadow.app and the Accessibility API
 
-- **Nothing is put inside the Mac app.** Task Player.app watches from outside.
+- **Nothing is put inside the Mac app.** Shadow.app watches from outside.
 - When recording starts, it asks macOS: "give me a copy of every click and key." This is `NSEvent.addGlobalMonitorForEvents`, and it only works because you allowed **Accessibility**.
-- When you click "Save" in TextEdit, macOS hands Task Player.app a copy of that click, with the screen point.
-- Task Player.app then uses the **Accessibility API** (part of macOS) to ask TextEdit: "what is at this point?" TextEdit answers: `AXButton "Save"`. Every Mac app can answer this, because it's how VoiceOver works for blind users.
+- When you click "Save" in TextEdit, macOS hands Shadow.app a copy of that click, with the screen point.
+- Shadow.app then uses the **Accessibility API** (part of macOS) to ask TextEdit: "what is at this point?" TextEdit answers: `AXButton "Save"`. Every Mac app can answer this, because it's how VoiceOver works for blind users.
 - That description (role, name, label, window) goes to the daemon. The screen point is thrown away.
 - **Typing:** it never writes down your keys. It notes which field you're in, and when you leave it, it reads the field's final value. Password fields are never read.
 
@@ -67,9 +67,9 @@ What macOS reports, and what becomes a replay step today:
 | | **FSEvents** | **Accessibility API** |
 |---|---|---|
 | Answers | "a file changed at this path" | "this is the button or field under the click" |
-| Used by | the daemon's file watcher | Task Player.app only |
+| Used by | the daemon's file watcher | Shadow.app only |
 | Example | `photo.jpeg` moved to `rushil/` | `AXButton "Save"` in TextEdit |
-| Permission | macOS asks once for Desktop, Documents, Downloads (in your terminal's name) | Accessibility, for Task Player only |
+| Permission | macOS asks once for Desktop, Documents, Downloads (in your terminal's name) | Accessibility, for Shadow only |
 | Role in **browser** clicks | **none** | **none**. Web pages are the content script's job. |
 
 **Why they aren't one thing:** FSEvents knows nothing about buttons, and Accessibility knows nothing about where a file ended up. They meet in one place, the daemon's trace, sorted by time.
@@ -105,8 +105,8 @@ What macOS reports, and what becomes a replay step today:
 | If… | Then… |
 |---|---|
 | the daemon isn't running | no Record button, nothing is recorded |
-| Task Player.app isn't built | Chrome shows the Record button inside pages instead, and the toolbar icon works too |
-| Accessibility isn't allowed | **Recording:** web pages and files in your home folder are still recorded. Mac apps aren't, and Finder folders outside home aren't reported. The button shows an amber dot. **Replay:** a Mac-app step fails at once with "Task Player may not use other apps yet". To fix it: right-click the button, choose Allow Mac apps, then switch Task Player on. It notices within 2 seconds. |
+| Shadow.app isn't built | Chrome shows the Record button inside pages instead, and the toolbar icon works too |
+| Accessibility isn't allowed | **Recording:** web pages and files in your home folder are still recorded. Mac apps aren't, and Finder folders outside home aren't reported. The button shows an amber dot. **Replay:** a Mac-app step fails at once with "Shadow may not use other apps yet". To fix it: right-click the button, choose Allow Mac apps, then switch Shadow on. It notices within 2 seconds. |
 | the extension disconnects | it reconnects on its own, every few seconds to 30 seconds |
 
 ## 5. You press Stop: from recording to skill
@@ -119,7 +119,7 @@ What macOS reports, and what becomes a replay step today:
 | **Questions** | asked in the terminal: "which file next time?", "describe this task" | no |
 | **Skill** | the finished recipe, with its own id: a name plus a random tag, e.g. `upload-invoice-k3f9q2`. Recording the same task again makes a new skill, never a version of the old one. | **yes**: `skills/<id>/v1.json` |
 
-All files are in `~/Library/Application Support/TaskPlayer/`.
+All files are in `~/Library/Application Support/Shadow/`.
 
 **Why you don't see normalised or compiled files:** they're steps in between, not results. The trace (what happened) and the skill (what to do) are what's kept. `compile <session>` rebuilds a skill from a kept trace at any time.
 
@@ -132,7 +132,7 @@ All files are in `~/Library/Application Support/TaskPlayer/`.
 |---|---|---|
 | `web` | the Chrome extension | in its own window, finds the button by role and name (Chrome's accessibility tree), then clicks or types |
 | `fs` | the daemon itself | moves or renames the file |
-| `ax` (Mac apps) | Task Player.app | see below |
+| `ax` (Mac apps) | Shadow.app | see below |
 
 3. A step that sends, pays, deletes or submits **waits for you to type `approve`**.
 4. Each step prints ✓ or ✗. On ✗ the run **stops and tells you where**. The planned AI fallback would try to recover here; it isn't built.
@@ -164,10 +164,10 @@ All files are in `~/Library/Application Support/TaskPlayer/`.
 The rule is kept in the skill as `resolve.accept` (and `resolve.max_mb`), in the HTML `accept` syntax: `image/*`, `.pdf`, `application/pdf`.
 
 ### A Mac-app step, from trigger to click
-It goes there and back: daemon → Task Player.app → the app → Task Player.app → daemon. On replay the last stop isn't "macOS"; it's the app itself, which presses its own button when asked through Accessibility.
+It goes there and back: daemon → Shadow.app → the app → Shadow.app → daemon. On replay the last stop isn't "macOS"; it's the app itself, which presses its own button when asked through Accessibility.
 
-1. The daemon sends the step (say, *press `AXButton "Save"` in TextEdit*) to Task Player.app over the socket.
-2. If TextEdit isn't open, Task Player.app opens it; then it brings it to the front.
+1. The daemon sends the step (say, *press `AXButton "Save"` in TextEdit*) to Shadow.app over the socket.
+2. If TextEdit isn't open, Shadow.app opens it; then it brings it to the front.
 3. It asks the Accessibility API for TextEdit's windows and looks through every control for the best match: same role, same name, label, window and position in the window. It accepts a match only if it's clearly the best one.
 4. It presses it directly (`AXPress`). This isn't a mouse click at a screen point, so it works even if the window has moved. Typing sets the field's text, menus are opened by their titles (File → Export…), and a shortcut is sent as a key press to that app only.
 5. It sends ✓ back, or ✗ with the reason. The daemon moves on to the next step, or stops the run.
@@ -208,7 +208,7 @@ It goes there and back: daemon → Task Player.app → the app → Task Player.a
 
 ## 8. What may change later
 
-**More helpers.** Today the daemon hears from web pages (the extension), Mac apps (Task Player.app) and files (the watcher). That list isn't final. Each of these would plug into the same daemon and write to the same trace (none is built):
+**More helpers.** Today the daemon hears from web pages (the extension), Mac apps (Shadow.app) and files (the watcher). That list isn't final. Each of these would plug into the same daemon and write to the same trace (none is built):
 - Safari: Edge, Arc and Brave are Chromium-based, so the same extension could run there;
 - the clipboard between apps;
 - Terminal commands, which are left out today for privacy;
@@ -216,7 +216,7 @@ It goes there and back: daemon → Task Player.app → the app → Task Player.a
 
 **One desktop app.** Today there are three programs, because that was fastest to build:
 - the daemon: the engine, in a terminal;
-- Task Player.app: the button and the hands for Mac apps;
+- Shadow.app: the button and the hands for Mac apps;
 - the Chrome extension.
 
 The final desktop app is the superset you install once:
