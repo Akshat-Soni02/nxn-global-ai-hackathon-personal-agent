@@ -1,11 +1,26 @@
-## The project is based of the following concept:
-Its an smart automation layer but works for any kind of task we generally do at work. to setup a task you show it how its done (by a screen recording(stretch goal) or in natural language where it might drill you if it has any questions) then it smartly manages the task. The smart layer supports - understand a new task so later on system can replay it, decision making for any common occuring situations (like layout drifts), context gathering while doing the task etc. Its an always on system which differentiates it and make it fully autonomous
+# Shadow
+
+**Shadow learns a work task from watching you do it once, then does it for you, and fixes itself when a site changes.**
+
+You show it a task the way you normally do it (and, if you like, say what it is for). It works out the steps, asks about anything it is unsure of, and from then on runs the task on its own: on a schedule, when a file arrives, or when you start it. Something only you should decide (send this? which file?) waits in an inbox. A changed page is repaired, not a reason to stop. It runs on your Mac, is always on, and keeps its memory and your data there.
 
 Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/): an always-on, private assistant with persistent memory and reusable skills, running on NVIDIA Nemotron models through Nebius Token Factory.
 
-## How it works
+## What works today
 
-Full design: [`docs/design.md`](docs/design.md). **Status:** the design below was adopted on Oct 8, 2026. The skill format is migrated to the workflow tree; most of the flow is not built yet ([status table](docs/design.md#status-design-vs-code)).
+Status on **Oct 12, 2026**. The full design is [`docs/design.md`](docs/design.md) (its [status table](docs/design.md#status-design-vs-code) has the details); [`docs/guide/13-the-whole-picture`](docs/guide/13-the-whole-picture.md) is a one-page map of how the pieces fit.
+
+| Built | Not yet |
+| --- | --- |
+| **Recording** web pages, Mac apps (Accessibility) and file moves, turned into a workflow, with questions on what is unclear | Turning a recording into **loops and branches** (the design agent); the **description form**; **screenshots** with redaction and **voice** narration |
+| **Running** the workflow tree: loops, branches, LLM steps, questions and approvals, in your own Chrome and in Mac apps | **Highlight-only test** play |
+| **Recovering** from failures on web pages: classify, repair with cheap fixes or the repair agent (Nemotron 3 Super), keep the fix as a new version, roll back | Repair of Mac-app steps; the fix shown by you recorded as the repair |
+| **The inbox**: a run that needs you waits there, even across a restart, and goes on when you answer | |
+| **Triggers**: live, paused and draft workflows; schedules; "when a file appears in a folder"; auto-pause after 3 failures | "When an email arrives" |
+| **Shadow.app**: menu bar, window (inbox, workflows, runs, versions, Frequency), notifications, the floating Record button | **Editing steps** in the window |
+| **The daemon** as a service: local API (socket and HTTP), log files, starting at login from the repo | The **packaged app** (`.dmg`, API key in the Keychain, first-run setup) |
+
+## How it works
 
 ```mermaid
 flowchart LR
@@ -15,47 +30,50 @@ flowchart LR
   Q --> T["Workflow tree"]
   T --> E["Edit + approvals"]
   E --> H["Test<br/>(highlight only)"]
-  H --> P["Run"]
+  H --> P["Run<br/>by hand or from its trigger"]
   P -- "a step fails" --> G["Recover<br/>classify, repair,<br/>or the user shows it"]
   G -- "new version" --> T
 ```
 
-1. **Describe.** The user fills in a short form: **Goal**, **Frequency** (a dropdown that becomes the trigger), **What changes each run**, **What stays the same** and, optionally, **Never** (lists are comma-separated). Placeholder text explains each field, because these answers are what separate variables from constants.
-2. **Record.** The user does the task their usual way while Shadow records three streams on one clock:
-    - **events** in Chrome, Mac apps and Finder;
-    - **a screenshot at each event**, with the user's consent: the active window, with sensitive information blacked out on the Mac before it is stored or sent ([how](#privacy));
-    - **optional voice narration**, with the user's consent: transcribed on the Mac by macOS's built-in speech recognizer and timestamped against the events. The audio never leaves the Mac; the transcript does.
-3. **Understand.** Nemotron 3 Super reads the description, events and transcript (and GLM-5.3-Flash's descriptions of the redacted screenshots) and drafts a **workflow**: a click on an email becomes "the newest email from this sender", changing values become variables, repetition becomes a loop. The raw recording is deleted a day after the skill is finalised.
+1. **Describe** *(planned)*. A short form: **Goal**, **Frequency** (becomes the trigger), **What changes each run**, **What stays the same** and, optionally, **Never**. These answers separate variables from constants.
+2. **Record.** You do the task your usual way while Shadow records **events** in Chrome, Mac apps and Finder. Planned, with your consent: **a screenshot at each event** with sensitive information blacked out on the Mac ([how](#privacy)), and **voice narration** transcribed on the Mac (the audio never leaves it).
+3. **Understand.** Nemotron 3 Super turns the events (and, later, the description, transcript and screenshot descriptions) into a **workflow**: a click on an email becomes "the newest email from this sender", changing values become variables. Turning repetition into a loop is planned.
 4. **Drill.** Questions only on the steps it is unsure about; answers go to memory.
-5. **Workflow tree.** The user sees the workflow as a tree. Each step is a browser or Mac action, or an **LLM step** that transforms data (summarise, classify, read a document). LLM steps never drive the UI. The tree also has **variables**, **loops** and **branches**, and any step can **ask the user** something before it runs.
-6. **Edit.** The user can change any step and toggle **human approval** on any step.
-7. **Test.** Play runs a **highlight-only** replay: it shows each target without acting. This mode may change.
-8. **Run.** The exact tree the user saw runs from its trigger. Actions are deterministic; no model call unless an LLM step needs one or a step fails.
-9. **Recover.** When a step fails, the failure is classified first: a site that is down is retried later, a login the user must do pauses the run, an empty inbox ends it as nothing to do, and only a changed page or app is **repaired**. Repair may change any part of the workflow, but never adds outward actions, changes what the user decided or turns approvals off, and is kept only with evidence it worked: then it becomes the **new version**, the user is notified and can roll back in one click. If repair can't fix it, the run pauses and the user **shows the step once** while Shadow records; that becomes the fix and the run resumes.
+5. **Workflow tree.** Each step is a browser or Mac action, or an **LLM step** that transforms data (summarise, classify, read a document). LLM steps never drive the UI. The tree also has **variables**, **loops** and **branches**, and any step can **ask you** something or need your **approval** before it runs.
+6. **Edit** *(planned)*. Change any step and toggle **human approval** on any step. Today the window sets a workflow's **Frequency**.
+7. **Test** *(planned)*. A **highlight-only** replay shows each target without acting.
+8. **Run.** A workflow runs by hand, or on its own once it is **live**: on a schedule or when a file appears in a folder. A workflow that keeps failing pauses itself and tells you. Actions are deterministic; no model call unless an LLM step needs one or a step fails.
+9. **Recover.** When a step fails, the failure is classified first: a site that is down is retried later, a login you must do waits for you, an empty inbox ends the run as nothing to do, and only a changed page or app is **repaired**. Repair may change any part of the workflow, but never adds outward actions, changes what you decided or turns approvals off, and is kept only with evidence it worked: then it becomes the **new version**, and you can roll back in one click. If repair can't fix it, the run waits in your inbox: do the step by hand and tell it to go on.
 
-**Components.** The user installs one app, **Shadow.app**. Inside it: an always-on **daemon**, started by macOS at login (workflows, versions, triggers, the inbox of things waiting for the user, memory, run log, all model calls); the Swift side (Record button, menu bar, notifications, Mac app capture and replay through the Accessibility API, screenshots and their redaction, voice and transcription); and a **window** where the user sees and answers the inbox, workflows, runs and versions, and edits workflows. Outside it: the **Chrome extension** (web capture and replay through `chrome.debugger` in the user's own Chrome) and a tiny **native-host shim** (Chrome launches a fresh process per native messaging connection, so the shim forwards bytes to the daemon's socket). There is **no backend server**: the daemon calls Nebius Token Factory directly with the user's own API key, kept in the macOS Keychain.
+**Components.** One app, **Shadow.app**, on your Mac:
 
-**Memory.** Local SQLite in the daemon: drill answers, run context, and site notes from debug fixes. Never secrets.
+- an always-on **daemon** (Node): workflows and versions, triggers, the inbox, the runs list, memory, and every model call. Today it starts from the repo (`pnpm daemon`, or at login with `pnpm setup:daemon`); packaged, it lives inside the app.
+- the **Swift side**: Shadow in the menu bar, the floating Record button, notifications, and Mac-app recording and replay through the Accessibility API;
+- the **window**: the inbox, workflows, runs and versions, served by the daemon and shown inside the app.
+
+Outside the app: the **Chrome extension** (web recording and replay through `chrome.debugger` in your own, logged-in Chrome) and a tiny **native-host shim** (Chrome starts a fresh process for every connection, so the shim only forwards bytes to the daemon). There is **no backend server**: the daemon calls Nebius Token Factory directly with your own API key.
+
+**Memory.** Local SQLite in the daemon: drill answers, run context, and site notes from repairs. Never secrets.
 
 ## NVIDIA Nemotron on Nebius Token Factory
 
-Every model call goes through `packages/llm` to **Nebius Token Factory**. Callers pick a profile; understanding recordings and recovering from failures are **agents** built on `packages/agent` ([design](docs/design.md#agents)).
+Every model call goes through `packages/llm` to **Nebius Token Factory**. Callers pick a profile; recovering from failures (and, planned, understanding recordings) are **agents** built on `packages/agent` ([design](docs/design.md#agents)).
 
 | Profile | Model | Used by |
 | --- | --- | --- |
 | `fast` | **NVIDIA Nemotron 3.5 Lightning** | The workflow's LLM steps on every run: summarise an email, read an invoice, classify a ticket. Cheap and fast ($0.06 / $0.24 per 1M tokens), thinking off, output checked against the step's type |
-| `smart` | **NVIDIA Nemotron 3 Super** | The **repair agent** (works out why a step failed on a changed page, fixes the workflow, verifies, saves a new version) and the **design agent** (turns a description, recording and transcript into a workflow) |
-| `vision` | GLM-5.3-Flash | The agents' screenshot tool: describes redacted screenshots (the cheapest vision model on Token Factory) |
+| `smart` | **NVIDIA Nemotron 3 Super** | Compiling a recording into a workflow; the **repair agent** (works out why a step failed on a changed page, fixes the workflow, verifies, saves a new version); planned: the **design agent** (description, recording and transcript into a workflow tree) |
+| `vision` | GLM-5.3-Flash | Planned: describing redacted screenshots for the agents (the cheapest vision model on Token Factory) |
 
 Why Token Factory: one OpenAI-compatible API for every profile, structured JSON output with a schema, Nemotron's thinking switched on or off per call, and **Zero Data Retention**, which we require on the account so prompts are neither stored nor used for training. Details, costs and limits: [docs/design.md#models](docs/design.md#models).
 
 ## Privacy
 
-- **Consent first.** Screenshots and the microphone are separate opt-ins; without them, recording works from events alone.
-- **Redaction before upload.** No screenshot while a password field has focus or a blocked app or site is open; password, payment and user-marked fields are blacked out from the page's or app's own structure; then on-device text recognition (Apple's Vision framework) blacks out emails, phone and card numbers, IBANs, ID numbers, API keys and the description's "Never" terms.
-- **Audio stays on the Mac.** Only its transcript is sent.
-- **Short-lived recordings.** Raw recordings are deleted 24 hours after the skill is finalised; skills never contain images or audio.
-- **Only Nebius sees data.** No server of ours sits in between; Token Factory runs with Zero Data Retention.
+- **Everything stays on your Mac** except model calls: workflows, runs, the inbox, memory and logs. No server of ours sits in between, and Token Factory runs with Zero Data Retention.
+- **Only text goes to the model**: the recorded events without sensitive values, the failing step and a page outline for repair. Secret values are never logged or sent.
+- **Local doors are locked**: the daemon's socket only accepts your macOS user; its HTTP API listens only on `127.0.0.1` and needs a token made at every start, which only you can read ([how](docs/guide/13-the-whole-picture.md)).
+- **Risky steps wait for you**: steps that send, submit, pay or delete ask for approval, and repair can never add them.
+- **Planned with screenshots and voice**: separate consent for each; redaction on the Mac before anything is sent (password, payment and marked fields, then on-device text recognition for emails, phone and card numbers, IBANs, IDs, API keys and your "Never" terms); audio never leaves the Mac; raw recordings deleted 24 hours after the workflow is finalised.
 
 Details: [docs/design.md#consent-redaction-and-retention](docs/design.md#consent-redaction-and-retention).
 
@@ -75,33 +93,34 @@ Coverage is the sum of the scores divided by 15. Next to it we track the same sc
 | --- | --- | --- | --- |
 | 2026-10-06 | **7%** (1 / 15) | 23% (3.5 / 15) | dates and values that should change but replay literally; "for each" from repeated actions; choosing by sight; text typed from memory; triggers |
 
-Today's values are **estimated by reading the code**, which still implements the old flat-skill flow: they are the baseline the new workflow design is measured against. Nobody has recorded these workflows yet. To measure them, have a person who really does the workflow fill in the description and record it (narrating if they like), keep the recording in `fixtures/traces/`, and replay on the next occurrence.
+These values were **estimated by reading the code** on Oct 6, before the workflow tree, recovery and triggers were built; they have not been measured since. To measure them, have a person who really does the workflow record it, keep the recording in `fixtures/traces/`, and replay on the next occurrence.
 
 ## Repository Guide
 
-TypeScript monorepo (pnpm workspaces). One language so the extension and the daemon share the same schema, descriptor and matcher code.
+TypeScript monorepo (pnpm workspaces), plus the Swift app. One language for the extension, the daemon and the window, so they share the same schema and types.
 
 ```
 .
 ├── packages/
-│   ├── core/          # JOINT   workflow schema and checker, edit operations, repair guard, capability briefing, element descriptor, extension↔daemon messages
-│   ├── llm/           # JOINT   all model calls to Nebius Token Factory: client, profiles (fast, smart, vision), structured output, usage
+│   ├── core/          # JOINT   workflow schema and checker, edit operations, repair guard, capability briefing, element descriptor, messages
+│   ├── llm/           # JOINT   every model call to Nebius Token Factory: client, profiles (fast, smart, vision), structured output, usage
 │   ├── agent/         # JOINT   the agent runtime: loop, tools, guard, budgets, transcript
-│   ├── memory/        # JOINT   persistent memory store (interface now, SQLite later)
-│   ├── ipc/           # JOINT   length-prefixed framing (native messaging + daemon socket), socket path
-│   ├── recorder/      # RECORD  trace normaliser, compiler, drill questions (to become: understand → workflow tree)
-│   └── player/        # REPLAY  step loop, matcher, channels (to gain: workflow interpreter, debug + versions)
+│   ├── memory/        # JOINT   persistent memory (SQLite, full-text search)
+│   ├── ipc/           # JOINT   length-prefixed framing (native messaging + daemon socket), data and log paths
+│   ├── recorder/      # RECORD  trace normaliser, compiler, drill questions
+│   └── player/        # REPLAY  the workflow interpreter, matcher, channels (web, files, scripts, data, llm steps), repair
 ├── apps/
+│   ├── daemon/        # the always-on daemon: service (runs, inbox), API (socket + HTTP), triggers, lifecycle, store, recording sessions
+│   ├── ui/            # the window (React): inbox, workflows, runs, versions, Frequency; served by the daemon
+│   ├── mac/           # Shadow.app (Swift): menu bar, window, notifications, Record button, Mac-app capture and replay
 │   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
-│   ├── mac/           # Shadow.app (Swift): Record button, Mac app capture and replay via Accessibility
-│   ├── native-host/   # shim Chrome launches: pipes native messaging <-> the daemon's Unix socket
-│   └── daemon/        # always-on Node daemon: socket server, recording sessions, skill store, triggers, fs/script channels
-├── skills/real/       # 5 replay test skills against real sites (see skills/real/README.md)
+│   └── native-host/   # the shim Chrome starts: pipes native messaging <-> the daemon's Unix socket
+├── skills/real/       # replay test workflows against real sites (see skills/real/README.md)
 ├── fixtures/
-│   ├── pages/         # local test pages, including a "drifted" redesign
+│   ├── pages/         # local test pages, including drifted redesigns for repair
 │   └── snapshots/     # saved copies of the real pages; tests check every locator against them
-├── scripts/           # fixture server, native host installer, sandbox seeder, page snapshots
-├── docs/              # design.md (current design), examples.md (15 real workflows), guide/ (earlier notes)
+├── scripts/           # fixture server, installers (native host, daemon at login), Mac app build, sandbox seeder, page snapshots, llm check
+├── docs/              # design.md (the design, decisions and status), examples.md (15 real workflows), guide/ (explainers and diagrams)
 └── .github/           # CI (lint, typecheck, test, build) and CODEOWNERS template
 ```
 
@@ -109,47 +128,66 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 
 | Area | Owner | Rule |
 | --- | --- | --- |
-| `packages/core`, `packages/llm`, `packages/memory`, `packages/ipc`, `skills/` | Both | Changes need a review from both sides; the skill schema is the contract |
+| `packages/core`, `packages/llm`, `packages/agent`, `packages/memory`, `packages/ipc`, `apps/ui`, `skills/` | Both | Changes need a review from both sides; the workflow schema is the contract |
 | `packages/recorder`, recording code in `apps/extension/src/content.ts` | Record | |
 | `packages/player`, replay code in `apps/extension/src/background.ts`, `apps/daemon`, `apps/native-host` | Replay | |
 
-Workspace packages are consumed as TypeScript source (no build step); only the extension and the native host are bundled (esbuild).
+Workspace packages are used as TypeScript source (no build step); the extension, the native host and the window are bundled with esbuild, and Shadow.app is compiled with `swiftc`.
 
 ## Running Guide
 
-> These steps run the **current code**: record → compile → `run`. Skills use the new workflow format, and the player runs the whole tree: loops, branches, llm steps, asks and approvals. Recording does not build loops or branches yet; write them by hand (see `skills/real/sort-inbox.json`).
+> These steps run the **current code**, from the repository. The packaged app comes later ([Deployment Guide](#deployment-guide)).
 
-**Prerequisites**: macOS, Node 22+, pnpm 10 (Node ships it through corepack: run `corepack enable pnpm` once), Google Chrome, and for Mac apps the Xcode command line tools (`swiftc`; `xcode-select --install`).
+**Prerequisites**: macOS 14+, Node 22+, pnpm 10 (Node ships it through corepack: run `corepack enable pnpm` once), Google Chrome, and the Xcode command line tools for Shadow.app (`swiftc`; `xcode-select --install`).
+
+### 1. Install and check
 
 ```sh
 pnpm install
 cp .env.example .env        # fill in your Nebius Token Factory API key (models are optional overrides)
 pnpm llm:check              # checks each model profile with that key: answers, json_schema, tool calls, images (< $0.01)
-
-pnpm test                   # schema, framing and daemon socket tests
-pnpm typecheck
-pnpm lint                   # Biome; `pnpm format` to auto-fix
-
-pnpm fixtures               # serves fixtures/pages on http://localhost:5173
-pnpm seed:sandbox           # creates ~/ShadowTest with sample files for skills/real (--reset to start over)
-pnpm snapshot:pages         # re-downloads the real pages into fixtures/snapshots
-pnpm extension              # builds apps/extension/dist in watch mode
-pnpm daemon                 # runs the daemon (daemon:dev = watch mode, but it also reads Enter); type record, stop (compiles the recording; answer its questions), run <skill-id | skill.json>, inbox, approve, deny, resume / skip / cancel (a run that needs you), cancel <run-id>, rollback <skill-id>, live / pause / resume-workflow <skill-id>, runs, skills, traces, status
+pnpm build                  # the extension, the native host and the window
 ```
 
-**Replay a skill**
+### 2. Set up once
+
+1. **Shadow.app**: `pnpm setup:mac` builds `apps/mac/build/Shadow.app` (rebuilt only when its sources change). The daemon starts it.
+2. **Chrome**: `pnpm setup:native-host` registers the shim with Chrome (`--uninstall` to remove). Then open `chrome://extensions`, enable Developer mode, **Load unpacked** and pick `apps/extension/dist`. Open the extension's Details and turn on **Allow access to file URLs** (without it, upload steps fail with "Not allowed"). The manifest's `key` pins the extension ID to `eloljjdiofhdlhoankjbhfeihjankikk`, the only one the host allows.
+3. **Mac apps** (optional): right-click the floating Record button → **Allow Mac apps**, then turn on Shadow in System Settings → Privacy & Security → Accessibility. The permission goes to Shadow only, never to your terminal. After a rebuild, turn it off and on again (the app is signed ad hoc, so the permission is tied to that build; if that doesn't take, run `tccutil reset Accessibility com.shadow.mac`). Without it, web pages and files are still recorded; Mac apps are not.
+4. **Notifications**: allow them when Shadow asks.
+
+### 3. Run it
 
 ```sh
-pnpm seed:sandbox                                        # once: sample files in ~/ShadowTest
-pnpm replay skills/real/fill-web-form.json               # dev runner: separate Chrome profile, no extension needed
-pnpm replay skills/real/upload-test-file.json --yes      # --yes approves gated steps; --headless, --no-scripts, --no-repair, --keep-open
+pnpm daemon                 # in a terminal you can see
 ```
 
-**When a step fails**, the run pauses instead of failing. Shadow classifies the failure: a site that is down is retried later, a login page waits for you, and an empty inbox ends as nothing to do. Drift (a renamed button, a new banner, an action moved into a menu) is repaired first by cheap fixes with no model, then by the repair agent (Nemotron 3 Super, with `NEBIUS_API_KEY`). A fix is kept only when trying it on the live page shows it works, and it is saved as the next version; `rollback <skill-id>` undoes it. If no safe fix is found, do the step by hand in the automation window and type `skip`. Try it on the drift fixtures: `pnpm fixtures`, then `pnpm replay fixtures/pages/drift/drift-skill.json --yes --input invoice=<a pdf>` after pointing its URL at one of the drifted pages.
+Shadow appears in the menu bar (how many things wait for you, Record, health, the next run), with the floating Record button at the bottom right. **Open Shadow** from the menu bar opens the window; the terminal also prints a link to open it in a browser. The extension connects within a minute (or reload it).
 
-`pnpm replay` launches its own debug-port Chrome (profile in `~/Library/Application Support/Shadow/dev-chrome`). The production path is the daemon: type `run skills/real/<skill>.json` in `pnpm daemon`, and web steps run in an automation window of your own Chrome through the extension. Both paths share the player code, and every daemon run is logged to `~/Library/Application Support/Shadow/runs/<runId>.jsonl`.
+**Keep it running without a terminal** (optional): `pnpm setup:daemon` starts the daemon at login and again if it stops; it opens Shadow.app. `pnpm setup:daemon --uninstall` stops it; do that before running `pnpm daemon` in a terminal, since only one daemon runs at a time. Logs are in `~/Library/Logs/Shadow` (Console.app shows them).
 
-**What waits for you, and the API.** A run that needs you (an approval, a step's question, a failure only you can fix) doesn't hold the terminal: it waits in the **inbox** (`shadow.db` in the data folder) and goes on when you answer, even after the daemon restarts. Answer in the terminal (`inbox` lists what waits), or through the daemon's API: the Unix socket (`api.call`), or local HTTP, whose port and token are in `~/Library/Application Support/Shadow/api.json` (readable only by you):
+### 4. Record a task
+
+1. Press the round **Record** button (drag it anywhere). Do the task in Chrome, Finder or any Mac app, then press **Stop**. Without Shadow.app, the same button appears inside Chrome pages, and the extension's toolbar icon does the same.
+2. Shadow compiles the recording and asks its questions: answer them in the window's **Inbox** (or type the answer in the terminal; Enter takes the default). The saved workflow appears under **Workflows**.
+3. Finder is recorded by what it does to files (moves, renames), not by its clicks. File moves anywhere in your home folder are recorded with no setup (macOS asks once for Desktop, Documents and Downloads when the daemon starts); a folder outside it, such as an external drive, is added when a Finder window shows it.
+
+### 5. Run it, and let it run on its own
+
+- **By hand**: **Run now** on the workflow's page, or `run <id>` in the terminal. Web steps run in a separate, unfocused 1280×800 Chrome window (switch to it to watch). If the task used a file, `run <id>` first asks which file to use this time (Enter takes the newest like the one you recorded, or drag a file in), or give it: `run <id> ~/Desktop/new.pdf`. Every file is checked before the first step runs.
+- **On its own**: on the workflow's page, set its **Frequency** (every hour, every day at…, weekdays at…, every week, every month, when a file appears in a folder, or a custom schedule) and press **Go live**. **Pause** and **Resume** are next to it; a workflow that fails three times in a row pauses itself and tells you. A workflow you only start by hand can go live too.
+- **What waits for you**: an approval (steps that send or submit), a step's question, or a failure only you can fix waits in the **Inbox**, with a notification. Answer there, from the menu bar, or in the terminal (`approve`, `deny`, `resume`, `skip`, `cancel`). It waits as long as needed, even across a restart.
+- **Runs** shows every run step by step, with repairs and model cost; a workflow's page shows its versions, and **Roll back** undoes the latest one.
+
+**When a step fails**, Shadow classifies the failure: a site that is down is retried later, a login page waits for you, and an empty inbox ends as nothing to do. Drift (a renamed button, a new banner, an action moved into a menu) is repaired first by cheap fixes with no model, then by the repair agent (Nemotron 3 Super). A fix is kept only when trying it on the live page shows it works, and it is saved as the next version. If no safe fix is found, the run waits in your inbox: do the step by hand in the automation window and choose **I did it by hand: go on**.
+
+### Terminal commands
+
+`pnpm daemon` takes: `record`, `stop`, `compile <session>`, `run <skill-id | skill.json> [name=value … | path]`, `inbox`, `approve`, `deny`, `resume`, `skip`, `cancel [run-id]`, `rollback <skill-id>`, `live <skill-id>`, `pause <skill-id>`, `resume-workflow <skill-id>`, `runs`, `skills`, `traces`, `status`. A question is answered by typing the answer.
+
+### The daemon's API
+
+The window, the menu bar and the terminal all use one API: on the Unix socket (`~/Library/Application Support/Shadow/daemon.sock`, `api.call` messages) and on local HTTP, whose port and token are in `~/Library/Application Support/Shadow/api.json` (readable only by you):
 
 ```sh
 PORT=$(node -p "require(process.env.HOME+'/Library/Application Support/Shadow/api.json').port")
@@ -158,49 +196,46 @@ curl -s -X POST http://127.0.0.1:$PORT/api/inbox -H "Authorization: Bearer $TOKE
 curl -s -X POST http://127.0.0.1:$PORT/api/answer -H "Authorization: Bearer $TOKEN" -d '{"itemId":"<id>","answer":"approve"}'
 ```
 
-Methods: `workflows`, `workflow`, `runs`, `run`, `inbox`, `usage`, `health`, `start` (a workflow id), `answer`, `cancel`, `rollback`; `GET /api/events?token=…` streams changes. The daemon's own log is in `~/Library/Logs/Shadow/daemon.log` (Console.app shows it).
+Methods: `workflows`, `workflow`, `runs`, `run`, `inbox`, `usage`, `health`, `start` (a saved workflow's id, never a file path), `answer`, `cancel`, `rollback`, `state`, `goLive`, `pause`, `resume`, `setTrigger`. `GET /api/events?token=…` streams changes.
 
-**Connect Chrome to the daemon** (once per machine):
+### Development
 
-1. `pnpm setup:native-host` builds the shim and registers it with Chrome (`--uninstall` to remove). It writes `~/Library/Application Support/Shadow/native-host` and `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.shadow.daemon.json`.
-2. Open `chrome://extensions`, enable Developer mode, click "Load unpacked" and pick `apps/extension/dist`. The manifest's `key` pins the extension ID to `eloljjdiofhdlhoankjbhfeihjankikk`, which is the only origin the host allows. Then open the extension's Details and turn on **Allow access to file URLs**: without it Chrome refuses to hand local files to a page, so upload steps fail with "Not allowed".
-3. Run `pnpm daemon`. The extension reconnects within a minute, or immediately if you reload it. `status` in the daemon shows connected extensions.
+```sh
+pnpm test                   # all tests (vitest)
+pnpm typecheck              # every package
+pnpm lint                   # Biome; `pnpm format` to auto-fix
+pnpm ui                     # rebuilds the window on change (reload it)
+pnpm extension              # rebuilds the extension on change (reload it in chrome://extensions)
+pnpm daemon:dev             # the daemon in watch mode (it also reads Enter, so answer questions in the window)
 
-**The window and the menu bar.** Shadow.app puts Shadow in the menu bar (how many things wait for you, Record, health) and opens the window: the inbox (approve, answer, retry or skip a stuck step, review or roll back a repair), workflows with their steps and versions, and runs step by step. A workflow starts on its own once it is **live**: set its **Frequency** on its page (a schedule, or when a file appears in a folder), then **Go live**; Pause and Resume are next to it, and a workflow that fails three times in a row pauses itself and tells you. A notification arrives when something waits for you; clicking it opens the inbox. The window's pages are built with `pnpm build` (or `pnpm ui`, which rebuilds on change) and served by the daemon, which also prints a link to open them in a browser.
+pnpm fixtures               # serves fixtures/pages on http://localhost:5173
+pnpm seed:sandbox           # creates ~/ShadowTest with sample files for skills/real (--reset to start over)
+pnpm snapshot:pages         # re-downloads the real pages into fixtures/snapshots
+```
 
-**Keep Shadow running without a terminal** (optional): `pnpm setup:daemon` starts the daemon at login and again if it stops; it opens Shadow.app. `pnpm setup:daemon --uninstall` stops it (do that before running `pnpm daemon` in a terminal: only one daemon runs at a time). Its logs are in `~/Library/Logs/Shadow`.
+**Replay without the daemon**: `pnpm replay` runs a workflow in its own debug-port Chrome (profile in `~/Library/Application Support/Shadow/dev-chrome`), no extension needed. Both paths share the player code.
 
-**Record Mac apps and get the desktop button** (once):
+```sh
+pnpm seed:sandbox                                        # once: sample files in ~/ShadowTest
+pnpm replay skills/real/fill-web-form.json               # --yes approves gated steps; --headless, --no-scripts, --no-repair, --keep-open
+pnpm fixtures                                            # repair on drifted pages: point the drift skill's URL at one of them, then
+pnpm replay fixtures/pages/drift/drift-skill.json --yes --input invoice=<a pdf>
+```
 
-1. `pnpm setup:mac` builds `apps/mac/build/Shadow.app` (rebuilt only when its sources change). `pnpm daemon` starts it; it quits when the daemon does.
-2. Right-click the floating button → **Allow Mac apps**: macOS asks, then turn on Shadow in System Settings → Privacy & Security → Accessibility. The permission goes to Shadow only, never to your terminal. After a rebuild, turn it off and on again (the app is signed ad hoc, so the permission is tied to that build).
-   Without it, web pages and files are still recorded; Mac apps are not. If turning it off and on doesn't take after a rebuild, run `tccutil reset Accessibility com.shadow.mac` and allow it again.
-   Finder is recorded by what it does to files (moves, renames), not by its clicks. File moves anywhere in your home folder are recorded with no setup (macOS asks once for Desktop, Documents and Downloads when the daemon starts); a folder outside it, such as an external drive, is added when a Finder window shows it.
-
-**Record and replay** (each time):
-
-1. `pnpm daemon` in a terminal you can see (not `daemon:dev`: its watch mode also reads Enter, which drill answers need).
-2. Press the round **record button** at the bottom right of your screen (Shadow.app, above every app; drag it anywhere). Do the task in Chrome, Finder or any Mac app, then press **Stop**. Without Shadow.app, the same button appears inside Chrome pages instead, and the extension's toolbar icon does the same.
-3. The daemon compiles the recording and asks its questions **in the terminal** (Enter takes the default); the button says when one is waiting, then shows the saved skill's id.
-4. If the task used a file (an upload, a file you moved), `run <id>` first asks **which file** to use this time: Enter takes the suggestion (the newest file like the one you recorded), or type a path, or drag any file from Finder into the terminal window. Or give it with the command: `run <id> ~/Desktop/new.jpeg` (type `run <id> ` and drag the file in). When you stop a recording you can instead choose "the newest of its kind" or "always this file", and then it doesn't ask. Every file is checked before the first step runs: it must exist, not be empty, and be a kind the step takes (the page's own file-field rule, else the kind you recorded with: a photo means any image). A wrong file is explained and asked for again; given with the command, it stops the run.
-5. `run <id>` in the terminal replays it in a separate, unfocused 1280×800 Chrome window (switch to it to watch; Chrome shows its "started debugging this browser" bar while it runs). Steps that submit wait for `approve`. Each step prints ✓ or ✗.
-
-After `git pull`, run `pnpm build` again and reload the extension in `chrome://extensions`.
-
-The daemon listens on `~/Library/Application Support/Shadow/daemon.sock`. Override it with `SHADOW_SOCKET`, keeping the path at 103 bytes or less (a macOS limit for Unix sockets).
+After `git pull`, run `pnpm install && pnpm build` again, `pnpm setup:mac` if `apps/mac` changed, and reload the extension. The daemon keeps its data in `~/Library/Application Support/Shadow` (runs in `runs/<id>.jsonl`, workflows in `skills/`, the inbox and runs list in `shadow.db`); set `SHADOW_HOME` to use another folder, or `SHADOW_SOCKET` for another socket (at most 103 bytes, a macOS limit).
 
 ## Deployed Link
 
-Test build: a GitHub Release with the `.dmg` (Shadow.app with the daemon) and the Chrome extension. Link to be added when the first release is published.
+Test build: a GitHub Release with the `.dmg` (Shadow.app with the daemon) and the Chrome extension. Link to be added when the first release is published (milestone 9).
 
 ## Deployment Guide
 
-There is no server to deploy: everything runs on the user's Mac and calls Nebius Token Factory directly.
+*Planned (milestone 9): until then, use the [Running Guide](#running-guide).* There is no server to deploy: everything runs on your Mac and calls Nebius Token Factory directly.
 
 1. Create a Nebius Token Factory API key and turn on **Zero Data Retention** for the organization.
 2. Install the release: open the `.dmg`, drag Shadow into Applications and open it (unsigned, so right-click → Open the first time). It adds itself and its daemon to your login items, so it keeps running after a restart.
 3. On first launch, paste the key. It is stored in the macOS Keychain, Chrome is connected to the daemon, and a connection check confirms Nemotron answers. Then load the extension shipped with the app in `chrome://extensions` (Load unpacked) and turn on **Allow access to file URLs**.
-4. Allow the macOS permissions it asks for: Accessibility; Screen Recording, Microphone and Speech Recognition only if you consent to screenshots and narration.
+4. Allow the macOS permissions it asks for: Accessibility, notifications; Screen Recording, Microphone and Speech Recognition only if you consent to screenshots and narration.
 
 ## License
 
