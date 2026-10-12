@@ -2,6 +2,8 @@
 
 > **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
 
+> **Current picture (Oct 12, 2026):** [14 · Shadow end to end](14-shadow-end-to-end.md), with its diagram [`14-shadow-architecture.png`](14-shadow-architecture.png). The diagrams below (architecture-map, how-it-works, 12-how-it-works-simply) show the older flow.
+
 > Written 1 Oct 2026 (Thursday, Sprint 2, day 3 of 7) against commit `351a7ea`.
 > Built from four sources, in this order of trust:
 > 1. **the code** in this repo, read file by file and run where possible;
@@ -58,6 +60,7 @@ To edit it, open [`architecture-map.excalidraw`](architecture-map.excalidraw) at
 | 11 | [Mac apps: the Accessibility API, and the desktop button](11-mac-apps.md) | Recording and replaying clicks, typing, shortcuts and menus in any Mac app; how the permission works; the floating desktop button; a mixed web + file + app recording |
 | 12 | [How it works, in plain words](12-how-it-works-simply.md) + [diagram](12-how-it-works-simply.excalidraw) | Start, record, stop, replay end to end: how web, Mac-app and file events are captured, Chrome cases, what is saved, where AI fits |
 | 13 | [Ten real-life tests, in order](13-test-ideas.md) | The baseline to run before changing the architecture: ten everyday tasks (easy → medium, ten fields), three probes for known gaps, a results table |
+| 14 | [Shadow end to end](14-shadow-end-to-end.md) + [diagram](14-shadow-architecture.png) | **Current.** What Akshat's branches changed, record and replay end to end, where AI and the two agents fit, OpenAI's skill files, the description form, screenshots, voice |
 | 09 | [Record, explained and built](09-record-explained.md) | Mac events vs AX, the drill, memory, versions, injection, auth; then what was built for record, why, and how it was checked |
 | — | [`sheet6-sprint2-tracker.tsv`](sheet6-sprint2-tracker.tsv) | Paste-ready rows for worksheet 6 |
 
