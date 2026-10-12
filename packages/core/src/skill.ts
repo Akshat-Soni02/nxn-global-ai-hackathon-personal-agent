@@ -118,10 +118,23 @@ export const Input = z.object({
 });
 export type Input = z.infer<typeof Input>;
 
+// What a live workflow does about a time it missed (the Mac was asleep, Shadow wasn't running), or files that
+// arrived while Shadow wasn't running: run once when it can (never once per missed time), or wait for the next one.
+const Missed = z.enum(["run_once", "skip"]).default("run_once");
+
 export const Trigger = z.discriminatedUnion("type", [
   z.object({ type: z.literal("manual") }),
-  z.object({ type: z.literal("schedule"), cron: z.string() }),
-  z.object({ type: z.literal("folder_watch"), dir: z.string(), glob: z.string().optional() }),
+  // cron: five fields (minute hour day month weekday), in the Mac's own time zone.
+  z.object({ type: z.literal("schedule"), cron: z.string(), missed: Missed }),
+  // A file that appears in `dir` (and matches `glob`) starts a run, as the file input named `input` (default: the
+  // workflow's only file input).
+  z.object({
+    type: z.literal("folder_watch"),
+    dir: z.string(),
+    glob: z.string().optional(),
+    input: z.string().optional(),
+    missed: Missed,
+  }),
 ]);
 export type Trigger = z.infer<typeof Trigger>;
 

@@ -38,9 +38,10 @@ import { createLogger } from "./logger.ts";
 import { finishRecording } from "./record.ts";
 import { runSkillOn } from "./runner.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
-import { listSkills, saveSkill, versions } from "./skill-store.ts";
+import { saveSkill, versions } from "./skill-store.ts";
 import { type InboxItem, openStore, type RunRow } from "./store.ts";
 import { listTraces } from "./trace-store.ts";
+import { startTriggers } from "./triggers.ts";
 
 // NEBIUS_API_KEY (and optional model overrides) from the repo's .env, if there is one (see .env.example).
 try {
@@ -174,6 +175,20 @@ if (open.length > 0) {
   log(`${open.length} thing(s) wait for you:`);
   for (const item of [...open].reverse()) announce(item);
 }
+
+// Live workflows start on their own (triggers.ts): looked at now (times missed while Shadow was off), every 30 s
+// (which also notices the clock jumping after the Mac wakes), and right after a workflow goes live, pauses or gets a
+// new Frequency.
+const triggers = startTriggers({ dataDir: home, store, service, log });
+let looking = Promise.resolve();
+const lookAtTriggers = () => {
+  looking = looking.then(() => triggers.tick()).catch((error: Error) => log.error("triggers:", error.message));
+};
+lookAtTriggers();
+setInterval(lookAtTriggers, 30_000);
+service.subscribe((event) => {
+  if (event.type === "workflow") lookAtTriggers();
+});
 
 // The drill and "which file?" put their questions in the inbox.
 const prompter: Prompter = {
@@ -377,10 +392,27 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     } catch (error) {
       log((error as Error).message);
     }
+  } else if ((command === "live" || command === "pause" || command === "resume-workflow") && args[0]) {
+    try {
+      const state =
+        command === "live"
+          ? service.goLive(args[0])
+          : command === "pause"
+            ? service.pause(args[0])
+            : service.resume(args[0]);
+      log(`${args[0]} is ${state.state}`);
+    } catch (error) {
+      log((error as Error).message);
+    }
   } else if (command === "record") startRecording();
   else if (command === "stop") void stopRecording();
   else if (command === "compile" && args[0]) void compileSession(args[0]);
-  else if (command === "skills") for (const s of listSkills(home)) log(`${s.id}  v${s.versions.join(",v")}  ${s.name}`);
+  else if (command === "skills")
+    for (const w of service.workflows()) {
+      const next = w.nextRunAt ? `, next ${new Date(w.nextRunAt).toLocaleString()}` : "";
+      const why = w.state.state === "paused" && w.state.reason ? ` (${w.state.reason})` : "";
+      log(`${w.id}  v${w.versions.join(",v")}  ${w.name}  [${w.state.state}${why}${next}]`);
+    }
   else if (command === "traces")
     for (const t of listTraces(home)) log(`${t.sessionId}  ${t.modified.toLocaleString()}`);
   else if (command === "status") {
@@ -393,7 +425,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     );
   } else
     log(
-      "commands: record, stop, compile <session>, run <skill>, inbox, approve, deny, resume, skip, cancel [run], rollback <skill>, runs, skills, traces, status",
+      "commands: record, stop, compile <session>, run <skill>, inbox, approve, deny, resume, skip, cancel [run], rollback <skill>, live <skill>, pause <skill>, resume-workflow <skill>, runs, skills, traces, status",
     );
 });
 
@@ -410,6 +442,7 @@ function startMacApp() {
 }
 
 const shutdown = async () => {
+  triggers.stop();
   await http.close();
   await daemon.close();
   memory.close();
