@@ -1,5 +1,6 @@
 // The daemon's API types, without Node: shared by the daemon (store.ts, service.ts) and the app's window (apps/ui),
 // which imports them to type what the API returns.
+import type { Trigger } from "@shadow/core";
 import type { Resume, RunLogEvent, Waiting } from "@shadow/player";
 
 // running → one of the others. waiting: stopped until an inbox item is answered. interrupted: the daemon stopped
@@ -88,6 +89,8 @@ export interface WorkflowSummary {
   versions: number[];
   lastRun?: RunRow;
   state: StateFile;
+  // Its Frequency: the trigger step's `when`.
+  when: Trigger[];
   // Live and scheduled: when it next starts on its own (epoch ms).
   nextRunAt?: number;
 }

@@ -61,7 +61,10 @@ export async function runSkillFile(
   return runSkillOn(daemon, skill, { provided }, hooks, logDir);
 }
 
-export const newRunId = (skillId: string, now = new Date()) => `${skillId}-${now.toISOString().replace(/[:.]/g, "-")}`;
+// The workflow, when, and a short random part: two runs can start in the same millisecond (two files arriving at
+// once, a trigger firing as you press Run now).
+export const newRunId = (skillId: string, now = new Date()) =>
+  `${skillId}-${now.toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 4)}`;
 
 // One leg of a run: from the start, or from a waiting run's checkpoint (`resume`). A run's legs share its id, so they
 // share one log file. Going on from a checkpoint doesn't resolve inputs again: the saved variables carry on.

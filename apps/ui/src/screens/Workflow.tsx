@@ -1,21 +1,29 @@
 // One workflow: what it is for, its steps as a tree, its versions (who made each and why), and its runs.
 import type { Skill, Step } from "@shadow/core";
-import type { RunRow } from "@shadow/daemon/src/types.ts";
+import type { RunRow, WorkflowSummary } from "@shadow/daemon/src/types.ts";
+import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
-import { Action, Loading, StatusChip } from "../components.tsx";
+import { Action, Loading, StateChip, StatusChip } from "../components.tsx";
+import { FrequencyPicker } from "../FrequencyPicker.tsx";
 import { ago, duration, money, when } from "../format.ts";
+import { describe } from "../frequency.ts";
 
 const BY = { record: "Recorded", user: "Changed by you", debug: "Repaired during a run" } as const;
 
 export function Workflow({ id }: { id: string }) {
   const session = useSession();
   const workflow = useQuery<{ id: string; versions: number[]; latest: Skill } | null>("workflow", { id });
+  const summary = useQuery<WorkflowSummary[]>("workflows");
   const runs = useQuery<RunRow[]>("runs", { skillId: id, limit: 20 });
+  const [picking, setPicking] = useState(false);
   if (workflow.data === null) return <p className="error">No workflow {id}.</p>;
   if (!workflow.data) return <Loading error={workflow.error} />;
   const { latest, versions } = workflow.data;
   const trigger = latest.steps.find((s) => s.type === "trigger");
+  const triggers = trigger?.type === "trigger" ? trigger.when : [];
   const history = [...latest.history].reverse();
+  const mine = summary.data?.find((w) => w.id === id);
+  const state = mine?.state;
 
   return (
     <>
@@ -24,22 +32,67 @@ export function Workflow({ id }: { id: string }) {
           Workflows
         </a>
         <div className="title-row">
-          <h1>{latest.name}</h1>
-          <Action
-            kind="primary"
-            run={async () => {
-              const run = await session.call<{ id: string }>("start", { id });
-              location.hash = `#/runs/${run.id}`;
-            }}
-          >
-            Run now
-          </Action>
+          <h1>
+            {latest.name} {state ? <StateChip state={state} /> : null}
+          </h1>
+          <span className="action">
+            {state?.state === "live" ? (
+              <Action run={() => session.call("pause", { id })}>Pause</Action>
+            ) : (
+              <Action run={() => session.call(state?.state === "paused" ? "resume" : "goLive", { id })}>
+                {state?.state === "paused" ? "Resume" : "Go live"}
+              </Action>
+            )}
+            <Action
+              kind="primary"
+              run={async () => {
+                const run = await session.call<{ id: string }>("start", { id });
+                location.hash = `#/runs/${run.id}`;
+              }}
+            >
+              Run now
+            </Action>
+          </span>
         </div>
         <p>{latest.description.goal}</p>
         <p className="muted small">
-          v{latest.version} · {trigger?.type === "trigger" ? triggerText(trigger.when) : "started by hand"}
+          v{latest.version}
+          {mine?.nextRunAt ? ` · next run ${when(mine.nextRunAt)}` : ""}
         </p>
+        {state?.state === "paused" ? (
+          <div className="banner">
+            <div>
+              <strong>{state.auto ? "Shadow paused it" : "Paused"}</strong>
+              {state.reason ? <div>{state.reason}</div> : null}
+              <div className="muted small">Nothing starts on its own until you resume it. Run now still works.</div>
+            </div>
+          </div>
+        ) : state?.state === "draft" ? (
+          <p className="muted small">
+            A draft: it runs only when you start it. Set its Frequency, then Go live to let it run on its own.
+          </p>
+        ) : null}
       </header>
+
+      <section className="section">
+        <div className="title-row">
+          <h2>Frequency</h2>
+          {picking ? null : (
+            <button type="button" className="button" onClick={() => setPicking(true)}>
+              Change
+            </button>
+          )}
+        </div>
+        {picking ? (
+          <FrequencyPicker
+            id={id}
+            current={triggers.find((t) => t.type !== "manual") ?? triggers[0]}
+            onDone={() => setPicking(false)}
+          />
+        ) : (
+          <p>{triggers.map(describe).join(", or ")}</p>
+        )}
+      </section>
 
       <section className="section">
         <h2>Steps</h2>
@@ -107,18 +160,6 @@ export function Workflow({ id }: { id: string }) {
       </section>
     </>
   );
-}
-
-function triggerText(when: { type: string; cron?: string; dir?: string }[]): string {
-  return when
-    .map((w) =>
-      w.type === "schedule"
-        ? `on a schedule (${w.cron})`
-        : w.type === "folder_watch"
-          ? `when a file appears in ${w.dir}`
-          : "started by hand",
-    )
-    .join(", or ");
 }
 
 function StepRow({ step }: { step: Step }) {

@@ -56,6 +56,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     menu.addItem(disabled("Chrome: \(chrome ? "connected" : "not connected")"))
     menu.addItem(disabled("Mac apps: \(mac?["trusted"] as? Bool == true ? "allowed" : "not allowed yet")"))
     menu.addItem(disabled("Model: \(model ? "Nemotron" : "no API key")"))
+    // The next workflow to start on its own (triggers): "Next: Weekly report, Mon 09:00".
+    if let next = health["next"] as? JSON, let name = next["name"] as? String, let at = next["at"] as? Double {
+      let when = Date(timeIntervalSince1970: at / 1000)
+      let format = Calendar.current.isDateInToday(when) ? "HH:mm" : "EEE HH:mm"
+      let formatter = DateFormatter()
+      formatter.dateFormat = format
+      menu.addItem(disabled("Next: \(name), \(formatter.string(from: when))"))
+    }
     if todayUsd > 0 { menu.addItem(disabled(String(format: "Model use today: $%.4f", todayUsd))) }
     menu.addItem(.separator())
     menu.addItem(ClosureItem("Quit Shadow", key: "q") { [weak self] in self?.onQuit() })

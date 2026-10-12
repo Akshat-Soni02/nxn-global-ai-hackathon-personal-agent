@@ -245,6 +245,7 @@ export function createService(options: ServiceOptions): Service {
           ...s,
           lastRun: store.listRuns({ skillId: s.id, limit: 1 })[0],
           state,
+          when: skill ? triggerOf(skill).when : [],
           nextRunAt: skill ? nextRunAt(skill, state) : undefined,
         };
       }),
@@ -278,11 +279,19 @@ export function createService(options: ServiceOptions): Service {
       day.setHours(0, 0, 0, 0);
       return { todayUsd: store.spentSince(day.getTime()) };
     },
-    health: () => ({
-      ...options.health?.(),
-      waitingForYou: store.listItems({ open: true }).length,
-      running: store.listRuns({ status: "running", limit: 10 }).map((r) => r.id),
-    }),
+    health() {
+      // The next workflow to start on its own, for the menu bar.
+      const next = service
+        .workflows()
+        .filter((w) => w.nextRunAt !== undefined)
+        .sort((a, b) => (a.nextRunAt ?? 0) - (b.nextRunAt ?? 0))[0];
+      return {
+        ...options.health?.(),
+        waitingForYou: store.listItems({ open: true }).length,
+        running: store.listRuns({ status: "running", limit: 10 }).map((r) => r.id),
+        next: next ? { id: next.id, name: next.name, at: next.nextRunAt } : undefined,
+      };
+    },
 
     start(ref, provided = {}, trigger = "manual") {
       const file = ref.endsWith(".json") ? ref : undefined;

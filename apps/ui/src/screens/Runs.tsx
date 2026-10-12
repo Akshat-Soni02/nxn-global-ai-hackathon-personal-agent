@@ -39,6 +39,10 @@ export function Runs() {
                   <span className="strong">{names.get(r.skillId) ?? r.skillId}</span>{" "}
                   <span className="muted small">v{r.version}</span>
                   {r.repaired ? <span className="chip quiet">repaired</span> : null}
+                  {r.trigger !== "manual" ? (
+                    <span className="chip quiet">{r.trigger === "folder" ? "file appeared" : "by schedule"}</span>
+                  ) : null}
+                  {r.status === "skipped" && r.error ? <div className="muted small">{r.error}</div> : null}
                   {r.failedStep && r.status !== "succeeded" ? (
                     <div className="muted small">at {r.failedStep}</div>
                   ) : null}

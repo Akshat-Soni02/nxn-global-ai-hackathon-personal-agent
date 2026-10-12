@@ -1,8 +1,9 @@
-// The workflows Shadow knows, with their latest version and last run.
+// The workflows Shadow knows: whether each runs on its own (live, paused, draft), when, and how it last went.
 import type { WorkflowSummary } from "@shadow/daemon/src/types.ts";
 import { useQuery, useSession } from "../api.ts";
-import { Action, Empty, Loading, StatusChip } from "../components.tsx";
+import { Action, Empty, Loading, StateChip, StatusChip } from "../components.tsx";
 import { ago, when } from "../format.ts";
+import { describe } from "../frequency.ts";
 
 export function Workflows() {
   const { data, error } = useQuery<WorkflowSummary[]>("workflows");
@@ -20,7 +21,7 @@ export function Workflows() {
           <thead>
             <tr>
               <th>Workflow</th>
-              <th>Version</th>
+              <th>Runs</th>
               <th>Last run</th>
               <th aria-label="Actions" />
             </tr>
@@ -31,10 +32,20 @@ export function Workflows() {
                 <td>
                   <a href={`#/workflows/${w.id}`} className="strong">
                     {w.name}
-                  </a>
-                  <div className="muted small">{w.id}</div>
+                  </a>{" "}
+                  <StateChip state={w.state} />
+                  <div className="muted small">
+                    {w.id} · v{w.versions.at(-1)}
+                  </div>
                 </td>
-                <td>v{w.versions.at(-1)}</td>
+                <td>
+                  {w.when.map(describe).join(", or ")}
+                  {w.nextRunAt ? (
+                    <div className="muted small" title={when(w.nextRunAt)}>
+                      next {when(w.nextRunAt)}
+                    </div>
+                  ) : null}
+                </td>
                 <td>
                   {w.lastRun ? (
                     <a href={`#/runs/${w.lastRun.id}`} className="inline">

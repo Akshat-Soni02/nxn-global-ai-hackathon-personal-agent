@@ -314,6 +314,9 @@ nav a.active .badge {
   color: var(--text);
   min-width: 280px;
 }
+.input.short {
+  min-width: 120px;
+}
 
 /* Inbox cards */
 .cards {
@@ -521,4 +524,41 @@ nav a.active .badge {
   max-height: 320px;
   overflow: auto;
   font-size: 11.5px;
+}
+
+/* The Frequency picker */
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  align-items: flex-end;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.picker .answers,
+.picker p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.field select,
+.field input {
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+.field input[type="number"] {
+  width: 80px;
 }
