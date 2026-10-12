@@ -53,6 +53,9 @@ importers:
       '@shadow/recorder':
         specifier: workspace:*
         version: link:../../packages/recorder
+      croner:
+        specifier: ^9.1.0
+        version: 9.1.0
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -773,6 +776,10 @@ packages:
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
     engines: {node: '>=18'}
+
+  croner@9.1.0:
+    resolution: {integrity: sha512-p9nwwR4qyT5W996vBZhdvBCnMhicY5ytZkR4D1Xj0wuTDEiMnjwR57Q3RXYY/s0EpX6Ay3vgIcfaR+ewGHsi+g==}
+    engines: {node: '>=18.0'}
 
   css-select@7.0.0:
     resolution: {integrity: sha512-snmjEVXy+1LnwXdxhYvTMj1d9tOh4HxkA1YmoayVBeeyR2C14Pum7fcxJIm4SswYspVy866eYNwlH6xC3/VH5g==}
@@ -1557,6 +1564,8 @@ snapshots:
   boolbase@2.0.0: {}
 
   chai@6.2.2: {}
+
+  croner@9.1.0: {}
 
   css-select@7.0.0:
     dependencies:

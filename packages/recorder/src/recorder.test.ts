@@ -545,7 +545,9 @@ describe("drill", () => {
       },
       "2",
     );
-    expect(trigger.ok && triggerOf(trigger.skill).when).toEqual([{ type: "folder_watch", dir: "~/Downloads" }]);
+    expect(trigger.ok && triggerOf(trigger.skill).when).toEqual([
+      { type: "folder_watch", dir: "~/Downloads", missed: "run_once" },
+    ]);
   });
 
   it("refuses answers that would change a target or break the schema", async () => {

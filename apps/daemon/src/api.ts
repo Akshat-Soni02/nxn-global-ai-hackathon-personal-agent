@@ -3,6 +3,7 @@
 //
 // `start` takes a workflow id from the store, never a file path: a workflow can hold script steps, so the API must not
 // run an arbitrary file. The terminal, which runs as the user, may still run a file.
+import { Trigger } from "@shadow/core";
 import { z } from "zod";
 import type { Service } from "./service.ts";
 
@@ -45,6 +46,19 @@ const methods = {
   },
   cancel: { params: z.object({ runId: id }), run: (s: Service, p: { runId: string }) => s.cancel(p.runId) },
   rollback: { params: z.object({ skillId: id }), run: (s: Service, p: { skillId: string }) => s.rollback(p.skillId) },
+  // The workflow lifecycle (lifecycle.ts): its state, going live (the checks run first), pausing, resuming.
+  state: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.state(p.id) },
+  goLive: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.goLive(p.id) },
+  pause: {
+    params: z.object({ id, reason: z.string().max(200).optional() }),
+    run: (s: Service, p: { id: string; reason?: string }) => s.pause(p.id, p.reason),
+  },
+  resume: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.resume(p.id) },
+  // The Frequency: the trigger's `when`, checked against the same schema as a workflow file.
+  setTrigger: {
+    params: z.object({ id, when: z.array(Trigger).min(1).max(5) }),
+    run: (s: Service, p: { id: string; when: unknown[] }) => s.setTrigger(p.id, p.when),
+  },
 } as const;
 
 export type Method = keyof typeof methods;

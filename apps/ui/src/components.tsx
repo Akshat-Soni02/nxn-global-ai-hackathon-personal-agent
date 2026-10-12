@@ -1,11 +1,22 @@
 // Small pieces the screens share.
-import type { RunState } from "@shadow/daemon/src/types.ts";
+import type { RunState, StateFile } from "@shadow/daemon/src/types.ts";
 import { type ReactNode, useState } from "react";
 import { STATE } from "./format.ts";
 
 export function StatusChip({ status }: { status: RunState }) {
   const s = STATE[status];
   return <span className={`chip ${s.tone}`}>{s.label}</span>;
+}
+
+// A workflow's lifecycle state: live runs on its own, paused waits to be resumed, a draft only runs by hand.
+export function StateChip({ state }: { state: StateFile }) {
+  const [label, tone] =
+    state.state === "live"
+      ? ["Live", "ok"]
+      : state.state === "paused"
+        ? [state.auto ? "Paused by Shadow" : "Paused", "wait"]
+        : ["Draft", "quiet"];
+  return <span className={`chip ${tone}`}>{label}</span>;
 }
 
 // A button for an API action: disabled while it runs, its error shown under it.

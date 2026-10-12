@@ -16,6 +16,7 @@ function fakeService() {
   const calls: unknown[][] = [];
   const service = {
     workflows: () => [{ id: "report", name: "Weekly report", versions: [1] }],
+    goLive: (id: string) => ({ state: "live", since: 1, id }),
     start: (...args: unknown[]) => {
       calls.push(["start", ...args]);
       return { id: "run-1", status: "running" };
@@ -104,6 +105,9 @@ describe("the API on local HTTP", () => {
     const started = await send(http.port, "/api/start", { headers: auth, body: JSON.stringify({ id: "report" }) });
     expect(JSON.parse(started.body)).toEqual({ ok: true, value: { id: "run-1", status: "running" } });
     expect(calls).toEqual([["start", "report", {}, "manual"]]);
+    // Method names with capitals reach the API too.
+    const live = await send(http.port, "/api/goLive", { headers: auth, body: JSON.stringify({ id: "report" }) });
+    expect(JSON.parse(live.body)).toEqual({ ok: true, value: { state: "live", since: 1, id: "report" } });
   });
 
   it("serves the window's files without the token, and nothing outside their folder", async () => {

@@ -26,6 +26,12 @@ export interface Store {
   answerItem(id: string, answer: unknown, now?: number): boolean;
   // Model spend of the runs started since `since` (epoch ms).
   spentSince(since: number): number;
+  // Triggers: when a schedule last fired (or was passed over), by workflow and trigger key.
+  getMark(skillId: string, key: string): number | undefined;
+  setMark(skillId: string, key: string, at: number): void;
+  // Triggers: files that already started a run (or were passed over), so none starts two.
+  seenFile(skillId: string, key: string): boolean;
+  markFile(skillId: string, key: string, at: number): void;
   close(): void;
 }
 
@@ -44,6 +50,12 @@ export function openStore(path: string): Store {
       detail TEXT NOT NULL, created_at INTEGER NOT NULL, answered_at INTEGER, answer TEXT
     );
     CREATE INDEX IF NOT EXISTS inbox_open ON inbox (answered_at, created_at);
+    CREATE TABLE IF NOT EXISTS trigger_marks (
+      skill_id TEXT NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (skill_id, key)
+    );
+    CREATE TABLE IF NOT EXISTS trigger_files (
+      skill_id TEXT NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (skill_id, key)
+    );
   `);
 
   const getRun = (id: string) => {
@@ -160,6 +172,21 @@ export function openStore(path: string): Store {
     spentSince(since) {
       const row = db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS spent FROM runs WHERE started_at >= ?").get(since);
       return Number(row?.spent ?? 0);
+    },
+    getMark(skillId, key) {
+      const row = db.prepare("SELECT at FROM trigger_marks WHERE skill_id = ? AND key = ?").get(skillId, key);
+      return row ? Number(row.at) : undefined;
+    },
+    setMark(skillId, key, at) {
+      db.prepare(
+        "INSERT INTO trigger_marks (skill_id, key, at) VALUES (?, ?, ?) ON CONFLICT (skill_id, key) DO UPDATE SET at = ?",
+      ).run(skillId, key, at, at);
+    },
+    seenFile(skillId, key) {
+      return db.prepare("SELECT 1 FROM trigger_files WHERE skill_id = ? AND key = ?").get(skillId, key) !== undefined;
+    },
+    markFile(skillId, key, at) {
+      db.prepare("INSERT OR IGNORE INTO trigger_files (skill_id, key, at) VALUES (?, ?, ?)").run(skillId, key, at);
     },
     close: () => db.close(),
   };

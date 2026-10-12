@@ -35,6 +35,7 @@ export const STATE: Record<RunState, { label: string; tone: "ok" | "bad" | "wait
   nothing_to_do: { label: "Nothing to do", tone: "quiet" },
   cancelled: { label: "Cancelled", tone: "quiet" },
   interrupted: { label: "Interrupted", tone: "bad" },
+  skipped: { label: "Skipped", tone: "quiet" },
 };
 
 export const KIND: Record<InboxKind, string> = {
@@ -43,4 +44,5 @@ export const KIND: Record<InboxKind, string> = {
   recovery: "Needs you",
   question: "Question",
   repaired: "Repaired",
+  paused: "Paused",
 };

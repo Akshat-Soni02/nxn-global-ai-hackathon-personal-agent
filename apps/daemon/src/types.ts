@@ -1,9 +1,11 @@
 // The daemon's API types, without Node: shared by the daemon (store.ts, service.ts) and the app's window (apps/ui),
 // which imports them to type what the API returns.
+import type { Trigger } from "@shadow/core";
 import type { Resume, RunLogEvent, Waiting } from "@shadow/player";
 
 // running → one of the others. waiting: stopped until an inbox item is answered. interrupted: the daemon stopped
-// while the run was going (a restart, a crash); it does not go on by itself.
+// while the run was going (a restart, a crash); it does not go on by itself. skipped: its trigger fired while the
+// workflow's previous run was still going or waiting for the user, so it never started.
 export type RunState =
   | "running"
   | "waiting"
@@ -12,7 +14,8 @@ export type RunState =
   | "denied"
   | "nothing_to_do"
   | "cancelled"
-  | "interrupted";
+  | "interrupted"
+  | "skipped";
 
 export interface Checkpoint {
   // The version the run was on when it stopped (a repair may have made a newer one during the run).
@@ -42,7 +45,8 @@ export interface RunRow {
 
 // approval, ask, recovery: a waiting run's step ("waiting for you"). question: a question outside a run (the drill
 // after a recording, which file to use). repaired: nothing to answer; a repair saved a new version, to review.
-export type InboxKind = "approval" | "ask" | "recovery" | "question" | "repaired";
+// paused: a workflow paused itself after failing runs; answered by resuming it (or leaving it paused).
+export type InboxKind = "approval" | "ask" | "recovery" | "question" | "repaired" | "paused";
 
 export interface InboxItem {
   id: string;
@@ -62,13 +66,33 @@ export interface InboxItem {
 export type ServiceEvent =
   | { type: "run"; run: RunRow }
   | { type: "step"; runId: string; event: RunLogEvent }
-  | { type: "inbox"; item: InboxItem };
+  | { type: "inbox"; item: InboxItem }
+  // A workflow's state or trigger changed: the triggers and the window look again.
+  | { type: "workflow"; id: string; state: StateFile };
+
+// A workflow apart from any one run (docs/design.md, "Workflow lifecycle"): a draft never starts on its own, a live
+// one starts when its trigger fires, a paused one waits to be resumed.
+export type WorkflowState = "draft" | "live" | "paused";
+
+export interface StateFile {
+  state: WorkflowState;
+  // When it last changed (epoch ms). For a live workflow: from when its trigger counts.
+  since: number;
+  // Paused: why, and whether Shadow paused it (auto-pause) or the user did.
+  reason?: string;
+  auto?: boolean;
+}
 
 export interface WorkflowSummary {
   id: string;
   name: string;
   versions: number[];
   lastRun?: RunRow;
+  state: StateFile;
+  // Its Frequency: the trigger step's `when`.
+  when: Trigger[];
+  // Live and scheduled: when it next starts on its own (epoch ms).
+  nextRunAt?: number;
 }
 
 // A question outside a run: the drill after a recording, which file to use.

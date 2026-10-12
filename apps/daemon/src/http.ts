@@ -139,7 +139,7 @@ export async function startHttp(options: {
       return;
     }
 
-    const method = /^\/api\/([a-z]+)$/.exec(url.pathname)?.[1];
+    const method = /^\/api\/([A-Za-z]+)$/.exec(url.pathname)?.[1];
     if (req.method !== "POST" || !method) return json(res, 404, { ok: false, error: "not found" });
     let size = 0;
     const chunks: Buffer[] = [];

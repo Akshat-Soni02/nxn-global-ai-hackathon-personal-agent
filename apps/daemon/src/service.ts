@@ -9,7 +9,7 @@
 // One leg acts at a time (there is one automation window): legs queue behind each other. Waiting runs hold nothing.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Skill } from "@shadow/core";
+import { applyEdits, Skill, triggerOf } from "@shadow/core";
 import {
   type Answer,
   type Resume,
@@ -19,10 +19,14 @@ import {
   type Wait,
   type Waiting,
 } from "@shadow/player";
+import { goLiveProblems, nextTime, readState, triggerKey, writeState } from "./lifecycle.ts";
 import { newRunId } from "./runner.ts";
-import { listSkills, loadSkill, rollbackSkill, versions } from "./skill-store.ts";
+import { listSkills, loadSkill, rollbackSkill, saveSkill, versions } from "./skill-store.ts";
 import type { Checkpoint, InboxItem, RunRow, RunState, Store } from "./store.ts";
-import type { Question, ServiceEvent, WorkflowSummary } from "./types.ts";
+import type { Question, ServiceEvent, StateFile, WorkflowSummary } from "./types.ts";
+
+// Auto-pause (docs/design.md, "Workflow lifecycle"): this many failed runs in a row, started by the trigger.
+export const AUTO_PAUSE_AFTER = 3;
 
 // One leg of a run, as main.ts runs it (runSkillOn). `hooks` must be passed to the run as they are: they make a run
 // that needs the user end its leg as `waiting` instead of waiting in memory.
@@ -71,6 +75,19 @@ export interface Service {
   subscribe(listener: (event: ServiceEvent) => void): () => void;
   // Startup: runs the daemon left going are interrupted; questions asked before the restart can't be answered.
   recover(): { interrupted: string[]; expired: string[] };
+  // A workflow's lifecycle (lifecycle.ts). goLive and resume run the checks and throw with what is missing.
+  state(id: string): StateFile;
+  goLive(id: string): StateFile;
+  pause(id: string, reason?: string): StateFile;
+  resume(id: string): StateFile;
+  // Sets the Frequency: the trigger step's `when`, saved as the next version (by: user). On a live workflow the new
+  // trigger counts from now.
+  setTrigger(id: string, when: unknown[]): { version: number };
+  // A trigger fired (triggers.ts): starts a run, unless the workflow's previous run is still going or waiting for
+  // the user; then a skipped run says why.
+  fire(skillId: string, trigger: "schedule" | "folder", provided?: Record<string, unknown>): RunRow;
+  // The workflow's run that is still going or waiting for the user, if any.
+  busy(skillId: string): RunRow | undefined;
   // Resolves when no leg is queued or acting (tests, shutdown).
   idle(): Promise<void>;
 }
@@ -162,11 +179,76 @@ export function createService(options: ServiceOptions): Service {
       error: outcome.error,
       checkpoint: undefined,
     });
+    if (run.trigger !== "manual") autoPause(run.skillId);
   }
 
-  return {
+  // ── The lifecycle (lifecycle.ts): draft, live, paused ──
+  const setState = (id: string, next: StateFile): StateFile => {
+    writeState(dataDir, id, next);
+    emit({ type: "workflow", id, state: next });
+    return next;
+  };
+  const latest = (id: string): Skill => {
+    const skill = loadSkill(dataDir, id);
+    if (!skill) throw new Error(`no workflow ${id}`);
+    return skill;
+  };
+  const goLive = (id: string): StateFile => {
+    const problems = goLiveProblems(latest(id));
+    if (problems.length > 0) throw new Error(`can't go live: ${problems.join("; ")}`);
+    return setState(id, { state: "live", since: now() });
+  };
+  const pause = (id: string, reason = "paused by you", auto = false): StateFile => {
+    latest(id);
+    return setState(id, { state: "paused", since: now(), reason, auto });
+  };
+  // After a triggered run ends: AUTO_PAUSE_AFTER failed runs in a row, started by the trigger, pause the workflow.
+  // Runs started by hand don't count; a run that succeeded, found nothing to do or was denied ends the streak.
+  function autoPause(id: string) {
+    if (readState(dataDir, id).state !== "live") return;
+    const finished = store
+      .listRuns({ skillId: id, limit: 50 })
+      .filter((r) => r.trigger !== "manual" && !["running", "waiting", "skipped"].includes(r.status));
+    let streak = 0;
+    for (const r of finished) {
+      if (r.status !== "failed" && r.status !== "interrupted") break;
+      streak++;
+    }
+    if (streak < AUTO_PAUSE_AFTER) return;
+    const reason = `its last ${streak} runs failed${finished[0]?.error ? ` (last: ${finished[0].error})` : ""}`;
+    pause(id, reason, true);
+    addItem({
+      kind: "paused",
+      skillId: id,
+      title: `Paused ${id}: ${reason}`,
+      detail: { reason, options: ["resume", "keep paused"] },
+    });
+  }
+  // When a live workflow next starts on its own: the soonest of its schedules.
+  const nextRunAt = (skill: Skill, state: StateFile): number | undefined => {
+    if (state.state !== "live") return undefined;
+    const times = triggerOf(skill).when.flatMap((t, i) => {
+      if (t.type !== "schedule") return [];
+      const from = Math.max(now(), store.getMark(skill.id, triggerKey(i, t)) ?? state.since);
+      const next = nextTime(t.cron, from);
+      return next === undefined ? [] : [next];
+    });
+    return times.length > 0 ? Math.min(...times) : undefined;
+  };
+
+  const service: Service = {
     workflows: () =>
-      listSkills(dataDir).map((s) => ({ ...s, lastRun: store.listRuns({ skillId: s.id, limit: 1 })[0] })),
+      listSkills(dataDir).map((s) => {
+        const state = readState(dataDir, s.id);
+        const skill = loadSkill(dataDir, s.id);
+        return {
+          ...s,
+          lastRun: store.listRuns({ skillId: s.id, limit: 1 })[0],
+          state,
+          when: skill ? triggerOf(skill).when : [],
+          nextRunAt: skill ? nextRunAt(skill, state) : undefined,
+        };
+      }),
     workflow(id) {
       const all = versions(dataDir, id);
       const latest = loadSkill(dataDir, id);
@@ -197,11 +279,19 @@ export function createService(options: ServiceOptions): Service {
       day.setHours(0, 0, 0, 0);
       return { todayUsd: store.spentSince(day.getTime()) };
     },
-    health: () => ({
-      ...options.health?.(),
-      waitingForYou: store.listItems({ open: true }).length,
-      running: store.listRuns({ status: "running", limit: 10 }).map((r) => r.id),
-    }),
+    health() {
+      // The next workflow to start on its own, for the menu bar.
+      const next = service
+        .workflows()
+        .filter((w) => w.nextRunAt !== undefined)
+        .sort((a, b) => (a.nextRunAt ?? 0) - (b.nextRunAt ?? 0))[0];
+      return {
+        ...options.health?.(),
+        waitingForYou: store.listItems({ open: true }).length,
+        running: store.listRuns({ status: "running", limit: 10 }).map((r) => r.id),
+        next: next ? { id: next.id, name: next.name, at: next.nextRunAt } : undefined,
+      };
+    },
 
     start(ref, provided = {}, trigger = "manual") {
       const file = ref.endsWith(".json") ? ref : undefined;
@@ -238,6 +328,13 @@ export function createService(options: ServiceOptions): Service {
         emit({ type: "inbox", item: store.getItem(itemId) as InboxItem });
         return;
       }
+      if (item.kind === "paused") {
+        // "resume" makes it live again (the checks run first); anything else leaves it paused.
+        if (raw === "resume" && item.skillId) goLive(item.skillId);
+        store.answerItem(itemId, raw ?? "keep paused", now());
+        emit({ type: "inbox", item: store.getItem(itemId) as InboxItem });
+        return;
+      }
 
       // A waiting run's item: the answer goes into its checkpoint, and the run goes on.
       const run = item.runId ? store.getRun(item.runId) : undefined;
@@ -266,6 +363,62 @@ export function createService(options: ServiceOptions): Service {
         emit({ type: "inbox", item: store.getItem(item.id) as InboxItem });
       }
       return updateRun(runId, { status: "cancelled", endedAt: now(), error: "cancelled", checkpoint: undefined });
+    },
+
+    state: (id) => readState(dataDir, id),
+    goLive,
+    pause: (id, reason) => pause(id, reason),
+    resume: goLive,
+
+    setTrigger(id, when) {
+      const current = latest(id);
+      const trigger = triggerOf(current);
+      const edited = applyEdits(current, [{ op: "set", step: trigger.id, field: "when", value: when }]);
+      if (!edited.ok) throw new Error(edited.problems.join("; "));
+      const version = current.version + 1;
+      const describe = (edited.skill.steps[0]?.type === "trigger" ? edited.skill.steps[0].when : [])
+        .map((t) =>
+          t.type === "schedule" ? `schedule ${t.cron}` : t.type === "folder_watch" ? `folder ${t.dir}` : "by hand",
+        )
+        .join(", ");
+      const saved = saveSkill(dataDir, {
+        ...edited.skill,
+        history: [
+          ...edited.skill.history,
+          { version, by: "user", summary: `Frequency: ${describe}`, at: new Date(now()).toISOString() },
+        ],
+      });
+      // A live workflow's new trigger counts from now, not from when it first went live.
+      const state = readState(dataDir, id);
+      if (state.state === "live") setState(id, { state: "live", since: now() });
+      else emit({ type: "workflow", id, state });
+      return { version: saved.skill.version };
+    },
+
+    busy: (skillId) =>
+      store.listRuns({ skillId, limit: 20 }).find((r) => r.status === "running" || r.status === "waiting"),
+
+    fire(skillId, trigger, provided = {}) {
+      const busy = service.busy(skillId);
+      if (busy) {
+        const at = now();
+        const skipped = store.startRun({
+          id: newRunId(skillId, new Date(at)),
+          skillId,
+          version: latest(skillId).version,
+          trigger,
+          startedAt: at,
+        });
+        return updateRun(skipped.id, {
+          status: "skipped",
+          endedAt: at,
+          error:
+            busy.status === "waiting"
+              ? "skipped: the last run still waits for you"
+              : "skipped: the last run is still going",
+        });
+      }
+      return service.start(skillId, provided, trigger);
     },
 
     rollback(skillId) {
@@ -310,6 +463,7 @@ export function createService(options: ServiceOptions): Service {
       }
     },
   };
+  return service;
 }
 
 // What the user reads for a waiting run.

@@ -134,7 +134,7 @@ pnpm fixtures               # serves fixtures/pages on http://localhost:5173
 pnpm seed:sandbox           # creates ~/ShadowTest with sample files for skills/real (--reset to start over)
 pnpm snapshot:pages         # re-downloads the real pages into fixtures/snapshots
 pnpm extension              # builds apps/extension/dist in watch mode
-pnpm daemon                 # runs the daemon (daemon:dev = watch mode, but it also reads Enter); type record, stop (compiles the recording; answer its questions), run <skill-id | skill.json>, inbox, approve, deny, resume / skip / cancel (a run that needs you), cancel <run-id>, rollback <skill-id>, runs, skills, traces, status
+pnpm daemon                 # runs the daemon (daemon:dev = watch mode, but it also reads Enter); type record, stop (compiles the recording; answer its questions), run <skill-id | skill.json>, inbox, approve, deny, resume / skip / cancel (a run that needs you), cancel <run-id>, rollback <skill-id>, live / pause / resume-workflow <skill-id>, runs, skills, traces, status
 ```
 
 **Replay a skill**
@@ -166,7 +166,7 @@ Methods: `workflows`, `workflow`, `runs`, `run`, `inbox`, `usage`, `health`, `st
 2. Open `chrome://extensions`, enable Developer mode, click "Load unpacked" and pick `apps/extension/dist`. The manifest's `key` pins the extension ID to `eloljjdiofhdlhoankjbhfeihjankikk`, which is the only origin the host allows. Then open the extension's Details and turn on **Allow access to file URLs**: without it Chrome refuses to hand local files to a page, so upload steps fail with "Not allowed".
 3. Run `pnpm daemon`. The extension reconnects within a minute, or immediately if you reload it. `status` in the daemon shows connected extensions.
 
-**The window and the menu bar.** Shadow.app puts Shadow in the menu bar (how many things wait for you, Record, health) and opens the window: the inbox (approve, answer, retry or skip a stuck step, review or roll back a repair), workflows with their steps and versions, and runs step by step. A notification arrives when something waits for you; clicking it opens the inbox. The window's pages are built with `pnpm build` (or `pnpm ui`, which rebuilds on change) and served by the daemon, which also prints a link to open them in a browser.
+**The window and the menu bar.** Shadow.app puts Shadow in the menu bar (how many things wait for you, Record, health) and opens the window: the inbox (approve, answer, retry or skip a stuck step, review or roll back a repair), workflows with their steps and versions, and runs step by step. A workflow starts on its own once it is **live**: set its **Frequency** on its page (a schedule, or when a file appears in a folder), then **Go live**; Pause and Resume are next to it, and a workflow that fails three times in a row pauses itself and tells you. A notification arrives when something waits for you; clicking it opens the inbox. The window's pages are built with `pnpm build` (or `pnpm ui`, which rebuilds on change) and served by the daemon, which also prints a link to open them in a browser.
 
 **Keep Shadow running without a terminal** (optional): `pnpm setup:daemon` starts the daemon at login and again if it stops; it opens Shadow.app. `pnpm setup:daemon --uninstall` stops it (do that before running `pnpm daemon` in a terminal: only one daemon runs at a time). Its logs are in `~/Library/Logs/Shadow`.
 

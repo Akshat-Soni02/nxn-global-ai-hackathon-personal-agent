@@ -85,6 +85,20 @@ function Answer({ item }: { item: InboxItem }) {
       </>
     );
   }
+  if (item.kind === "paused") {
+    return (
+      <>
+        <p className="detail">It won't start on its own until you resume it. Look at its last runs first.</p>
+        <div className="answers">
+          <Action kind="primary" run={() => answer("resume")}>
+            Resume
+          </Action>
+          <Action run={() => answer("keep paused")}>Keep it paused</Action>
+          {item.skillId ? <a href={`#/workflows/${item.skillId}`}>See the workflow</a> : null}
+        </div>
+      </>
+    );
+  }
   if (item.kind === "repaired") {
     const detail = item.detail as { version?: number; by?: string };
     return (

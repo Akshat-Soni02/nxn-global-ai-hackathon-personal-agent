@@ -183,3 +183,67 @@ describe("the daemon as a service", () => {
     expect(service.inbox({ open: true })[0]).toMatchObject({ kind: "repaired", detail: { version: 2 } });
   });
 });
+
+describe("the workflow lifecycle", () => {
+  const failing = async (): Promise<RunOutcome> => ({
+    status: "failed",
+    vars: {},
+    failedStep: "s1",
+    error: "target not found",
+  });
+
+  it("goes live run by hand too; on a schedule only once it can run without you; the Frequency saves a version", () => {
+    const { open } = setup([write("s1")]);
+    const { service } = open();
+    expect(service.state("report")).toMatchObject({ state: "draft" });
+    // Only by hand: live at once, nothing to check (you are there when it starts).
+    expect(service.goLive("report")).toMatchObject({ state: "live" });
+    expect(service.workflows()[0]?.nextRunAt).toBeUndefined();
+    expect(service.setTrigger("report", [{ type: "schedule", cron: "0 9 * * 1-5" }])).toEqual({ version: 2 });
+    expect(service.workflow("report")?.latest.history.at(-1)).toMatchObject({
+      by: "user",
+      summary: "Frequency: schedule 0 9 * * 1-5",
+    });
+    expect(service.goLive("report")).toMatchObject({ state: "live" });
+    expect(service.workflows()[0]).toMatchObject({ state: { state: "live" }, nextRunAt: expect.any(Number) });
+    expect(service.pause("report")).toMatchObject({ state: "paused", reason: "paused by you" });
+    expect(service.workflows()[0]?.nextRunAt).toBeUndefined();
+  });
+
+  it("pauses itself after 3 failed runs started by its trigger, and says so; resume makes it live again", async () => {
+    const { open } = setup([write("s1")]);
+    const { service } = open(failing);
+    service.setTrigger("report", [{ type: "schedule", cron: "0 9 * * *" }]);
+    service.goLive("report");
+    // Failures started by hand don't count.
+    service.start("report");
+    service.start("report");
+    await service.idle();
+    expect(service.state("report").state).toBe("live");
+    for (let i = 0; i < 3; i++) {
+      service.fire("report", "schedule");
+      await service.idle();
+    }
+    expect(service.state("report")).toMatchObject({
+      state: "paused",
+      auto: true,
+      reason: expect.stringContaining("last 3 runs failed"),
+    });
+    const [item] = service.inbox({ open: true });
+    expect(item).toMatchObject({ kind: "paused", skillId: "report" });
+    service.answer(item?.id as string, "resume");
+    expect(service.state("report").state).toBe("live");
+  });
+
+  it("skips a triggered run while the previous one waits for you, and says why", async () => {
+    const { open } = setup([write("s1", { requires_approval: true })]);
+    const { service } = open();
+    service.start("report");
+    await service.idle();
+    expect(service.fire("report", "schedule")).toMatchObject({
+      status: "skipped",
+      trigger: "schedule",
+      error: "skipped: the last run still waits for you",
+    });
+  });
+});

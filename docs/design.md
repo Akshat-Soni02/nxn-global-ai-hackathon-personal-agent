@@ -210,15 +210,16 @@ stateDiagram-v2
 **Going live.** These must hold:
 
 - the workflow parses and passes `check.ts`, as always;
-- the trigger is set;
-- every input has a default or a way to be resolved (a scheduled run has nobody to ask).
+- if it starts on its own (a schedule or a folder): the schedule is valid, a folder trigger has a file input to fill, and every input has a default or a way to be resolved (an unattended run has nobody to ask).
 
-Proposed, not decided: also require a test since the last change.
+A workflow that only runs when you start it can always go live (*decided Oct 12*): you are there to give it what it needs. Live then means "finished, not being worked on"; it starts on its own only once it has a schedule or a folder.
+
+*Decided Oct 12:* the checks are enough; no test run is required. A first bad run is still caught by approvals, the inbox and auto-pause.
 
 **Pausing.**
 
 - Pausing stops new runs; a run already going finishes (or is cancelled from the run view).
-- **Auto-pause**: after 3 runs in a row that end failed or waiting for the user, the workflow pauses itself and the user is told why. A workflow that keeps breaking stops instead of piling up failed runs.
+- **Auto-pause**: after 3 runs in a row, started by its trigger, that fail (failed or interrupted), the workflow pauses itself and the user is told why: an inbox item and a notification, with Resume. A workflow that keeps breaking stops instead of piling up failed runs. Runs started by hand, runs that end waiting for the user, nothing-to-do runs and denials don't count (decided Oct 12).
 - Not to confuse with a **run** that waits for the user (section 9): in the product that is shown as "waiting for you", and the workflow stays live.
 
 **Where it is kept.** Next to the versions, never inside them, so pausing never rewrites a version file:
@@ -228,6 +229,26 @@ Proposed, not decided: also require a test since the last change.
 - `skills/<id>/vN.json`: the versions, as now.
 
 The daemon commands until the editor exists: `drafts`, `live <id>`, `pause <id>`, `resume-workflow <id>`.
+
+A workflow with no `state.json` (everything recorded before milestone 8) counts as a **draft**: nothing starts on its own until it is made live. Until drafts are kept beside a live workflow (milestone 10), the live version is the latest one, so a repair's new version is live at once.
+
+### Triggers
+
+*Planned Oct 12, milestone 8.* A live workflow starts on its own when its trigger fires; a draft or a paused one never does. Run by hand, any workflow runs.
+
+**Setting the Frequency.** Until the description form exists (milestone 11), the workflow page has a Frequency picker: only when I start it, every hour, every day at…, weekdays at…, every week on… at…, every month on day… at…, when a file appears in a folder…. Choosing one sets the trigger step's `when` (the existing `set` edit operation) and saves the next version (`by: user`). Times are in the Mac's own time zone.
+
+**Schedules** (`{ type: "schedule", cron }`). The daemon works out each live workflow's next time with `croner` (handles daylight-saving changes) and looks every minute, which also notices the clock jumping after the Mac wakes. When each workflow last fired is saved, so a restart never runs the same time twice.
+
+**A missed time** (the Mac was asleep, or Shadow wasn't running) is chosen **per workflow** on its trigger: `missed: "run_once"` (the default) runs it once when the Mac wakes or the daemon starts, never once per missed slot, and the run shows how late it was; `missed: "skip"` waits for the next time. *Decided Oct 12.*
+
+**A folder** (`{ type: "folder_watch", dir, glob?, input? }`). Only that folder is watched, apart from the recording watcher. A file has appeared once its size has stayed the same for a few seconds, so downloads and copies still being written don't start a run; temporary and hidden names (`.crdownload`, `.part`, `.*`) are ignored. The file becomes the workflow's file input (`input` names it; without it, the workflow's only file input), and each file starts one run. Files that started a run are remembered, so none starts two; on start the daemon looks for files that arrived while it was off, following the same `missed` setting.
+
+**Overlap.** When a workflow's schedule fires while its previous run is still going or still waiting for the user, the new run is **skipped**, and its runs list says so ("skipped: the last run still waits for you"), so runs can't pile up while the user is away. *Decided Oct 12.* A **file** is different: it is work that must not be lost (drop five invoices at once and four would be skipped). A file that appears while the workflow is busy **waits its turn**: it is not marked as seen, and a later scan starts it once the previous run has ended. One run at a time per workflow either way.
+
+**Unattended runs** need nobody at start (going live checks that every input has a default or a way to be found); an approval, a step's question or a failure only the user can fix waits in the inbox as for any run.
+
+**Not covered.** A sleeping Mac runs nothing: waking it on a schedule needs administrator rights. Web steps need Chrome; the daemon opens it in the background when a run needs it. Watching Downloads, Desktop or Documents needs macOS's folder permission: started by `pnpm setup:daemon`, macOS asks for it as "node" until the packaged app (milestone 9).
 
 ## Agents
 
@@ -497,7 +518,7 @@ They are served on the **Unix socket** (as today: the extension through the nati
 
 **The terminal stays** as a client for development: `pnpm daemon` keeps its commands, which answer inbox items (`approve`, `deny`, `resume`, `skip`, `cancel`, or the typed answer to a question), plus `inbox`, `runs` and `cancel <run>`. Over the API, `start` takes a workflow id from the store, never a file path, since a workflow can hold script steps; the terminal may still run a file.
 
-**Triggers** (Frequency) run in the daemon: a scheduler for times, and folder watches for "when a file appears".
+**Triggers** (Frequency) run in the daemon: a scheduler for times, and folder watches for "when a file appears" ([Triggers](#triggers)).
 
 ## The app
 
@@ -624,7 +645,7 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Highlight-only test | ❌ | New |
 | Recover from a failure: classify, repair agent, verify, pause and show, versions + rollback | ✅ for web steps (Oct 10): pause and resume in the interpreter, classification, the cheap ladder, the repair agent and its tools, evidence, `by: debug` versions, `rollback`, `resume` / `skip` / `cancel` in the daemon and `pnpm replay` | Left: the demonstration recorded as the repair, Mac-app (ax) repair beyond classification, `describe_screen` (needs redaction), notifications beyond the terminal and the button |
 | `packages/agent` runtime; `core` edit operations and capability briefing | ✅ the loop (native tools or JSON actions), guard, budgets, working memory, transcript; `core/edit.ts`, `core/briefing.ts`, and section 9's never-rules in `core/guard.ts` (Oct 10) | The repair agent's tools are milestone 5 |
-| Triggers from Frequency | ❌ (only manual `run`) | New |
+| Triggers from Frequency; live, paused and draft workflows | ✅ (Oct 12): `lifecycle.ts` (state, going live), `triggers.ts` (schedules with croner, missed times per workflow, folder watches), skip on overlap, auto-pause, the Frequency picker and state in the window, the next run in the menu bar, `live` / `pause` / `resume-workflow` in the terminal | Left: drafts kept beside a live workflow (milestone 10); "when an email arrives" |
 | Workflow lifecycle: draft, live, paused, autosave | ❌ (every saved version is runnable; nothing runs on its own yet) | New ([Workflow lifecycle](#workflow-lifecycle)) |
 | `packages/llm` with profiles, structured output, tools, usage meter | ✅ client, catalog, fake client, `pnpm llm:check`; compile, llm steps and `pnpm replay` use it (Oct 10) | Confirm the catalog with `pnpm llm:check` and a real key |
 | Consent, redaction, 24-hour retention | ❌ | New |
@@ -643,7 +664,7 @@ Replay side first: the workflow format and its interpreter are what everything e
 | 5 | Recover from a failure: failure report, repair agent and its tools, verify, pause and resume, versions, notification and rollback, pause and show | Replay | ✅ Mostly done (Oct 10): each drift fixture (`fixtures/pages/drift`: renamed, reworded, banner, menu, confirmation, logged out) is repaired or resolved as expected with a scripted model, saved as v2 and rolled back with `rollback`; a site that is down is retried; the user can do a step by hand and `skip`. Live in Chrome: the ladder repaired `reworded.html`. Left: the scenarios on the real model, and the demonstration recorded as the repair |
 | 6 | Daemon as a service: saved inbox, API on the socket and local HTTP, the terminal as a client; log files, runs index, saved repair episodes | Both | ✅ Done (Oct 11): a run that needed approval waited, the daemon was killed and restarted, the approval was answered over HTTP, and the run went on at that step and succeeded without rerunning earlier ones (by hand, on the real daemon; and in `service.test.ts`); every run is listed with its status and cost |
 | 7 | The app: owns the daemon (LaunchAgent); window with inbox, workflows, run detail, workflow detail with versions and rollback; menu bar, health, notifications | Both | Built (Oct 11); to try by hand: with no terminal open, a "waiting for you" notification opens the inbox, and resume finishes the run; a repair is rolled back from the window |
-| 8 | Triggers from Frequency; live and paused workflows | Replay | Oct 18–23: a scheduled and a folder workflow start on their own once live, and not while paused; three failed runs in a row pause it |
+| 8 | Triggers from Frequency; live and paused workflows: state and going live; the Frequency picker; the scheduler (croner, missed times per workflow); the folder trigger; skip on overlap; auto-pause; state, next run and Go live / Pause / Resume in the window and the menu bar | Replay | ✅ Done (Oct 12): on a throwaway daemon, an every-minute workflow started on its own and stopped once paused, a PDF dropped in a folder was filed by a run (a half-written .crdownload was ignored), and going live without a trigger was refused; three failed runs in a row pause it, and the rest, in `triggers.test.ts` and `service.test.ts` |
 | 9 | Packaging and first run: `pnpm package`, the `.dmg`, Keychain key, native host inside the app, connection check; `pnpm release`, CI | Both | Oct 18–23: a fresh Mac goes from download to "connected to Nemotron" by following the README |
 | 10 | Editor and record in the window, on the same edit operations: field edits, approval toggles, `check.ts` errors on the step; drafts with autosave; description form and drill on the draft tree; model budget; settings and memory viewer | Both | Oct 22–26: edit a step, toggle approval, record a task and answer its drill in the window; a draft beside a live workflow autosaves, undoes, and goes live as the next version |
 | 11 | Description form; consent; screenshots with redaction; voice and transcription; 24-hour retention | Record | A recording carries events, redacted screenshots and a transcript on one clock, and its folder is gone a day after finalising |
@@ -705,13 +726,13 @@ Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglo
 ## Open questions
 
 - [ ] **Frequency options.** The dropdown list above is a proposal; "when an email arrives" is wanted but needs an email trigger.
-- [ ] **A schedule missed while the Mac slept:** run it on wake, or skip it until the next time? Maybe per workflow.
+- [x] **A schedule missed while the Mac slept:** decided Oct 12, per workflow (`missed` on the trigger), run once on wake by default ([Triggers](#triggers)).
 - [x] **A daemon restart during a step** (not a pause): decided Oct 11, the run is marked `interrupted` and does not go on by itself. A run *waiting* for the user is not affected: it goes on when answered.
 - [ ] **The window's door:** local HTTP + token is decided for speed of development; if it proves fragile, the app can carry the window's messages over the Unix socket instead (no open port).
 - [ ] **Chrome Web Store** (unlisted) after the hackathon, so users don't load the extension unpacked.
 - [ ] **Highlight-only test** for steps behind an earlier action (see [Test](#7-test)).
 - [ ] **How long a paused run waits** for the user before it ends.
-- [ ] **Going live:** require a test run since the last change, or only the checks? And should auto-pause count runs that wait for the user, or only failures?
+- [x] **Going live:** decided Oct 12, the checks only; auto-pause counts only failed runs started by the trigger ([Workflow lifecycle](#workflow-lifecycle)).
 - [ ] **A run that fails halfway:** after some rows are written or emails labelled, a fresh run would do them again. Resume from the failed step, or require steps that are safe to repeat?
 - [ ] **Telling "nothing to do" from drift:** an empty inbox and a changed inbox page both look like "target not found". Each step may need to say what "nothing to do" looks like.
 - [ ] **Wrong but "successful" steps:** a weak match on the wrong element never fails, so recovery never starts. A check before acting on a low-margin match, and a "that was wrong" button on the run report.
