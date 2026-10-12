@@ -1,4 +1,4 @@
-// Builds apps/mac into "Task Player.app" (the desktop button, the Mac-app recorder and the ax channel).
+// Builds apps/mac into "Shadow.app" (the desktop button, the Mac-app recorder and the ax channel).
 // Needs the Xcode command line tools (swiftc): `xcode-select --install` if `swiftc --version` fails.
 // Signed ad hoc (no developer account). macOS remembers the Accessibility permission for that exact signature, so the
 // app is rebuilt only when its sources change: otherwise you would have to allow it again after every build.
@@ -13,7 +13,7 @@ const sources = readdirSync(join(dir, "Sources"))
   .filter((f) => f.endsWith(".swift"))
   .sort()
   .map((f) => join(dir, "Sources", f));
-const app = join(dir, "build", "Task Player.app");
+const app = join(dir, "build", "Shadow.app");
 const stamp = join(dir, "build", "sources.sha256");
 
 const hash = createHash("sha256");
@@ -40,7 +40,7 @@ execFileSync(
     `${process.arch === "arm64" ? "arm64" : "x86_64"}-apple-macos14.0`,
     ...sources,
     "-o",
-    join(app, "Contents", "MacOS", "TaskPlayer"),
+    join(app, "Contents", "MacOS", "Shadow"),
     "-framework",
     "AppKit",
     "-framework",
@@ -48,9 +48,9 @@ execFileSync(
   ],
   { stdio: "inherit" },
 );
-execFileSync("codesign", ["--force", "--sign", "-", "--identifier", "com.taskplayer.mac", app], { stdio: "inherit" });
+execFileSync("codesign", ["--force", "--sign", "-", "--identifier", "com.shadow.mac", app], { stdio: "inherit" });
 writeFileSync(stamp, digest);
 
 console.log(`built ${app}`);
 console.log("The daemon starts it (pnpm daemon). The first time, right-click its floating button > Allow Mac apps.");
-console.log("After a rebuild, macOS asks again: turn Task Player off and on in Privacy & Security > Accessibility.");
+console.log("After a rebuild, macOS asks again: turn Shadow off and on in Privacy & Security > Accessibility.");

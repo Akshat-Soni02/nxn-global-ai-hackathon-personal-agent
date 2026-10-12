@@ -1,8 +1,8 @@
-// Daemon core: tracks connected extensions and Task Player.app, owns recording sessions, and sends replay work out:
-// web steps to the extension, ax steps (Mac apps) to Task Player.app. Each connection says which it is in its hello.
+// Daemon core: tracks connected extensions and Shadow.app, owns recording sessions, and sends replay work out:
+// web steps to the extension, ax steps (Mac apps) to Shadow.app. Each connection says which it is in its hello.
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:net";
-import { Message } from "@taskplayer/core";
+import { Message } from "@shadow/core";
 import { openRecording, type Recording } from "./record.ts";
 import { type Connection, listen } from "./server.ts";
 
@@ -22,10 +22,12 @@ export interface Daemon {
   // To every connected extension (one per Chrome profile): recording state and the button's status line.
   broadcast(message: Message): void;
   waitForExtension(timeoutMs: number): Promise<boolean>;
-  // Task Player.app (apps/mac): the desktop button, Mac-app recording and the ax channel.
+  // Shadow.app (apps/mac): the desktop button, Mac-app recording and the ax channel.
   mac(): { connected: boolean; trusted: boolean };
-  // Sends an ax step to Task Player.app and resolves with its reply.
+  // Sends an ax step to Shadow.app and resolves with its reply.
   requestMac(message: Message, timeoutMs: number): Promise<Message>;
+  // An API event (runs, steps, inbox) to every connection that sent api.subscribe.
+  publish(event: unknown): void;
   close(): Promise<void>;
 }
 
@@ -48,14 +50,17 @@ export async function startDaemon(options: {
   // The Record / Stop button in Chrome. main.ts routes it to the same code as a typed `record` / `stop`, so a click
   // is refused while a recording is still being compiled. Without it, the button only starts and stops the session.
   onRecordCommand?(command: "start" | "stop"): void;
+  // The daemon's API (api.ts) for api.call messages. Without it, they are answered "not ready".
+  api?: { call(method: string, params: unknown): Promise<unknown> };
 }): Promise<Daemon> {
   const log = options.log ?? (() => {});
   const extensions = new Set<Connection>();
-  const macs = new Map<Connection, { trusted: boolean }>(); // Task Player.app; one at a time in practice
+  const macs = new Map<Connection, { trusted: boolean }>(); // Shadow.app; one at a time in practice
   let sessionId: string | undefined;
   let startedAt = 0;
   let recording: Recording | undefined; // the open trace; kept briefly after stop for late events
   const pending = new Map<string, Pending>();
+  const subscribers = new Set<Connection>(); // connections that asked for API events
   const extensionWaiters = new Set<() => void>();
 
   const send = (connection: Connection, message: Message) => connection.send(message);
@@ -81,7 +86,7 @@ export async function startDaemon(options: {
           if (message.from === "mac") {
             macs.set(connection, { trusted: message.trusted === true });
             log(
-              "Task Player.app connected,",
+              "Shadow.app connected,",
               message.trusted ? "Accessibility allowed" : "Accessibility not allowed yet: Mac apps are not recorded",
             );
             desktopButton();
@@ -119,8 +124,26 @@ export async function startDaemon(options: {
           if (recording && message.sessionId === recording.sessionId) recording.append(message);
           else log("record.event", message.event, "(no open trace)");
           break;
+        case "api.call": {
+          const reply = (result: { ok: boolean; value?: unknown; error?: string }) =>
+            send(connection, { id: message.id, type: "api.result", ...result });
+          if (!options.api) {
+            reply({ ok: false, error: "the API is not ready" });
+            break;
+          }
+          options.api.call(message.method, message.params).then(
+            (value) => reply({ ok: true, value }),
+            (error: Error) => reply({ ok: false, error: error.message }),
+          );
+          break;
+        }
+        case "api.subscribe":
+          subscribers.add(connection);
+          send(connection, { id: message.id, type: "api.result", ok: true });
+          break;
         case "run.step_result":
-        case "run.check_result": {
+        case "run.check_result":
+        case "page.op_result": {
           const waiter = pending.get(message.id);
           if (!waiter) break;
           pending.delete(message.id);
@@ -133,9 +156,10 @@ export async function startDaemon(options: {
       }
     },
     onClose(connection) {
+      subscribers.delete(connection);
       if (extensions.delete(connection)) log("extension disconnected");
       if (macs.delete(connection)) {
-        log("Task Player.app disconnected");
+        log("Shadow.app disconnected");
         desktopButton();
       }
       for (const [id, waiter] of pending) {
@@ -168,7 +192,7 @@ export async function startDaemon(options: {
     return new Promise<Message>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(message.id);
-        const who = macs.has(connection) ? "Task Player.app" : "extension";
+        const who = macs.has(connection) ? "Shadow.app" : "extension";
         reject(new Error(`${who} did not answer ${message.type} within ${timeoutMs} ms`));
       }, timeoutMs);
       pending.set(message.id, { connection, resolve, reject, timer });
@@ -216,16 +240,19 @@ export async function startDaemon(options: {
     },
     async requestMac(message, timeoutMs) {
       const [connection] = macs.keys();
-      if (!connection) throw new Error("Task Player.app is not running (it starts with the daemon: pnpm setup:mac)");
+      if (!connection) throw new Error("Shadow.app is not running (it starts with the daemon: pnpm setup:mac)");
       return ask(connection, message, timeoutMs);
     },
     notify(message) {
       const connection = [...extensions][0];
       if (connection) send(connection, message);
     },
+    publish(event) {
+      for (const connection of subscribers) send(connection, { id: randomUUID(), type: "api.event", event });
+    },
     broadcast,
-    // server.close() alone waits for every open connection to end, and Chrome's native host and Task Player.app
-    // keep theirs open: so end them (Task Player.app quits when its connection ends), with a short backstop.
+    // server.close() alone waits for every open connection to end, and Chrome's native host and Shadow.app
+    // keep theirs open: so end them (Shadow.app quits when its connection ends), with a short backstop.
     close: () =>
       new Promise((resolve) => {
         for (const connection of [...extensions, ...macs.keys()]) connection.close();

@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { type Dirent, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { FileInfo, TraceEvent } from "@taskplayer/core";
+import type { FileInfo, TraceEvent } from "@shadow/core";
 
 export interface LocateOptions {
   searchDirs: string[];

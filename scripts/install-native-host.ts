@@ -6,13 +6,17 @@ import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { EXTENSION_ID, NATIVE_HOST_NAME } from "../packages/core/src/messages.ts";
-import { APP_SUPPORT_DIR } from "../packages/ipc/src/paths.ts";
+import { APP_SUPPORT_DIR, migrateLegacyDataDir } from "../packages/ipc/src/paths.ts";
 
 const repo = join(import.meta.dirname, "..");
 const hostScript = join(repo, "apps/native-host/dist/native-host.mjs");
 const launcher = join(APP_SUPPORT_DIR, "native-host");
 const manifestDir = join(homedir(), "Library/Application Support/Google/Chrome/NativeMessagingHosts");
 const manifestPath = join(manifestDir, `${NATIVE_HOST_NAME}.json`);
+// The host's name before the rename from Task Player to Shadow: its manifest points at a launcher that no longer exists.
+const legacyManifestPath = join(manifestDir, "com.taskplayer.daemon.json");
+rmSync(legacyManifestPath, { force: true });
+migrateLegacyDataDir();
 
 if (process.argv.includes("--uninstall")) {
   rmSync(manifestPath, { force: true });
@@ -21,7 +25,7 @@ if (process.argv.includes("--uninstall")) {
   process.exit(0);
 }
 
-execSync("pnpm --filter @taskplayer/native-host build", { cwd: repo, stdio: "inherit" });
+execSync("pnpm --filter @shadow/native-host build", { cwd: repo, stdio: "inherit" });
 if (!existsSync(hostScript)) throw new Error(`build did not produce ${hostScript}`);
 
 mkdirSync(APP_SUPPORT_DIR, { recursive: true });
@@ -31,7 +35,7 @@ chmodSync(launcher, 0o755);
 mkdirSync(manifestDir, { recursive: true });
 const manifest = {
   name: NATIVE_HOST_NAME,
-  description: "Task Player bridge between the Chrome extension and the daemon",
+  description: "Shadow bridge between the Chrome extension and the daemon",
   path: launcher,
   type: "stdio",
   allowed_origins: [`chrome-extension://${EXTENSION_ID}/`],

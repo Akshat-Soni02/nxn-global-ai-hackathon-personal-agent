@@ -4,3 +4,4 @@
 export { DEFAULT_TIMEOUT_MS, type RunOptions, runSkill } from "./run.ts";
 export { resolveTemplates, today } from "./template.ts";
 export type * from "./types.ts";
+export { WAIT } from "./types.ts";

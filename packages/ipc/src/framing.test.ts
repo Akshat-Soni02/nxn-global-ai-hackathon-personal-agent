@@ -25,7 +25,7 @@ describe("native messaging framing", () => {
 describe("socket path", () => {
   it("rejects paths macOS cannot bind", async () => {
     const { socketPath } = await import("./paths.ts");
-    expect(socketPath({ TASKPLAYER_SOCKET: "/tmp/ok.sock" })).toBe("/tmp/ok.sock");
-    expect(() => socketPath({ TASKPLAYER_SOCKET: `/tmp/${"x".repeat(120)}.sock` })).toThrow(/103/);
+    expect(socketPath({ SHADOW_SOCKET: "/tmp/ok.sock" })).toBe("/tmp/ok.sock");
+    expect(() => socketPath({ SHADOW_SOCKET: `/tmp/${"x".repeat(120)}.sock` })).toThrow(/103/);
   });
 });

@@ -2,8 +2,8 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, utime
 import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { isAction, Skill } from "@taskplayer/core";
-import { createDecoder, encode } from "@taskplayer/ipc";
+import { isAction, Skill } from "@shadow/core";
+import { createDecoder, encode } from "@shadow/ipc";
 import { afterEach, describe, expect, it } from "vitest";
 import { chooseFiles, cleanPath, givenInputs, splitArgs } from "./choose-file.ts";
 import { type Daemon, startDaemon } from "./daemon.ts";
@@ -114,7 +114,7 @@ describe("which folders are watched", () => {
 
   it("is your whole home folder unless you say otherwise, skipping where apps keep their own files", () => {
     expect(watchDirsFromEnv({})).toEqual([homedir()]);
-    expect(watchDirsFromEnv({ TASKPLAYER_WATCH_DIRS: "" })).toEqual([]);
+    expect(watchDirsFromEnv({ SHADOW_WATCH_DIRS: "" })).toEqual([]);
     for (const path of [
       "/u/code/app/node_modules/x/index.js",
       "/u/Pictures/Photos Library.photoslibrary/database/a.db",

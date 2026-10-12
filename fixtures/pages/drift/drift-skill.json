@@ -1,0 +1,67 @@
+{
+  "id": "submit-invoice",
+  "name": "Submit the invoice",
+  "version": 1,
+  "description": {
+    "goal": "Submit this month's invoice on the portal, then export the list",
+    "never": ["Never click Print"]
+  },
+  "steps": [
+    {
+      "id": "start",
+      "type": "trigger",
+      "intent": "By hand",
+      "inputs": { "invoice": { "type": { "type": "file" } } }
+    },
+    {
+      "id": "s1",
+      "type": "action",
+      "intent": "Open the portal",
+      "channel": "web",
+      "action": "navigate",
+      "args": { "url": "http://localhost:5173/drift/base.html" }
+    },
+    {
+      "id": "s2",
+      "type": "action",
+      "intent": "Type the invoice number",
+      "channel": "web",
+      "action": "type",
+      "target": {
+        "role": "textbox",
+        "name": "Invoice number",
+        "attrs": { "name": "number" },
+        "fallbacks": ["input[name=\"number\"]"]
+      },
+      "args": { "text": "INV-1042" }
+    },
+    {
+      "id": "s3",
+      "type": "action",
+      "intent": "Attach the PDF",
+      "channel": "web",
+      "action": "upload",
+      "target": { "name": "Invoice PDF", "attrs": { "name": "invoice" }, "fallbacks": ["input[name=\"invoice\"]"] },
+      "args": { "file": "{{invoice}}" }
+    },
+    {
+      "id": "s4",
+      "type": "action",
+      "intent": "Submit the invoice",
+      "channel": "web",
+      "action": "click",
+      "target": { "role": "button", "name": "Submit", "attrs": { "id": "submit" }, "fallbacks": ["#submit"] },
+      "requires_approval": true,
+      "check": { "text_visible": "Invoice submitted" }
+    },
+    {
+      "id": "s5",
+      "type": "action",
+      "intent": "Export the invoice list",
+      "channel": "web",
+      "action": "click",
+      "target": { "role": "button", "name": "Export CSV", "attrs": { "id": "export" }, "fallbacks": ["#export"] },
+      "check": { "text_visible": "Export ready" }
+    }
+  ]
+}

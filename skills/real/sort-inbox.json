@@ -5,7 +5,7 @@
   "description": {
     "goal": "Every file in the sandbox inbox is moved to the folder for its kind: PDFs, images or notes",
     "changes": ["the files in the inbox"],
-    "constants": ["~/TaskPlayerTest/inbox", "the sorted/ folders"],
+    "constants": ["~/ShadowTest/inbox", "the sorted/ folders"],
     "never": ["delete files"]
   },
   "steps": [
@@ -19,7 +19,7 @@
         },
         {
           "type": "folder_watch",
-          "dir": "~/TaskPlayerTest/inbox"
+          "dir": "~/ShadowTest/inbox"
         }
       ]
     },
@@ -30,7 +30,7 @@
       "channel": "fs",
       "action": "find",
       "args": {
-        "dir": "~/TaskPlayerTest/inbox",
+        "dir": "~/ShadowTest/inbox",
         "glob": "*",
         "pick": "all"
       },
@@ -77,7 +77,7 @@
               "action": "move",
               "args": {
                 "from": "{{file}}",
-                "to": "~/TaskPlayerTest/sorted/pdfs/"
+                "to": "~/ShadowTest/sorted/pdfs/"
               }
             }
           ],
@@ -120,7 +120,7 @@
                   "action": "move",
                   "args": {
                     "from": "{{file}}",
-                    "to": "~/TaskPlayerTest/sorted/images/"
+                    "to": "~/ShadowTest/sorted/images/"
                   }
                 }
               ],
@@ -153,7 +153,7 @@
                       "action": "move",
                       "args": {
                         "from": "{{file}}",
-                        "to": "~/TaskPlayerTest/sorted/notes/"
+                        "to": "~/ShadowTest/sorted/notes/"
                       }
                     }
                   ],
@@ -172,7 +172,7 @@
       "channel": "script",
       "action": "applescript",
       "args": {
-        "source": "display notification \"Inbox sorted\" with title \"Task Player\""
+        "source": "display notification \"Inbox sorted\" with title \"Shadow\""
       }
     }
   ],

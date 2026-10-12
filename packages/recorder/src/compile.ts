@@ -2,9 +2,9 @@
 // what code can't know: what each step is for, which values change each run, how to tell it worked, what to ask you.
 // The model's answer is merged by step id, validated with the same zod schema the player parses, and sent back with
 // the errors when it fails (at most 3 attempts). If it never passes, the skeleton is saved: a recording is never lost.
-import { ACTIONS, Check, Input, type LlmStep, Skill, Trigger, type VarType } from "@taskplayer/core";
-import type { ChatMessage } from "@taskplayer/llm";
-import type { MemoryStore } from "@taskplayer/memory";
+import { ACTIONS, Check, Input, type LlmStep, Skill, Trigger, type VarType } from "@shadow/core";
+import type { ChatMessage } from "@shadow/llm";
+import type { MemoryStore } from "@shadow/memory";
 import { z } from "zod";
 import type { NormalisedStep } from "./normalise.ts";
 import { type ActionDraft, type SkillDraft, skeletonOf, skillInput, TRIGGER_ID } from "./skeleton.ts";
@@ -67,7 +67,7 @@ export interface CompileOptions {
   chat?: Chat;
   memory?: Pick<MemoryStore, "search">;
   maxAttempts?: number;
-  // US dollars per million input tokens, to show what a per-run AI step costs (NEMOTRON_PRICE_PER_MTOK).
+  // US dollars per million input tokens, to show what a per-run AI step costs (the fast profile's model price).
   pricePerMTok?: number;
 }
 

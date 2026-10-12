@@ -6,9 +6,9 @@
 // Every file is checked first (checkFile): it must exist, not be empty, and be a kind the step takes. A wrong answer
 // is explained and asked again; a wrong file given with the command stops the run at once.
 
-import { type Input, type Skill, triggerOf, walkSteps } from "@taskplayer/core";
-import { checkFile, expandHome, type FileRule, findFiles } from "@taskplayer/player/node";
-import type { Question } from "@taskplayer/recorder";
+import { type Input, type Skill, triggerOf, walkSteps } from "@shadow/core";
+import { checkFile, expandHome, type FileRule, findFiles } from "@shadow/player/node";
+import type { Question } from "@shadow/recorder";
 
 export async function chooseFiles(
   skill: Skill,

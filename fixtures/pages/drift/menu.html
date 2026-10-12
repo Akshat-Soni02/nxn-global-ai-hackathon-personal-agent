@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Invoice portal</title>
+<!-- Drift: "Export CSV" moved into a "More actions" (⋯) menu. Expected: insert a click on "More actions" before the
+     export step, and retarget the export to the menu item. -->
+<main>
+  <h1>Invoices</h1>
+  <form id="upload-form" onsubmit="return false">
+    <label>Invoice number <input name="number" /></label>
+    <label>Invoice PDF <input type="file" name="invoice" accept="application/pdf" /></label>
+    <button type="button" id="submit">Submit</button>
+  </form>
+  <p id="status" role="status"></p>
+  <nav aria-label="Account">
+    <a href="#reports">Reports</a>
+    <button type="button" id="more" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">⋯</button>
+    <div role="menu" id="menu" hidden>
+      <button type="button" role="menuitem" id="export-item">Export CSV</button>
+      <button type="button" role="menuitem">Print</button>
+    </div>
+  </nav>
+</main>
+<script>
+  document.getElementById("submit").addEventListener("click", () => {
+    document.getElementById("status").textContent = "Invoice submitted";
+  });
+  document.getElementById("export-item").addEventListener("click", () => {
+    document.getElementById("status").textContent = "Export ready";
+  });
+  const more = document.getElementById("more");
+  more.addEventListener("click", () => {
+    const menu = document.getElementById("menu");
+    menu.hidden = !menu.hidden;
+    more.setAttribute("aria-expanded", String(!menu.hidden));
+  });
+</script>

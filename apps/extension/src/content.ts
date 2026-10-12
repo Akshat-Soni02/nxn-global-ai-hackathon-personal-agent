@@ -7,12 +7,12 @@
 import { type Button, type ButtonState, mountButton, type Position } from "./button.ts";
 import { startCapture } from "./capture.ts";
 
-const scope = globalThis as typeof globalThis & { __taskPlayerStop?: () => void };
+const scope = globalThis as typeof globalThis & { __shadowStop?: () => void };
 
 // Exactly one copy records per page. A copy left behind by an extension reload is orphaned (its chrome.runtime is
 // gone) and Chrome may or may not give the new copy the same isolated world, so: a new copy stops any previous one,
 // and an orphaned copy stops itself the first time it has something to send.
-scope.__taskPlayerStop?.();
+scope.__shadowStop?.();
 
 let sessionId: string | undefined;
 
@@ -25,7 +25,7 @@ const show = (state: ButtonState | undefined) => {
   try {
     button?.update(state);
   } catch (error) {
-    console.warn("[task player] button failed", error);
+    console.warn("[shadow] button failed", error);
   }
 };
 
@@ -78,7 +78,7 @@ function tryButton(): Button | undefined {
           });
           return reply?.error;
         } catch {
-          return "Task Player was reloaded: reload this page";
+          return "Shadow was reloaded: reload this page";
         }
       },
       loadPosition: async () => {
@@ -97,7 +97,7 @@ function tryButton(): Button | undefined {
       },
     });
   } catch (error) {
-    console.warn("[task player] no button on this page", error);
+    console.warn("[shadow] no button on this page", error);
     return undefined;
   }
 }
@@ -110,6 +110,6 @@ function stop() {
   } catch {
     // orphaned runtime: nothing to remove
   }
-  if (scope.__taskPlayerStop === stop) scope.__taskPlayerStop = undefined;
+  if (scope.__shadowStop === stop) scope.__shadowStop = undefined;
 }
-scope.__taskPlayerStop = stop;
+scope.__shadowStop = stop;

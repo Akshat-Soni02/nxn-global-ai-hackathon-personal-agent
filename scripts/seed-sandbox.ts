@@ -1,10 +1,10 @@
-// Creates ~/TaskPlayerTest with the folders and harmless sample files the skills in skills/real expect.
+// Creates ~/ShadowTest with the folders and harmless sample files the skills in skills/real expect.
 // Safe to re-run: it only adds files. Usage: pnpm seed:sandbox [--reset]
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const root = join(homedir(), "TaskPlayerTest");
+const root = join(homedir(), "ShadowTest");
 if (process.argv.includes("--reset")) rmSync(root, { recursive: true, force: true });
 
 for (const dir of ["upload/done", "inbox", "downloads", "digests", "sorted"]) {
@@ -14,10 +14,7 @@ for (const dir of ["upload/done", "inbox", "downloads", "digests", "sorted"]) {
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 
 // upload-test-file sends this to a PUBLIC test server, so it must stay harmless.
-writeFileSync(
-  join(root, "upload", `taskplayer-test-${stamp}.txt`),
-  "Task Player replay test upload. Safe to delete.\n",
-);
+writeFileSync(join(root, "upload", `shadow-test-${stamp}.txt`), "Shadow replay test upload. Safe to delete.\n");
 
 // sort-inbox: one file of each kind.
 const minimalPdf =

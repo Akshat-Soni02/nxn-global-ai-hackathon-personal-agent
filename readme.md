@@ -21,7 +21,7 @@ flowchart LR
 ```
 
 1. **Describe.** The user fills in a short form: **Goal**, **Frequency** (a dropdown that becomes the trigger), **What changes each run**, **What stays the same** and, optionally, **Never** (lists are comma-separated). Placeholder text explains each field, because these answers are what separate variables from constants.
-2. **Record.** The user does the task their usual way while Task Player records three streams on one clock:
+2. **Record.** The user does the task their usual way while Shadow records three streams on one clock:
     - **events** in Chrome, Mac apps and Finder;
     - **a screenshot at each event**, with the user's consent: the active window, with sensitive information blacked out on the Mac before it is stored or sent ([how](#privacy));
     - **optional voice narration**, with the user's consent: transcribed on the Mac by macOS's built-in speech recognizer and timestamped against the events. The audio never leaves the Mac; the transcript does.
@@ -31,9 +31,9 @@ flowchart LR
 6. **Edit.** The user can change any step and toggle **human approval** on any step.
 7. **Test.** Play runs a **highlight-only** replay: it shows each target without acting. This mode may change.
 8. **Run.** The exact tree the user saw runs from its trigger. Actions are deterministic; no model call unless an LLM step needs one or a step fails.
-9. **Recover.** When a step fails, the failure is classified first: a site that is down is retried later, a login the user must do pauses the run, an empty inbox ends it as nothing to do, and only a changed page or app is **repaired**. Repair may change any part of the workflow, but never adds outward actions, changes what the user decided or turns approvals off, and is kept only with evidence it worked: then it becomes the **new version**, the user is notified and can roll back in one click. If repair can't fix it, the run pauses and the user **shows the step once** while Task Player records; that becomes the fix and the run resumes.
+9. **Recover.** When a step fails, the failure is classified first: a site that is down is retried later, a login the user must do pauses the run, an empty inbox ends it as nothing to do, and only a changed page or app is **repaired**. Repair may change any part of the workflow, but never adds outward actions, changes what the user decided or turns approvals off, and is kept only with evidence it worked: then it becomes the **new version**, the user is notified and can roll back in one click. If repair can't fix it, the run pauses and the user **shows the step once** while Shadow records; that becomes the fix and the run resumes.
 
-**Components.** An always-on **daemon** (workflows, versions, triggers, memory, run log, all model calls), **Task Player.app** (Record button, Mac app capture and replay through the Accessibility API, screenshots and their redaction, voice and transcription), the **Chrome extension** (web capture and replay through `chrome.debugger` in the user's own Chrome) and a tiny **native-host shim** (Chrome launches a fresh process per native messaging connection, so the shim forwards bytes to the daemon's socket). There is **no backend server**: the daemon calls Nebius Token Factory directly with the user's own API key, kept in the macOS Keychain.
+**Components.** The user installs one app, **Shadow.app**. Inside it: an always-on **daemon**, started by macOS at login (workflows, versions, triggers, the inbox of things waiting for the user, memory, run log, all model calls); the Swift side (Record button, menu bar, notifications, Mac app capture and replay through the Accessibility API, screenshots and their redaction, voice and transcription); and a **window** where the user sees and answers the inbox, workflows, runs and versions, and edits workflows. Outside it: the **Chrome extension** (web capture and replay through `chrome.debugger` in the user's own Chrome) and a tiny **native-host shim** (Chrome launches a fresh process per native messaging connection, so the shim forwards bytes to the daemon's socket). There is **no backend server**: the daemon calls Nebius Token Factory directly with the user's own API key, kept in the macOS Keychain.
 
 **Memory.** Local SQLite in the daemon: drill answers, run context, and site notes from debug fixes. Never secrets.
 
@@ -63,7 +63,7 @@ Details: [docs/design.md#consent-redaction-and-retention](docs/design.md#consent
 
 **Task coverage = the share of real workflows that work from a recording of a person doing them their usual way.** The workflows are the 15 in [`docs/examples.md`](docs/examples.md), written from the user's side (what they see, click, copy and type), not as a program would do them.
 
-The test for each one: someone who normally does the task does it while Task Player records, with no instructions on how. Then the next real occurrence runs by itself.
+The test for each one: someone who normally does the task does it while Shadow records, with no instructions on how. Then the next real occurrence runs by itself.
 
 - **1, done:** unattended from its trigger, correct result, three real occurrences in a row.
 - **0.5, partly:** correct result when started by hand, possibly with the user doing one step or answering one question.
@@ -84,16 +84,16 @@ TypeScript monorepo (pnpm workspaces). One language so the extension and the dae
 ```
 .
 ├── packages/
-│   ├── core/          # JOINT   skill schema (zod; to become the workflow tree), element descriptor, extension↔daemon messages
+│   ├── core/          # JOINT   workflow schema and checker, edit operations, repair guard, capability briefing, element descriptor, extension↔daemon messages
 │   ├── llm/           # JOINT   all model calls to Nebius Token Factory: client, profiles (fast, smart, vision), structured output, usage
-│   ├── agent/         # JOINT   (planned) the agent runtime: loop, tools, guard, budgets, transcript
+│   ├── agent/         # JOINT   the agent runtime: loop, tools, guard, budgets, transcript
 │   ├── memory/        # JOINT   persistent memory store (interface now, SQLite later)
 │   ├── ipc/           # JOINT   length-prefixed framing (native messaging + daemon socket), socket path
 │   ├── recorder/      # RECORD  trace normaliser, compiler, drill questions (to become: understand → workflow tree)
 │   └── player/        # REPLAY  step loop, matcher, channels (to gain: workflow interpreter, debug + versions)
 ├── apps/
 │   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
-│   ├── mac/           # Task Player.app (Swift): Record button, Mac app capture and replay via Accessibility
+│   ├── mac/           # Shadow.app (Swift): Record button, Mac app capture and replay via Accessibility
 │   ├── native-host/   # shim Chrome launches: pipes native messaging <-> the daemon's Unix socket
 │   └── daemon/        # always-on Node daemon: socket server, recording sessions, skill store, triggers, fs/script channels
 ├── skills/real/       # 5 replay test skills against real sites (see skills/real/README.md)
@@ -123,65 +123,83 @@ Workspace packages are consumed as TypeScript source (no build step); only the e
 
 ```sh
 pnpm install
-cp .env.example .env        # fill in the Nebius endpoint, API key and Nemotron model
+cp .env.example .env        # fill in your Nebius Token Factory API key (models are optional overrides)
+pnpm llm:check              # checks each model profile with that key: answers, json_schema, tool calls, images (< $0.01)
 
 pnpm test                   # schema, framing and daemon socket tests
 pnpm typecheck
 pnpm lint                   # Biome; `pnpm format` to auto-fix
 
 pnpm fixtures               # serves fixtures/pages on http://localhost:5173
-pnpm seed:sandbox           # creates ~/TaskPlayerTest with sample files for skills/real (--reset to start over)
+pnpm seed:sandbox           # creates ~/ShadowTest with sample files for skills/real (--reset to start over)
 pnpm snapshot:pages         # re-downloads the real pages into fixtures/snapshots
 pnpm extension              # builds apps/extension/dist in watch mode
-pnpm daemon                 # runs the daemon (daemon:dev = watch mode, but it also reads Enter); type record, stop (compiles the recording; answer its questions), run <skill-id | skill.json>, approve, deny, skills, traces, status
+pnpm daemon                 # runs the daemon (daemon:dev = watch mode, but it also reads Enter); type record, stop (compiles the recording; answer its questions), run <skill-id | skill.json>, inbox, approve, deny, resume / skip / cancel (a run that needs you), cancel <run-id>, rollback <skill-id>, runs, skills, traces, status
 ```
 
 **Replay a skill**
 
 ```sh
-pnpm seed:sandbox                                        # once: sample files in ~/TaskPlayerTest
+pnpm seed:sandbox                                        # once: sample files in ~/ShadowTest
 pnpm replay skills/real/fill-web-form.json               # dev runner: separate Chrome profile, no extension needed
-pnpm replay skills/real/upload-test-file.json --yes      # --yes approves gated steps; --headless, --no-scripts, --keep-open
+pnpm replay skills/real/upload-test-file.json --yes      # --yes approves gated steps; --headless, --no-scripts, --no-repair, --keep-open
 ```
 
-`pnpm replay` launches its own debug-port Chrome (profile in `~/Library/Application Support/TaskPlayer/dev-chrome`). The production path is the daemon: type `run skills/real/<skill>.json` in `pnpm daemon`, and web steps run in an automation window of your own Chrome through the extension. Both paths share the player code, and every daemon run is logged to `~/Library/Application Support/TaskPlayer/runs/<runId>.jsonl`.
+**When a step fails**, the run pauses instead of failing. Shadow classifies the failure: a site that is down is retried later, a login page waits for you, and an empty inbox ends as nothing to do. Drift (a renamed button, a new banner, an action moved into a menu) is repaired first by cheap fixes with no model, then by the repair agent (Nemotron 3 Super, with `NEBIUS_API_KEY`). A fix is kept only when trying it on the live page shows it works, and it is saved as the next version; `rollback <skill-id>` undoes it. If no safe fix is found, do the step by hand in the automation window and type `skip`. Try it on the drift fixtures: `pnpm fixtures`, then `pnpm replay fixtures/pages/drift/drift-skill.json --yes --input invoice=<a pdf>` after pointing its URL at one of the drifted pages.
+
+`pnpm replay` launches its own debug-port Chrome (profile in `~/Library/Application Support/Shadow/dev-chrome`). The production path is the daemon: type `run skills/real/<skill>.json` in `pnpm daemon`, and web steps run in an automation window of your own Chrome through the extension. Both paths share the player code, and every daemon run is logged to `~/Library/Application Support/Shadow/runs/<runId>.jsonl`.
+
+**What waits for you, and the API.** A run that needs you (an approval, a step's question, a failure only you can fix) doesn't hold the terminal: it waits in the **inbox** (`shadow.db` in the data folder) and goes on when you answer, even after the daemon restarts. Answer in the terminal (`inbox` lists what waits), or through the daemon's API: the Unix socket (`api.call`), or local HTTP, whose port and token are in `~/Library/Application Support/Shadow/api.json` (readable only by you):
+
+```sh
+PORT=$(node -p "require(process.env.HOME+'/Library/Application Support/Shadow/api.json').port")
+TOKEN=$(node -p "require(process.env.HOME+'/Library/Application Support/Shadow/api.json').token")
+curl -s -X POST http://127.0.0.1:$PORT/api/inbox -H "Authorization: Bearer $TOKEN" -d '{"open":true}'
+curl -s -X POST http://127.0.0.1:$PORT/api/answer -H "Authorization: Bearer $TOKEN" -d '{"itemId":"<id>","answer":"approve"}'
+```
+
+Methods: `workflows`, `workflow`, `runs`, `run`, `inbox`, `usage`, `health`, `start` (a workflow id), `answer`, `cancel`, `rollback`; `GET /api/events?token=…` streams changes. The daemon's own log is in `~/Library/Logs/Shadow/daemon.log` (Console.app shows it).
 
 **Connect Chrome to the daemon** (once per machine):
 
-1. `pnpm setup:native-host` builds the shim and registers it with Chrome (`--uninstall` to remove). It writes `~/Library/Application Support/TaskPlayer/native-host` and `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.taskplayer.daemon.json`.
+1. `pnpm setup:native-host` builds the shim and registers it with Chrome (`--uninstall` to remove). It writes `~/Library/Application Support/Shadow/native-host` and `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.shadow.daemon.json`.
 2. Open `chrome://extensions`, enable Developer mode, click "Load unpacked" and pick `apps/extension/dist`. The manifest's `key` pins the extension ID to `eloljjdiofhdlhoankjbhfeihjankikk`, which is the only origin the host allows. Then open the extension's Details and turn on **Allow access to file URLs**: without it Chrome refuses to hand local files to a page, so upload steps fail with "Not allowed".
 3. Run `pnpm daemon`. The extension reconnects within a minute, or immediately if you reload it. `status` in the daemon shows connected extensions.
 
+**The window and the menu bar.** Shadow.app puts Shadow in the menu bar (how many things wait for you, Record, health) and opens the window: the inbox (approve, answer, retry or skip a stuck step, review or roll back a repair), workflows with their steps and versions, and runs step by step. A notification arrives when something waits for you; clicking it opens the inbox. The window's pages are built with `pnpm build` (or `pnpm ui`, which rebuilds on change) and served by the daemon, which also prints a link to open them in a browser.
+
+**Keep Shadow running without a terminal** (optional): `pnpm setup:daemon` starts the daemon at login and again if it stops; it opens Shadow.app. `pnpm setup:daemon --uninstall` stops it (do that before running `pnpm daemon` in a terminal: only one daemon runs at a time). Its logs are in `~/Library/Logs/Shadow`.
+
 **Record Mac apps and get the desktop button** (once):
 
-1. `pnpm setup:mac` builds `apps/mac/build/Task Player.app` (rebuilt only when its sources change). `pnpm daemon` starts it; it quits when the daemon does.
-2. Right-click the floating button → **Allow Mac apps**: macOS asks, then turn on Task Player in System Settings → Privacy & Security → Accessibility. The permission goes to Task Player only, never to your terminal. After a rebuild, turn it off and on again (the app is signed ad hoc, so the permission is tied to that build).
-   Without it, web pages and files are still recorded; Mac apps are not. If turning it off and on doesn't take after a rebuild, run `tccutil reset Accessibility com.taskplayer.mac` and allow it again.
+1. `pnpm setup:mac` builds `apps/mac/build/Shadow.app` (rebuilt only when its sources change). `pnpm daemon` starts it; it quits when the daemon does.
+2. Right-click the floating button → **Allow Mac apps**: macOS asks, then turn on Shadow in System Settings → Privacy & Security → Accessibility. The permission goes to Shadow only, never to your terminal. After a rebuild, turn it off and on again (the app is signed ad hoc, so the permission is tied to that build).
+   Without it, web pages and files are still recorded; Mac apps are not. If turning it off and on doesn't take after a rebuild, run `tccutil reset Accessibility com.shadow.mac` and allow it again.
    Finder is recorded by what it does to files (moves, renames), not by its clicks. File moves anywhere in your home folder are recorded with no setup (macOS asks once for Desktop, Documents and Downloads when the daemon starts); a folder outside it, such as an external drive, is added when a Finder window shows it.
 
 **Record and replay** (each time):
 
 1. `pnpm daemon` in a terminal you can see (not `daemon:dev`: its watch mode also reads Enter, which drill answers need).
-2. Press the round **record button** at the bottom right of your screen (Task Player.app, above every app; drag it anywhere). Do the task in Chrome, Finder or any Mac app, then press **Stop**. Without Task Player.app, the same button appears inside Chrome pages instead, and the extension's toolbar icon does the same.
+2. Press the round **record button** at the bottom right of your screen (Shadow.app, above every app; drag it anywhere). Do the task in Chrome, Finder or any Mac app, then press **Stop**. Without Shadow.app, the same button appears inside Chrome pages instead, and the extension's toolbar icon does the same.
 3. The daemon compiles the recording and asks its questions **in the terminal** (Enter takes the default); the button says when one is waiting, then shows the saved skill's id.
 4. If the task used a file (an upload, a file you moved), `run <id>` first asks **which file** to use this time: Enter takes the suggestion (the newest file like the one you recorded), or type a path, or drag any file from Finder into the terminal window. Or give it with the command: `run <id> ~/Desktop/new.jpeg` (type `run <id> ` and drag the file in). When you stop a recording you can instead choose "the newest of its kind" or "always this file", and then it doesn't ask. Every file is checked before the first step runs: it must exist, not be empty, and be a kind the step takes (the page's own file-field rule, else the kind you recorded with: a photo means any image). A wrong file is explained and asked for again; given with the command, it stops the run.
 5. `run <id>` in the terminal replays it in a separate, unfocused 1280×800 Chrome window (switch to it to watch; Chrome shows its "started debugging this browser" bar while it runs). Steps that submit wait for `approve`. Each step prints ✓ or ✗.
 
 After `git pull`, run `pnpm build` again and reload the extension in `chrome://extensions`.
 
-The daemon listens on `~/Library/Application Support/TaskPlayer/daemon.sock`. Override it with `TASKPLAYER_SOCKET`, keeping the path at 103 bytes or less (a macOS limit for Unix sockets).
+The daemon listens on `~/Library/Application Support/Shadow/daemon.sock`. Override it with `SHADOW_SOCKET`, keeping the path at 103 bytes or less (a macOS limit for Unix sockets).
 
 ## Deployed Link
 
-Test build: a GitHub Release with the `.dmg` (Task Player.app with the daemon) and the Chrome extension. Link to be added when the first release is published.
+Test build: a GitHub Release with the `.dmg` (Shadow.app with the daemon) and the Chrome extension. Link to be added when the first release is published.
 
 ## Deployment Guide
 
 There is no server to deploy: everything runs on the user's Mac and calls Nebius Token Factory directly.
 
 1. Create a Nebius Token Factory API key and turn on **Zero Data Retention** for the organization.
-2. Install the release: open the `.dmg` (unsigned, so right-click → Open) and load the extension in `chrome://extensions`.
-3. On first launch, paste the key. It is stored in the macOS Keychain, and a connection check confirms Nemotron answers.
+2. Install the release: open the `.dmg`, drag Shadow into Applications and open it (unsigned, so right-click → Open the first time). It adds itself and its daemon to your login items, so it keeps running after a restart.
+3. On first launch, paste the key. It is stored in the macOS Keychain, Chrome is connected to the daemon, and a connection check confirms Nemotron answers. Then load the extension shipped with the app in `chrome://extensions` (Load unpacked) and turn on **Allow access to file URLs**.
 4. Allow the macOS permissions it asks for: Accessibility; Screen Recording, Microphone and Speech Recognition only if you consent to screenshots and narration.
 
 ## License

@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Invoice portal</title>
+<!-- Drift scenarios (docs/design.md, section 9): base.html is the page the workflow was recorded on; each other page
+     is the same task after one kind of change. drift-skill.json is the workflow; each page says what repair should do. -->
+<main>
+  <h1>Invoices</h1>
+  <form id="upload-form" onsubmit="return false">
+    <label>Invoice number <input name="number" /></label>
+    <label>Invoice PDF <input type="file" name="invoice" accept="application/pdf" /></label>
+    <button type="button" id="submit">Submit</button>
+  </form>
+  <p id="status" role="status"></p>
+  <nav aria-label="Account"><a href="#reports">Reports</a> <button type="button" id="export">Export CSV</button></nav>
+</main>
+<script>
+  document.getElementById("submit").addEventListener("click", () => {
+    document.getElementById("status").textContent = "Invoice submitted";
+  });
+  document.getElementById("export").addEventListener("click", () => {
+    document.getElementById("status").textContent = "Export ready";
+  });
+</script>

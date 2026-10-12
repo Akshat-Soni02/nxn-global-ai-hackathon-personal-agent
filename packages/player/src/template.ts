@@ -1,7 +1,7 @@
 // Resolves {{…}} references in a step before it runs. One namespace: every variable is declared by an earlier step
 // (the trigger's inputs, an output, an ask's answer, a loop's item), reached with .field and .N paths, plus {{today}}.
 // See the reference rules at the top of packages/core/src/skill.ts.
-import { parseRef, valueAt } from "@taskplayer/core";
+import { parseRef, valueAt } from "@shadow/core";
 
 const REF = /\{\{\s*([^}]+?)\s*\}\}/g;
 

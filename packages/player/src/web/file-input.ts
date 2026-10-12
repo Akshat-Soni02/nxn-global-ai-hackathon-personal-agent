@@ -54,6 +54,6 @@ export function pickFileInput(root: DomNode, matched: number): number | undefine
 export function fileAccessError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return /not allowed/i.test(message)
-    ? 'Chrome would not give the file to the page. Open chrome://extensions, choose Details on Task Player and turn on "Allow access to file URLs", then run again.'
+    ? 'Chrome would not give the file to the page. Open chrome://extensions, choose Details on Shadow and turn on "Allow access to file URLs", then run again.'
     : message;
 }

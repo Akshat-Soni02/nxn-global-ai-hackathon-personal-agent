@@ -1,8 +1,8 @@
 // Drill: the compiler's questions, asked once, right after compile and before the skill is saved. Never on a replay.
 // Each answer is written into the skill at the question's appliesTo path and re-validated with the Skill schema.
 // Lasting answers go to memory, so the next compile of a similar task doesn't ask again.
-import { Skill } from "@taskplayer/core";
-import type { MemoryStore } from "@taskplayer/memory";
+import { Skill } from "@shadow/core";
+import type { MemoryStore } from "@shadow/memory";
 import type { Question } from "./compile.ts";
 
 export interface Prompter {

@@ -35,24 +35,27 @@ importers:
 
   apps/daemon:
     dependencies:
-      '@taskplayer/core':
+      '@shadow/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@taskplayer/ipc':
+      '@shadow/ipc':
         specifier: workspace:*
         version: link:../../packages/ipc
-      '@taskplayer/llm':
+      '@shadow/llm':
         specifier: workspace:*
         version: link:../../packages/llm
-      '@taskplayer/memory':
+      '@shadow/memory':
         specifier: workspace:*
         version: link:../../packages/memory
-      '@taskplayer/player':
+      '@shadow/player':
         specifier: workspace:*
         version: link:../../packages/player
-      '@taskplayer/recorder':
+      '@shadow/recorder':
         specifier: workspace:*
         version: link:../../packages/recorder
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: ^26.6.3
@@ -63,10 +66,10 @@ importers:
 
   apps/extension:
     dependencies:
-      '@taskplayer/core':
+      '@shadow/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@taskplayer/player':
+      '@shadow/player':
         specifier: workspace:*
         version: link:../../packages/player
       dom-accessibility-api:
@@ -85,7 +88,7 @@ importers:
 
   apps/native-host:
     dependencies:
-      '@taskplayer/ipc':
+      '@shadow/ipc':
         specifier: workspace:*
         version: link:../../packages/ipc
     devDependencies:
@@ -95,6 +98,50 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+
+  apps/ui:
+    dependencies:
+      '@shadow/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      react:
+        specifier: ^19.3.0
+        version: 19.3.0
+      react-dom:
+        specifier: ^19.3.0
+        version: 19.3.0(react@19.3.0)
+    devDependencies:
+      '@shadow/daemon':
+        specifier: workspace:*
+        version: link:../daemon
+      '@shadow/player':
+        specifier: workspace:*
+        version: link:../../packages/player
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+
+  packages/agent:
+    dependencies:
+      '@shadow/llm':
+        specifier: workspace:*
+        version: link:../llm
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@shadow/core':
+        specifier: workspace:*
+        version: link:../core
+      '@types/node':
+        specifier: ^26.6.3
+        version: 26.6.3
 
   packages/core:
     dependencies:
@@ -113,6 +160,10 @@ importers:
         version: 26.6.3
 
   packages/llm:
+    dependencies:
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: ^26.6.3
@@ -126,9 +177,18 @@ importers:
 
   packages/player:
     dependencies:
-      '@taskplayer/core':
+      '@shadow/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@shadow/core':
         specifier: workspace:*
         version: link:../core
+      '@shadow/llm':
+        specifier: workspace:*
+        version: link:../llm
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: ^26.6.3
@@ -136,13 +196,13 @@ importers:
 
   packages/recorder:
     dependencies:
-      '@taskplayer/core':
+      '@shadow/core':
         specifier: workspace:*
         version: link:../core
-      '@taskplayer/llm':
+      '@shadow/llm':
         specifier: workspace:*
         version: link:../llm
-      '@taskplayer/memory':
+      '@shadow/memory':
         specifier: workspace:*
         version: link:../memory
       zod:
@@ -554,6 +614,14 @@ packages:
   '@types/node@26.6.3':
     resolution: {integrity: sha512-dsqMQQoeTLqu9wynDD00q573mNzso3IdQOAfHRJqLCcmCFPoGo9A1bDpUcv/9tnKpErQWv9uKeGfl37EIS02Yg==}
 
+  '@types/react-dom@19.3.0':
+    resolution: {integrity: sha512-ZI7bU42mZXXKHn/qNLEw2IrbiINU7X5+vfgdixBHkCNpYWXjKgfQ/P+uyGb5CjOLB9UcnTeg3rylQtV2hym44Q==}
+    peerDependencies:
+      '@types/react': ^19.3.0
+
+  '@types/react@19.3.0':
+    resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
+
   '@types/tough-cookie@4.0.5':
     resolution: {integrity: sha512-/Ad8+nIOV7Rl++6f1BdKxFSMgmoqEoYbHRpPcx3JEfv8VRsQe9Z4mCXeJBzxs7mbHY/XOZZuXlRNfhpVPbs6ZA==}
 
@@ -720,6 +788,9 @@ packages:
 
   cssom@0.5.0:
     resolution: {integrity: sha512-iKuQcq+NdHqlAcwUY0o/HL69XQrUaQdMjmStJ8JFmUaiiQErlhrmuigkg/CU4E2J0IyUKUrMAgl36TvN67MqTw==}
+
+  csstype@3.2.3:
+    resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
 
   data-urls@7.0.0:
     resolution: {integrity: sha512-23XHcCF+coGYevirZceTVD7NdJOqVn+49IHyxgszm+JIiHLoB2TkmPtsYkNWT1pvRSGkc35L6NHs0yHkN2SumA==}
@@ -947,6 +1018,15 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
+  react-dom@19.3.0:
+    resolution: {integrity: sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q==}
+    peerDependencies:
+      react: ^19.3.0
+
+  react@19.3.0:
+    resolution: {integrity: sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog==}
+    engines: {node: '>=0.10.0'}
+
   require-from-string@2.0.2:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
     engines: {node: '>=0.10.0'}
@@ -959,6 +1039,9 @@ packages:
   saxes@6.0.0:
     resolution: {integrity: sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA==}
     engines: {node: '>=v12.22.7'}
+
+  scheduler@0.28.0:
+    resolution: {integrity: sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw==}
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
@@ -1384,6 +1467,14 @@ snapshots:
     dependencies:
       undici-types: 8.9.0
 
+  '@types/react-dom@19.3.0(@types/react@19.3.0)':
+    dependencies:
+      '@types/react': 19.3.0
+
+  '@types/react@19.3.0':
+    dependencies:
+      csstype: 3.2.3
+
   '@types/tough-cookie@4.0.5': {}
 
   '@typescript/typescript-aix-ppc64@7.0.2':
@@ -1483,6 +1574,8 @@ snapshots:
   css-what@8.0.0: {}
 
   cssom@0.5.0: {}
+
+  csstype@3.2.3: {}
 
   data-urls@7.0.0:
     dependencies:
@@ -1714,6 +1807,13 @@ snapshots:
 
   punycode@2.3.1: {}
 
+  react-dom@19.3.0(react@19.3.0):
+    dependencies:
+      react: 19.3.0
+      scheduler: 0.28.0
+
+  react@19.3.0: {}
+
   require-from-string@2.0.2: {}
 
   rolldown@1.2.11:
@@ -1740,6 +1840,8 @@ snapshots:
   saxes@6.0.0:
     dependencies:
       xmlchars: 2.2.0
+
+  scheduler@0.28.0: {}
 
   source-map-js@1.2.1: {}
 

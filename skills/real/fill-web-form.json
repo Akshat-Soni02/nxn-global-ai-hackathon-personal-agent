@@ -32,8 +32,8 @@
             "type": "text"
           },
           "description": "Textarea",
-          "default": "Submitted by Task Player replay test.",
-          "example": "Submitted by Task Player replay test."
+          "default": "Submitted by Shadow replay test.",
+          "example": "Submitted by Shadow replay test."
         },
         "city": {
           "type": {

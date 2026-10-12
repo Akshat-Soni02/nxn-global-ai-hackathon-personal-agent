@@ -21,7 +21,7 @@
 // reference keeps the value's type; inside longer text the value becomes text (objects and lists as JSON).
 // A file value can be given wherever a path is expected. Moving or copying an empty list is a no-op.
 //
-// Args by action:
+// Args by action (the same, as data agents are briefed with: ACTION_DOCS in briefing.ts):
 //   web.navigate  { url }
 //   web.click     {}
 //   web.type      { text, clear?: boolean }            focuses the target, then types it key by key
@@ -69,7 +69,7 @@ export const ACTIONS = {
   script: ["applescript", "shortcut", "shell"],
   // A rule over rows saved by an earlier step. Judgement and text work are llm steps, not data actions.
   data: ["pick"],
-  // Mac apps through the Accessibility API, run by Task Player.app (apps/mac).
+  // Mac apps through the Accessibility API, run by Shadow.app (apps/mac).
   ax: ["open", "press", "set_value", "focus", "menu", "key"],
   vision: ["click", "type"],
 } as const satisfies Record<Channel, readonly string[]>;

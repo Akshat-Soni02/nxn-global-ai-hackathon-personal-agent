@@ -1,6 +1,6 @@
 // Normalise: turns a raw trace into the steps a person would describe, with no AI.
 // Mechanical rules only, so the compiler's input is stable and testable, and the model sees fewer tokens.
-import type { AxElement, ElementDescriptor, FileInfo, TraceEvent } from "@taskplayer/core";
+import type { AxElement, ElementDescriptor, FileInfo, TraceEvent } from "@shadow/core";
 
 export type StepKind =
   | "navigate"
@@ -13,7 +13,7 @@ export type StepKind =
   | "copy"
   | "fs_move"
   | "fs_rename"
-  // Mac apps (Task Player.app, Accessibility API)
+  // Mac apps (Shadow.app, Accessibility API)
   | "app_open"
   | "app_press"
   | "app_type"
@@ -75,7 +75,7 @@ const SCRIPT_CLICK_MS = 1_000; // a page script clicking its hidden file input r
 const CAUSED = new Set(["link", "form_submit"]);
 const FOCUS_ONLY_ROLES = new Set(["textbox", "searchbox", "spinbutton"]);
 // Finder is recorded by what it did to files (fs_move, fs_rename from the watcher), never by its clicks: a click on
-// last month's row can't be replayed next month. Task Player.app leaves Finder out too; this also covers old traces.
+// last month's row can't be replayed next month. Shadow.app leaves Finder out too; this also covers old traces.
 const FILE_APPS = new Set(["com.apple.finder"]);
 // Mac-app elements that only hold others: a click on one is a click on nothing in particular.
 const AX_CONTAINERS = new Set([

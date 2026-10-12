@@ -1,6 +1,6 @@
 // The splice: a recorded element description becomes a step's target. Code does this, never the model, so a
 // selector can't come back with one character changed (a wrong selector fails silently at replay).
-import type { ElementDescriptor, Locator } from "@taskplayer/core";
+import type { ElementDescriptor, Locator } from "@shadow/core";
 
 export function toLocator(d: ElementDescriptor): Locator {
   // Inside a shadow root, selectors and attributes only work from that root, and the player's matcher looks them up

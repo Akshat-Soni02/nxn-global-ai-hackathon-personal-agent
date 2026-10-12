@@ -1,4 +1,4 @@
-import { type ActionStep, type ElementDescriptor, Skill, type TraceEvent, triggerOf } from "@taskplayer/core";
+import { type ActionStep, type ElementDescriptor, Skill, type TraceEvent, triggerOf } from "@shadow/core";
 import { describe, expect, it, vi } from "vitest";
 import { type Chat, compile, extractJson, type Question } from "./compile.ts";
 import { applyAnswer, drill } from "./drill.ts";

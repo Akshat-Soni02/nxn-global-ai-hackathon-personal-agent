@@ -3,7 +3,7 @@
 // rewritten, so a skill can be recompiled later from the same evidence (`compile <session>` in main.ts).
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { TraceEvent } from "@taskplayer/core";
+import { TraceEvent } from "@shadow/core";
 
 export function tracePath(dataDir: string, sessionId: string): string {
   // The id becomes a file name, so it may only be a plain token (the daemon makes them with randomUUID).

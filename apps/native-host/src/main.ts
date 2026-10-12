@@ -3,7 +3,7 @@
 // daemon's Unix socket; both sides use the same length-prefixed framing, so no parsing is needed here.
 // stdout belongs to Chrome: log to stderr only (Chrome shows it when launched with --enable-logging).
 import { connect } from "node:net";
-import { encode, socketPath } from "@taskplayer/ipc";
+import { encode, socketPath } from "@shadow/ipc";
 
 const path = socketPath();
 const log = (...args: unknown[]) => console.error("[native-host]", ...args);

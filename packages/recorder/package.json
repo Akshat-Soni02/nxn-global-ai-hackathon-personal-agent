@@ -1,5 +1,5 @@
 {
-  "name": "@taskplayer/recorder",
+  "name": "@shadow/recorder",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,9 +10,9 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@taskplayer/core": "workspace:*",
-    "@taskplayer/llm": "workspace:*",
-    "@taskplayer/memory": "workspace:*",
+    "@shadow/core": "workspace:*",
+    "@shadow/llm": "workspace:*",
+    "@shadow/memory": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {

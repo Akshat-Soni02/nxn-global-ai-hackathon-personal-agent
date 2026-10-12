@@ -8,7 +8,7 @@
 //   keys to monitors while a password field has focus (Secure Event Input).
 // - Some apps are never recorded: password managers, terminals (their whole scrollback is one text value), Chrome
 //   (the extension records web pages), Finder (its moves and renames are recorded from the disk, as file steps, so
-//   they replay on next month's file instead of clicking last month's row) and Task Player itself.
+//   they replay on next month's file instead of clicking last month's row) and Shadow itself.
 // - A value over 2 000 characters (a whole document) is not kept; the skill asks for it instead.
 import AppKit
 import ApplicationServices
@@ -20,7 +20,7 @@ final class Recorder {
   var onFolder: (String) -> Void = { _ in }
   private var reportedFolders = Set<String>()
   private var lastFinderLook = Date.distantPast
-  // Task Player's own test window (Fixture.swift) is recordable; otherwise Task Player never records itself.
+  // Shadow's own test window (Fixture.swift) is recordable; otherwise Shadow never records itself.
   var recordSelf = false
   private(set) var running = false
   private var monitors: [Any] = []
@@ -103,7 +103,7 @@ final class Recorder {
   }
 
   // When Finder's windows don't say their folder through Accessibility: ask Finder (macOS asks you once to let
-  // Task Player do that: Privacy & Security > Automation).
+  // Shadow do that: Privacy & Security > Automation).
   private func finderFoldersByScript() -> [String] {
     let source = """
       tell application "Finder"

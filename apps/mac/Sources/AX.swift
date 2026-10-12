@@ -1,4 +1,4 @@
-// The macOS Accessibility API (ApplicationServices, AXUIElement): how Task Player reads and presses controls in other
+// The macOS Accessibility API (ApplicationServices, AXUIElement): how Shadow reads and presses controls in other
 // apps, the way VoiceOver does. Built into macOS; nothing to download. Using it on another app needs the user's
 // permission (System Settings > Privacy & Security > Accessibility); an app may always use it on itself.
 // Record (Recorder.swift) and replay (Player.swift) both go through `describe` and `find` here, so a control is

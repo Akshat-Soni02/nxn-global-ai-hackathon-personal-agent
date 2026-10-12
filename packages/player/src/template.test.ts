@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveTemplates, today } from "./template.ts";
 
-const file = { path: "/Users/a/TaskPlayerTest/upload/x.txt", name: "x.txt", size: 4, modified: "" };
+const file = { path: "/Users/a/ShadowTest/upload/x.txt", name: "x.txt", size: 4, modified: "" };
 const ctx = {
   vars: {
     file,

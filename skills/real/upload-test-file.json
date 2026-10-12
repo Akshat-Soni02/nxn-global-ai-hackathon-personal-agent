@@ -5,8 +5,8 @@
   "description": {
     "goal": "The newest sandbox test file is uploaded to the-internet's uploader and filed under done/",
     "changes": ["the file to upload"],
-    "constants": ["the-internet.herokuapp.com/upload", "the ~/TaskPlayerTest/upload folder", "the done/ folder"],
-    "never": ["upload anything outside ~/TaskPlayerTest"]
+    "constants": ["the-internet.herokuapp.com/upload", "the ~/ShadowTest/upload folder", "the done/ folder"],
+    "never": ["upload anything outside ~/ShadowTest"]
   },
   "steps": [
     {
@@ -19,7 +19,7 @@
         },
         {
           "type": "folder_watch",
-          "dir": "~/TaskPlayerTest/upload",
+          "dir": "~/ShadowTest/upload",
           "glob": "*.txt"
         }
       ],
@@ -30,11 +30,11 @@
           },
           "description": "Newest .txt in the sandbox upload folder. The site is public: never point this at real documents.",
           "resolve": {
-            "dir": "~/TaskPlayerTest/upload",
+            "dir": "~/ShadowTest/upload",
             "glob": "*.txt",
             "pick": "newest"
           },
-          "example": "~/TaskPlayerTest/upload/taskplayer-test-2026-10-02T09-52-44-024Z.txt"
+          "example": "~/ShadowTest/upload/shadow-test-2026-10-02T09-52-44-024Z.txt"
         }
       }
     },
@@ -122,16 +122,16 @@
       "action": "move",
       "args": {
         "from": "{{file}}",
-        "to": "~/TaskPlayerTest/upload/done/"
+        "to": "~/ShadowTest/upload/done/"
       },
       "check": {
-        "file_exists": "~/TaskPlayerTest/upload/done/{{file.name}}"
+        "file_exists": "~/ShadowTest/upload/done/{{file.name}}"
       }
     }
   ],
   "success": [
     {
-      "file_exists": "~/TaskPlayerTest/upload/done/{{file.name}}"
+      "file_exists": "~/ShadowTest/upload/done/{{file.name}}"
     }
   ],
   "history": [

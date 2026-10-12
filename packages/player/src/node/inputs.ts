@@ -1,7 +1,7 @@
 // Fills a skill's inputs before a run: values supplied by the caller win, then file resolvers, then defaults.
 import { statSync } from "node:fs";
 import { basename } from "node:path";
-import { fitValue, pathOf, type Skill, triggerOf, typeText, type VarType, wrongKind } from "@taskplayer/core";
+import { fitValue, pathOf, type Skill, triggerOf, typeText, type VarType, wrongKind } from "@shadow/core";
 import { expandHome, fileValue, findFiles } from "./paths.ts";
 
 // A file input's rule (Input.resolve): where to look, and which files it takes. accept uses the HTML syntax

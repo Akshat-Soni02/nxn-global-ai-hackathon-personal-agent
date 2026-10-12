@@ -5,7 +5,7 @@
   "description": {
     "goal": "File 1 from Selenium's test downloads page is saved under today's date in the sandbox",
     "changes": ["the date in the file name", "Chrome's suffix on the download"],
-    "constants": ["the Selenium downloads page", "File 1", "~/TaskPlayerTest/downloads"],
+    "constants": ["the Selenium downloads page", "File 1", "~/ShadowTest/downloads"],
     "never": []
   },
   "steps": [
@@ -80,16 +80,16 @@
       "action": "move",
       "args": {
         "from": "{{downloaded}}",
-        "to": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt"
+        "to": "~/ShadowTest/downloads/{{today}}-file_1.txt"
       },
       "check": {
-        "file_exists": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt"
+        "file_exists": "~/ShadowTest/downloads/{{today}}-file_1.txt"
       }
     }
   ],
   "success": [
     {
-      "file_exists": "~/TaskPlayerTest/downloads/{{today}}-file_1.txt"
+      "file_exists": "~/ShadowTest/downloads/{{today}}-file_1.txt"
     }
   ],
   "history": [

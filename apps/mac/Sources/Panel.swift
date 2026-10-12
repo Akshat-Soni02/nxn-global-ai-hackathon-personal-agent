@@ -20,6 +20,7 @@ final class Panel {
   var onPress: () -> Void = {}
   var onAllow: () -> Void = {}
   var onQuit: () -> Void = {}
+  var onOpen: () -> Void = {}
 
   var trusted = false { didSet { render() } }
   private(set) var recordingSince: Date?
@@ -107,7 +108,7 @@ final class Panel {
     view.toolTip =
       l.kind == .idle
       ? (trusted
-        ? "Record a task (Task Player)"
+        ? "Record a task (Shadow)"
         : "Record a task. Mac apps are not recorded until you allow Accessibility: right-click.")
       : l.text
     view.setAccessibilityLabel(l.kind == .idle ? "Record a task" : l.text)
@@ -150,16 +151,21 @@ final class Panel {
       action: trusted ? nil : #selector(MenuTarget.allow), keyEquivalent: "")
     allow.target = menuTarget
     allow.isEnabled = !trusted
+    let open = NSMenuItem(title: "Open Shadow", action: #selector(MenuTarget.open), keyEquivalent: "")
+    open.target = menuTarget
+    menu.addItem(open)
+    menu.addItem(.separator())
     menu.addItem(allow)
     menu.addItem(.separator())
-    let quit = NSMenuItem(title: "Quit Task Player", action: #selector(MenuTarget.quit), keyEquivalent: "")
+    let quit = NSMenuItem(title: "Quit Shadow", action: #selector(MenuTarget.quit), keyEquivalent: "")
     quit.target = menuTarget
     menu.addItem(quit)
     NSMenu.popUpContextMenu(menu, with: event, for: view)
   }
 
   private lazy var menuTarget = MenuTarget(
-    allow: { [weak self] in self?.onAllow() }, quit: { [weak self] in self?.onQuit() })
+    allow: { [weak self] in self?.onAllow() }, quit: { [weak self] in self?.onQuit() },
+    open: { [weak self] in self?.onOpen() })
 
   // MARK: position: anchored at its right edge, so it grows to the left
 
@@ -211,12 +217,15 @@ final class Panel {
 final class MenuTarget: NSObject {
   let allowAction: () -> Void
   let quitAction: () -> Void
-  init(allow: @escaping () -> Void, quit: @escaping () -> Void) {
+  let openAction: () -> Void
+  init(allow: @escaping () -> Void, quit: @escaping () -> Void, open: @escaping () -> Void) {
     allowAction = allow
     quitAction = quit
+    openAction = open
   }
   @objc func allow() { allowAction() }
   @objc func quit() { quitAction() }
+  @objc func open() { openAction() }
 }
 
 // Draws the button: a circle with a red dot when idle, a red pill with a stop square and a clock while recording, a

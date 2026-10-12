@@ -1,4 +1,4 @@
-# Task Player: the guide
+# Shadow: the guide
 
 > **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
 
@@ -17,7 +17,7 @@
 
 ## The whole product in one picture
 
-![Task Player: how the pieces fit together](architecture-map.png)
+![Shadow: how the pieces fit together](architecture-map.png)
 
 How to read it:
 
@@ -57,6 +57,7 @@ To edit it, open [`architecture-map.excalidraw`](architecture-map.excalidraw) at
 | 10 | [Record meets replay, and the hot edges](10-merge-and-hot-edges.md) | The merge with Akshat's replay, the shared skill contract, file drops, drag, copy/paste, Google Sheets, AI cost limits |
 | 11 | [Mac apps: the Accessibility API, and the desktop button](11-mac-apps.md) | Recording and replaying clicks, typing, shortcuts and menus in any Mac app; how the permission works; the floating desktop button; a mixed web + file + app recording |
 | 12 | [How it works, in plain words](12-how-it-works-simply.md) + [diagram](12-how-it-works-simply.excalidraw) | Start, record, stop, replay end to end: how web, Mac-app and file events are captured, Chrome cases, what is saved, where AI fits |
+| 13 | [The whole picture](13-the-whole-picture.md) + [diagram](13-the-whole-picture.excalidraw) | Current (Oct 12): where the daemon, Shadow.app, the window, the extension and the shim run; why each is separate; how they talk (socket, HTTP + token, native messaging); one approval end to end; security; before vs after milestone 6 |
 | 09 | [Record, explained and built](09-record-explained.md) | Mac events vs AX, the drill, memory, versions, injection, auth; then what was built for record, why, and how it was checked |
 | — | [`sheet6-sprint2-tracker.tsv`](sheet6-sprint2-tracker.tsv) | Paste-ready rows for worksheet 6 |
 
