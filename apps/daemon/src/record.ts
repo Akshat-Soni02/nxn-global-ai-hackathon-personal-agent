@@ -158,7 +158,12 @@ export async function finishRecording(
       describer && recorded?.consent.pictures && describer.allowed()
         ? async (step: NormalisedStep) => {
             const dir = recordingDir(dataDir, sessionId);
-            const shot = step.events.map((id) => join(dir, "shots", `${id}.jpg`)).find((p) => existsSync(p));
+            // Event ids come from the extension and the app: only plain ones name a file, so no id can point outside
+            // the recording's shots folder.
+            const shot = step.events
+              .filter((id) => /^[\w-]+$/.test(id))
+              .map((id) => join(dir, "shots", `${id}.jpg`))
+              .find((p) => existsSync(p));
             if (!shot) throw new Error("no picture was kept for that step");
             const did = [
               step.kind.replace(/_/g, " "),

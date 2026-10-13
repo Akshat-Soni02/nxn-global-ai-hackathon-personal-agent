@@ -16,6 +16,9 @@ export const runSecurity: SecurityRunner = (args, stdin) =>
       const code = error && "code" in error && typeof error.code === "number" ? error.code : error ? 1 : 0;
       resolve({ stdout: String(stdout ?? ""), code });
     });
+    // A `security` that could not start or exited early closes its stdin; an unhandled stream error would crash the
+    // daemon, and the exit code already says it failed.
+    child.stdin?.on("error", () => {});
     if (stdin !== undefined) child.stdin?.end(stdin);
     else child.stdin?.end();
   });

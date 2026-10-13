@@ -6,7 +6,7 @@
 // repaired or waits for the user, and resumes. Repair transcripts go next to the run log (<runId>.repair-N.json).
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ActionStep, type Message, Skill } from "@shadow/core";
 import { APP_SUPPORT_DIR } from "@shadow/ipc";
@@ -201,10 +201,16 @@ export async function runSkillOn(
           let described: { description: string; words: string };
           if (channel === "ax") {
             const path = describer.tempPath();
-            const reply = await daemon.requestMac({ id: randomUUID(), type: "mac.screenshot", path }, 15_000);
-            if (reply.type !== "mac.screenshot_result") throw new Error(`unexpected reply ${reply.type}`);
-            if (!reply.ok) throw new Error(reply.error ?? "no picture of the window");
-            described = await describer.describe({ path }, question, never);
+            try {
+              const reply = await daemon.requestMac({ id: randomUUID(), type: "mac.screenshot", path }, 15_000);
+              if (reply.type !== "mac.screenshot_result") throw new Error(`unexpected reply ${reply.type}`);
+              if (!reply.ok) throw new Error(reply.error ?? "no picture of the window");
+              described = await describer.describe({ path }, question, never);
+            } finally {
+              // The app may write the window's picture even when the request failed or timed out: never leave it
+              // (unmasked) on disk.
+              rmSync(path, { force: true });
+            }
           } else {
             const shot = await page({ op: "screenshot" });
             if (!shot.ok) throw new Error(shot.error);

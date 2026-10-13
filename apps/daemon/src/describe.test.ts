@@ -1,7 +1,7 @@
 // Pictures for the model (describe.ts): nothing leaves without the "pictures" consent, and what leaves is the
 // blacked-out picture, never the one that came in. The masking tools are stand-ins that rewrite the file, so the
 // test can tell the two apart byte for byte.
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeLlm } from "@shadow/llm";
@@ -90,6 +90,30 @@ describe("describing a picture for the model", () => {
     const { llm, describer } = setup(true, false);
     await expect(describer.describe({ image: asDataUrl(ORIGINAL) }, "?", [])).rejects.toThrow(/mask it first/);
     expect(llm.requests).toEqual([]);
+  });
+
+  it("deletes a window's picture even when it cannot be sent, so nothing unmasked stays on disk", async () => {
+    // The consent was withdrawn while Shadow.app was taking the picture.
+    const { dataDir, llm, describer } = setup(false);
+    const path = describer.tempPath();
+    writeFileSync(path, ORIGINAL);
+    await expect(describer.describe({ path }, "?", [])).rejects.toThrow(/hasn't allowed pictures/);
+    expect(existsSync(path)).toBe(false);
+    expect(readdirSync(join(dataDir, "tmp"))).toEqual([]);
+    expect(llm.requests).toEqual([]);
+  });
+
+  it("deletes pictures an earlier daemon left behind, as soon as it starts", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "describe-"));
+    mkdirSync(join(dataDir, "tmp"), { recursive: true });
+    writeFileSync(join(dataDir, "tmp", "shot-old.jpg"), ORIGINAL);
+    createScreenDescriber({
+      dataDir,
+      llm: () => undefined,
+      consent: () => ({ screen: false, microphone: false, pictures: false }),
+      log: () => {},
+    });
+    expect(existsSync(join(dataDir, "tmp", "shot-old.jpg"))).toBe(false);
   });
 
   it("describes a picture a recording already masked, as it is", async () => {

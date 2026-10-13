@@ -6,7 +6,7 @@
 // never unmasked; the working copy is deleted as soon as the model has answered.
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { describeImage, type Llm } from "@shadow/llm";
 import { type Box, maskLines } from "@shadow/recorder";
 import type { Consent } from "./recording-store.ts";
@@ -46,6 +46,8 @@ export function createScreenDescriber(options: {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     return dir;
   };
+  // A picture an earlier daemon left behind (killed in the middle of describing it) is deleted at start.
+  rmSync(join(options.dataDir, "tmp"), { recursive: true, force: true });
   const allowed = (): Llm => {
     if (!options.consent().pictures) {
       throw new Error(
@@ -63,10 +65,11 @@ export function createScreenDescriber(options: {
     tempPath: () => join(tmp(), `shot-${randomUUID()}.jpg`),
 
     async describe(picture, question, never) {
-      const llm = allowed();
-      if (!options.tools) throw new Error("describing a picture needs Shadow.app to mask it first (pnpm setup:mac)");
       const file = join(tmp(), `describe-${randomUUID()}.jpg`);
+      // Everything, the consent check included, inside the try: whatever throws, the pictures are deleted.
       try {
+        const llm = allowed();
+        if (!options.tools) throw new Error("describing a picture needs Shadow.app to mask it first (pnpm setup:mac)");
         if (picture.image) {
           const data = /^data:image\/(?:jpeg|png);base64,(.+)$/.exec(picture.image)?.[1];
           if (!data) throw new Error("not a picture");
@@ -86,7 +89,7 @@ export function createScreenDescriber(options: {
         return { description, words };
       } finally {
         rmSync(file, { force: true });
-        if (picture.path?.startsWith(join(options.dataDir, "tmp"))) rmSync(picture.path, { force: true });
+        if (picture.path?.startsWith(join(options.dataDir, "tmp") + sep)) rmSync(picture.path, { force: true });
       }
     },
 
