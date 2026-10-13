@@ -6,7 +6,7 @@
 
 Editable: [`14-shadow-architecture.excalidraw`](14-shadow-architecture.excalidraw) (open at [excalidraw.com](https://excalidraw.com), menu → Open).
 
-*The picture was drawn on 12 Oct, before the merge. Where it disagrees with this page (triggers are built now; screenshots send only text), this page is right. It is redrawn when the record side is done.*
+*Redrawn on 13 Oct, after the record side was built.*
 
 ## 1. Record: from showing a task to a workflow
 
@@ -71,22 +71,20 @@ All calls go through `packages/llm` to Nebius Token Factory with your own key.
 
 | Side | Files |
 | --- | --- |
-| **Record** | `apps/extension/src/capture.ts`, `content.ts`, `describe.ts`, `button.ts` (web events and the Chrome button) · `apps/mac/Sources/Recorder.swift`, `AX.swift`, `Panel.swift` (Mac apps, desktop button) · `apps/daemon/src/record.ts`, `fs-watch.ts`, `locate-file.ts`, `trace-store.ts` (the session, file events) · `packages/recorder/` (`normalise`, `skeleton`, `compile`, `drill`) |
+| **Record** | `apps/extension/src/capture.ts`, `content.ts`, `describe.ts`, `button.ts`, `shot.ts` (web events, the Chrome button, tab screenshots) · `apps/mac/Sources/Recorder.swift`, `AX.swift`, `Panel.swift`, `Screen.swift`, `Voice.swift` (Mac apps, desktop button, window screenshots, `--ocr` / `--redact`, narration, `--transcribe`) · `apps/daemon/src/record-control.ts` (the form first, from every button), `recording-store.ts` (the folder, 24 h), `record.ts`, `screen.ts`, `voice.ts`, `fs-watch.ts`, `locate-file.ts`, `trace-store.ts` · `packages/recorder/` (`normalise`, `skeleton`, `compile`, `design/` the design agent, `drill`, `mask`, `approvals`) · `apps/ui/src/screens/Record.tsx` (the form, the drill on the draft) |
 | **Replay** | `packages/player/` (`run.ts` the interpreter, `web/` matching and acting, `node/inputs.ts`, `repair/` classify, ladder, repair agent, verify) · `apps/extension/src/replay.ts` · `apps/mac/Sources/Player.swift` · `apps/daemon/src/runner.ts`, `service.ts`, `triggers.ts`, `lifecycle.ts`, `store.ts` |
 | **Shared** | `packages/core` (the workflow format, `check.ts`, `edit.ts`, `guard.ts`, `briefing.ts`) · `packages/llm` · `packages/agent` (the agent loop) · `packages/memory` · `packages/ipc` · `apps/ui` (the window) · `apps/native-host` · `apps/daemon/src/api.ts`, `http.ts`, `daemon.ts`, `main.ts` |
 
 ## 7. Found in the code, for Akshat
 
-1. **Safety, likely (found by reading, not yet shown by a test):** a repaired outward step (Submit) can skip its one-time approval. The daemon's approve hook answers `WAIT`, which counts as true, so `tryDraft` (`verify.ts`) marks the step approved and `approveOnce` (`repair.ts`) leaves it out. The step then runs without approval unless it already required one.
+1. **Safety, confirmed by running `tryDraft` (13 Oct):** a repaired outward step (Submit) can skip its one-time approval. In the check, nobody approved Submit and it never ran, yet the try came back `ok`, with "evidence", and with Submit listed as approved. The daemon's approve hook answers `WAIT`, which counts as true, so `tryDraft` (`verify.ts`) marks the step approved and `approveOnce` (`repair.ts`) leaves it out. The step then runs without approval unless it already required one.
 2. `try_steps` can start after the failed step, so a fix may be saved without proof that the failed step works.
 3. The per-run repair limits ($0.25, 2 episodes) start again after every wait.
 4. `on_item_fail: "skip"` never skips while recovery is on: one bad item fails the run.
 
-## 8. Next on the record side, in order
+## 8. What is left on the record side
 
-1. ~~The description form and the two consents, from every Record button.~~ Done.
-2. ~~The recording folder and deletion after 24 hours.~~ Done.
-3. ~~The design agent.~~ Done (the real model still to try).
-4. ~~The drill shown on the draft tree.~~ Done.
-5. ~~Screenshots: words read on the Mac, private ones masked.~~ Done (Chrome and Mac windows still to try by hand).
-6. ~~Voice: narration turned into text on the Mac.~~ Done (to try by hand).
+- **Try it with the real model.** Everything above was tested with a scripted model; there is no API key in `.env` yet. With a key: `pnpm llm:check`, then record workflow 1 in [`examples.md`](../examples.md).
+- **Try screenshots and narration by hand.** Rebuild Shadow.app (`pnpm setup:mac`), then record with both switches on. macOS asks for Screen Recording and the Microphone once; Accessibility may need turning off and on again after the rebuild.
+- **Re-recording a task you already have** still makes a new workflow (an open question in design.md).
+- **For Akshat to agree** (shared code, all additions): the API methods `recording`, `recordStart`, `recordStop`; the `form` phase of `record.status`; `consent` and `dir` on `record.start`; the `record.shot` message; `step` and `draft` on an inbox question (`service.ask`, `types.ts`); `StepTree`, `Question` and the Frequency fields shared in the window; the changed sections of design.md and the note in doc 13.
