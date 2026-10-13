@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isAction, Skill, triggerOf } from "@shadow/core";
 import { createDecoder, encode } from "@shadow/ipc";
+import { fakeLlm } from "@shadow/llm";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApi } from "./api.ts";
 import { type Daemon, startDaemon } from "./daemon.ts";
-import { finishRecording } from "./record.ts";
+import { finishRecording, unattendedGaps } from "./record.ts";
 import { createRecordControl, type RecordControlOptions } from "./record-control.ts";
 import {
   type RecordingMeta,
@@ -261,5 +262,114 @@ describe("keeping a recording for a day", () => {
     await control.stop();
     expect(readMeta(home, "s1")).toMatchObject({ outcome: "saved", skillId: "x-abc123" });
     expect(readMeta(home, "s1").savedAt).toBeGreaterThanOrEqual(readMeta(home, "s1").stoppedAt ?? Infinity);
+  });
+});
+
+describe("after Stop, with a model", () => {
+  // A recording of typing the week into a timesheet, on a weekly Frequency. The first draft (one model call) declares
+  // the week as an input without a default (a value typed into a step would have been kept as its default); a run
+  // started by the schedule would have nobody to ask.
+  async function recorded(home: string) {
+    const sessionId = "w1";
+    writeForm(home, sessionId, {
+      goal: "This week's hours are logged",
+      changes: ["the week"],
+      constants: [],
+      never: [],
+      when: [{ type: "schedule", cron: "0 17 * * 5", missed: "run_once" }],
+      consent: { screen: false, microphone: false },
+    });
+    const field = { ...button("Week", "week"), tag: "input", role: "textbox", name: "Week" };
+    appendTrace(home, { id: "e1", sessionId, at: 1000, event: "type", url: PAGE, target: field, value: "2026-W41" });
+    appendTrace(home, { id: "e2", sessionId, at: 3000, event: "click", url: PAGE, target: button("Save", "save") });
+    const compileReply = JSON.stringify({
+      id: "log-hours",
+      intent: "Log the week's hours",
+      inputs: { week: { type: { type: "text" }, description: "the ISO week" } },
+    });
+    return { sessionId, compileReply };
+  }
+  const call = (name: string, args: unknown) => ({ toolCalls: [{ name, arguments: args }] });
+
+  it("the design agent fills what a scheduled run needs, asks on the step, and its work is kept with the recording", async () => {
+    const home = temp();
+    const { sessionId, compileReply } = await recorded(home);
+    const llm = fakeLlm([
+      compileReply,
+      call("finish", { summary: "too early" }),
+      call("ask_user", { question: "Which week should a scheduled run log?", default: "the current week", step: "s2" }),
+      call("edit", {
+        edits: [
+          {
+            op: "set",
+            step: "start",
+            field: "inputs",
+            value: { week: { type: { type: "text" }, description: "the ISO week", default: "{{today}}" } },
+          },
+        ],
+      }),
+      call("finish", { summary: "A scheduled run logs the current week" }),
+    ]);
+    const asked: { id: string; step?: string }[] = [];
+    const saved = await finishRecording(sessionId, {
+      dataDir: home,
+      llm,
+      log: () => {},
+      design: { protocol: "tools" },
+      prompter: {
+        ask: async (q, about) => {
+          asked.push({ id: q.id, step: about?.step });
+          return "";
+        },
+      },
+    });
+    expect(asked).toEqual([{ id: "design-1", step: "s2" }]);
+    const skill = saved?.skill as Skill;
+    expect(triggerOf(skill).inputs.week?.default).toBe("{{today}}");
+    expect(skill.history[0]?.summary).toBe("Recorded; A scheduled run logs the current week");
+    const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
+    expect(kept).toMatchObject({ summary: "A scheduled run logs the current week", turns: 4 });
+  });
+
+  it("when the agent can't finish, the first draft is kept and the missing default is asked for", async () => {
+    const home = temp();
+    const { sessionId, compileReply } = await recorded(home);
+    const llm = fakeLlm([compileReply, call("workflow", {})]);
+    const asked: string[] = [];
+    const saved = await finishRecording(sessionId, {
+      dataDir: home,
+      llm,
+      log: () => {},
+      design: { protocol: "tools", budget: { turns: 1 } },
+      prompter: {
+        ask: async (q) => {
+          asked.push(q.id);
+          return q.id === "default-week" ? "2026-W42" : "";
+        },
+      },
+    });
+    expect(asked).toContain("default-week");
+    expect(triggerOf(saved?.skill as Skill).inputs.week?.default).toBe("2026-W42");
+    expect(saved?.skill.history[0]?.summary).toBe("Recorded");
+  });
+
+  it("never asks for a password, and never gives one a default", () => {
+    const skill = Skill.parse({
+      id: "login",
+      name: "Log in",
+      version: 1,
+      description: { goal: "Logged in" },
+      steps: [
+        {
+          id: "start",
+          type: "trigger",
+          intent: "On its trigger",
+          when: [{ type: "schedule", cron: "0 9 * * *", missed: "run_once" }],
+          inputs: { password: { type: { type: "secret" } }, user: { type: { type: "text" } } },
+        },
+        { id: "s1", type: "action", intent: "Open", channel: "web", action: "navigate", args: { url: PAGE } },
+      ],
+    });
+    expect(unattendedGaps(skill)).toEqual([expect.stringMatching(/^input "user"/)]);
   });
 });

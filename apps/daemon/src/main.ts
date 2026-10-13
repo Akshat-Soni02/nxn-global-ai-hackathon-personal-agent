@@ -155,6 +155,7 @@ record = createRecordControl({
       llm: model,
       memory,
       locate: { searchDirs: defaultSearchDirs(watchDirs) },
+      meter: usage,
       log,
     }),
   log,

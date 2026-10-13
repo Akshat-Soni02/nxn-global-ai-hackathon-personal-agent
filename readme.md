@@ -12,7 +12,7 @@ Status on **Oct 12, 2026**. The full design is [`docs/design.md`](docs/design.md
 
 | Built | Not yet |
 | --- | --- |
-| **Recording** web pages, Mac apps (Accessibility) and file moves, turned into a workflow, with questions on what is unclear | Turning a recording into **loops and branches** (the design agent); **screenshots** (only the words read from them leave the Mac) and **voice** narration |
+| **Recording** web pages, Mac apps (Accessibility) and file moves, after a short form (goal, how often, what changes, never), turned into a workflow by the **design agent** (inputs, loops, branches, LLM steps), with questions on what is unclear | **Screenshots** (only the words read from them leave the Mac) and **voice** narration; the design agent tried on the real model |
 | **Running** the workflow tree: loops, branches, LLM steps, questions and approvals, in your own Chrome and in Mac apps | **Highlight-only test** play |
 | **Recovering** from failures on web pages: classify, repair with cheap fixes or the repair agent (Nemotron 3 Super), keep the fix as a new version, roll back | Repair of Mac-app steps; the fix shown by you recorded as the repair |
 | **The inbox**: a run that needs you waits there, even across a restart, and goes on when you answer | |
@@ -62,7 +62,7 @@ Every model call goes through `packages/llm` to **Nebius Token Factory**. Caller
 | Profile | Model | Used by |
 | --- | --- | --- |
 | `fast` | **NVIDIA Nemotron 3.5 Lightning** | The workflow's LLM steps on every run: summarise an email, read an invoice, classify a ticket. Cheap and fast ($0.06 / $0.24 per 1M tokens), thinking off, output checked against the step's type |
-| `smart` | **NVIDIA Nemotron 3 Super** | Compiling a recording into a workflow; the **repair agent** (works out why a step failed on a changed page, fixes the workflow, verifies, saves a new version); planned: the **design agent** (description, recording and transcript into a workflow tree) |
+| `smart` | **NVIDIA Nemotron 3 Super** | Compiling a recording into a first draft; the **design agent** (the description, the recording and what was said into a workflow tree with loops, branches and LLM steps, asking what is unclear); the **repair agent** (works out why a step failed on a changed page, fixes the workflow, verifies, saves a new version) |
 | `vision` | GLM-5.3-Flash | Not used yet. Recordings never send pictures, only the words read from them on the Mac; whether the repair agent may send one is open |
 
 Why Token Factory: one OpenAI-compatible API for every profile, structured JSON output with a schema, Nemotron's thinking switched on or off per call, and **Zero Data Retention**, which we require on the account so prompts are neither stored nor used for training. Details, costs and limits: [docs/design.md#models](docs/design.md#models).

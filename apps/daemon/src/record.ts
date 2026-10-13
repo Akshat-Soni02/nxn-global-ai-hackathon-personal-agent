@@ -1,17 +1,30 @@
 // Record, daemon side. While recording: every event goes to the session's trace file, web events from the extension
-// and file events from the folder watcher alike. After stop: trace -> normalise -> compile (Nemotron, with the
-// description form) -> drill -> approvals (code) -> skills/<id>/vN.json. The recording's folder is kept for a day
-// (recording-store.ts), so a failed or poor compile can be redone with `compile <session>` until then.
+// and file events from the folder watcher alike. After stop: trace -> normalise -> compile (one Nemotron call, with
+// the description form) -> the design agent (loops, branches, llm steps; it asks what is unclear) -> the questions
+// left -> what an unattended Frequency needs -> approvals (code) -> skills/<id>/vN.json. Without a model, or if the
+// agent can't finish, the compiled draft is saved. The recording's folder is kept for a day (recording-store.ts), so
+// a failed or poor result can be redone with `compile <session>` until then.
 import { randomUUID } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
-import { isAbsolute, sep } from "node:path";
-import type { Skill, TraceEvent } from "@shadow/core";
-import type { Llm } from "@shadow/llm";
+import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, sep } from "node:path";
+import { type Skill, type TraceEvent, triggerOf } from "@shadow/core";
+import type { Llm, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
-import { type Chat, compile, drill, normalise, type Prompter, requireApprovals } from "@shadow/recorder";
+import {
+  type Chat,
+  compile,
+  type DesignOptions,
+  designWorkflow,
+  drill,
+  normalise,
+  type Prompter,
+  type Question,
+  requireApprovals,
+} from "@shadow/recorder";
 import { type FsChange, watchFiles } from "./fs-watch.ts";
+import { goLiveProblems } from "./lifecycle.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
-import { readForm } from "./recording-store.ts";
+import { readForm, recordingDir } from "./recording-store.ts";
 import { newSkillId, saveSkill } from "./skill-store.ts";
 import { appendTrace, readTrace } from "./trace-store.ts";
 
@@ -75,6 +88,10 @@ export interface FinishOptions {
   locate?: LocateOptions;
   log: Log;
   now?: () => Date;
+  // Counts what the model costs (the daemon's meter).
+  meter?: UsageMeter;
+  // The design agent's budget, for tests.
+  design?: Pick<DesignOptions, "budget" | "protocol">;
 }
 
 export async function finishRecording(
@@ -117,26 +134,128 @@ export async function finishRecording(
   if (compiled.model === "nemotron") log(`model answer accepted after ${compiled.attempts} attempt(s)`);
 
   // Every recording is a new skill, even of a task you already have: its own id, so recordings never collide.
-  const skill = { ...compiled.skill, id: newSkillId(dataDir, compiled.skill.id) };
+  let skill: Skill = { ...compiled.skill, id: newSkillId(dataDir, compiled.skill.id) };
+  let questions = compiled.questions;
+  let designed: string | undefined;
 
-  if (compiled.questions.length > 0)
-    log(`${compiled.questions.length} question(s) before saving. Enter takes the default.`);
-  const drilled = await drill(skill, compiled.questions, { prompter: options.prompter, memory: options.memory });
+  // The design agent: the flat first draft -> the workflow meant. It asks its own questions (the drill).
+  if (llm) {
+    log("the design agent is reading the recording...");
+    const design = await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      memory: options.memory,
+      prompter: options.prompter,
+      // It may finish only once a run started by the Frequency could fill every input on its own.
+      checks: unattendedGaps,
+      meter: options.meter,
+      ...options.design,
+    });
+    const cost = design.episode ? `, $${design.episode.usage.costUsd.toFixed(4)}` : "";
+    if (design.kind === "designed") {
+      designed = design.summary;
+      log(`design agent: ${design.summary} (${design.episode?.turns ?? 0} turns${cost})`);
+    } else log(`design agent: ${design.reason}${cost}; keeping the first draft`);
+    skill = design.skill;
+    questions = design.pending;
+    await remember(options.memory, skill.id, design.answered);
+    keepEpisode(dataDir, sessionId, design);
+  }
+
+  if (questions.length > 0) log(`${questions.length} question(s) before saving. Enter takes the default.`);
+  const drilled = await drill(skill, questions, { prompter: options.prompter, memory: options.memory });
   for (const problem of drilled.problems) log("answer not applied:", problem);
+  const filled = await fillForUnattended(drilled.skill, options.prompter, log);
 
   // Approval on every step that sends, pays or deletes, or matches the Never list: by code, whatever was answered.
-  const approved = requireApprovals(drilled.skill);
+  const approved = requireApprovals(filled);
   if (approved.added.length > 0) log(`approval needed before: ${approved.added.join(", ")}`);
   const at = (options.now ?? (() => new Date()))().toISOString();
   const noted = approved.skill.history.length
     ? approved.skill
     : {
         ...approved.skill,
-        history: [{ version: approved.skill.version, by: "record" as const, summary: "Recorded", at }],
+        history: [
+          {
+            version: approved.skill.version,
+            by: "record" as const,
+            summary: designed ? `Recorded; ${designed}` : "Recorded",
+            at,
+          },
+        ],
       };
   const saved = saveSkill(dataDir, noted);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
   return saved;
+}
+
+// A Frequency that starts runs on their own (a schedule, a folder) needs every input filled without asking: a default
+// for each input that has no way to be found. Asked here; the workflow is saved either way, and going live says what
+// is still missing.
+// Secrets are never asked for here, nor given a default: they come from the Keychain when it runs.
+export function unattendedGaps(skill: Skill): string[] {
+  const inputs = triggerOf(skill).inputs;
+  return goLiveProblems(skill).filter((p) => {
+    const name = /^input "([^"]+)"/.exec(p)?.[1];
+    return name !== undefined && inputs[name]?.type.type !== "secret";
+  });
+}
+
+async function fillForUnattended(skill: Skill, prompter: Prompter, log: Log): Promise<Skill> {
+  let current = skill;
+  for (const [name, input] of Object.entries(triggerOf(skill).inputs)) {
+    if (!unattendedGaps(current).some((p) => p.startsWith(`input "${name}"`))) continue;
+    const example = typeof input.example === "string" ? input.example : undefined;
+    const question: Question = {
+      id: `default-${name}`,
+      text: `When it runs on its own, what should "${name}"${input.description ? ` (${input.description})` : ""} be?`,
+      appliesTo: `steps.start.inputs.${name}.default`,
+      default: example,
+    };
+    const answer = (await prompter.ask(question)).trim() || example || "";
+    if (!answer) continue;
+    const next = structuredClone(current);
+    const target = triggerOf(next).inputs[name];
+    if (target)
+      target.default = input.type.type === "number" && Number.isFinite(Number(answer)) ? Number(answer) : answer;
+    current = next;
+  }
+  const left = goLiveProblems(current);
+  if (left.length > 0) log(`it can't run on its own yet: ${left.join("; ")}`);
+  return current;
+}
+
+// Lasting answers given to the design agent go to memory, as the drill's do.
+async function remember(
+  memory: MemoryStore | undefined,
+  skillId: string,
+  answered: { question: Question; answer: string }[],
+): Promise<void> {
+  for (const { question, answer } of answered) {
+    if (memory && question.remember && answer) {
+      await memory.add({ kind: question.remember, text: `${question.text} ${answer}`, skillId });
+    }
+  }
+}
+
+// What the design agent did, turn by turn, kept with the recording (and deleted with it).
+function keepEpisode(dataDir: string, sessionId: string, design: Awaited<ReturnType<typeof designWorkflow>>): void {
+  const dir = recordingDir(dataDir, sessionId);
+  if (!existsSync(dir) || !design.episode) return;
+  const { transcript, usage, turns } = design.episode;
+  const result =
+    design.kind === "designed" ? { summary: design.summary, edits: design.edits } : { kept: design.reason };
+  writeFileSync(
+    join(dir, "design.json"),
+    `${JSON.stringify({ ...result, turns, usage, transcript }, null, 2)}
+`,
+    {
+      mode: 0o600,
+    },
+  );
 }
 
 // Compile asks the smart profile for a JSON object; compile checks the answer itself and asks again if it must.

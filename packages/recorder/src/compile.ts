@@ -125,7 +125,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
       role: "user",
       content: JSON.stringify({
         ...(form ? { description: form.description, frequency: form.when } : {}),
-        steps: forModel(steps, idsByStep),
+        steps: stepsForModel(steps, idsByStep),
         skeleton: skeletonForModel(draft),
         memory: memory.map((m) => m.text),
       }),
@@ -216,8 +216,9 @@ export function systemPrompt(): string {
   ].join("\n");
 }
 
-// The model sees what you did, by meaning: no selectors, never a secret's value.
-function forModel(steps: NormalisedStep[], idsByStep: string[][]) {
+// The model sees what you did, by meaning: no selectors, never a secret's value. Also the design agent's view of the
+// recording (design/tools.ts).
+export function stepsForModel(steps: NormalisedStep[], idsByStep: string[][]) {
   return steps.map((s, i) => ({
     ids: idsByStep[i],
     did: s.kind,

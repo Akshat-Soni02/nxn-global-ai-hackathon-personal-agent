@@ -199,6 +199,9 @@ importers:
 
   packages/recorder:
     dependencies:
+      '@shadow/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@shadow/core':
         specifier: workspace:*
         version: link:../core
