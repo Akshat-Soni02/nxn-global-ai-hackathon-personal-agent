@@ -45,6 +45,8 @@ import {
   WAIT,
   type Wait,
   type Waiting,
+  type WalkChoice,
+  walkActs,
 } from "./types.ts";
 
 export const DEFAULT_TIMEOUT_MS = 10_000;
@@ -299,7 +301,40 @@ async function runLeaf(
     return fail((error as Error).message);
   }
 
-  if (resolved.requires_approval) {
+  // A walk-through: show where the step would act, then wait for the user's choice. "do" also counts as the
+  // step's approval: they just said to do it.
+  let walked = false;
+  if (env.deps.walk) {
+    const prior = answered(env, path, "walk");
+    let choice: WalkChoice | Wait;
+    let highlighted = false;
+    if (prior) choice = prior.choice;
+    else {
+      if (isAction(resolved) && resolved.target && env.deps.highlight) {
+        highlighted = await env.deps.highlight(resolved).then(
+          () => true,
+          () => false,
+        );
+      }
+      choice = await env.deps.walk(resolved, path);
+      if (choice === WAIT) {
+        return waitFor(
+          { kind: "walk", path, stepId: step.id, intent: resolved.intent, acting: walkActs(resolved), highlighted },
+          vars,
+          given,
+        );
+      }
+    }
+    env.log({ type: "step.walk", stepId: step.id, path, choice, highlighted });
+    if (choice === "stop") return fail("you stopped the walk-through", "denied");
+    if (choice === "skip") {
+      env.log({ type: "step.skipped", stepId: step.id, path, reason: "walked past" });
+      return undefined;
+    }
+    walked = true;
+  }
+
+  if (resolved.requires_approval && !walked) {
     const approved = await approval(resolved, path, env);
     if (approved === WAIT) {
       return waitFor({ kind: "approval", path, stepId: step.id, intent: resolved.intent }, vars, given);

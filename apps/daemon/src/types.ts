@@ -43,10 +43,11 @@ export interface RunRow {
   checkpoint?: Checkpoint;
 }
 
-// approval, ask, recovery: a waiting run's step ("waiting for you"). question: a question outside a run (the drill
-// after a recording, which file to use). repaired: nothing to answer; a repair saved a new version, to review.
-// paused: a workflow paused itself after failing runs; answered by resuming it (or leaving it paused).
-export type InboxKind = "approval" | "ask" | "recovery" | "question" | "repaired" | "paused";
+// approval, ask, recovery: a waiting run's step ("waiting for you"). walk: a walk-through stopped before a step
+// (answered with do it / next, skip or stop). question: a question outside a run (the drill after a recording, which
+// file to use). repaired: nothing to answer; a repair saved a new version, to review. paused: a workflow paused
+// itself after failing runs; answered by resuming it (or leaving it paused).
+export type InboxKind = "approval" | "ask" | "recovery" | "walk" | "question" | "repaired" | "paused";
 
 export interface InboxItem {
   id: string;

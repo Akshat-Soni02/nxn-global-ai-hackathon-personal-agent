@@ -125,6 +125,8 @@ function describe(e: RunLogEvent): string {
       return `${e.path}: asked "${e.question}", answered ${JSON.stringify(e.answer)}`;
     case "step.skipped":
       return `– ${e.path} skipped (${e.reason})`;
+    case "step.walk":
+      return `${e.path}: ${e.choice === "do" ? "you said do it" : e.choice === "skip" ? "you skipped it" : "you stopped"}${e.highlighted ? "" : " (its target was not outlined)"}`;
     case "loop.start":
       return `↻ ${e.path}: ${e.items} item(s)`;
     case "loop.item_failed":

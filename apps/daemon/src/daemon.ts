@@ -162,7 +162,8 @@ export async function startDaemon(options: {
           break;
         case "run.step_result":
         case "run.check_result":
-        case "page.op_result": {
+        case "page.op_result":
+        case "ax.highlight_result": {
           const waiter = pending.get(message.id);
           if (!waiter) break;
           pending.delete(message.id);

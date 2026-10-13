@@ -44,6 +44,14 @@ export function Workflow({ id }: { id: string }) {
               </Action>
             )}
             <Action
+              run={async () => {
+                const run = await session.call<{ id: string }>("walk", { id });
+                location.hash = `#/runs/${run.id}`;
+              }}
+            >
+              Walk through
+            </Action>
+            <Action
               kind="primary"
               run={async () => {
                 const run = await session.call<{ id: string }>("start", { id });

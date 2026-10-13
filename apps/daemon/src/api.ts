@@ -42,6 +42,14 @@ const methods = {
     }),
     run: (s: Service, p: { id: string; inputs: Record<string, unknown> }) => s.start(p.id, p.inputs, "manual"),
   },
+  // A walk-through (docs/design.md, "7. Test"): a run that stops before every step with its target outlined.
+  walk: {
+    params: z.object({
+      id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "a workflow id"),
+      inputs: z.record(z.string(), z.unknown()).default({}),
+    }),
+    run: (s: Service, p: { id: string; inputs: Record<string, unknown> }) => s.walk(p.id, p.inputs),
+  },
   answer: {
     params: z.object({ itemId: id, answer: z.unknown() }),
     run: (s: Service, p: { itemId: string; answer?: unknown }) => {

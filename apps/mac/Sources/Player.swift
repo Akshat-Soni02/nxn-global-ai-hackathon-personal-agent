@@ -17,6 +17,37 @@ final class Player {
 
   private func fail(_ message: String) -> JSON { ["ok": false, "error": message] }
 
+  // A walk-through: finds the control an ax step would act on, brings its app forward and outlines it
+  // (Highlight.swift). Acts on nothing. Replies on the main thread.
+  func highlight(_ target: JSON, reply: @escaping (JSON) -> Void) {
+    queue.async {
+      let answer = { (result: JSON) in DispatchQueue.main.async { reply(result) } }
+      let attrs = target["attrs"] as? [String: String]
+      guard let bundle = attrs?["app"], !bundle.isEmpty else { return answer(self.fail("the target does not say which app")) }
+      let isSelf = bundle == Bundle.main.bundleIdentifier
+      if !isSelf && !AXIsProcessTrusted() {
+        return answer(self.fail("Shadow may not look at other apps yet: allow Accessibility first"))
+      }
+      guard let pid = self.running(bundle) else { return answer(self.fail("\(bundle) is not running")) }
+      let app = AXUIElementCreateApplication(pid)
+      AXUIElementSetMessagingTimeout(app, 2)
+      if !isSelf {
+        AX.exposeControls(of: pid)
+        _ = self.bringForward(app, pid: pid, timeout: 3)
+      }
+      switch AX.find(target, in: app) {
+      case .success(let match):
+        guard let frame = AX.frame(match.element) else { return answer(self.fail("the control has no position")) }
+        DispatchQueue.main.async {
+          Highlight.flash(frame)
+          reply(["ok": true])
+        }
+      case .failure(let error):
+        answer(self.fail(error.message))
+      }
+    }
+  }
+
   // Shadow's own window (test mode) answers the Accessibility API on its main thread: acting on it from this
   // queue does the action but reports a failure. Other apps answer across processes, from any thread.
   private func onTarget<T>(_ isSelf: Bool, _ work: () -> T) -> T {

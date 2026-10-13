@@ -4,9 +4,21 @@
 // which element it means; a ref turns into a stored Locator (role, name, attrs, a CSS fallback) through `inspect`.
 // No zod or core values here: this file is bundled into the extension.
 import type { ActionStep, Locator } from "@shadow/core";
-import { type Cdp, evaluate, sleep } from "./cdp.ts";
+import { type Cdp, callOn, evaluate, sleep } from "./cdp.ts";
 import { executeWebStep } from "./executor.ts";
-import { axNodeOf, selectAll } from "./match.ts";
+import { axNodeOf, match, selectAll } from "./match.ts";
+
+// Draws a pulsing outline over the element for `ms`, in its own layer so the page is not changed.
+const FN_HIGHLIGHT = `function (ms) {
+  const r = this.getBoundingClientRect();
+  const box = document.createElement("div");
+  box.setAttribute("data-shadow-highlight", "1");
+  box.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;border:3px solid #3b5bdb;border-radius:8px;" +
+    "box-shadow:0 0 0 4px rgba(59,91,219,0.25), 0 0 24px rgba(59,91,219,0.45);transition:opacity .3s;" +
+    "left:" + (r.left - 6) + "px;top:" + (r.top - 6) + "px;width:" + (r.width + 12) + "px;height:" + (r.height + 12) + "px;";
+  document.documentElement.appendChild(box);
+  setTimeout(() => { box.style.opacity = "0"; setTimeout(() => box.remove(), 300); }, ms);
+}`;
 
 export type PageOp =
   // The page as an indented list of headings, dialogs, forms and controls (hidden file inputs included).
@@ -23,7 +35,11 @@ export type PageOp =
   | { op: "scroll"; ref?: string; direction?: "down" | "up" }
   | { op: "back" }
   | { op: "navigate"; url: string }
-  | { op: "wait"; ms: number };
+  | { op: "wait"; ms: number }
+  // A walk-through (docs/design.md, "7. Test"): outlines the step's target on the page for a moment, acting on nothing.
+  | { op: "highlight"; target: Locator; ms?: number }
+  // A picture of the page as it is, as a JPEG data URL. The daemon masks it before anything else sees it.
+  | { op: "screenshot" };
 
 export type PageOpResult = { ok: true; value: unknown } | { ok: false; error: string };
 
@@ -89,6 +105,18 @@ export async function pageOp(cdp: Cdp, op: PageOp): Promise<PageOpResult> {
       case "wait":
         await sleep(Math.min(op.ms, 15_000));
         return { ok: true, value: "waited" };
+      case "highlight": {
+        const found = await match(cdp, { ...op.target, fallbacks: op.target.fallbacks ?? [] });
+        if (found.status !== "found")
+          return { ok: false, error: `target ${found.status === "ambiguous" ? "is ambiguous" : "not found"}` };
+        await cdp.send("DOM.scrollIntoViewIfNeeded", { backendNodeId: found.best.backendNodeId }).catch(() => {});
+        await callOn(cdp, found.best.backendNodeId, FN_HIGHLIGHT, Math.min(op.ms ?? 1_500, 10_000));
+        return { ok: true, value: "highlighted" };
+      }
+      case "screenshot": {
+        const { data } = await cdp.send<{ data: string }>("Page.captureScreenshot", { format: "jpeg", quality: 60 });
+        return { ok: true, value: `data:image/jpeg;base64,${data}` };
+      }
     }
   } catch (error) {
     return { ok: false, error: (error as Error).message };

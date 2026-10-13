@@ -105,6 +105,30 @@ function Answer({ item }: { item: InboxItem }) {
       </>
     );
   }
+  if (item.kind === "walk") {
+    const w = item.detail.waiting as { acting?: boolean; highlighted?: boolean } | undefined;
+    return (
+      <>
+        <p className="detail">
+          {w?.highlighted
+            ? "Its target is outlined in the automation window. "
+            : "Its target could not be outlined (not on the page yet?). "}
+          {w?.acting
+            ? "This step would act (click, type, send): Do it runs it, Skip passes over it."
+            : "This step only reads or opens a page: Next runs it."}
+        </p>
+        <div className="answers">
+          <Action kind="primary" run={() => answer(w?.acting ? "do it" : "next")}>
+            {w?.acting ? "Do it" : "Next"}
+          </Action>
+          <Action run={() => answer("skip")}>Skip</Action>
+          <Action kind="danger" run={() => answer("stop")} confirm="Stop the walk-through?">
+            Stop
+          </Action>
+        </div>
+      </>
+    );
+  }
   if (item.kind === "paused") {
     return (
       <>

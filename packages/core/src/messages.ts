@@ -3,7 +3,7 @@
 // Only the extension can open this connection (Chrome launches the native host), so it connects on startup and
 // keeps the port open; the daemon can then send to it at any time. Add new message types here so both sides stay in sync.
 import { z } from "zod";
-import { ActionStep, Check } from "./skill.ts";
+import { ActionStep, Check, Locator } from "./skill.ts";
 import { TraceEvent } from "./trace.ts";
 
 export const NATIVE_HOST_NAME = "com.shadow.daemon";
@@ -115,6 +115,9 @@ export const Message = z.discriminatedUnion("type", [
   }),
   // daemon -> extension: the run is over; detach the debugger
   z.object({ ...base, type: z.literal("run.end"), runId: z.string() }),
+  // daemon -> Shadow.app: a walk-through shows where an ax step would act (Highlight.swift), acting on nothing.
+  z.object({ ...base, type: z.literal("ax.highlight"), target: Locator }),
+  z.object({ ...base, type: z.literal("ax.highlight_result"), ok: z.boolean(), error: z.string().optional() }),
 
   // The daemon's API (apps/daemon/src/api.ts), for any client on the socket (Shadow.app, tools). Replies reuse the id.
   z.object({ ...base, type: z.literal("api.call"), method: z.string(), params: z.unknown().optional() }),

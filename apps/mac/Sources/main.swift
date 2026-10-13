@@ -164,6 +164,16 @@ final class AppMain: NSObject, NSApplicationDelegate {
         let outcome = result["ok"] as? Bool == true ? "ok" : (result["error"] as? String ?? "failed")
         log("ran \(step["id"] as? String ?? "?") \(step["action"] as? String ?? "?"): \(outcome)")
       }
+    case "ax.highlight":
+      // A walk-through: outline the control an ax step would act on (Highlight.swift), acting on nothing.
+      guard let target = message["target"] as? JSON else { return }
+      let id = message["id"] as? String ?? ""
+      player.highlight(target) { [weak self] result in
+        var reply = result
+        reply["id"] = id
+        reply["type"] = "ax.highlight_result"
+        self?.link.send(reply)
+      }
     case "api.result":
       if let id = message["id"] as? String { calls.removeValue(forKey: id)?(message) }
     case "api.event":

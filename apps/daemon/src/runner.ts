@@ -35,6 +35,8 @@ export interface RunHooks {
   approve: RunDeps["approve"];
   // A step's question for you (an ask); WAIT too.
   ask?: RunDeps["ask"];
+  // A walk-through: every step waits for you (WAIT too), after its target was outlined on the page or in the app.
+  walk?: RunDeps["walk"];
   log(event: RunLogEvent): void;
   // data.pick steps (see dataChannel in @shadow/player/node).
   data?: ChannelExecutor;
@@ -122,6 +124,23 @@ export async function runSkillOn(
     return reply.ok ? { ok: true, value: reply.value } : { ok: false, error: reply.error ?? "failed" };
   };
 
+  // A walk-through outlines where a step would act: on the page through the extension, in a Mac app through
+  // Shadow.app. Acting on nothing.
+  const highlight = async (step: ActionStep): Promise<void> => {
+    if (!step.target) return;
+    if (step.channel === "web") {
+      const result = await page({ op: "highlight", target: step.target });
+      if (!result.ok) throw new Error(result.error);
+      return;
+    }
+    if (step.channel === "ax") {
+      if (!daemon.mac().connected) throw new Error("Shadow.app is not running");
+      const reply = await daemon.requestMac({ id: randomUUID(), type: "ax.highlight", target: step.target }, 15_000);
+      if (reply.type !== "ax.highlight_result") throw new Error(`unexpected reply ${reply.type}`);
+      if (!reply.ok) throw new Error(reply.error ?? "could not highlight the control");
+    }
+  };
+
   try {
     const deps: RunDeps = {
       web,
@@ -141,6 +160,8 @@ export async function runSkillOn(
       ax,
       approve: hooks.approve,
       ask: hooks.ask,
+      walk: hooks.walk,
+      highlight: hooks.walk ? highlight : undefined,
       log,
     };
     const resume = options.resume;

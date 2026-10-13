@@ -118,13 +118,18 @@ const execute: Execute = (skill, leg) =>
       llm,
       approve: leg.hooks.approve,
       ask: leg.hooks.ask,
+      // A walk-through: every step waits for you, with its target outlined. A failing step just fails: nothing is
+      // repaired while you are looking.
+      walk: leg.walk ? leg.hooks.walk : undefined,
       // A failed step pauses the run: repair, then resume (docs/design.md, section 9).
-      recovery: {
-        repairer: createRepairer({ llm: model, meter: usage }),
-        memory,
-        saveVersion: (repaired) => saveSkill(home, repaired).skill,
-        waitForUser: leg.hooks.waitForUser,
-      },
+      recovery: leg.walk
+        ? undefined
+        : {
+            repairer: createRepairer({ llm: model, meter: usage }),
+            memory,
+            saveVersion: (repaired) => saveSkill(home, repaired).skill,
+            waitForUser: leg.hooks.waitForUser,
+          },
     },
     join(home, "runs"),
   );
