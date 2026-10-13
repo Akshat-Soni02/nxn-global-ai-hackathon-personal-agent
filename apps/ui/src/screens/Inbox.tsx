@@ -1,10 +1,12 @@
 // Everything that waits for the user (apps/daemon/src/store.ts, the inbox), answered here: an approval, a step's
 // question, a run that needs the user (retry, skip, stop), a question outside a run, or a repair to review.
+import type { Skill } from "@shadow/core";
 import type { InboxItem } from "@shadow/daemon/src/types.ts";
 import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Empty, Loading } from "../components.tsx";
 import { ago, KIND, when } from "../format.ts";
+import { StepTree } from "./Workflow.tsx";
 
 export function Inbox() {
   const { data, error } = useQuery<InboxItem[]>("inbox", { open: true });
@@ -23,7 +25,7 @@ export function Inbox() {
         <div className="cards">
           {/* Oldest first: the inbox is a queue. */}
           {[...data].reverse().map((item) => (
-            <Card key={item.id} item={item} />
+            <Question key={item.id} item={item} />
           ))}
         </div>
       )}
@@ -31,8 +33,25 @@ export function Inbox() {
   );
 }
 
-// One item with its answers; the Record screen shows its own questions with it.
-export function Card({ item }: { item: InboxItem }) {
+// An item; a question about a draft workflow (the design agent's drill) is shown next to the draft, its step marked.
+export function Question({ item }: { item: InboxItem }) {
+  const draft = item.detail.draft as Skill | undefined;
+  if (!draft?.steps) return <Card item={item} />;
+  return (
+    <div className="drill">
+      <div className="drill-draft">
+        <div className="muted small">
+          The workflow so far{item.detail.step ? `: the question is about ${item.detail.step}` : ""}
+        </div>
+        <StepTree steps={draft.steps} highlight={item.detail.step as string | undefined} />
+      </div>
+      <Card item={item} />
+    </div>
+  );
+}
+
+// One item with its answers.
+function Card({ item }: { item: InboxItem }) {
   return (
     <article className={`card kind-${item.kind}`} id={`item-${item.id}`}>
       <div className="card-meta">

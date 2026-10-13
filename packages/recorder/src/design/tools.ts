@@ -71,8 +71,12 @@ const originOf = (url: unknown): string | undefined => {
   }
 };
 
+// Steps the agent may add: they only read or open a page the recording visited; they change nothing.
+const READ_ONLY = new Set(["fs.find", "fs.read", "data.pick", "web.extract", "web.wait_for", "web.navigate"]);
+
 // Every way the draft breaks the rules, as sentences the agent reads; empty when it may be kept.
 //   targets       only from the recording: no new control, and no control changed
+//   actions       a new step may only read (READ_ONLY); a recorded step keeps its kind of action
 //   reach         no script steps, no navigating to a site the recording didn't visit
 //   the user's    the form's description and Frequency stay as written
 //   safety        approval is never turned off, and a step that needs it is never removed
@@ -99,6 +103,16 @@ export function designViolations(original: Skill, draft: Skill, form?: Form): st
   for (const step of after.values()) {
     if (!isAction(step)) continue;
     const old = before.get(step.id);
+    const kind = `${step.channel}.${step.action}`;
+    if (!old && !READ_ONLY.has(kind)) {
+      problems.push(
+        `${step.id}: a new ${kind} step would do something the user didn't show. Only steps that read (${[...READ_ONLY].join(", ")}) can be added; ask the user to show the rest`,
+      );
+    } else if (old && (!isAction(old) || `${old.channel}.${old.action}` !== kind)) {
+      problems.push(
+        `${step.id}: a recorded step keeps its kind of action (it was ${isAction(old) ? `${old.channel}.${old.action}` : old.type})`,
+      );
+    }
     if (step.target && !recorded.has(keyOf(step.target))) {
       problems.push(
         `${step.id}: its target is not one you recorded. Targets come only from the recording: if a step needs a control the user didn't use, ask them`,

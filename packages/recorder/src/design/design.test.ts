@@ -117,6 +117,31 @@ describe("the design agent", () => {
           },
         ],
       }),
+      // Steps with no control to click can still act: they may only be added if they only read.
+      call("edit", {
+        edits: [
+          {
+            op: "insert",
+            at: { after: "s3" },
+            step: { type: "action", intent: "Press Enter", channel: "web", action: "press", args: { key: "Enter" } },
+          },
+        ],
+      }),
+      call("edit", {
+        edits: [
+          {
+            op: "replace",
+            step: "s1",
+            with: {
+              type: "action",
+              intent: "Move it",
+              channel: "fs",
+              action: "move",
+              args: { from: "~/a", to: "~/b/" },
+            },
+          },
+        ],
+      }),
       call("finish", { summary: "nothing" }),
     ]);
     const outcome = await designWorkflow({
@@ -135,6 +160,8 @@ describe("the design agent", () => {
     expect(said[2]).toMatch(/needs approval can't be removed/);
     expect(said[3]).toMatch(/the Frequency is the user's/);
     expect(said[4]).toMatch(/only open a site the recording visited/);
+    expect(said[5]).toMatch(/a new web.press step would do something the user didn't show/);
+    expect(said[6]).toMatch(/a recorded step keeps its kind of action \(it was web.navigate\)/);
   });
 
   it("builds a loop over files and an llm step from the recorded steps", async () => {

@@ -335,7 +335,7 @@ The same runtime, its own tools (`packages/recorder/src/design/`):
 | Kind | Tools | Guard |
 | --- | --- | --- |
 | **Look** | `read_description`, `read_trace(from, to)` (the recorded steps by meaning, each with the transcript and the masked screen text from around it), `workflow(step)`, `recall(query)` | Read-only |
-| **Edit the draft** | `edit` (a list of edit operations), `wrap_in_loop`, `wrap_in_branch`, `add_llm_step` | Targets only from the recording (no `retarget`, no new target the recording doesn't have); navigation only to sites the recording visited; no script steps; the user's description and Frequency never change; approval never turned off. The edited workflow must parse and pass `check.ts` |
+| **Edit the draft** | `edit` (a list of edit operations), `wrap_in_loop`, `wrap_in_branch`, `add_llm_step` | Targets only from the recording (no `retarget`, no new target the recording doesn't have); a new step may only read (`fs.find`, `fs.read`, `data.pick`, `web.extract`, `web.wait_for`, or `web.navigate` to a site the recording visited), and a recorded step keeps its kind of action; no script steps; the user's description and Frequency never change; approval never turned off. The edited workflow must parse and pass `check.ts` |
 | **Check** | `validate`: what `check.ts` says, plus inputs a schedule or a folder trigger could not fill on its own | Read-only |
 | **Ask** | `ask_user(question, options, default, step)`: the drill. The question goes to the inbox, shown on the draft tree, and the agent reads the answer. At most 5 per recording | Lasting answers go to memory |
 | **Finish** | `finish(summary)`, refused while `validate` reports a problem | Ends the episode |
