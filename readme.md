@@ -12,7 +12,7 @@ Status on **Oct 12, 2026**. The full design is [`docs/design.md`](docs/design.md
 
 | Built | Not yet |
 | --- | --- |
-| **Recording** web pages, Mac apps (Accessibility) and file moves, after a short form (goal, how often, what changes, never), turned into a workflow by the **design agent** (inputs, loops, branches, LLM steps), with questions on what is unclear | **Screenshots** (only the words read from them leave the Mac) and **voice** narration; the design agent tried on the real model |
+| **Recording** web pages, Mac apps (Accessibility) and file moves, after a short form (goal, how often, what changes, never), with optional **screenshots** (only the words read on the Mac, masked, leave it) and **narration** (turned into text on the Mac), turned into a workflow by the **design agent** (inputs, loops, branches, LLM steps), with questions on what is unclear | Screenshots and narration tried by a person with macOS's permissions; the design agent tried on the real model |
 | **Running** the workflow tree: loops, branches, LLM steps, questions and approvals, in your own Chrome and in Mac apps | **Highlight-only test** play |
 | **Recovering** from failures on web pages: classify, repair with cheap fixes or the repair agent (Nemotron 3 Super), keep the fix as a new version, roll back | Repair of Mac-app steps; the fix shown by you recorded as the repair |
 | **The inbox**: a run that needs you waits there, even across a restart, and goes on when you answer | |
@@ -36,7 +36,7 @@ flowchart LR
 ```
 
 1. **Describe.** A short form before recording: **Goal** (required), **Frequency** (becomes the trigger; default: only when you start it), and optionally **What changes each run**, **What stays the same** and **Never**. These answers separate variables from constants, and steps matching Never always wait for your approval.
-2. **Record.** You do the task your usual way while Shadow records **events** in Chrome, Mac apps and Finder. Planned, with your consent: **a screenshot at each event**, of which only the words read on the Mac (private ones masked) leave it ([how](#privacy)), and **voice narration** transcribed on the Mac (the audio never leaves it).
+2. **Record.** You do the task your usual way while Shadow records **events** in Chrome, Mac apps and Finder. With your consent: **a screenshot at each event**, of which only the words read on the Mac (private ones masked) leave it ([how](#privacy)), and **voice narration** turned into text on the Mac (the audio never leaves it).
 3. **Understand.** Nemotron 3 Super turns the events (and, later, the description, transcript and screenshot descriptions) into a **workflow**: a click on an email becomes "the newest email from this sender", changing values become variables. Turning repetition into a loop is planned.
 4. **Drill.** Questions only on the steps it is unsure about; answers go to memory.
 5. **Workflow tree.** Each step is a browser or Mac action, or an **LLM step** that transforms data (summarise, classify, read a document). LLM steps never drive the UI. The tree also has **variables**, **loops** and **branches**, and any step can **ask you** something or need your **approval** before it runs.
@@ -73,7 +73,7 @@ Why Token Factory: one OpenAI-compatible API for every profile, structured JSON 
 - **Only text goes to the model**: the recorded events without sensitive values, the failing step and a page outline for repair. Secret values are never logged or sent.
 - **Local doors are locked**: the daemon's socket only accepts your macOS user; its HTTP API listens only on `127.0.0.1` and needs a token made at every start, which only you can read ([how](docs/guide/13-the-whole-picture.md)).
 - **Risky steps wait for you**: steps that send, submit, pay or delete ask for approval, and repair can never add them.
-- **Planned with screenshots and voice**: separate consent for each. Pictures and audio never leave the Mac: only the words read from a screenshot on the Mac (with emails, phone and card numbers, IBANs, API keys and your "Never" words masked) and the narration's text go to the model. Raw recordings are deleted 24 hours after the workflow is saved.
+- **Screenshots and voice**: separate consent for each, on the Record form. Pictures and audio never leave the Mac: only the words read from a screenshot on the Mac (with emails, phone and card numbers, IBANs, API keys and your "Never" words masked) and the narration's text go to the model. Raw recordings are deleted 24 hours after the workflow is saved.
 
 Details: [docs/design.md#consent-redaction-and-retention](docs/design.md#consent-redaction-and-retention).
 

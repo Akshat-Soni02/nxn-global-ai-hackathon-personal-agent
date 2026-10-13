@@ -49,6 +49,10 @@ execFileSync(
     "Vision",
     "-framework",
     "ScreenCaptureKit",
+    "-framework",
+    "Speech",
+    "-framework",
+    "AVFoundation",
   ],
   { stdio: "inherit" },
 );

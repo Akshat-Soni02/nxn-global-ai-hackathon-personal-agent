@@ -25,6 +25,11 @@
        Accessibility), so a file moved on an external drive is recorded. -->
   <key>NSAppleEventsUsageDescription</key>
   <string>Shadow asks Finder which folder a window shows, so files you move there during a recording are recorded.</string>
+  <!-- Shown the first time a recording's form allows narration. The audio stays on this Mac; only its text is used. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Shadow records your voice while you explain a task, turns it into text on this Mac, and deletes the audio a day later. The audio never leaves your Mac.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Shadow turns your narration into text on this Mac, to understand the task you recorded.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
 </dict>

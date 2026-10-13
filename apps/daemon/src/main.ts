@@ -47,6 +47,7 @@ import { findSkills, listSkills, saveSkill, versions } from "./skill-store.ts";
 import { type InboxItem, openStore, type RunRow } from "./store.ts";
 import { listTraces } from "./trace-store.ts";
 import { startTriggers } from "./triggers.ts";
+import { transcribeRecording, transcriberFrom } from "./voice.ts";
 
 // NEBIUS_API_KEY (and optional model overrides) from the repo's .env, if there is one (see .env.example).
 try {
@@ -164,13 +165,21 @@ screen = createScreenReader({
   log,
 });
 const screenReader = screen;
+const transcribe = transcriberFrom(macBinary);
 record = createRecordControl({
   dataDir: home,
   daemon,
   ask: (question) => service.ask(question),
   finish: async (sessionId) => {
-    // Every screenshot is read and masked before the recording becomes a workflow.
+    // Every screenshot is read and masked, and the narration turned into text, before the recording becomes a workflow.
     await screenReader.idle();
+    await transcribeRecording({
+      dataDir: home,
+      sessionId,
+      transcribe,
+      never: readForm(home, sessionId)?.never ?? [],
+      log,
+    });
     return finishRecording(sessionId, {
       dataDir: home,
       prompter,

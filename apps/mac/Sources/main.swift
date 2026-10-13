@@ -12,6 +12,7 @@
 //            --fixture --state <file>   test mode: a timesheet window inside the app and a scripted user (Fixture.swift)
 //            --snapshot <dir>  draw each look of the button to PNG files and exit
 //            --ocr <image> | --redact <image> <boxes.json>   read or black out text in a picture, and exit (Screen.swift)
+//            --transcribe <audio>   turn narration into text on the Mac, and exit (Voice.swift)
 //            --log <file>      append diagnostics to a file (an app started by `open` has no terminal)
 import AppKit
 import ApplicationServices
@@ -55,6 +56,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
   var recordingDir: String?
   var screenConsent = false
   var lastShot = Date.distantPast
+  let voice = Voice()
   var trusted = AXIsProcessTrusted()
   var everConnected = false
   // The daemon's API over the socket (api.call): replies by request id.
@@ -124,6 +126,13 @@ final class AppMain: NSObject, NSApplicationDelegate {
       sessionId = message["sessionId"] as? String
       recordingDir = message["dir"] as? String
       screenConsent = (message["consent"] as? JSON)?["screen"] as? Bool ?? false
+      // Narration, when the form allowed the microphone; only once per recording (record.start comes again to a
+      // connection that joins late).
+      if (message["consent"] as? JSON)?["microphone"] as? Bool == true, let dir = recordingDir,
+        !FileManager.default.fileExists(atPath: (dir as NSString).appendingPathComponent("voice.json"))
+      {
+        voice.start(dir: dir)
+      }
       let started = (message["startedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
       recorder.start()
       panel.recording(since: started)
@@ -132,6 +141,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
       sessionId = nil
       recordingDir = nil
       screenConsent = false
+      voice.stop()
       panel.stopped()
       fixture?.reset()
     case "record.status":
@@ -264,6 +274,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
 }
 
 if Screen.runCommand(arguments) { exit(0) }
+Voice.runCommand(arguments)
 
 if let dir = argument("--snapshot") {
   _ = NSApplication.shared
