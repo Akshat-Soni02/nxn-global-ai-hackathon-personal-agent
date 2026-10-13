@@ -9,7 +9,7 @@
 // One leg acts at a time (there is one automation window): legs queue behind each other. Waiting runs hold nothing.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { applyEdits, Skill, triggerOf } from "@shadow/core";
+import { applyEdits, describeEdit, type EditInput, Skill, triggerOf } from "@shadow/core";
 import {
   type Answer,
   type Resume,
@@ -19,11 +19,12 @@ import {
   type Wait,
   type Waiting,
 } from "@shadow/player";
+import { deleteDraft, draftSkill, readDraft, writeDraft } from "./draft-store.ts";
 import { goLiveProblems, nextTime, readState, triggerKey, writeState } from "./lifecycle.ts";
 import { newRunId } from "./runner.ts";
 import { listSkills, loadSkill, rollbackSkill, saveSkill, versions } from "./skill-store.ts";
 import type { Checkpoint, InboxItem, RunRow, RunState, Store } from "./store.ts";
-import type { Question, ServiceEvent, StateFile, WorkflowSummary } from "./types.ts";
+import type { DraftView, Question, ServiceEvent, StateFile, WorkflowSummary } from "./types.ts";
 
 // Auto-pause (docs/design.md, "Workflow lifecycle"): this many failed runs in a row, started by the trigger.
 export const AUTO_PAUSE_AFTER = 3;
@@ -36,8 +37,10 @@ export type Execute = (
     runId: string;
     provided: Record<string, unknown>;
     resume?: Resume;
+    // A walk-through (docs/design.md, "7. Test"): every step waits for the user, with its target highlighted.
+    walk: boolean;
     log(event: RunLogEvent): void;
-    hooks: { approve(): Promise<Wait>; ask(): Promise<Wait>; waitForUser(): Promise<Wait> };
+    hooks: { approve(): Promise<Wait>; ask(): Promise<Wait>; waitForUser(): Promise<Wait>; walk(): Promise<Wait> };
   },
 ) => Promise<RunOutcome>;
 
@@ -66,6 +69,9 @@ export interface Service {
   health(): Record<string, unknown>;
   // Starts a run: a workflow id from the store, or the absolute path of a workflow file. Resolves when it is queued.
   start(ref: string, provided?: Record<string, unknown>, trigger?: string): RunRow;
+  // Walks through a workflow: a run that stops before every step with its target highlighted, and goes on with
+  // "do it" / "next", "skip" or "stop" from the inbox. Reads run on "next"; acting steps only on "do it".
+  walk(id: string, provided?: Record<string, unknown>): RunRow;
   // Answers an inbox item. A waiting run's item makes the run go on (queued). Throws when it can't be answered.
   answer(itemId: string, answer: unknown): void;
   cancel(runId: string): RunRow;
@@ -88,6 +94,16 @@ export interface Service {
   fire(skillId: string, trigger: "schedule" | "folder", provided?: Record<string, unknown>): RunRow;
   // The workflow's run that is still going or waiting for the user, if any.
   busy(skillId: string): RunRow | undefined;
+  // The editor (docs/design.md, "6. Edit"): a draft beside the workflow, as a base version plus edit operations,
+  // autosaved after every change. editDraft refuses an edit the workflow can't take (check.ts) and says why.
+  draft(id: string): DraftView;
+  editDraft(id: string, edits: EditInput[]): DraftView;
+  undoDraft(id: string): DraftView;
+  redoDraft(id: string): DraftView;
+  discardDraft(id: string): DraftView;
+  // Saves the draft as the next version (by: user) and drops the draft. A live workflow's new version must pass the
+  // go-live checks.
+  publishDraft(id: string, summary?: string): { version: number };
   // Resolves when no leg is queued or acting (tests, shutdown).
   idle(): Promise<void>;
 }
@@ -107,7 +123,7 @@ export function createService(options: ServiceOptions): Service {
     queue = queue.then(work).catch(() => {});
   };
   const wait = async (): Promise<Wait> => WAIT;
-  const hooks = { approve: wait, ask: wait, waitForUser: wait };
+  const hooks = { approve: wait, ask: wait, waitForUser: wait, walk: wait };
 
   const updateRun = (id: string, patch: Partial<Omit<RunRow, "id">>) => {
     const run = store.updateRun(id, patch);
@@ -131,7 +147,15 @@ export function createService(options: ServiceOptions): Service {
     throw new Error(`${skillId} v${version} is no longer available`);
   };
 
-  async function leg(run: RunRow, skill: Skill, provided: Record<string, unknown>, resume?: Resume, file?: string) {
+  async function leg(
+    run: RunRow,
+    skill: Skill,
+    provided: Record<string, unknown>,
+    resume?: Resume,
+    file?: string,
+    // A walk-through of a draft: the tree itself goes into the checkpoint, since no version holds it.
+    tree?: Skill,
+  ) {
     let version = skill.version;
     let repaired = run.repaired;
     const before = spent();
@@ -141,6 +165,7 @@ export function createService(options: ServiceOptions): Service {
         runId: run.id,
         provided,
         resume,
+        walk: run.trigger === "walk",
         hooks,
         log: (event) => {
           if (event.type === "repair" && event.outcome === "commit" && event.version !== undefined) {
@@ -165,6 +190,7 @@ export function createService(options: ServiceOptions): Service {
     if (outcome.status === "waiting" && outcome.waiting && outcome.resume) {
       const checkpoint: Checkpoint = { version, inputs: provided, resume: outcome.resume, waiting: outcome.waiting };
       if (file) checkpoint.file = file;
+      if (tree) checkpoint.skill = tree;
       updateRun(run.id, { status: "waiting", version, repaired, costUsd, checkpoint, failedStep: outcome.failedStep });
       addItem({ ...itemFor(outcome.waiting), runId: run.id, skillId: run.skillId, path: outcome.waiting.path });
       return;
@@ -179,7 +205,7 @@ export function createService(options: ServiceOptions): Service {
       error: outcome.error,
       checkpoint: undefined,
     });
-    if (run.trigger !== "manual") autoPause(run.skillId);
+    if (run.trigger !== "manual" && run.trigger !== "walk") autoPause(run.skillId);
   }
 
   // ── The lifecycle (lifecycle.ts): draft, live, paused ──
@@ -208,7 +234,9 @@ export function createService(options: ServiceOptions): Service {
     if (readState(dataDir, id).state !== "live") return;
     const finished = store
       .listRuns({ skillId: id, limit: 50 })
-      .filter((r) => r.trigger !== "manual" && !["running", "waiting", "skipped"].includes(r.status));
+      .filter(
+        (r) => r.trigger !== "manual" && r.trigger !== "walk" && !["running", "waiting", "skipped"].includes(r.status),
+      );
     let streak = 0;
     for (const r of finished) {
       if (r.status !== "failed" && r.status !== "interrupted") break;
@@ -224,6 +252,23 @@ export function createService(options: ServiceOptions): Service {
       detail: { reason, options: ["resume", "keep paused"] },
     });
   }
+  // The draft as the editor shows it: without a draft file, the latest version with nothing changed.
+  const draftView = (id: string): DraftView => {
+    const current = latest(id);
+    const found = draftSkill(dataDir, id);
+    const skill = found?.skill ?? current;
+    return {
+      id,
+      base: found?.draft.base ?? current.version,
+      latest: current.version,
+      skill,
+      changes: (found?.draft.ops ?? []).map(describeEdit),
+      canUndo: (found?.draft.ops.length ?? 0) > 0,
+      canRedo: (found?.draft.undone.length ?? 0) > 0,
+      problems: goLiveProblems(skill),
+    };
+  };
+
   // When a live workflow next starts on its own: the soonest of its schedules.
   const nextRunAt = (skill: Skill, state: StateFile): number | undefined => {
     if (state.state !== "live") return undefined;
@@ -295,7 +340,9 @@ export function createService(options: ServiceOptions): Service {
 
     start(ref, provided = {}, trigger = "manual") {
       const file = ref.endsWith(".json") ? ref : undefined;
-      const skill = file ? Skill.parse(JSON.parse(readFileSync(file, "utf8"))) : loadSkill(dataDir, ref);
+      // A walk-through walks the draft when there is one: that is what the editor's Walk through is for.
+      const draft = !file && trigger === "walk" ? draftSkill(dataDir, ref)?.skill : undefined;
+      const skill = file ? Skill.parse(JSON.parse(readFileSync(file, "utf8"))) : (draft ?? loadSkill(dataDir, ref));
       if (!skill) throw new Error(`no workflow ${ref}`);
       const startedAt = now();
       const run = store.startRun({
@@ -306,8 +353,74 @@ export function createService(options: ServiceOptions): Service {
         startedAt,
       });
       emit({ type: "run", run });
-      enqueue(() => leg(run, skill, provided, undefined, file));
+      enqueue(() => leg(run, skill, provided, undefined, file, draft));
       return run;
+    },
+
+    walk: (id, provided = {}) => service.start(id, provided, "walk"),
+
+    // ── The editor's draft (draft-store.ts) ──
+    draft: (id) => draftView(id),
+    editDraft(id, edits) {
+      const current = readDraft(dataDir, id) ?? { base: latest(id).version, ops: [], undone: [], updatedAt: now() };
+      const base = loadSkill(dataDir, id, current.base);
+      if (!base) throw new Error(`the draft was made on v${current.base}, which is gone`);
+      const applied = applyEdits(base, [...current.ops, ...edits]);
+      if (!applied.ok) throw new Error(applied.problems.join("; "));
+      writeDraft(dataDir, id, { ...current, ops: [...current.ops, ...edits], undone: [], updatedAt: now() });
+      return draftView(id);
+    },
+    undoDraft(id) {
+      const current = readDraft(dataDir, id);
+      const last = current?.ops.at(-1);
+      if (!current || !last) return draftView(id);
+      writeDraft(dataDir, id, {
+        ...current,
+        ops: current.ops.slice(0, -1),
+        undone: [...current.undone, last],
+        updatedAt: now(),
+      });
+      return draftView(id);
+    },
+    redoDraft(id) {
+      const current = readDraft(dataDir, id);
+      const last = current?.undone.at(-1);
+      if (!current || !last) return draftView(id);
+      writeDraft(dataDir, id, {
+        ...current,
+        ops: [...current.ops, last],
+        undone: current.undone.slice(0, -1),
+        updatedAt: now(),
+      });
+      return draftView(id);
+    },
+    discardDraft(id) {
+      deleteDraft(dataDir, id);
+      return draftView(id);
+    },
+    publishDraft(id, summary) {
+      const current = readDraft(dataDir, id);
+      if (!current || current.ops.length === 0) throw new Error("the draft has no changes");
+      // The operations are replayed onto the latest version (a repair may have landed under the draft).
+      const onto = latest(id);
+      const applied = applyEdits(onto, current.ops);
+      if (!applied.ok)
+        throw new Error(`the changes no longer apply to v${onto.version}: ${applied.problems.join("; ")}`);
+      const state = readState(dataDir, id);
+      if (state.state === "live") {
+        const problems = goLiveProblems(applied.skill);
+        if (problems.length > 0)
+          throw new Error(`a live workflow's new version must still run on its own: ${problems.join("; ")}`);
+      }
+      const version = onto.version + 1;
+      const what = summary?.trim() || current.ops.map(describeEdit).join("; ");
+      const saved = saveSkill(dataDir, {
+        ...applied.skill,
+        history: [...applied.skill.history, { version, by: "user", summary: what, at: new Date(now()).toISOString() }],
+      });
+      deleteDraft(dataDir, id);
+      emit({ type: "workflow", id, state });
+      return { version: saved.skill.version };
     },
 
     answer(itemId, raw) {
@@ -347,10 +460,11 @@ export function createService(options: ServiceOptions): Service {
         updateRun(run.id, { status: "cancelled", endedAt: now(), error: "you stopped it", checkpoint: undefined });
         return;
       }
-      const skill = loadVersion(run.skillId, checkpoint.version, checkpoint.file);
+      const tree = checkpoint.skill ? Skill.parse(checkpoint.skill) : undefined;
+      const skill = tree ?? loadVersion(run.skillId, checkpoint.version, checkpoint.file);
       // The checkpoint stays until the leg ends, so a run interrupted before then can still be looked at.
       const going = updateRun(run.id, { status: "running" });
-      enqueue(() => leg(going, skill, checkpoint.inputs, resume, checkpoint.file));
+      enqueue(() => leg(going, skill, checkpoint.inputs, resume, checkpoint.file, tree));
     },
 
     cancel(runId) {
@@ -434,7 +548,7 @@ export function createService(options: ServiceOptions): Service {
       const item = addItem({
         kind: "question",
         title: question.title,
-        detail: { options: question.options, default: question.default },
+        detail: { options: question.options, default: question.default, step: question.step, draft: question.draft },
       });
       return new Promise((resolve) => questions.set(item.id, resolve));
     },
@@ -474,6 +588,14 @@ function itemFor(waiting: Waiting): Pick<InboxItem, "kind" | "title" | "detail">
     const options = waiting.ask.kind === "confirm" ? ["yes", "no"] : undefined;
     return { kind: "ask", title: waiting.question, detail: { waiting, options } };
   }
+  if (waiting.kind === "walk") {
+    // An acting step (click, type, send) waits for "do it"; a step that only reads or opens a page for "next".
+    return {
+      kind: "walk",
+      title: `${waiting.acting ? "Do it" : "Next"}: ${waiting.intent}`,
+      detail: { waiting, options: waiting.acting ? ["do it", "skip", "stop"] : ["next", "skip", "stop"] },
+    };
+  }
   return { kind: "recovery", title: waiting.message, detail: { waiting, options: ["retry", "skip", "stop"] } };
 }
 
@@ -485,6 +607,13 @@ function resumeWith(checkpoint: Checkpoint, raw: unknown): Resume | undefined {
   if (waiting.kind === "ask") {
     const value = waiting.ask.kind === "confirm" ? yes(raw) : String(raw);
     return add({ kind: "ask", value });
+  }
+  if (waiting.kind === "walk") {
+    const text = String(raw).trim().toLowerCase();
+    if (text === "stop") return undefined;
+    if (text === "skip") return add({ kind: "walk", choice: "skip" });
+    if (["do it", "do", "next", "yes", "ok"].includes(text)) return add({ kind: "walk", choice: "do" });
+    throw new Error("answer do it (or next), skip or stop");
   }
   if (raw === "retry") return resume;
   if (raw === "skip") return { ...resume, skip: true };

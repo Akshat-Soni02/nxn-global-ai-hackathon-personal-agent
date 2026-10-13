@@ -8,6 +8,7 @@ import { type Message, NATIVE_HOST_NAME } from "@shadow/core";
 import type { PageOp } from "@shadow/player/web";
 import type { ButtonState } from "./button.ts";
 import { endRun, isAutomationTab, runPageCheck, runPageOp, runWebStep } from "./replay.ts";
+import type { ShotHint } from "./shot.ts";
 
 const VERSION = chrome.runtime.getManifest().version;
 const QUICK_RETRY_MS = 3_000;
@@ -15,6 +16,8 @@ const RECONNECT_ALARM = "reconnect-daemon";
 
 let port: chrome.runtime.Port | undefined;
 let recordingSession: string | undefined;
+// Whether this recording's form allowed a screenshot per step (record.start).
+let screenConsent = false;
 let ui: ButtonState = { daemon: false };
 
 function send(message: Message) {
@@ -48,9 +51,11 @@ async function onDaemonMessage(message: Message) {
       console.warn("[extension] daemon offline:", message.reason);
       break;
     case "record.start":
+      screenConsent = message.consent?.screen === true;
       setRecording(message.sessionId, { recording: { since: message.startedAt ?? Date.now() }, status: undefined });
       break;
     case "record.stop":
+      screenConsent = false;
       setRecording(undefined, { recording: undefined });
       break;
     case "desktop.button":
@@ -174,13 +179,38 @@ function drawIcon(kind: "off" | "record" | "stop"): Record<number, ImageData> {
 // automation tab (replay's own clicks are not something you did).
 function record(event: { event: string; tabId?: number; [field: string]: unknown }) {
   if (!recordingSession || isAutomationTab(event.tabId)) return;
-  send({
-    at: Date.now(),
-    ...event,
-    id: crypto.randomUUID(),
-    type: "record.event",
-    sessionId: recordingSession,
-  } as Message);
+  const { shot, ...fields } = event as typeof event & { shot?: ShotHint };
+  const id = crypto.randomUUID();
+  const at = typeof fields.at === "number" ? fields.at : Date.now();
+  send({ at, ...fields, id, type: "record.event", sessionId: recordingSession } as Message);
+  if (screenConsent && SHOT_EVENTS.has(event.event) && event.tabId !== undefined && !shot?.skip) {
+    queueShot(event.tabId, id, at, shot?.masks, event.event === "navigate" ? 1_200 : 400);
+  }
+}
+
+// A picture of the visible tab shortly after an event (so the page has reacted), when the form allowed it. Chrome
+// allows about two a second: a newer event replaces one still waiting. Only the words read from it, masked, ever
+// leave the Mac (the daemon's screen.ts).
+const SHOT_EVENTS = new Set(["click", "type", "select", "check", "file", "drop", "submit", "key", "copy", "navigate"]);
+let pendingShot: ReturnType<typeof setTimeout> | undefined;
+let lastShot = 0;
+function queueShot(tabId: number, eventId: string, at: number, masks: ShotHint["masks"], delay: number) {
+  clearTimeout(pendingShot);
+  const wait = Math.max(delay, lastShot + 600 - Date.now());
+  pendingShot = setTimeout(() => void takeShot(tabId, eventId, at, masks), wait);
+}
+async function takeShot(tabId: number, eventId: string, at: number, masks: ShotHint["masks"]) {
+  const session = recordingSession;
+  if (!session || !screenConsent) return;
+  lastShot = Date.now();
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.active || isAutomationTab(tabId)) return; // the picture is of what is on screen in that window
+    const image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 60 });
+    send({ id: crypto.randomUUID(), type: "record.shot", sessionId: session, eventId, at, image, masks } as Message);
+  } catch (error) {
+    console.warn("[extension] no screenshot:", (error as Error).message);
+  }
 }
 
 // Content scripts in newly opened pages ask whether a session is active. Captured events are forwarded to the daemon

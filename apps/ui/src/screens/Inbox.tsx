@@ -1,10 +1,12 @@
 // Everything that waits for the user (apps/daemon/src/store.ts, the inbox), answered here: an approval, a step's
 // question, a run that needs the user (retry, skip, stop), a question outside a run, or a repair to review.
+import type { Skill } from "@shadow/core";
 import type { InboxItem } from "@shadow/daemon/src/types.ts";
 import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Empty, Loading } from "../components.tsx";
 import { ago, KIND, when } from "../format.ts";
+import { StepTree } from "./Workflow.tsx";
 
 export function Inbox() {
   const { data, error } = useQuery<InboxItem[]>("inbox", { open: true });
@@ -23,7 +25,7 @@ export function Inbox() {
         <div className="cards">
           {/* Oldest first: the inbox is a queue. */}
           {[...data].reverse().map((item) => (
-            <Card key={item.id} item={item} />
+            <Question key={item.id} item={item} />
           ))}
         </div>
       )}
@@ -31,6 +33,24 @@ export function Inbox() {
   );
 }
 
+// An item; a question about a draft workflow (the design agent's drill) is shown next to the draft, its step marked.
+export function Question({ item }: { item: InboxItem }) {
+  const draft = item.detail.draft as Skill | undefined;
+  if (!draft?.steps) return <Card item={item} />;
+  return (
+    <div className="drill">
+      <div className="drill-draft">
+        <div className="muted small">
+          The workflow so far{item.detail.step ? `: the question is about ${item.detail.step}` : ""}
+        </div>
+        <StepTree steps={draft.steps} highlight={item.detail.step as string | undefined} />
+      </div>
+      <Card item={item} />
+    </div>
+  );
+}
+
+// One item with its answers.
 function Card({ item }: { item: InboxItem }) {
   return (
     <article className={`card kind-${item.kind}`} id={`item-${item.id}`}>
@@ -80,6 +100,30 @@ function Answer({ item }: { item: InboxItem }) {
           <Action run={() => answer("skip")}>I did it by hand: go on</Action>
           <Action kind="danger" run={() => answer("stop")} confirm="Stop this run?">
             Stop the run
+          </Action>
+        </div>
+      </>
+    );
+  }
+  if (item.kind === "walk") {
+    const w = item.detail.waiting as { acting?: boolean; highlighted?: boolean } | undefined;
+    return (
+      <>
+        <p className="detail">
+          {w?.highlighted
+            ? "Its target is outlined in the automation window. "
+            : "Its target could not be outlined (not on the page yet?). "}
+          {w?.acting
+            ? "This step would act (click, type, send): Do it runs it, Skip passes over it."
+            : "This step only reads or opens a page: Next runs it."}
+        </p>
+        <div className="answers">
+          <Action kind="primary" run={() => answer(w?.acting ? "do it" : "next")}>
+            {w?.acting ? "Do it" : "Next"}
+          </Action>
+          <Action run={() => answer("skip")}>Skip</Action>
+          <Action kind="danger" run={() => answer("stop")} confirm="Stop the walk-through?">
+            Stop
           </Action>
         </div>
       </>

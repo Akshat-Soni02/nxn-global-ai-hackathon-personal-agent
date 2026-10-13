@@ -41,7 +41,8 @@ export async function tryDraft(draft: Skill, env: RepairEnv, from: Resume, count
       onFailure: undefined,
       approve: async (step, skill) => {
         const ok = await env.deps.approve(step, skill);
-        if (ok && isOutward(step)) approved.push(step.id);
+        // WAIT is "nobody can answer now", never an approval: only a real yes counts (docs/guide/14, §7 item 1).
+        if (ok === true && isOutward(step)) approved.push(step.id);
         return ok;
       },
       log: (event) => events.push(event),
@@ -52,6 +53,16 @@ export async function tryDraft(draft: Skill, env: RepairEnv, from: Resume, count
     e.type === "step.result" ? [{ path: e.path, ok: e.result.ok, error: e.result.error }] : [],
   );
   const base = { ran, vars: outcome.vars, approved };
+  // The try stopped at a step that needs the user (an approval or a question nobody can answer now): nothing was
+  // proven, and nothing may be committed on it. The page hasn't moved, so a next try starts where this one did.
+  if (outcome.status === "waiting") {
+    const what = outcome.waiting?.kind === "ask" ? "an answer from the user" : "the user's approval";
+    return {
+      ...base,
+      ok: false,
+      error: `${outcome.failedStep}: needs ${what} before it can be tried, and nobody can give it now`,
+    };
+  }
   if (outcome.status === "failed" || outcome.status === "denied") {
     // The page stands at the step that failed: a next try starts there.
     const at = outcome.failedStep && outcome.failedStep !== "success" ? outcome.failedStep : undefined;

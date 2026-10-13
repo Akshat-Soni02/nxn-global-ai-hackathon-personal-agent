@@ -12,7 +12,7 @@ export interface ButtonState {
   recording?: { since: number };
   // The last word from the daemon after stop: compiling, a question waiting in the terminal, saved, ...
   status?: {
-    phase: "compiling" | "question" | "saved" | "empty" | "failed" | "busy" | "replay";
+    phase: "compiling" | "question" | "saved" | "empty" | "failed" | "busy" | "replay" | "form";
     text: string;
     at: number;
   };
@@ -115,6 +115,9 @@ export function viewOf(
     return { kind: "work", icon: "spinner", text: s.text, label: s.text };
   }
   if (s?.phase === "question") return { kind: "work", icon: "terminal", text: s.text, label: s.text };
+  // Record was pressed: the form is open in Shadow's window. A note, so it goes away if the form is left.
+  if (s?.phase === "form" && now - s.at < NOTE_MS)
+    return { kind: "note", icon: "terminal", text: s.text, label: s.text };
   if (s && now - s.at < NOTE_MS) {
     return { kind: "note", icon: s.phase === "saved" ? "check" : "alert", text: s.text, label: s.text };
   }

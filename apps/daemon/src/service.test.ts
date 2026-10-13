@@ -162,6 +162,15 @@ describe("the daemon as a service", () => {
     await expect(answer).resolves.toBe("yes");
   });
 
+  it("keeps a drill question's step and draft with it, so the window can show it on the draft", () => {
+    const { open } = setup([write("s1")]);
+    const { service } = open();
+    const draft = { id: "report", steps: [{ id: "start" }, { id: "s1" }] };
+    void service.ask({ title: "Always the newest email?", step: "s1", draft });
+    const [item] = service.inbox({ open: true });
+    expect(item?.detail).toMatchObject({ step: "s1", draft });
+  });
+
   it("records a repair that lands during a run: the run's version, a repaired flag and an item to review", async () => {
     const { open } = setup([write("s1")]);
     const { service } = open(async (_skill, leg) => {

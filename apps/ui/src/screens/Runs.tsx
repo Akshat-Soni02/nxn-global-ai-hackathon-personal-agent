@@ -40,7 +40,9 @@ export function Runs() {
                   <span className="muted small">v{r.version}</span>
                   {r.repaired ? <span className="chip quiet">repaired</span> : null}
                   {r.trigger !== "manual" ? (
-                    <span className="chip quiet">{r.trigger === "folder" ? "file appeared" : "by schedule"}</span>
+                    <span className="chip quiet">
+                      {r.trigger === "folder" ? "file appeared" : r.trigger === "walk" ? "walk-through" : "by schedule"}
+                    </span>
                   ) : null}
                   {r.status === "skipped" && r.error ? <div className="muted small">{r.error}</div> : null}
                   {r.failedStep && r.status !== "succeeded" ? (

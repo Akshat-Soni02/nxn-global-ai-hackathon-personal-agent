@@ -11,9 +11,14 @@
 //            --api <file>      the daemon's api.json (HTTP port and token), for the window (default: next to the socket)
 //            --fixture --state <file>   test mode: a timesheet window inside the app and a scripted user (Fixture.swift)
 //            --snapshot <dir>  draw each look of the button to PNG files and exit
+//            --ocr <image> | --redact <image> <boxes.json>   read or black out text in a picture, and exit (Screen.swift)
+//            --transcribe <audio>   turn narration into text on the Mac, and exit (Voice.swift)
+//            --icon <dir>      draw the app icon's PNGs into a folder, for iconutil, and exit (Icon.swift)
+//            --first-run       show the setup window (shown by itself the first time the packaged app runs)
 //            --log <file>      append diagnostics to a file (an app started by `open` has no terminal)
 import AppKit
 import ApplicationServices
+import AVFoundation
 
 let arguments = CommandLine.arguments
 func argument(_ name: String) -> String? {
@@ -50,6 +55,11 @@ final class AppMain: NSObject, NSApplicationDelegate {
   let notifier = Notifier()
   var fixture: Fixture?
   var sessionId: String?
+  // The recording's folder and whether the form allowed screenshots (record.start).
+  var recordingDir: String?
+  var screenConsent = false
+  var lastShot = Date.distantPast
+  let voice = Voice()
   var trusted = AXIsProcessTrusted()
   var everConnected = false
   // The daemon's API over the socket (api.call): replies by request id.
@@ -62,6 +72,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
       menu.onOpen = { [weak self] route in self?.window.show(route: route) }
       menu.onRecord = { [weak self] in self?.press() }
       menu.onQuit = { NSApp.terminate(nil) }
+      menu.onStartDaemon = { DaemonControl.kickstart() }
       menu.isRecording = { [weak self] in self?.panel.isRecording ?? false }
       statusMenu = menu
       notifier.onOpen = { [weak self] route in self?.window.show(route: route) }
@@ -75,25 +86,57 @@ final class AppMain: NSObject, NSApplicationDelegate {
     }
     panel.trusted = trusted
     panel.onPress = { [weak self] in self?.press() }
+    panel.onDiscard = { [weak self] in self?.discard() }
     panel.onAllow = { [weak self] in self?.askForAccessibility() }
     panel.onQuit = { NSApp.terminate(nil) }
     link.onState = { [weak self] up in self?.connection(up) }
     link.onMessage = { [weak self] message in self?.handle(message) }
     link.start()
+    // The Mac going to sleep or waking up: the daemon looks at its triggers on wake, and a step that timed out
+    // across the sleep is tried once more.
+    let center = NSWorkspace.shared.notificationCenter
+    center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+      self?.link.send(["id": UUID().uuidString, "type": "system.sleep"])
+    }
+    center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+      self?.link.send(["id": UUID().uuidString, "type": "system.wake"])
+    }
     if arguments.contains("--fixture"), let state = argument("--state") {
       recorder.recordSelf = true
       fixture = Fixture(recorder: recorder, statePath: state, log: log)
     }
     // Accessibility can be allowed (or taken away) in System Settings at any time.
     Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.checkTrust() }
-    // Started but never reached the daemon: nothing to be the button of.
+    // Started but never reached the daemon, and nothing (launchd) to start it: nothing to be the button of.
     DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
-      if self?.everConnected == false { NSApp.terminate(nil) }
+      if self?.everConnected == false && !DaemonControl.installed { NSApp.terminate(nil) }
+    }
+    // With the daemon registered with launchd (pnpm setup:daemon, or the packaged app), the app outlives it: it
+    // asks launchd to start it again whenever it is not there.
+    Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+      guard let self, !self.connected, DaemonControl.installed else { return }
+      log("the daemon is not running: asking launchd to start it")
+      DaemonControl.kickstart()
     }
     log("Shadow.app started, socket \(socketPath), Accessibility \(trusted ? "allowed" : "not allowed")")
+    // The packaged app owns its daemon: register the LaunchAgent inside the bundle (launchd starts the daemon now
+    // and at every login), then walk a new user through the setup once.
+    if packaged && !arguments.contains("--fixture") {
+      if !SMAppServiceBridge.registered, let problem = SMAppServiceBridge.register() {
+        log("could not register the daemon with launchd: \(problem)")
+      }
+      if !UserDefaults.standard.bool(forKey: "firstRunDone") { showFirstRun() }
+    }
+    if arguments.contains("--first-run") { showFirstRun() }
   }
 
+  private var connected = false
+  private var healthTimer: Timer?
+
   private func connection(_ up: Bool) {
+    connected = up
+    statusMenu?.daemonUp = up
+    firstRun?.model.daemonUp = up
     if up {
       everConnected = true
       link.send(["id": UUID().uuidString, "type": "hello", "from": "mac", "version": "0.0.0", "trusted": trusted])
@@ -104,12 +147,23 @@ final class AppMain: NSObject, NSApplicationDelegate {
         link.send(["id": UUID().uuidString, "type": "api.subscribe"])
         refreshInbox()
         refreshHealth()
-        Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.refreshHealth() }
+        healthTimer?.invalidate()
+        healthTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+          self?.refreshHealth()
+        }
       }
     } else if everConnected {
       recorder.stop()
-      log("the daemon went away: quitting")
-      NSApp.terminate(nil)
+      panel.stopped()
+      if DaemonControl.installed {
+        // launchd starts it again (KeepAlive); the link keeps trying to connect, and the timer above nudges launchd.
+        log("the daemon went away: waiting for launchd to start it again")
+        panel.refused("Shadow's daemon stopped: starting it again")
+        DaemonControl.kickstart()
+      } else {
+        log("the daemon went away: quitting")
+        NSApp.terminate(nil)
+      }
     }
   }
 
@@ -117,17 +171,32 @@ final class AppMain: NSObject, NSApplicationDelegate {
     switch message["type"] as? String {
     case "record.start":
       sessionId = message["sessionId"] as? String
+      recordingDir = message["dir"] as? String
+      screenConsent = (message["consent"] as? JSON)?["screen"] as? Bool ?? false
+      // Narration, when the form allowed the microphone; only once per recording (record.start comes again to a
+      // connection that joins late).
+      if (message["consent"] as? JSON)?["microphone"] as? Bool == true, let dir = recordingDir,
+        !FileManager.default.fileExists(atPath: (dir as NSString).appendingPathComponent("voice.json"))
+      {
+        voice.start(dir: dir)
+      }
       let started = (message["startedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
       recorder.start()
-      panel.recording(since: started)
+      panel.recording(
+        since: started, mic: (message["consent"] as? JSON)?["microphone"] as? Bool ?? false, screen: screenConsent)
     case "record.stop":
       recorder.stop()  // flushes the field being typed into, while the session id is still known
       sessionId = nil
+      recordingDir = nil
+      screenConsent = false
+      voice.stop()
       panel.stopped()
       fixture?.reset()
     case "record.status":
       if let phase = (message["phase"] as? String).flatMap(Panel.Phase.init(rawValue:)) {
         panel.status(phase, message["text"] as? String ?? "")
+        // Record was pressed (here, in Chrome or in the menu bar): the description form comes first.
+        if phase == .form { window.show(route: "/record") }
       }
     case "run.step":
       guard let step = message["step"] as? JSON else { return }
@@ -142,6 +211,34 @@ final class AppMain: NSObject, NSApplicationDelegate {
         self?.link.send(reply)
         let outcome = result["ok"] as? Bool == true ? "ok" : (result["error"] as? String ?? "failed")
         log("ran \(step["id"] as? String ?? "?") \(step["action"] as? String ?? "?"): \(outcome)")
+      }
+    case "mac.screenshot":
+      // The repair agent's describe_screen: a picture of the frontmost app's window, saved where the daemon says.
+      // The daemon masks it before anything else sees it. Needs Screen Recording for Shadow.
+      guard let path = message["path"] as? String else { return }
+      let shotId = message["id"] as? String ?? ""
+      guard let front = NSWorkspace.shared.frontmostApplication,
+        front.processIdentifier != ProcessInfo.processInfo.processIdentifier
+      else {
+        link.send(["id": shotId, "type": "mac.screenshot_result", "ok": false, "error": "no app window in front"])
+        return
+      }
+      Screen.captureWindow(pid: front.processIdentifier, to: path) { [weak self] ok in
+        DispatchQueue.main.async {
+          var reply: JSON = ["id": shotId, "type": "mac.screenshot_result", "ok": ok]
+          if !ok { reply["error"] = "no window, or Screen Recording isn't allowed for Shadow" }
+          self?.link.send(reply)
+        }
+      }
+    case "ax.highlight":
+      // A walk-through: outline the control an ax step would act on (Highlight.swift), acting on nothing.
+      guard let target = message["target"] as? JSON else { return }
+      let id = message["id"] as? String ?? ""
+      player.highlight(target) { [weak self] result in
+        var reply = result
+        reply["id"] = id
+        reply["type"] = "ax.highlight_result"
+        self?.link.send(reply)
       }
     case "api.result":
       if let id = message["id"] as? String { calls.removeValue(forKey: id)?(message) }
@@ -162,9 +259,93 @@ final class AppMain: NSObject, NSApplicationDelegate {
 
   // One call to the daemon's API (apps/daemon/src/api.ts); `done` gets the value, or nil when it failed.
   private func api(_ method: String, _ params: JSON = [:], done: @escaping (Any?) -> Void) {
+    apiCall(method, params) { value, _ in done(value) }
+  }
+
+  // The same, with the daemon's reason when the call failed.
+  private func apiCall(_ method: String, _ params: JSON = [:], done: @escaping (Any?, String?) -> Void) {
     let id = UUID().uuidString
-    calls[id] = { reply in done(reply["ok"] as? Bool == true ? reply["value"] : nil) }
+    calls[id] = { reply in
+      if reply["ok"] as? Bool == true { done(reply["value"], nil) } else { done(nil, reply["error"] as? String ?? "failed") }
+    }
     link.send(["id": id, "type": "api.call", "method": method, "params": params])
+  }
+
+  // MARK: first run (FirstRun.swift)
+
+  private var firstRun: FirstRunWindow?
+
+  // The packaged app: the daemon lives inside it (Resources/daemon.js).
+  private var packaged: Bool { Bundle.main.url(forResource: "daemon", withExtension: "js") != nil }
+
+  private func showFirstRun() {
+    let win = firstRun ?? FirstRunWindow()
+    firstRun = win
+    let model = win.model
+    model.daemonUp = connected
+    model.extensionFolder = packaged
+      ? Bundle.main.resourceURL?.appendingPathComponent("extension").path ?? ""
+      : (Bundle.main.bundlePath as NSString).deletingLastPathComponent + "/../../extension/dist"
+    win.show(
+      FirstRunView(
+        model: model,
+        onSaveKey: { [weak self] key in
+          model.checking = true
+          model.keyStatus = "Storing the key in your Keychain…"
+          self?.apiCall("setApiKey", ["key": key]) { _, error in
+            if let error {
+              model.checking = false
+              model.keyOk = false
+              model.keyStatus = error
+              return
+            }
+            model.keyStatus = "Checking the connection to Nemotron…"
+            self?.apiCall("checkModel") { value, error in
+              model.checking = false
+              let check = value as? JSON
+              model.keyOk = check?["ok"] as? Bool == true
+              if model.keyOk {
+                let n = check?["reachable"] as? Int ?? 0
+                model.keyStatus = "Connected to Nemotron: \(n) models reachable."
+              } else {
+                model.keyStatus = "Not connected: \(check?["error"] as? String ?? error ?? "the model did not answer")"
+              }
+            }
+          }
+        },
+        onSetupChrome: { [weak self] in
+          self?.apiCall("setupChrome") { value, error in
+            model.chromeOk = error == nil
+            model.chromeStatus = error ?? "Chrome can reach Shadow. Now load the extension (the folder is shown)."
+            if error == nil, let chrome = (value as? JSON)?["chrome"] as? JSON, let path = chrome["manifest"] as? String {
+              log("wrote Chrome's connection file: \(path)")
+            }
+          }
+          self?.showExtensionFolder()
+        },
+        onShowExtension: { [weak self] in self?.showExtensionFolder() },
+        onAccessibility: { [weak self] in
+          self?.askForAccessibility()
+          DispatchQueue.main.asyncAfter(deadline: .now() + 3) { model.accessibility = AXIsProcessTrusted() }
+        },
+        onScreenRecording: {
+          model.screenRecording = CGRequestScreenCaptureAccess()
+          DispatchQueue.main.asyncAfter(deadline: .now() + 3) { model.screenRecording = CGPreflightScreenCaptureAccess() }
+        },
+        onMicrophone: {
+          AVCaptureDevice.requestAccess(for: .audio) { granted in DispatchQueue.main.async { model.microphone = granted } }
+        },
+        onDone: { [weak self] in
+          UserDefaults.standard.set(true, forKey: "firstRunDone")
+          win.close()
+          self?.window.show(route: "/workflows")
+        }))
+  }
+
+  private func showExtensionFolder() {
+    let folder = firstRun?.model.extensionFolder ?? ""
+    guard !folder.isEmpty else { return }
+    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder)])
   }
 
   private func refreshInbox() {
@@ -189,10 +370,48 @@ final class AppMain: NSObject, NSApplicationDelegate {
     message["type"] = "record.event"
     message["sessionId"] = sessionId
     link.send(message)
+    shoot(after: message)
+  }
+
+  // A picture of the window the user just acted in, when the form allowed it (Screen Recording permission). Saved in
+  // the recording's folder; the daemon reads its words, masks them and blacks out what it masked (screen.ts).
+  // Never over a password field, at most one every 0.7 s, and never Shadow's own windows.
+  private func shoot(after message: JSON) {
+    guard screenConsent, let dir = recordingDir, let sessionId else { return }
+    let element = message["element"] as? JSON
+    if message["secret"] as? Bool == true || element?["role"] as? String == "AXSecureTextField"
+      || element?["subrole"] as? String == "AXSecureTextField"
+    {
+      return
+    }
+    guard Date().timeIntervalSince(lastShot) > 0.7, let app = NSWorkspace.shared.frontmostApplication,
+      app.processIdentifier != ProcessInfo.processInfo.processIdentifier
+    else { return }
+    lastShot = Date()
+    let eventId = message["id"] as? String ?? UUID().uuidString
+    let shots = (dir as NSString).appendingPathComponent("shots")
+    try? FileManager.default.createDirectory(
+      atPath: shots, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let path = (shots as NSString).appendingPathComponent("\(eventId).jpg")
+    let at = message["at"] as? Double ?? Date().timeIntervalSince1970 * 1000
+    Screen.captureWindow(pid: app.processIdentifier, to: path) { [weak self] ok in
+      DispatchQueue.main.async {
+        guard ok else { return log("no screenshot: no window, or Screen Recording isn't allowed for Shadow") }
+        self?.link.send([
+          "id": UUID().uuidString, "type": "record.shot", "sessionId": sessionId, "eventId": eventId, "at": at,
+          "path": path,
+        ])
+      }
+    }
   }
 
   private func press() {
     link.send(["id": UUID().uuidString, "type": "record.command", "command": panel.isRecording ? "stop" : "start"])
+  }
+
+  // The trash on the pill: the recording ends and everything it captured is deleted; nothing is compiled.
+  private func discard() {
+    link.send(["id": UUID().uuidString, "type": "record.command", "command": "discard"])
   }
 
   // macOS's own prompt, then the Accessibility pane of System Settings, where the switch for Shadow is.
@@ -219,9 +438,31 @@ final class AppMain: NSObject, NSApplicationDelegate {
   }
 }
 
+// The daemon's LaunchAgent (docs/design.md, "Who starts what"): installed by pnpm setup:daemon, or registered by the
+// packaged app. When it is there, launchd owns the daemon's life: Shadow.app only nudges it.
+enum DaemonControl {
+  static let label = "com.shadow.daemon"
+  static var installed: Bool {
+    FileManager.default.fileExists(atPath: NSHomeDirectory() + "/Library/LaunchAgents/\(label).plist")
+      || SMAppServiceBridge.registered
+  }
+  static func kickstart() {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+    task.arguments = ["kickstart", "gui/\(getuid())/\(label)"]
+    task.standardOutput = FileHandle.nullDevice
+    task.standardError = FileHandle.nullDevice
+    try? task.run()
+  }
+}
+
+if Screen.runCommand(arguments) { exit(0) }
+if Icon.runCommand(arguments) { exit(0) }
+Voice.runCommand(arguments)
+
 if let dir = argument("--snapshot") {
   _ = NSApplication.shared
-  Panel().snapshots(to: dir)
+  MainActor.assumeIsolated { Panel().snapshots(to: dir) }
   exit(0)
 }
 

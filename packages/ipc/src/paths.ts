@@ -19,6 +19,12 @@ export function dataDir(env: Record<string, string | undefined> = process.env): 
   return env.SHADOW_HOME ?? APP_SUPPORT_DIR;
 }
 
+// The packaged app's bundle (Shadow.app), when the daemon runs from inside it: its launcher sets SHADOW_BUNDLE
+// (scripts/package.ts). Undefined in development, where the daemon runs from the repo.
+export function bundlePath(env: Record<string, string | undefined> = process.env): string | undefined {
+  return env.SHADOW_BUNDLE || undefined;
+}
+
 // Where the daemon and the app write their logs: ~/Library/Logs/Shadow, which Console.app shows. With SHADOW_HOME set
 // (tests, trial runs) inside that folder instead, so they don't mix into the real logs. SHADOW_LOG_DIR overrides both.
 export function logDir(env: Record<string, string | undefined> = process.env): string {

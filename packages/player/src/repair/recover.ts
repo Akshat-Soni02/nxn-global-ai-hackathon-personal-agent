@@ -31,6 +31,8 @@ export interface Recovery {
   // Site notes, by skill.
   recall?(query: string, skillId: string): Promise<string[]>;
   note?(fact: string, skillId: string): Promise<void>;
+  // A masked picture of the page (web) or the frontmost window (ax), described (only with pictures consent).
+  describeScreen?(question: string, channel: "web" | "ax"): Promise<string>;
   available?(): Availability;
   // Each repair episode, to store next to the run log.
   onEpisode?(n: number, record: { failure: string; outcome: RepairOutcome["kind"]; transcript: unknown[] }): void;
@@ -82,6 +84,13 @@ export async function runWithRecovery(
       runLog,
       recall: recovery.recall && ((query) => recovery.recall?.(query, skillId) ?? Promise.resolve([])),
       note: recovery.note && ((fact) => recovery.note?.(fact, skillId) ?? Promise.resolve()),
+      describeScreen:
+        recovery.describeScreen &&
+        ((question) =>
+          recovery.describeScreen?.(
+            question,
+            failure.step.type === "action" && failure.step.channel === "ax" ? "ax" : "web",
+          ) ?? Promise.resolve("")),
       available: recovery.available?.(),
     };
     const before = recovery.repairer.spent.costUsd;

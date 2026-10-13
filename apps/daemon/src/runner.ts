@@ -6,7 +6,7 @@
 // repaired or waits for the user, and resumes. Repair transcripts go next to the run log (<runId>.repair-N.json).
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ActionStep, type Message, Skill } from "@shadow/core";
 import { APP_SUPPORT_DIR } from "@shadow/ipc";
@@ -25,6 +25,7 @@ import { fileExists, fsChannel, type LlmExecutor, poll, resolveInputs, scriptCha
 import { type Recovery as PlayerRecovery, runWithRecovery } from "@shadow/player/repair";
 import type { PageOp, PageOpResult } from "@shadow/player/web";
 import type { Daemon } from "./daemon.ts";
+import type { ScreenDescriber } from "./describe.ts";
 
 // Extra time on top of a step's own timeout for the round trip and the extension's work.
 const EXTENSION_MARGIN_MS = 20_000;
@@ -35,6 +36,8 @@ export interface RunHooks {
   approve: RunDeps["approve"];
   // A step's question for you (an ask); WAIT too.
   ask?: RunDeps["ask"];
+  // A walk-through: every step waits for you (WAIT too), after its target was outlined on the page or in the app.
+  walk?: RunDeps["walk"];
   log(event: RunLogEvent): void;
   // data.pick steps (see dataChannel in @shadow/player/node).
   data?: ChannelExecutor;
@@ -42,10 +45,15 @@ export interface RunHooks {
   llm?: LlmExecutor;
   // Recovery from failures. Without it, a step that fails every attempt fails the run.
   recovery?: Recovery;
+  // Masked pictures for the repair agent's describe_screen (describe.ts). Used only when the user allowed pictures.
+  describer?: ScreenDescriber;
 }
 
-// Recovery as the daemon sets it up: the page, site notes, and transcripts are filled in here.
-export type Recovery = Omit<PlayerRecovery, "page" | "recall" | "note" | "available" | "onEpisode"> & {
+// Recovery as the daemon sets it up: the page, site notes, pictures and transcripts are filled in here.
+export type Recovery = Omit<
+  PlayerRecovery,
+  "page" | "recall" | "note" | "available" | "onEpisode" | "describeScreen"
+> & {
   // Site notes for the repair agent.
   memory?: MemoryStore;
 };
@@ -91,11 +99,25 @@ export async function runSkillOn(
     if (!(await daemon.waitForExtension(CHROME_START_MS))) throw new Error("Chrome's extension did not connect");
   };
 
+  // A request that got no answer because the Mac slept through its timeout is asked once more after the wake: the
+  // page or app didn't fail, the clock just jumped.
+  const unlessAsleep = async <T>(ask: () => Promise<T>): Promise<T> => {
+    const askedAt = Date.now();
+    try {
+      return await ask();
+    } catch (error) {
+      if (daemon.wokeAt() > askedAt && /did not answer/.test((error as Error).message)) return await ask();
+      throw error;
+    }
+  };
+
   const web = async (step: ActionStep, ctx: { runId: string }): Promise<StepResult> => {
     await ensureExtension();
-    const reply = await daemon.request(
-      { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
-      (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 3 + EXTENSION_MARGIN_MS,
+    const reply = await unlessAsleep(() =>
+      daemon.request(
+        { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
+        (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 3 + EXTENSION_MARGIN_MS,
+      ),
     );
     if (reply.type !== "run.step_result") throw new Error(`unexpected reply ${reply.type}`);
     const { ok, value, matchScore, matchedBy, failedCheck, error } = reply;
@@ -106,9 +128,11 @@ export async function runSkillOn(
   // when macOS hasn't allowed it yet (the step fails with how to allow it).
   const ax = async (step: ActionStep, ctx: { runId: string }): Promise<StepResult> => {
     if (!daemon.mac().connected) throw new Error("Shadow.app is not running: build it with pnpm setup:mac");
-    const reply = await daemon.requestMac(
-      { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
-      (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 2 + EXTENSION_MARGIN_MS,
+    const reply = await unlessAsleep(() =>
+      daemon.requestMac(
+        { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
+        (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 2 + EXTENSION_MARGIN_MS,
+      ),
     );
     if (reply.type !== "run.step_result") throw new Error(`unexpected reply ${reply.type}`);
     const { ok, value, matchScore, matchedBy, error } = reply;
@@ -120,6 +144,23 @@ export async function runSkillOn(
     const reply = await daemon.request({ id: randomUUID(), type: "page.op", runId, op }, 30_000 + EXTENSION_MARGIN_MS);
     if (reply.type !== "page.op_result") throw new Error(`unexpected reply ${reply.type}`);
     return reply.ok ? { ok: true, value: reply.value } : { ok: false, error: reply.error ?? "failed" };
+  };
+
+  // A walk-through outlines where a step would act: on the page through the extension, in a Mac app through
+  // Shadow.app. Acting on nothing.
+  const highlight = async (step: ActionStep): Promise<void> => {
+    if (!step.target) return;
+    if (step.channel === "web") {
+      const result = await page({ op: "highlight", target: step.target });
+      if (!result.ok) throw new Error(result.error);
+      return;
+    }
+    if (step.channel === "ax") {
+      if (!daemon.mac().connected) throw new Error("Shadow.app is not running");
+      const reply = await daemon.requestMac({ id: randomUUID(), type: "ax.highlight", target: step.target }, 15_000);
+      if (reply.type !== "ax.highlight_result") throw new Error(`unexpected reply ${reply.type}`);
+      if (!reply.ok) throw new Error(reply.error ?? "could not highlight the control");
+    }
   };
 
   try {
@@ -141,6 +182,8 @@ export async function runSkillOn(
       ax,
       approve: hooks.approve,
       ask: hooks.ask,
+      walk: hooks.walk,
+      highlight: hooks.walk ? highlight : undefined,
       log,
     };
     const resume = options.resume;
@@ -149,6 +192,33 @@ export async function runSkillOn(
     const { memory, ...recovery } = hooks.recovery;
     // Episodes are numbered across the run's legs, so a leg after a wait doesn't overwrite an earlier transcript.
     const earlier = readdirSync(logDir).filter((f) => f.startsWith(`${runId}.repair-`)).length;
+    const describer = hooks.describer?.allowed() ? hooks.describer : undefined;
+    // The page's own picture (through the extension) or the frontmost window's (through Shadow.app), masked by the
+    // describer before the vision model sees it. The workflow's Never words are masked too.
+    const describeScreen = describer
+      ? async (question: string, channel: "web" | "ax") => {
+          const never = skill.description.never;
+          let described: { description: string; words: string };
+          if (channel === "ax") {
+            const path = describer.tempPath();
+            try {
+              const reply = await daemon.requestMac({ id: randomUUID(), type: "mac.screenshot", path }, 15_000);
+              if (reply.type !== "mac.screenshot_result") throw new Error(`unexpected reply ${reply.type}`);
+              if (!reply.ok) throw new Error(reply.error ?? "no picture of the window");
+              described = await describer.describe({ path }, question, never);
+            } finally {
+              // The app may write the window's picture even when the request failed or timed out: never leave it
+              // (unmasked) on disk.
+              rmSync(path, { force: true });
+            }
+          } else {
+            const shot = await page({ op: "screenshot" });
+            if (!shot.ok) throw new Error(shot.error);
+            described = await describer.describe({ image: String(shot.value) }, question, never);
+          }
+          return `${described.description}\n\nWords on screen (private ones masked):\n${described.words}`;
+        }
+      : undefined;
     return await runWithRecovery(skill, deps, {
       runId,
       inputs,
@@ -163,10 +233,11 @@ export async function runSkillOn(
           (async (text, skillId) => {
             await memory.add({ kind: "site_note", text, skillId });
           }),
+        describeScreen,
         available: () => ({
           extension: daemon.extensions.size > 0,
           macApp: daemon.mac().connected,
-          screenConsent: false,
+          screenConsent: describer !== undefined,
         }),
         onEpisode: (n, record) =>
           writeFileSync(

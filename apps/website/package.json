@@ -1,0 +1,19 @@
+{
+  "name": "@shadow/website",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "gsap": "^3.13.0"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^7.1.0"
+  }
+}

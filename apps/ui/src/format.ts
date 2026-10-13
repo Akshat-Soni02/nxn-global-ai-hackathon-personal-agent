@@ -42,6 +42,7 @@ export const KIND: Record<InboxKind, string> = {
   approval: "Approval",
   ask: "Question",
   recovery: "Needs you",
+  walk: "Walk-through",
   question: "Question",
   repaired: "Repaired",
   paused: "Paused",

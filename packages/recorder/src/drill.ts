@@ -6,8 +6,9 @@ import type { MemoryStore } from "@shadow/memory";
 import type { Question } from "./compile.ts";
 
 export interface Prompter {
-  // Shows the question and resolves with what you typed. An empty answer takes the default.
-  ask(question: Question): Promise<string>;
+  // Shows the question and resolves with what you typed. An empty answer takes the default. `about` is what the
+  // window shows with it: the step it is about, on the draft workflow.
+  ask(question: Question, about?: { step?: string; draft?: Skill }): Promise<string>;
 }
 
 export interface DrillResult {

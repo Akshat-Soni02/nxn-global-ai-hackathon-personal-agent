@@ -66,7 +66,9 @@ export function classify(failure: Failure, signals?: PageSignals): Classificatio
   // The page changed: the control isn't where the workflow expects it.
   if (step.type === "action" && (step.channel === "web" || step.channel === "ax")) {
     if (
-      /target not found|ambiguous target|covered by|not visible|no menu item|precondition did not hold/i.test(error)
+      /target not found|ambiguous target|covered by|not visible|no menu item|precondition did not hold|like the recorded one|two controls look like the target|has no action to press|did not come forward/i.test(
+        error,
+      )
     ) {
       return { class: "drift", reason: error };
     }

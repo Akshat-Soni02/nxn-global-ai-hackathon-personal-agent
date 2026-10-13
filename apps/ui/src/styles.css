@@ -1,12 +1,15 @@
-/* Shadow's window: quiet, native-looking, light and dark. */
+/* Shadow's window (docs/design-ui.md): the token system, light and dark, quiet surfaces, motion that eases out and
+   can be interrupted, one accent for the next action. */
 :root {
-  --bg: #ffffff;
-  --sidebar: #f4f4f6;
-  --line: #e4e4e8;
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --sidebar: rgba(245, 245, 247, 0.72);
+  --line: rgba(0, 0, 0, 0.08);
   --text: #1d1d1f;
   --muted: #6e6e73;
-  --accent: #3b5bdb;
+  --accent: #3a5bd9;
   --accent-text: #ffffff;
+  --accent-soft: rgba(58, 91, 217, 0.12);
   --ok: #1f8a4c;
   --ok-bg: #e5f5ec;
   --bad: #c92a2a;
@@ -15,31 +18,54 @@
   --wait-bg: #fff3e0;
   --busy: #1c6dd0;
   --busy-bg: #e7f0fc;
-  --quiet-bg: #eeeef1;
+  --quiet-bg: rgba(0, 0, 0, 0.05);
+  --rec: #ef4444;
   --card: #ffffff;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.06);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --t-press: 120ms;
+  --t-hover: 200ms;
+  --t-enter: 320ms;
+  --r-chip: 6px;
+  --r-control: 10px;
+  --r-card: 14px;
+  --r-panel: 18px;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1c1e;
-    --sidebar: #232326;
-    --line: #36363a;
-    --text: #f2f2f7;
-    --muted: #98989f;
+    --bg: #0b0b0f;
+    --surface: #151519;
+    --sidebar: rgba(11, 11, 15, 0.72);
+    --line: rgba(255, 255, 255, 0.1);
+    --text: #f5f5f7;
+    --muted: #9a9aa3;
     --accent: #6c8cff;
-    --accent-text: #0b0b0d;
+    --accent-text: #0b0b0f;
+    --accent-soft: rgba(108, 140, 255, 0.16);
     --ok: #4fd18b;
-    --ok-bg: #173324;
+    --ok-bg: #163125;
     --bad: #ff6b6b;
     --bad-bg: #3a1a1a;
     --wait: #ffb054;
     --wait-bg: #3a2a14;
     --busy: #6aa8ff;
     --busy-bg: #18283f;
-    --quiet-bg: #2c2c30;
-    --card: #232326;
-    --shadow: none;
+    --quiet-bg: rgba(255, 255, 255, 0.07);
+    --card: #151519;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --line: rgba(0, 0, 0, 0.3);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-press: 0ms;
+    --t-hover: 0ms;
+    --t-enter: 150ms;
   }
 }
 
@@ -81,12 +107,16 @@ code {
   border-radius: 4px;
 }
 h1 {
-  font-size: 22px;
+  font-size: 24px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
   font-weight: 600;
   margin: 4px 0;
 }
 h2 {
   font-size: 15px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
   font-weight: 600;
   margin: 0 0 10px;
 }
@@ -95,6 +125,7 @@ h2 {
 }
 .small {
   font-size: 12px;
+  letter-spacing: 0.01em;
 }
 .strong {
   font-weight: 600;
@@ -107,8 +138,17 @@ h2 {
   color: var(--bad);
   font-size: 13px;
 }
+.ok-text {
+  color: var(--ok);
+  font-size: 13px;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-chip);
+}
 
-/* Layout */
+/* Layout: a translucent sidebar over the page, the content column beside it. */
 .shell {
   display: grid;
   grid-template-columns: 220px 1fr;
@@ -116,16 +156,33 @@ h2 {
 }
 .sidebar {
   background: var(--sidebar);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   padding: 18px 10px 12px;
 }
+@media (prefers-reduced-transparency: reduce) {
+  .sidebar {
+    background: var(--bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
 .brand {
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
   font-size: 15px;
+  letter-spacing: -0.02em;
   padding: 0 10px 14px;
-  letter-spacing: 0.2px;
+}
+.brand svg {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
 }
 nav {
   display: flex;
@@ -137,8 +194,9 @@ nav a {
   justify-content: space-between;
   align-items: center;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--r-control);
   color: var(--text);
+  transition: background var(--t-hover) var(--ease);
 }
 nav a:hover {
   text-decoration: none;
@@ -165,6 +223,17 @@ nav a.active .badge {
   overflow-y: auto;
   padding: 28px 36px 48px;
   max-width: 980px;
+  animation: enter var(--t-enter) var(--ease);
+}
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .locked {
   max-width: 460px;
@@ -204,6 +273,21 @@ nav a.active .badge {
 .dot.bad {
   background: var(--muted);
 }
+.dot.rec {
+  background: var(--rec);
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    box-shadow: 0 0 0 7px rgba(239, 68, 68, 0.08);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot.rec {
+    animation: none;
+  }
+}
 
 /* Pages */
 .page-header {
@@ -217,13 +301,14 @@ nav a.active .badge {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 .section {
   margin-top: 28px;
 }
 .empty {
   border: 1px dashed var(--line);
-  border-radius: 10px;
+  border-radius: var(--r-card);
   padding: 36px;
   text-align: center;
 }
@@ -263,22 +348,32 @@ nav a.active .badge {
   background: var(--quiet-bg);
 }
 
-/* Buttons and inputs */
+/* Buttons and inputs: feedback on the press. */
 .button {
   font: inherit;
   font-size: 13px;
-  border-radius: 6px;
-  padding: 5px 12px;
+  font-weight: 500;
+  border-radius: var(--r-control);
+  padding: 6px 13px;
   border: 1px solid var(--line);
   background: var(--card);
   color: var(--text);
   cursor: pointer;
+  display: inline-block;
+  transition:
+    transform var(--t-press) var(--ease),
+    background var(--t-hover) var(--ease),
+    filter var(--t-hover) var(--ease);
 }
 .button:hover:not(:disabled) {
   filter: brightness(0.97);
+  text-decoration: none;
+}
+.button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .button:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: default;
 }
 .button.primary {
@@ -299,6 +394,11 @@ nav a.active .badge {
   background: none;
   color: var(--muted);
 }
+.button.small {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
 .action {
   display: inline-flex;
   align-items: center;
@@ -307,15 +407,28 @@ nav a.active .badge {
 }
 .input {
   font: inherit;
-  padding: 5px 9px;
-  border-radius: 6px;
+  padding: 6px 10px;
+  border-radius: var(--r-control);
   border: 1px solid var(--line);
-  background: var(--bg);
+  background: var(--surface);
   color: var(--text);
   min-width: 280px;
+  transition: border-color var(--t-hover) var(--ease);
+}
+.input:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .input.short {
   min-width: 120px;
+}
+.input.mono {
+  font:
+    12px ui-monospace,
+    "SF Mono",
+    Menlo,
+    monospace;
 }
 
 /* Inbox cards */
@@ -328,12 +441,16 @@ nav a.active .badge {
   background: var(--card);
   border: 1px solid var(--line);
   border-left: 3px solid var(--wait);
-  border-radius: 10px;
+  border-radius: var(--r-card);
   padding: 14px 16px;
   box-shadow: var(--shadow);
+  animation: enter var(--t-enter) var(--ease);
 }
 .card.kind-repaired {
   border-left-color: var(--ok);
+}
+.card.kind-walk {
+  border-left-color: var(--accent);
 }
 .card:target {
   outline: 2px solid var(--accent);
@@ -353,6 +470,9 @@ nav a.active .badge {
 }
 .kind.kind-repaired {
   color: var(--ok);
+}
+.kind.kind-walk {
+  color: var(--accent);
 }
 .card-title {
   font-size: 15px;
@@ -380,7 +500,7 @@ nav a.active .badge {
   align-items: center;
   gap: 12px;
   background: var(--wait-bg);
-  border-radius: 10px;
+  border-radius: var(--r-card);
   padding: 12px 16px;
 }
 
@@ -433,11 +553,13 @@ nav a.active .badge {
   display: flex;
   align-items: baseline;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .step-kind {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.4px;
   color: var(--muted);
   min-width: 56px;
 }
@@ -450,7 +572,6 @@ nav a.active .badge {
 .step-id {
   font-size: 11px;
 }
-/* A step's detail line sits under its text, past the kind column. */
 .step > .muted {
   padding-left: 64px;
 }
@@ -460,6 +581,35 @@ nav a.active .badge {
   border: 1px solid var(--wait);
   border-radius: 8px;
   padding: 0 6px;
+}
+.flag.toggle {
+  cursor: pointer;
+  user-select: none;
+}
+.flag.toggle input {
+  margin: 0 2px 0 0;
+  vertical-align: -1px;
+}
+
+/* The editor (screens/Editor.tsx) */
+.step.edit .step-intent-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 3px 8px;
+}
+.row-tools {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.fields {
+  margin: 8px 0 4px 64px;
+  padding: 10px 12px;
+  background: var(--quiet-bg);
+  border-radius: var(--r-control);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* Versions */
@@ -516,7 +666,7 @@ nav a.active .badge {
 }
 .episode {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-control);
   padding: 8px 12px;
   margin-bottom: 8px;
 }
@@ -534,7 +684,7 @@ nav a.active .badge {
   align-items: flex-end;
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--r-card);
   padding: 14px 16px;
 }
 .picker .answers,
@@ -554,11 +704,81 @@ nav a.active .badge {
   font: inherit;
   font-size: 14px;
   color: var(--text);
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 5px 8px;
+  border-radius: var(--r-control);
+  padding: 6px 9px;
 }
 .field input[type="number"] {
   width: 80px;
+}
+
+/* The description form (screens/Record.tsx) */
+.record-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 760px;
+}
+.field.wide .input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.field textarea {
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+.consent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 12px 16px;
+  font-size: 13px;
+}
+.consent legend {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 4px;
+}
+.recording h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The step a drill question is about (screens/Record.tsx) */
+.step.asked > .step-line {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+.drill {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.drill-draft {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 10px 14px;
+}
+@media (max-width: 760px) {
+  .drill {
+    grid-template-columns: 1fr;
+  }
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    display: none;
+  }
+  .content {
+    padding: 16px;
+  }
 }

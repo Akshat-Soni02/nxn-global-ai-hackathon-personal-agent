@@ -7,6 +7,7 @@ import { Action, Loading, StateChip, StatusChip } from "../components.tsx";
 import { FrequencyPicker } from "../FrequencyPicker.tsx";
 import { ago, duration, money, when } from "../format.ts";
 import { describe } from "../frequency.ts";
+import { Editor } from "./Editor.tsx";
 
 const BY = { record: "Recorded", user: "Changed by you", debug: "Repaired during a run" } as const;
 
@@ -16,6 +17,7 @@ export function Workflow({ id }: { id: string }) {
   const summary = useQuery<WorkflowSummary[]>("workflows");
   const runs = useQuery<RunRow[]>("runs", { skillId: id, limit: 20 });
   const [picking, setPicking] = useState(false);
+  const [editing, setEditing] = useState(false);
   if (workflow.data === null) return <p className="error">No workflow {id}.</p>;
   if (!workflow.data) return <Loading error={workflow.error} />;
   const { latest, versions } = workflow.data;
@@ -36,6 +38,18 @@ export function Workflow({ id }: { id: string }) {
             {latest.name} {state ? <StateChip state={state} /> : null}
           </h1>
           <span className="action">
+            <a
+              className="button"
+              href={`#/record/again/${id}`}
+              title="Do the task once more: the recording becomes the next version"
+            >
+              Record again
+            </a>
+            {editing ? null : (
+              <button type="button" className="button" onClick={() => setEditing(true)}>
+                Edit
+              </button>
+            )}
             {state?.state === "live" ? (
               <Action run={() => session.call("pause", { id })}>Pause</Action>
             ) : (
@@ -43,6 +57,14 @@ export function Workflow({ id }: { id: string }) {
                 {state?.state === "paused" ? "Resume" : "Go live"}
               </Action>
             )}
+            <Action
+              run={async () => {
+                const run = await session.call<{ id: string }>("walk", { id });
+                location.hash = `#/runs/${run.id}`;
+              }}
+            >
+              Walk through
+            </Action>
             <Action
               kind="primary"
               run={async () => {
@@ -94,16 +116,20 @@ export function Workflow({ id }: { id: string }) {
         )}
       </section>
 
-      <section className="section">
-        <h2>Steps</h2>
-        <ol className="tree">
-          {latest.steps
-            .filter((s) => s.type !== "trigger")
-            .map((s) => (
-              <StepRow key={s.id} step={s} />
-            ))}
-        </ol>
-      </section>
+      {editing ? (
+        <Editor
+          id={id}
+          onDone={() => {
+            setEditing(false);
+            workflow.reload();
+          }}
+        />
+      ) : (
+        <section className="section">
+          <h2>Steps</h2>
+          <StepTree steps={latest.steps} />
+        </section>
+      )}
 
       <section className="section">
         <div className="title-row">
@@ -162,8 +188,22 @@ export function Workflow({ id }: { id: string }) {
   );
 }
 
-function StepRow({ step }: { step: Step }) {
+// The steps as a tree; `highlight` marks the step a question is about (the Record screen's drill).
+export function StepTree({ steps, highlight }: { steps: Step[]; highlight?: string }) {
+  return (
+    <ol className="tree">
+      {steps
+        .filter((s) => s.type !== "trigger")
+        .map((s) => (
+          <StepRow key={s.id} step={s} highlight={highlight} />
+        ))}
+    </ol>
+  );
+}
+
+function StepRow({ step, highlight }: { step: Step; highlight?: string }) {
   if (step.type === "trigger") return null;
+  const asked = step.id === highlight ? " asked" : "";
   const flags = (
     <>
       {step.requires_approval ? <span className="flag">approval</span> : null}
@@ -172,7 +212,7 @@ function StepRow({ step }: { step: Step }) {
   );
   if (step.type === "control") {
     return (
-      <li className="step control">
+      <li className={`step control${asked}`}>
         <div className="step-line">
           <span className="step-kind">{step.kind === "loop" ? "for each" : "if"}</span>
           <span className="step-intent">{step.intent}</span>
@@ -184,7 +224,7 @@ function StepRow({ step }: { step: Step }) {
         </div>
         <ol className="tree">
           {step.steps.map((s) => (
-            <StepRow key={s.id} step={s} />
+            <StepRow key={s.id} step={s} highlight={highlight} />
           ))}
         </ol>
         {step.kind === "branch" && step.else.length > 0 ? (
@@ -192,7 +232,7 @@ function StepRow({ step }: { step: Step }) {
             <div className="step-kind else">otherwise</div>
             <ol className="tree">
               {step.else.map((s) => (
-                <StepRow key={s.id} step={s} />
+                <StepRow key={s.id} step={s} highlight={highlight} />
               ))}
             </ol>
           </>
@@ -202,7 +242,7 @@ function StepRow({ step }: { step: Step }) {
   }
   const kind = step.type === "llm" ? "model" : step.channel === "ax" ? "mac" : step.channel;
   return (
-    <li className="step">
+    <li className={`step${asked}`}>
       <div className="step-line">
         <span className="step-kind">{kind}</span>
         <span className="step-intent">{step.intent}</span>

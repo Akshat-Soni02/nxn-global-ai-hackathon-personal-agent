@@ -3,7 +3,7 @@
 // Only the extension can open this connection (Chrome launches the native host), so it connects on startup and
 // keeps the port open; the daemon can then send to it at any time. Add new message types here so both sides stay in sync.
 import { z } from "zod";
-import { ActionStep, Check } from "./skill.ts";
+import { ActionStep, Check, Locator } from "./skill.ts";
 import { TraceEvent } from "./trace.ts";
 
 export const NATIVE_HOST_NAME = "com.shadow.daemon";
@@ -30,26 +30,58 @@ export const Message = z.discriminatedUnion("type", [
 
   // Record: the daemon owns the session (started from the menu bar), and also watches the filesystem itself.
   // daemon -> extension: start/stop capturing web events for this session. startedAt drives the button's timer.
-  z.object({ ...base, type: z.literal("record.start"), sessionId: z.string(), startedAt: z.number().optional() }),
+  // consent: what the description form allowed (a screenshot per step, the microphone); dir: the recording's folder,
+  // where Shadow.app saves its window screenshots and audio.
+  z.object({
+    ...base,
+    type: z.literal("record.start"),
+    sessionId: z.string(),
+    startedAt: z.number().optional(),
+    consent: z.object({ screen: z.boolean(), microphone: z.boolean(), pictures: z.boolean().optional() }).optional(),
+    dir: z.string().optional(),
+  }),
   z.object({ ...base, type: z.literal("record.stop"), sessionId: z.string() }),
   // extension -> daemon: the Record / Stop button (floating in the page, or the toolbar icon). The daemon still owns
   // the session: it handles this exactly like a typed `record` / `stop`, and answers with record.start / record.stop.
-  z.object({ ...base, type: z.literal("record.command"), command: z.enum(["start", "stop"]) }),
-  // daemon -> extension: what happens after stop, shown on the button (drill questions are answered in the terminal).
+  z.object({ ...base, type: z.literal("record.command"), command: z.enum(["start", "stop", "discard"]) }),
+  // daemon -> extension and Shadow.app: what happens after stop, shown on the button (questions wait in the inbox).
+  // "form": Record was pressed; Shadow.app opens its window on the description form, and recording starts once the
+  // form is sent.
   z.object({
     ...base,
     type: z.literal("record.status"),
-    phase: z.enum(["compiling", "question", "saved", "empty", "failed", "busy", "replay"]),
+    phase: z.enum(["compiling", "question", "saved", "empty", "failed", "busy", "replay", "form"]),
     text: z.string(),
   }),
   // extension -> daemon: one captured web or browser event. The fields are the trace format (trace.ts), so an
   // unknown event kind is rejected here instead of reaching the compiler.
   TraceEvent.extend({ type: z.literal("record.event") }),
+  // extension or Shadow.app -> daemon: a screenshot taken right after an event, only when the form allowed it. From
+  // Chrome the picture itself (a JPEG data URL) and the boxes of password and card fields to black out (in the
+  // picture's pixels); from Shadow.app the file it saved in the recording's folder. The daemon reads its words on
+  // the Mac and keeps only the masked words (apps/daemon/src/screen.ts).
+  z.object({
+    ...base,
+    type: z.literal("record.shot"),
+    sessionId: z.string(),
+    eventId: z.string(),
+    at: z.number(),
+    image: z.string().max(20_000_000).optional(),
+    path: z.string().optional(),
+    masks: z
+      .array(z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }))
+      .max(200)
+      .optional(),
+  }),
 
   // daemon -> extension: whether Shadow.app's floating button is on screen (Chrome then hides its own).
   z.object({ ...base, type: z.literal("desktop.button"), present: z.boolean() }),
   // mac -> daemon: Accessibility was allowed or taken away while the app was running.
   z.object({ ...base, type: z.literal("mac.trusted"), trusted: z.boolean() }),
+  // mac -> daemon: the Mac is going to sleep, or just woke up (NSWorkspace). On wake the daemon looks at its
+  // triggers at once, and a step that timed out across the sleep is tried once more.
+  z.object({ ...base, type: z.literal("system.sleep") }),
+  z.object({ ...base, type: z.literal("system.wake") }),
   // mac -> daemon: a folder a Finder window shows while you record. One outside the watched folders (an external
   // drive, /Users/Shared) is watched from then on, so a file you move there is recorded.
   z.object({ ...base, type: z.literal("watch.folder"), path: z.string() }),
@@ -87,6 +119,13 @@ export const Message = z.discriminatedUnion("type", [
   }),
   // daemon -> extension: the run is over; detach the debugger
   z.object({ ...base, type: z.literal("run.end"), runId: z.string() }),
+  // daemon -> Shadow.app: a walk-through shows where an ax step would act (Highlight.swift), acting on nothing.
+  z.object({ ...base, type: z.literal("ax.highlight"), target: Locator }),
+  z.object({ ...base, type: z.literal("ax.highlight_result"), ok: z.boolean(), error: z.string().optional() }),
+  // daemon -> Shadow.app: a picture of the frontmost app's window, saved to `path` (needs Screen Recording), for the
+  // repair agent's describe_screen. The daemon masks it before anything else sees it (apps/daemon/src/describe.ts).
+  z.object({ ...base, type: z.literal("mac.screenshot"), path: z.string() }),
+  z.object({ ...base, type: z.literal("mac.screenshot_result"), ok: z.boolean(), error: z.string().optional() }),
 
   // The daemon's API (apps/daemon/src/api.ts), for any client on the socket (Shadow.app, tools). Replies reuse the id.
   z.object({ ...base, type: z.literal("api.call"), method: z.string(), params: z.unknown().optional() }),

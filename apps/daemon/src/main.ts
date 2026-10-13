@@ -1,9 +1,11 @@
 // Daemon entry point: the always-on process (launched at login later; `pnpm daemon` for now).
 // Everything that waits for you is in the inbox (shadow.db), answered here, over the socket, or over local HTTP
 // (api.json says where); a run that needs you waits there and goes on when it is answered, even after a restart.
-// Record and Stop are also a floating button in Chrome (and the extension's toolbar icon). Type commands on stdin:
-//   record | stop                       record a task; stop compiles it into a skill (its questions go to the inbox)
-//   compile <session>                   recompile a kept trace
+// Record and Stop are also a floating button in Chrome (and the extension's toolbar icon), on the desktop and in the
+// menu bar; each opens the description form first (record-control.ts). Type commands on stdin:
+//   record | stop                       record a task: its form's questions first (the goal, how often, what changes,
+//                                       what stays, never); stop turns it into a workflow (its questions go to the inbox)
+//   compile <session>                   turn a kept recording into a workflow again
 //   run <skill-id | skill.json> [name=value ... | path]   replay a skill (web steps go through the extension); a
 //                                       file it needs can be given here, else it is asked for before the first step
 //   inbox                               what waits for you
@@ -18,11 +20,12 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { Skill } from "@shadow/core";
-import { dataDir, logDir, migrateLegacyDataDir, socketPath } from "@shadow/ipc";
-import { configFromEnv, createLlm, UsageMeter } from "@shadow/llm";
+import { bundlePath, dataDir, logDir, migrateLegacyDataDir, socketPath } from "@shadow/ipc";
+import { configFromEnv, createLlm, type Llm, type LlmConfig, UsageMeter } from "@shadow/llm";
 import { openMemory } from "@shadow/memory";
 import type { RunLogEvent } from "@shadow/player";
 import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@shadow/player/node";
@@ -31,17 +34,23 @@ import type { Prompter, Question } from "@shadow/recorder";
 import { type Api, createApi } from "./api.ts";
 import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
 import { startDaemon } from "./daemon.ts";
+import { createScreenDescriber } from "./describe.ts";
 import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
 import { startHttp } from "./http.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
 import { finishRecording } from "./record.ts";
+import { createRecordControl, type RecordControl } from "./record-control.ts";
+import { readConsent, readForm, sweepRecordings } from "./recording-store.ts";
 import { runSkillOn } from "./runner.ts";
+import { createScreenReader, type ScreenReader, screenToolsFrom } from "./screen.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
-import { saveSkill, versions } from "./skill-store.ts";
+import { createAppControl, type KeySource, llmFromKeychain } from "./settings.ts";
+import { findSkills, listSkills, saveSkill, versions } from "./skill-store.ts";
 import { type InboxItem, openStore, type RunRow } from "./store.ts";
 import { listTraces } from "./trace-store.ts";
 import { startTriggers } from "./triggers.ts";
+import { transcribeRecording, transcriberFrom } from "./voice.ts";
 
 // NEBIUS_API_KEY (and optional model overrides) from the repo's .env, if there is one (see .env.example).
 try {
@@ -60,25 +69,62 @@ const userCwd = process.env.INIT_CWD ?? process.cwd();
 const path = socketPath();
 const home = dataDir();
 const watchDirs = watchDirsFromEnv();
+// Packaged (scripts/package.ts): the daemon runs from inside Shadow.app, with the app, the window's pages and the
+// native host next to it. In development they are in the repo.
+const bundle = bundlePath();
+const macApp = bundle ?? join(import.meta.dirname, "../../mac/build/Shadow.app");
+const uiDir =
+  process.env.SHADOW_UI_DIR ??
+  (bundle ? join(bundle, "Contents/Resources/ui") : join(import.meta.dirname, "../../ui/dist"));
+const nativeHost = bundle ? join(bundle, "Contents/Resources/native-host") : join(home, "native-host");
 let api: Api | undefined; // set once the service exists; api.call messages before then are answered "not ready"
+let record: RecordControl | undefined; // the same: Record pressed before then is ignored
+let screen: ScreenReader | undefined; // screenshots arriving before then are dropped
+let onWake: () => void = () => {}; // set once the triggers exist: a wake looks at them at once
 const daemon = await startDaemon({
   socketPath: path,
   log,
   dataDir: home,
   watchDirs,
-  onRecordCommand: (command) => (command === "start" ? startRecording() : stopRecording()),
+  onRecordCommand: (command) =>
+    command === "start" ? record?.press() : command === "stop" ? void record?.stop() : void record?.discard(),
+  onSystem: (event) => {
+    if (event === "wake") onWake();
+  },
+  onShot: (shot) => screen?.add(shot),
   api: { call: (method, params) => (api ? api.call(method, params) : Promise.reject(new Error("not ready"))) },
 });
+// Development mode: a daemon started in a terminal stops when the terminal closes. The LaunchAgent (pnpm
+// setup:daemon, or the packaged app) keeps it running at login and after a crash.
+if (process.stderr.isTTY && !existsSync(join(homedir(), "Library", "LaunchAgents", "com.shadow.daemon.plist"))) {
+  console.error(
+    "[daemon] development mode: Shadow stops when this terminal closes. pnpm setup:daemon keeps it running at login.",
+  );
+}
 const memory = openMemory(join(home, "memory.db"));
 const store = openStore(join(home, "shadow.db"));
-// One model client for everything (compile, llm steps, repair), and one meter counting what it spends.
-const llmConfig = configFromEnv();
-const model = llmConfig ? createLlm(llmConfig) : undefined;
+// One model client for everything (compile, llm steps, repair), and one meter counting what it spends. The key comes
+// from .env in development, else from the Keychain (settings.ts); a key pasted in Settings replaces the client.
 const usage = new UsageMeter();
+const envConfig = configFromEnv();
+let model: Llm | undefined = envConfig ? createLlm(envConfig) : undefined;
+let keySource: KeySource = envConfig ? "env" : "none";
+if (!model) {
+  model = await llmFromKeychain();
+  if (model) keySource = "keychain";
+}
 // data.pick rules are free; llm steps call the model on every run, so they are capped (calls per run, input size)
 // and their answers are cached by question and data.
 const data = dataChannel();
-const llm = llmExecutor({ llm: model, cacheDir: join(home, "ai-cache"), limits: aiLimitsFromEnv(), meter: usage });
+const llmStep = () =>
+  llmExecutor({ llm: model, cacheDir: join(home, "ai-cache"), limits: aiLimitsFromEnv(), meter: usage });
+let llm = llmStep();
+const applyKey = (config: LlmConfig) => {
+  model = createLlm(config);
+  keySource = "keychain";
+  llm = llmStep();
+  log(`model: a new key is in use (${config.profiles.smart.model})`);
+};
 log("listening on", path);
 // macOS asks once for Desktop, Documents and Downloads: now, rather than when you press Record.
 for (const folder of askFolderAccess(watchDirs)) {
@@ -89,11 +135,11 @@ for (const folder of askFolderAccess(watchDirs)) {
 startMacApp();
 log("data in", home, watchDirs.length > 0 ? `| watching ${watchDirs.join(", ")}` : "| file capture off");
 log(
-  llmConfig
-    ? `models: ${Object.entries(llmConfig.profiles)
+  model
+    ? `models (${keySource}): ${Object.entries(model.config.profiles)
         .map(([name, p]) => `${name} ${p.model}`)
         .join(", ")}`
-    : "no model configured: skills are compiled by code only (.env.example)",
+    : "no model configured: skills are compiled by code only (paste a key in Settings, or .env.example)",
 );
 
 // One leg of a run (service.ts): through the extension and Shadow.app, with recovery. The service's hooks make a
@@ -109,13 +155,19 @@ const execute: Execute = (skill, leg) =>
       llm,
       approve: leg.hooks.approve,
       ask: leg.hooks.ask,
+      // A walk-through: every step waits for you, with its target outlined. A failing step just fails: nothing is
+      // repaired while you are looking.
+      walk: leg.walk ? leg.hooks.walk : undefined,
+      describer,
       // A failed step pauses the run: repair, then resume (docs/design.md, section 9).
-      recovery: {
-        repairer: createRepairer({ llm: model, meter: usage }),
-        memory,
-        saveVersion: (repaired) => saveSkill(home, repaired).skill,
-        waitForUser: leg.hooks.waitForUser,
-      },
+      recovery: leg.walk
+        ? undefined
+        : {
+            repairer: createRepairer({ llm: model, meter: usage }),
+            memory,
+            saveVersion: (repaired) => saveSkill(home, repaired).skill,
+            waitForUser: leg.hooks.waitForUser,
+          },
     },
     join(home, "runs"),
   );
@@ -129,17 +181,110 @@ const service = createService({
   health: () => ({
     extensions: daemon.extensions.size,
     macApp: daemon.mac(),
-    model: llmConfig ? "configured" : "none",
+    model: model ? "configured" : "none",
+    keySource,
     api: httpPort,
+    bundle,
   }),
 });
-api = createApi(service);
+// Recording: the description form, then the recording, then Stop turns it into a workflow. Its questions (the
+// form's, from the terminal, and the drill's) wait in the inbox.
+const prompter: Prompter = {
+  ask: (question: Question, about) =>
+    service.ask({
+      title: question.text,
+      options: question.options?.map((o) => o.label),
+      default: question.default,
+      // A design-agent question is shown on the draft, next to its step.
+      step: about?.step,
+      draft: about?.draft,
+    }),
+};
+// Screenshots (when the form allowed them): their words are read and masked on the Mac by Shadow.app's binary, and
+// only the masked words are kept (screen.ts). Packaged, the app is the bundle the daemon runs inside.
+const macBinary = join(macApp, "Contents/MacOS/Shadow");
+screen = createScreenReader({
+  dataDir: home,
+  tools: screenToolsFrom(macBinary),
+  never: (sessionId) => readForm(home, sessionId)?.never ?? [],
+  log,
+});
+const screenReader = screen;
+const transcribe = transcriberFrom(macBinary);
+// Masked pictures described by the vision model, for the design agent and the repair agent (describe_screen): only
+// with the "pictures" consent, and masked by the same tools as the recording's screenshots.
+const describer = createScreenDescriber({
+  dataDir: home,
+  tools: screenToolsFrom(macBinary),
+  llm: () => model,
+  consent: () => readConsent(home),
+  log,
+});
+record = createRecordControl({
+  dataDir: home,
+  daemon,
+  ask: (question) => service.ask(question),
+  finish: async (sessionId) => {
+    // Every screenshot is read and masked, and the narration turned into text, before the recording becomes a workflow.
+    await screenReader.idle();
+    await transcribeRecording({
+      dataDir: home,
+      sessionId,
+      transcribe,
+      never: readForm(home, sessionId)?.never ?? [],
+      log,
+    });
+    return finishRecording(sessionId, {
+      dataDir: home,
+      prompter,
+      llm: model,
+      memory,
+      locate: { searchDirs: defaultSearchDirs(watchDirs) },
+      meter: usage,
+      describer,
+      log,
+    });
+  },
+  log,
+});
+const recordControl = record;
+recordControl.subscribe((event) => daemon.publish(event));
+// A recording's folder (events, screenshots, audio) is deleted a day after its workflow is saved, or a day after Stop
+// if it never was: looked at now and every hour.
+const sweep = () => {
+  try {
+    const gone = sweepRecordings(home, { active: recordControl.view().sessionId });
+    if (gone.length > 0) log(`deleted ${gone.length} recording(s) older than a day`);
+  } catch (error) {
+    log.error("could not delete old recordings:", (error as Error).message);
+  }
+};
+sweep();
+setInterval(sweep, 60 * 60_000).unref();
+const app = createAppControl({
+  dataDir: home,
+  logDir: logDir(),
+  bundle,
+  nativeHost,
+  model: () => model,
+  keySource: () => keySource,
+  applyKey,
+  memory,
+});
+api = createApi(service, recordControl, app);
 const http = await startHttp({
   api,
-  subscribe: (listener) => service.subscribe(listener),
+  subscribe: (listener) => {
+    const offService = service.subscribe(listener);
+    const offRecord = recordControl.subscribe(listener);
+    return () => {
+      offService();
+      offRecord();
+    };
+  },
   infoFile: join(home, "api.json"),
   // The window's pages: built by `pnpm ui` (apps/ui/dist); inside the app when packaged.
-  staticDir: process.env.SHADOW_UI_DIR ?? join(import.meta.dirname, "../../ui/dist"),
+  staticDir: uiDir,
   log,
 });
 httpPort = http.port;
@@ -147,12 +292,11 @@ httpPort = http.port;
 // to the log file.
 if (process.stderr.isTTY) console.error(`[daemon] open Shadow: http://127.0.0.1:${http.port}/#token=${http.token}`);
 
-let compiling = false; // from stop until the skill is saved: no new recording meanwhile (its questions are open)
 // The question or step question the next typed line answers.
 let focus: string | undefined;
 
 // The status line on the button in Chrome and on the desktop.
-type Phase = "compiling" | "question" | "saved" | "empty" | "failed" | "busy" | "replay";
+type Phase = "compiling" | "question" | "saved" | "empty" | "failed" | "busy" | "replay" | "form";
 const status = (phase: Phase, text: string) =>
   daemon.broadcast({ id: randomUUID(), type: "record.status", phase, text });
 
@@ -189,11 +333,10 @@ setInterval(lookAtTriggers, 30_000);
 service.subscribe((event) => {
   if (event.type === "workflow") lookAtTriggers();
 });
-
-// The drill and "which file?" put their questions in the inbox.
-const prompter: Prompter = {
-  ask: (question: Question) =>
-    service.ask({ title: question.text, options: question.options?.map((o) => o.label), default: question.default }),
+// The Mac woke up: a schedule missed while it slept runs now (per its `missed` setting), not up to 30 s later.
+onWake = () => {
+  log("the Mac woke up: looking at the triggers");
+  lookAtTriggers();
 };
 
 function announce(item: InboxItem) {
@@ -245,45 +388,6 @@ function showRun(run: RunRow) {
     status("failed", `Replay ${run.status}${run.failedStep ? ` at ${run.failedStep}` : ""}: see the terminal`);
 }
 
-async function compileSession(sessionId: string) {
-  compiling = true;
-  status("compiling", model ? "Compiling with Nemotron…" : "Compiling…");
-  try {
-    const locate = { searchDirs: defaultSearchDirs(watchDirs) };
-    const saved = await finishRecording(sessionId, { dataDir: home, prompter, llm: model, memory, locate, log });
-    if (saved) {
-      log(`replay it with: run ${saved.skill.id}`);
-      status("saved", `Saved ${saved.skill.id}. Replay: run ${saved.skill.id}`);
-    } else status("empty", "Nothing to save: no steps were recorded");
-  } catch (error) {
-    log.error("compile failed:", error instanceof Error ? error.message : error);
-    log(`the trace is kept: retry with "compile ${sessionId}"`);
-    status("failed", "Compile failed: see the daemon terminal");
-  } finally {
-    compiling = false;
-  }
-}
-
-// `record` / `stop`, typed here or pressed in Chrome.
-function startRecording() {
-  if (compiling) return refuse();
-  daemon.startRecording();
-}
-async function stopRecording() {
-  if (compiling) return refuse();
-  compiling = true; // covers the wait for late events too, so a new recording can't start in between
-  try {
-    const sessionId = await daemon.stopRecording();
-    if (sessionId) await compileSession(sessionId);
-  } finally {
-    compiling = false;
-  }
-}
-function refuse() {
-  log("still compiling the last recording; answer its questions first");
-  status("busy", "Still compiling the last recording: answer its questions first");
-}
-
 function printRun(e: RunLogEvent) {
   if (e.type === "run.start") log(`▶ ${e.skillId} v${e.version}${e.resumedAt ? ` (going on at ${e.resumedAt})` : ""}`);
   if (e.type === "step.result") {
@@ -306,23 +410,29 @@ function printRun(e: RunLogEvent) {
     log(`■ ${e.status} in ${e.ms} ms${e.failedStep ? ` at ${e.failedStep}` : ""}${e.error ? `: ${e.error}` : ""}`);
 }
 
-// A skill file by path, or a recorded skill by id (its latest version in the store). Returns what the service takes:
-// the file's absolute path, or the id.
-function skillRef(ref: string): string | undefined {
+// A skill file by path, or a recorded skill by its id, or by the start of it when only one skill matches (run
+// upload-invoice finds upload-invoice-k3f9q2), at its latest version in the store. Returns what the service takes:
+// the file's absolute path, or the id; else why there is none.
+function skillRef(ref: string): { target?: string; why?: string } {
   const asPath = resolve(userCwd, ref);
-  if (ref.endsWith(".json")) return existsSync(asPath) ? asPath : undefined;
-  try {
-    return versions(home, ref).length > 0 ? ref : undefined;
-  } catch {
-    return undefined; // not a valid skill id
-  }
+  if (ref.endsWith(".json")) return existsSync(asPath) ? { target: asPath } : { why: `no skill ${ref} (see "skills")` };
+  const found = findSkills(home, ref);
+  if (found.length > 1)
+    return { why: `${found.length} skills start with ${ref}: ${found.join(", ")}. Type the whole id.` };
+  const id = found[0];
+  if (id === undefined) return { why: `no skill ${ref} (see "skills")` };
+  // A skill saved before ids got their tag is named exactly what you typed; newer recordings of it are not run.
+  const newer = id === ref ? listSkills(home).filter((s) => s.id.startsWith(`${ref}-`)) : [];
+  if (newer.length > 0)
+    log(`running ${ref}; also recorded: ${newer.map((s) => s.id).join(", ")} (type the whole id to run one)`);
+  return { target: id };
 }
 
 async function run(args: string[]) {
   const [ref, ...given] = args;
   if (!ref) return log("usage: run <skill-id | skill.json> [name=value ... | path]");
-  const target = skillRef(ref);
-  if (!target) return log(`no skill ${ref} (see "skills")`);
+  const { target, why } = skillRef(ref);
+  if (!target) return log(why);
   try {
     // Which files to use, settled before the first step: given with the command, else asked (Enter takes the newest
     // like the recorded one; or drag one in from Finder). A wrong file stops the run before anything runs.
@@ -383,7 +493,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     }
     return;
   }
-  if (compiling) return refuse();
+  if (recordControl.view().phase === "compiling") {
+    log("still turning the last recording into a workflow; answer its questions first");
+    return;
+  }
   if (command === "run") void run(args);
   else if (command === "rollback" && args[0]) {
     try {
@@ -404,9 +517,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     } catch (error) {
       log((error as Error).message);
     }
-  } else if (command === "record") startRecording();
-  else if (command === "stop") void stopRecording();
-  else if (command === "compile" && args[0]) void compileSession(args[0]);
+  } else if (command === "record") void recordControl.describeInInbox();
+  else if (command === "stop") void recordControl.stop();
+  else if (command === "compile" && args[0]) void recordControl.compile(args[0]);
   else if (command === "skills")
     for (const w of service.workflows()) {
       const next = w.nextRunAt ? `, next ${new Date(w.nextRunAt).toLocaleString()}` : "";
@@ -432,11 +545,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 // Shadow.app: the floating Record / Stop button on the desktop, Mac-app recording and the ax channel. Started
 // through `open`, so macOS asks for Accessibility in its own name (not your terminal's). It quits when the daemon does.
 function startMacApp() {
-  const app = join(import.meta.dirname, "../../mac/build/Shadow.app");
   if (process.env.SHADOW_MAC === "off") return;
-  if (!existsSync(app)) return log("no desktop button: build it with pnpm setup:mac");
+  if (!existsSync(macApp)) return log("no desktop button: build it with pnpm setup:mac");
   const args = ["--socket", resolve(path), "--api", join(home, "api.json"), "--log", join(logDir(), "app.log")];
-  execFile("open", ["-g", app, "--args", ...args], (error) => {
+  execFile("open", ["-g", macApp, "--args", ...args], (error) => {
     if (error) log("could not start Shadow.app:", error.message);
   });
 }

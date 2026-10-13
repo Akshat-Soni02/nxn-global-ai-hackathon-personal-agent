@@ -51,7 +51,30 @@ export interface RunDeps {
   // position are kept) so it can be recovered and resumed; "fail" handles it as a failure (a loop with
   // on_item_fail: skip goes on). Without it, every failure is a failure.
   onFailure?(failure: Failure): "pause" | "fail" | Promise<"pause" | "fail">;
+  // Walking through a workflow (docs/design.md, "7. Test"): asked before every action or llm step, once its target
+  // has been highlighted. "do" runs the step (and counts as its approval), "skip" passes over it without acting,
+  // "stop" ends the walk. WAIT: nobody can answer now, so the run waits in the inbox (kind "walk").
+  walk?(step: ActionStep | LlmStep, path: string): Promise<WalkChoice | Wait>;
+  // Shows where a step would act: outlines its target on the page or in the Mac app, without acting.
+  highlight?(step: ActionStep): Promise<void>;
   log?(event: RunLogEvent): void;
+}
+
+export type WalkChoice = "do" | "skip" | "stop";
+
+// Steps that only read or move: in a walk-through they run on "next"; everything else is acting and needs "do".
+const WALK_READS = new Set([
+  "web.navigate",
+  "web.wait_for",
+  "web.extract",
+  "fs.find",
+  "fs.read",
+  "data.pick",
+  "ax.open",
+]);
+export function walkActs(step: ActionStep | LlmStep): boolean {
+  if (step.type === "llm") return false;
+  return !WALK_READS.has(`${step.channel}.${step.action}`);
 }
 
 // A step that failed every attempt: what recovery starts from.
@@ -79,14 +102,19 @@ export interface Resume {
   approveOnce?: string[];
 }
 
-export type Answer = { kind: "approval"; approved: boolean } | { kind: "ask"; value: string | boolean };
+export type Answer =
+  | { kind: "approval"; approved: boolean }
+  | { kind: "ask"; value: string | boolean }
+  | { kind: "walk"; choice: WalkChoice };
 
 // What a waiting run waits for, at `path`. recovery: a failure repair couldn't fix, or something only the user can do
-// (log in); answered with retry, skip or stop.
+// (log in); answered with retry, skip or stop. walk: a walk-through stopped before a step, its target highlighted;
+// `acting` says whether the step would change something (needs "do") or only reads ("next").
 export type Waiting =
   | { kind: "approval"; path: string; stepId: string; intent: string }
   | { kind: "ask"; path: string; stepId: string; question: string; ask: Ask }
-  | { kind: "recovery"; path: string; stepId: string; message: string; error?: string };
+  | { kind: "recovery"; path: string; stepId: string; message: string; error?: string }
+  | { kind: "walk"; path: string; stepId: string; intent: string; acting: boolean; highlighted: boolean };
 
 // `path` says where a step ran: its id, inside loops with the item number, e.g. "l1[2] > s3".
 export type RunLogEvent =
@@ -103,6 +131,8 @@ export type RunLogEvent =
   | { type: "step.approval"; stepId: string; path: string; approved: boolean }
   | { type: "step.ask"; stepId: string; path: string; question: string; answer: string | boolean }
   | { type: "step.skipped"; stepId: string; path: string; reason: string }
+  // A walk-through's choice for a step: do it, skip it, or stop.
+  | { type: "step.walk"; stepId: string; path: string; choice: WalkChoice; highlighted: boolean }
   | { type: "loop.start"; stepId: string; path: string; items: number }
   | { type: "loop.item"; stepId: string; path: string; index: number }
   | { type: "loop.item_failed"; stepId: string; path: string; index: number; error: string }

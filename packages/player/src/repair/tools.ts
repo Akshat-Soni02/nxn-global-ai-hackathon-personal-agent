@@ -218,6 +218,25 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
       }),
     }),
   ];
+  if (env.describeScreen) {
+    const describeScreen = env.describeScreen;
+    tools.push(
+      tool({
+        name: "describe_screen",
+        kind: "look",
+        description:
+          "The page or window as it looks right now, described by the vision model from a picture with private text blacked out (the user allowed this). Ask it a question: what dialog is open, where the button went",
+        input: z.object({ question: z.string().min(1).max(300) }),
+        run: async ({ question }) => {
+          try {
+            return { output: await describeScreen(question), untrusted: true };
+          } catch (error) {
+            return { output: `Couldn't describe the screen: ${(error as Error).message}` };
+          }
+        },
+      }),
+    );
+  }
   if (env.recall) {
     const recall = env.recall;
     tools.push(

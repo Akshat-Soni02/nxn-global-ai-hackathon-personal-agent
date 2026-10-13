@@ -1,6 +1,8 @@
-// Skill store: skills/<id>/v<N>.json. A version is never overwritten: a new recording of the same skill, or a
-// repair made during a run (by: debug), becomes the next version and the older ones stay as history. The highest
-// version is the one replay runs; a rollback saves the version before it again, as the next one.
+// Skill store: skills/<id>/v<N>.json. Every recording is a new skill with its own id, even when it is the same task
+// as one you already have (newSkillId), so two recordings never land in one skill. A version is never overwritten: a
+// repair made during a run (by: debug) or a change you make becomes the next version and the older ones stay as
+// history. The highest version is the one replay runs; a rollback saves the version before it again, as the next one.
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Skill } from "@shadow/core";
@@ -49,6 +51,23 @@ export function listSkills(dataDir: string): { id: string; versions: number[]; n
     const latest = all.length > 0 ? loadSkill(dataDir, id) : undefined;
     return latest ? [{ id, versions: all, name: latest.name }] : [];
   });
+}
+
+// A readable name and a random tag: upload-invoice-k3f9q2. The tag is what keeps two recordings of the same task
+// apart; the name is what you recognise in "skills".
+export function newSkillId(dataDir: string, name: string): string {
+  for (;;) {
+    const tag = randomBytes(5).readUIntBE(0, 5).toString(36).padStart(6, "0").slice(-6);
+    const id = `${name}-${tag}`;
+    if (versions(dataDir, id).length === 0) return id;
+  }
+}
+
+// The skills a name you typed refers to: the one with exactly that id, else every skill whose id starts with it
+// ("run upload-invoice" finds upload-invoice-k3f9q2 when it is the only one).
+export function findSkills(dataDir: string, ref: string): string[] {
+  const all = listSkills(dataDir).map((s) => s.id);
+  return all.includes(ref) ? [ref] : all.filter((id) => id.startsWith(ref));
 }
 
 // One-step rollback: the version before the latest becomes the next version, with a note saying what was undone.

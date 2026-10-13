@@ -37,16 +37,52 @@ function blank(kind: Choice["kind"], from: Choice): Choice {
   }
 }
 
+export type Missed = "run_once" | "skip";
+
 export function FrequencyPicker({ id, current, onDone }: { id: string; current?: Trigger; onDone(): void }) {
   const session = useSession();
   const [choice, setChoice] = useState<Choice>(toChoice(current));
-  const [missed, setMissed] = useState<"run_once" | "skip">(
-    current && current.type !== "manual" ? current.missed : "run_once",
-  );
-  const set = (patch: Partial<Choice>) => setChoice((c) => ({ ...c, ...patch }) as Choice);
+  const [missed, setMissed] = useState<Missed>(current && current.type !== "manual" ? current.missed : "run_once");
 
   return (
     <div className="picker">
+      <FrequencyFields choice={choice} missed={missed} onChoice={setChoice} onMissed={setMissed} />
+      <div className="answers">
+        <Action
+          kind="primary"
+          run={async () => {
+            await session.call("setTrigger", { id, when: [toTrigger(choice, missed)] });
+            onDone();
+          }}
+        >
+          Save Frequency
+        </Action>
+        <button type="button" className="button link" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+      <p className="muted small">Saving makes a new version of the workflow. Times are your Mac's.</p>
+    </div>
+  );
+}
+
+// The Frequency's fields alone: also the description form's (screens/Record.tsx).
+export function FrequencyFields({
+  choice,
+  missed,
+  onChoice,
+  onMissed,
+}: {
+  choice: Choice;
+  missed: Missed;
+  onChoice(choice: Choice): void;
+  onMissed(missed: Missed): void;
+}) {
+  const set = (patch: Partial<Choice>) => onChoice({ ...choice, ...patch } as Choice);
+  const setChoice = onChoice;
+  const setMissed = onMissed;
+  return (
+    <>
       <label className="field">
         <span>Runs</span>
         <select value={choice.kind} onChange={(e) => setChoice(blank(e.target.value as Choice["kind"], choice))}>
@@ -123,28 +159,12 @@ export function FrequencyPicker({ id, current, onDone }: { id: string; current?:
           <span>
             {choice.kind === "folder" ? "Files that came while Shadow was off" : "If the Mac was asleep at that time"}
           </span>
-          <select value={missed} onChange={(e) => setMissed(e.target.value as "run_once" | "skip")}>
+          <select value={missed} onChange={(e) => setMissed(e.target.value as Missed)}>
             <option value="run_once">{choice.kind === "folder" ? "start them" : "run once when it wakes"}</option>
             <option value="skip">{choice.kind === "folder" ? "leave them" : "skip it until next time"}</option>
           </select>
         </label>
       ) : null}
-
-      <div className="answers">
-        <Action
-          kind="primary"
-          run={async () => {
-            await session.call("setTrigger", { id, when: [toTrigger(choice, missed)] });
-            onDone();
-          }}
-        >
-          Save Frequency
-        </Action>
-        <button type="button" className="button link" onClick={onDone}>
-          Cancel
-        </button>
-      </div>
-      <p className="muted small">Saving makes a new version of the workflow. Times are your Mac's.</p>
-    </div>
+    </>
   );
 }

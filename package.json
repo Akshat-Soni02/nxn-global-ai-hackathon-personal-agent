@@ -24,12 +24,15 @@
     "snapshot:pages": "tsx scripts/snapshot-pages.ts",
     "replay": "tsx scripts/replay.ts",
     "llm:check": "tsx scripts/llm-check.ts",
-    "daemon:dev": "pnpm --filter @shadow/daemon dev"
+    "daemon:dev": "pnpm --filter @shadow/daemon dev",
+    "package": "tsx scripts/package.ts",
+    "release": "tsx scripts/release.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.3",
+    "esbuild": "^0.28.2",
     "linkedom": "^0.18.13",
     "jsdom": "^30.1.1",
     "tsx": "^4.23.15",

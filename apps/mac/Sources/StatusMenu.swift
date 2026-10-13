@@ -12,6 +12,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
   var waiting = 0 { didSet { render() } }
   var health: JSON = [:]
   var todayUsd: Double = 0
+  // Whether the daemon is reachable right now (the menu says so, and offers to start it).
+  var daemonUp = false { didSet { render() } }
+  var onStartDaemon: () -> Void = {}
 
   private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
   private let menu = NSMenu()
@@ -30,11 +33,19 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
   private func render() {
     item.button?.title = waiting > 0 ? " \(waiting)" : ""
-    item.button?.toolTip = waiting > 0 ? "Shadow: \(waiting) waiting for you" : "Shadow"
+    item.button?.toolTip = !daemonUp ? "Shadow: not running" : waiting > 0 ? "Shadow: \(waiting) waiting for you" : "Shadow"
+    item.button?.appearsDisabled = !daemonUp
   }
 
   func menuNeedsUpdate(_ menu: NSMenu) {
     menu.removeAllItems()
+    if !daemonUp {
+      menu.addItem(disabled("Shadow is not running"))
+      menu.addItem(ClosureItem("Start Shadow", key: "") { [weak self] in self?.onStartDaemon() })
+      menu.addItem(.separator())
+      menu.addItem(ClosureItem("Quit Shadow", key: "q") { [weak self] in self?.onQuit() })
+      return
+    }
     if waiting > 0 {
       let line = waiting == 1 ? "1 thing waits for you" : "\(waiting) things wait for you"
       let open = ClosureItem(line, key: "") { [weak self] in self?.onOpen("/inbox") }

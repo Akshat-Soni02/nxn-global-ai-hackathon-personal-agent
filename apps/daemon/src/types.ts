@@ -1,6 +1,6 @@
 // The daemon's API types, without Node: shared by the daemon (store.ts, service.ts) and the app's window (apps/ui),
 // which imports them to type what the API returns.
-import type { Trigger } from "@shadow/core";
+import type { Skill, Trigger } from "@shadow/core";
 import type { Resume, RunLogEvent, Waiting } from "@shadow/player";
 
 // running → one of the others. waiting: stopped until an inbox item is answered. interrupted: the daemon stopped
@@ -26,6 +26,22 @@ export interface Checkpoint {
   waiting: Waiting;
   // A run started from a workflow file rather than the store: the file, to load that version again.
   file?: string;
+  // A walk-through of a draft: the exact tree being walked (a draft is not a version in the store).
+  skill?: Skill;
+}
+
+// A workflow's draft as the editor shows it (docs/design.md, "6. Edit"): the tree with the edits applied, what
+// changed in words, and what still stops it from going live.
+export interface DraftView {
+  id: string;
+  // The version the edits were made on, and the latest version in the store.
+  base: number;
+  latest: number;
+  skill: Skill;
+  changes: string[];
+  canUndo: boolean;
+  canRedo: boolean;
+  problems: string[];
 }
 
 export interface RunRow {
@@ -43,10 +59,11 @@ export interface RunRow {
   checkpoint?: Checkpoint;
 }
 
-// approval, ask, recovery: a waiting run's step ("waiting for you"). question: a question outside a run (the drill
-// after a recording, which file to use). repaired: nothing to answer; a repair saved a new version, to review.
-// paused: a workflow paused itself after failing runs; answered by resuming it (or leaving it paused).
-export type InboxKind = "approval" | "ask" | "recovery" | "question" | "repaired" | "paused";
+// approval, ask, recovery: a waiting run's step ("waiting for you"). walk: a walk-through stopped before a step
+// (answered with do it / next, skip or stop). question: a question outside a run (the drill after a recording, which
+// file to use). repaired: nothing to answer; a repair saved a new version, to review. paused: a workflow paused
+// itself after failing runs; answered by resuming it (or leaving it paused).
+export type InboxKind = "approval" | "ask" | "recovery" | "walk" | "question" | "repaired" | "paused";
 
 export interface InboxItem {
   id: string;
@@ -95,9 +112,45 @@ export interface WorkflowSummary {
   nextRunAt?: number;
 }
 
-// A question outside a run: the drill after a recording, which file to use.
+// A question outside a run: the drill after a recording, which file to use. A drill question can be about one step
+// of the draft workflow: the window shows the draft with that step marked.
 export interface Question {
   title: string;
   options?: string[];
   default?: string;
+  step?: string;
+  draft?: unknown;
+}
+
+// Recording (record-control.ts), as the window's Record screen gets it from `recording`.
+export type RecordPhase = "idle" | "describing" | "recording" | "compiling";
+export interface Consent {
+  // A screenshot of the active window at each event; only the words read from it (masked) leave the Mac.
+  screen: boolean;
+  // Narration, turned into text on the Mac; only the text leaves it.
+  microphone: boolean;
+  // The masked picture may be sent to the vision model to be described (design and repair). Off: words only.
+  pictures: boolean;
+}
+// The description form, as recording-store.ts checks and saves it.
+export interface RecordFormView {
+  goal: string;
+  changes: string[];
+  constants: string[];
+  never: string[];
+  when: Trigger[];
+  consent: Consent;
+}
+export interface RecordingView {
+  phase: RecordPhase;
+  sessionId?: string;
+  startedAt?: number;
+  // The form of the recording going on, or being turned into a workflow.
+  form?: RecordFormView;
+  // The consents the form starts with: the ones given last time.
+  consent: Consent;
+  // How the last recording ended.
+  last?: { sessionId: string; outcome: "saved" | "empty" | "failed"; skillId?: string; text: string };
+  // Whether Shadow.app is running (it shows the form in its window).
+  macApp: boolean;
 }

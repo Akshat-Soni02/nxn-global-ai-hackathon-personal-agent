@@ -5,8 +5,10 @@ import { createRoot } from "react-dom/client";
 import { call, SessionContext, takeToken, useEvents, useQuery } from "./api.ts";
 import { money } from "./format.ts";
 import { Inbox } from "./screens/Inbox.tsx";
+import { Record } from "./screens/Record.tsx";
 import { Run } from "./screens/Run.tsx";
 import { Runs } from "./screens/Runs.tsx";
+import { Settings } from "./screens/Settings.tsx";
 import { Workflow } from "./screens/Workflow.tsx";
 import { Workflows } from "./screens/Workflows.tsx";
 
@@ -59,7 +61,8 @@ function App() {
 }
 
 function Shell({ connected }: { connected: boolean }) {
-  const [screen = "inbox", id] = useRoute();
+  // "#/record/again/<id>": the Record screen prefilled from a workflow, to record it again.
+  const [screen = "inbox", id, sub] = useRoute();
   const inbox = useQuery<unknown[]>("inbox", { open: true });
   const waiting = inbox.data?.length ?? 0;
   useEffect(() => {
@@ -70,11 +73,16 @@ function Shell({ connected }: { connected: boolean }) {
     { to: "inbox", label: "Inbox", badge: waiting },
     { to: "workflows", label: "Workflows" },
     { to: "runs", label: "Runs" },
+    { to: "record", label: "Record" },
+    { to: "settings", label: "Settings" },
   ];
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand">Shadow</div>
+        <div className="brand">
+          <Mark />
+          Shadow
+        </div>
         <nav>
           {nav.map((n) => (
             <a key={n.to} href={`#/${n.to}`} className={screen === n.to ? "active" : undefined}>
@@ -91,8 +99,23 @@ function Shell({ connected }: { connected: boolean }) {
         {screen === "workflows" && id && <Workflow id={id} />}
         {screen === "runs" && !id && <Runs />}
         {screen === "runs" && id && <Run id={id} />}
+        {screen === "record" && <Record again={id === "again" ? sub : undefined} />}
+        {screen === "settings" && <Settings />}
       </main>
     </div>
+  );
+}
+
+// The mark (docs/design-ui.md): a white dot and the blue shadow it casts, on night blue.
+function Mark() {
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <title>Shadow</title>
+      <rect width="64" height="64" rx="14" fill="#13142a" />
+      <circle cx="36" cy="36" r="12" fill="#3a5bd9" opacity="0.85" />
+      <circle cx="30" cy="30" r="12" fill="#fafaff" />
+      <circle cx="30" cy="30" r="4" fill="#ef4444" />
+    </svg>
   );
 }
 
