@@ -176,7 +176,16 @@ describe("screenshots over the socket", () => {
     });
     shot(yes, "a");
     shot("another-session", "b");
-    await until(() => shots.length > 0);
+    // A real tab picture is a few MB as a data URL: messages from the extension have no 1 MB cap on this side.
+    const big = `data:image/jpeg;base64,${Buffer.alloc(1_600_000, 7).toString("base64")}`;
+    // Framed the way Chrome frames it (our own encode caps what the daemon sends Chrome at 1 MB).
+    const json = Buffer.from(
+      JSON.stringify({ id: "big", type: "record.shot", sessionId: yes, eventId: "big", at: 2, image: big }),
+    );
+    const header = Buffer.alloc(4);
+    header.writeUInt32LE(json.length, 0);
+    ext.write(Buffer.concat([header, json]));
+    await until(() => shots.length > 1);
     await daemon.stopRecording();
 
     const no = daemon.startRecording({ consent: { screen: false, microphone: false } });
@@ -184,6 +193,6 @@ describe("screenshots over the socket", () => {
     await new Promise((r) => setTimeout(r, 50));
     await daemon.stopRecording();
     ext.end();
-    expect(shots).toEqual(["a"]);
+    expect(shots).toEqual(["a", "big"]);
   });
 });

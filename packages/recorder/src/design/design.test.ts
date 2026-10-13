@@ -142,6 +142,23 @@ describe("the design agent", () => {
           },
         ],
       }),
+      // A reading step, but of a private file the recording never touched: an llm step could send it to the model.
+      call("edit", {
+        edits: [
+          {
+            op: "insert",
+            at: { after: "s1" },
+            step: {
+              type: "action",
+              intent: "Read a key",
+              channel: "fs",
+              action: "read",
+              args: { path: "~/.ssh/id_rsa" },
+              output: { name: "key", type: { type: "text" } },
+            },
+          },
+        ],
+      }),
       call("finish", { summary: "nothing" }),
     ]);
     const outcome = await designWorkflow({
@@ -162,6 +179,7 @@ describe("the design agent", () => {
     expect(said[4]).toMatch(/only open a site the recording visited/);
     expect(said[5]).toMatch(/a new web.press step would do something the user didn't show/);
     expect(said[6]).toMatch(/a recorded step keeps its kind of action \(it was web.navigate\)/);
+    expect(said[7]).toMatch(/may only look in folders the recording touched .* not ~\/\.ssh\/id_rsa/);
   });
 
   it("builds a loop over files and an llm step from the recorded steps", async () => {

@@ -8,7 +8,7 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 
 ## What works today
 
-Status on **Oct 12, 2026**. The full design is [`docs/design.md`](docs/design.md) (its [status table](docs/design.md#status-design-vs-code) has the details); [`docs/guide/13-the-whole-picture`](docs/guide/13-the-whole-picture.md) is a one-page map of how the pieces fit.
+Status on **Oct 13, 2026**. The full design is [`docs/design.md`](docs/design.md) (its [status table](docs/design.md#status-design-vs-code) has the details); [`docs/guide/13-the-whole-picture`](docs/guide/13-the-whole-picture.md) is a one-page map of how the pieces fit.
 
 | Built | Not yet |
 | --- | --- |
@@ -37,8 +37,8 @@ flowchart LR
 
 1. **Describe.** A short form before recording: **Goal** (required), **Frequency** (becomes the trigger; default: only when you start it), and optionally **What changes each run**, **What stays the same** and **Never**. These answers separate variables from constants, and steps matching Never always wait for your approval.
 2. **Record.** You do the task your usual way while Shadow records **events** in Chrome, Mac apps and Finder. With your consent: **a screenshot at each event**, of which only the words read on the Mac (private ones masked) leave it ([how](#privacy)), and **voice narration** turned into text on the Mac (the audio never leaves it).
-3. **Understand.** Nemotron 3 Super turns the events (and, later, the description, transcript and screenshot descriptions) into a **workflow**: a click on an email becomes "the newest email from this sender", changing values become variables. Turning repetition into a loop is planned.
-4. **Drill.** Questions only on the steps it is unsure about; answers go to memory.
+3. **Understand.** The **design agent** (Nemotron 3 Super in a loop with tools) turns the description, the events, what you said and the masked screen words into a **workflow**: a click on an email becomes "the newest email from this sender", changing values become variables, repeated work becomes a loop, "only if" a branch.
+4. **Drill.** Questions only on the steps it is unsure about, shown next to the draft workflow with the step marked; answers go to memory.
 5. **Workflow tree.** Each step is a browser or Mac action, or an **LLM step** that transforms data (summarise, classify, read a document). LLM steps never drive the UI. The tree also has **variables**, **loops** and **branches**, and any step can **ask you** something or need your **approval** before it runs.
 6. **Edit** *(planned)*. Change any step and toggle **human approval** on any step. Today the window sets a workflow's **Frequency**.
 7. **Test** *(planned)*. A **highlight-only** replay shows each target without acting.
@@ -57,7 +57,7 @@ Outside the app: the **Chrome extension** (web recording and replay through `chr
 
 ## NVIDIA Nemotron on Nebius Token Factory
 
-Every model call goes through `packages/llm` to **Nebius Token Factory**. Callers pick a profile; recovering from failures (and, planned, understanding recordings) are **agents** built on `packages/agent` ([design](docs/design.md#agents)).
+Every model call goes through `packages/llm` to **Nebius Token Factory**. Callers pick a profile; understanding recordings and recovering from failures are **agents** built on `packages/agent` ([design](docs/design.md#agents)).
 
 | Profile | Model | Used by |
 | --- | --- | --- |
@@ -169,7 +169,7 @@ Shadow appears in the menu bar (how many things wait for you, Record, health, th
 ### 4. Record a task
 
 1. Press the round **Record** button (drag it anywhere), **Record a task** in the menu bar, or **Record** in the window. The window opens the short form: say what the task is for (the goal) and how often it should run, then **Start recording**. Do the task in Chrome, Finder or any Mac app, then press **Stop**. Without Shadow.app, the same button appears inside Chrome pages (and the extension's toolbar icon), and the form's questions come to the Inbox; `record` in the terminal asks them there too.
-2. Shadow compiles the recording and asks its questions: answer them in the window's **Inbox** (or type the answer in the terminal; Enter takes the default). The saved workflow appears under **Workflows**.
+2. Shadow turns the recording into a workflow and asks its questions: answer them on the **Record** screen, next to the draft, or in the **Inbox** (or type the answer in the terminal; Enter takes the default). The saved workflow appears under **Workflows**.
 3. Finder is recorded by what it does to files (moves, renames), not by its clicks. File moves anywhere in your home folder are recorded with no setup (macOS asks once for Desktop, Documents and Downloads when the daemon starts); a folder outside it, such as an external drive, is added when a Finder window shows it.
 4. Every recording is saved as its own workflow with its own id, a readable name plus a random tag (`upload-invoice-k3f9q2`), even when you record the same task again, so recordings never overwrite or mix. In the terminal, `run` takes the whole id or just its start when only one matches (`run upload-invoice`). Versions of one workflow (`v2`, `v3`) are its fixes, Frequency changes and rollbacks.
 

@@ -2,6 +2,8 @@
 // starts from, the draft it is changing, the recording, and the questions still open. Look tools read; edit tools
 // change the draft through core's edit operations, and every change is checked against what the agent may never do
 // (designViolations) before it is kept; ask_user is the drill; finish ends.
+import { homedir } from "node:os";
+import { dirname, resolve, sep } from "node:path";
 import { type AnyTool, tool } from "@shadow/agent";
 import {
   applyEdits,
@@ -30,6 +32,8 @@ export interface Note {
 export interface DesignSession {
   // Where every target and site comes from: the workflow as compiled from the recording.
   original: Skill;
+  // The folders the recording touched: the only places a new step may read from.
+  folders: string[];
   draft: Skill;
   form?: Form;
   steps: NormalisedStep[];
@@ -74,13 +78,31 @@ const originOf = (url: unknown): string | undefined => {
 // Steps the agent may add: they only read or open a page the recording visited; they change nothing.
 const READ_ONLY = new Set(["fs.find", "fs.read", "data.pick", "web.extract", "web.wait_for", "web.navigate"]);
 
+const expand = (path: string) => resolve(path.startsWith("~/") ? `${homedir()}/${path.slice(2)}` : path);
+
+// The folders a recording touched (files picked, dropped, moved or downloaded, and where the first draft looks for
+// files): a new fs.find or fs.read may look only there, so no step can read ~/.ssh and hand it to an llm step.
+export function recordedFolders(steps: NormalisedStep[], original: Skill): string[] {
+  const paths = steps.flatMap((s) => [s.path, s.toPath, s.file?.path, ...(s.files ?? []).map((f) => f.path)]);
+  const folders = paths.filter((p): p is string => !!p).map((p) => dirname(expand(p)));
+  for (const input of Object.values(triggerOf(original).inputs)) {
+    if (typeof input.resolve?.dir === "string") folders.push(expand(input.resolve.dir));
+  }
+  for (const { step } of walkSteps(original.steps)) {
+    if (isAction(step) && step.channel === "fs" && typeof step.args.dir === "string")
+      folders.push(expand(step.args.dir));
+  }
+  return [...new Set(folders)];
+}
+
 // Every way the draft breaks the rules, as sentences the agent reads; empty when it may be kept.
 //   targets       only from the recording: no new control, and no control changed
-//   actions       a new step may only read (READ_ONLY); a recorded step keeps its kind of action
+//   actions       a new step may only read (READ_ONLY), and files only in folders the recording touched; a recorded
+//                 step keeps its kind of action
 //   reach         no script steps, no navigating to a site the recording didn't visit
 //   the user's    the form's description and Frequency stay as written
 //   safety        approval is never turned off, and a step that needs it is never removed
-export function designViolations(original: Skill, draft: Skill, form?: Form): string[] {
+export function designViolations(original: Skill, draft: Skill, form?: Form, folders: string[] = []): string[] {
   const problems: string[] = [];
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
   if (form && !same(triggerOf(draft).when, triggerOf(original).when)) {
@@ -108,6 +130,18 @@ export function designViolations(original: Skill, draft: Skill, form?: Form): st
       problems.push(
         `${step.id}: a new ${kind} step would do something the user didn't show. Only steps that read (${[...READ_ONLY].join(", ")}) can be added; ask the user to show the rest`,
       );
+    } else if (!old && (kind === "fs.find" || kind === "fs.read")) {
+      const where = kind === "fs.find" ? step.args.dir : step.args.path;
+      // A reference to a file an earlier step found (or a run was given) is fine; a written path must be in a folder
+      // the recording touched.
+      const reference = typeof where === "string" && /^\{\{[^}]+\}\}$/.test(where.trim());
+      const inside =
+        typeof where === "string" && folders.some((f) => expand(where) === f || expand(where).startsWith(`${f}${sep}`));
+      if (!reference && !inside) {
+        problems.push(
+          `${step.id}: it may only look in folders the recording touched (${folders.join(", ") || "none"}), not ${String(where)}`,
+        );
+      }
     } else if (old && (!isAction(old) || `${old.channel}.${old.action}` !== kind)) {
       problems.push(
         `${step.id}: a recorded step keeps its kind of action (it was ${isAction(old) ? `${old.channel}.${old.action}` : old.type})`,
@@ -234,7 +268,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
   const change = (edits: EditInput[]) => {
     const result = applyEdits(session.draft, edits);
     if (!result.ok) return { output: { ok: false, problems: result.problems } };
-    const broken = designViolations(session.original, result.skill, session.form);
+    const broken = designViolations(session.original, result.skill, session.form, session.folders);
     if (broken.length > 0) return { output: { ok: false, refused: broken } };
     session.draft = result.skill;
     session.edits.push(...edits);
@@ -419,7 +453,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
         if (!answer || !open.appliesTo) return { output: { answer } };
         const applied = applyAnswer(session.draft, open, answer);
         if (!applied.ok) return { output: { answer, not_applied: applied.error } };
-        const broken = designViolations(session.original, applied.skill, session.form);
+        const broken = designViolations(session.original, applied.skill, session.form, session.folders);
         if (broken.length > 0) return { output: { answer, not_applied: broken } };
         session.draft = applied.skill;
         return { output: { answer, applied: true, workflow: outlineOf(session.draft) } };

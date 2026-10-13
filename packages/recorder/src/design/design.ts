@@ -14,7 +14,15 @@ import type { Form, Question } from "../compile.ts";
 import { applyAnswer, type Prompter } from "../drill.ts";
 import type { NormalisedStep } from "../normalise.ts";
 import { skeletonOf } from "../skeleton.ts";
-import { type DesignFinish, type DesignSession, designTools, type Note, outlineOf, recordingView } from "./tools.ts";
+import {
+  type DesignFinish,
+  type DesignSession,
+  designTools,
+  type Note,
+  outlineOf,
+  recordedFolders,
+  recordingView,
+} from "./tools.ts";
 
 // 16 turns (a long recording needs several looks and edits), $0.10, no live actions, and no time limit: a question
 // waits for a person.
@@ -53,6 +61,7 @@ export type DesignOutcome = {
 export async function designWorkflow(options: DesignOptions): Promise<DesignOutcome> {
   const session: DesignSession = {
     original: options.skill,
+    folders: recordedFolders(options.steps, options.skill),
     draft: options.skill,
     form: options.form,
     steps: options.steps,
