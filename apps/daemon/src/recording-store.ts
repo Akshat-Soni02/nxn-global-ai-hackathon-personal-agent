@@ -1,7 +1,9 @@
 // One recording's folder, recordings/<sessionId>/ (docs/design.md, "Retention"): the description form filled in
-// before Record (description.json), and what was captured. Written when recording starts, so `compile <session>` and
-// a restarted daemon still have the form. The consents are also kept as the form's next defaults (config.json).
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+// before Record (description.json), what was captured (trace.jsonl, trace-store.ts), and when it stopped and was saved
+// (meta.json). Written when recording starts, so `compile <session>` and a restarted daemon still have the form. The
+// whole folder is deleted a day later (sweepRecordings). The consents are also kept as the form's next defaults
+// (config.json).
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Description, Trigger } from "@shadow/core";
 import { z } from "zod";
@@ -81,4 +83,70 @@ export function saveConsent(dataDir: string, consent: Consent): void {
   mkdirSync(dataDir, { recursive: true });
   const config = { ...readConfig(dataDir), consent };
   writeFileSync(configPath(dataDir), `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+}
+
+// ---- Keeping a recording for a day (docs/design.md, "Retention") ----------------------------------------------
+
+// A recording's folder is deleted this long after its workflow is saved, or after Stop when it was never saved.
+export const KEEP_MS = 24 * 60 * 60 * 1000;
+
+export interface RecordingMeta {
+  stoppedAt?: number;
+  savedAt?: number;
+  skillId?: string;
+  outcome?: "saved" | "empty" | "failed";
+}
+
+export function readMeta(dataDir: string, sessionId: string): RecordingMeta {
+  try {
+    return JSON.parse(readFileSync(join(recordingDir(dataDir, sessionId), "meta.json"), "utf8")) as RecordingMeta;
+  } catch {
+    return {};
+  }
+}
+
+// Adds to meta.json; only for a recording that has a folder (not one of the older single-file traces).
+export function writeMeta(dataDir: string, sessionId: string, patch: RecordingMeta): void {
+  const dir = recordingDir(dataDir, sessionId);
+  if (!existsSync(dir)) return;
+  const meta = { ...readMeta(dataDir, sessionId), ...patch };
+  writeFileSync(join(dir, "meta.json"), `${JSON.stringify(meta, null, 2)}\n`, { mode: 0o600 });
+}
+
+// Whether a recording can still be compiled: its folder, or an older single-file trace.
+export function recordingExists(dataDir: string, sessionId: string): boolean {
+  return existsSync(recordingDir(dataDir, sessionId)) || existsSync(join(dataDir, "traces", `${sessionId}.jsonl`));
+}
+
+// Deletes one recording's folder, with everything it captured. The older traces/ files are never touched.
+export function deleteRecording(dataDir: string, sessionId: string): void {
+  rmSync(recordingDir(dataDir, sessionId), { recursive: true, force: true });
+}
+
+// Deletes every recording whose day is over: 24 hours after its workflow was saved, or after Stop if it never was,
+// or after it last changed if the daemon stopped while it was recording; one that recorded nothing at once. The
+// recording going on (`active`) is kept. Returns the ids deleted.
+export function sweepRecordings(dataDir: string, options: { now?: number; active?: string } = {}): string[] {
+  const root = join(dataDir, "recordings");
+  if (!existsSync(root)) return [];
+  const now = options.now ?? Date.now();
+  const deleted: string[] = [];
+  for (const sessionId of readdirSync(root)) {
+    if (sessionId === options.active || !/^[\w-]+$/.test(sessionId)) continue;
+    const dir = join(root, sessionId);
+    if (!statSync(dir).isDirectory()) continue;
+    const meta = readMeta(dataDir, sessionId);
+    const since = meta.savedAt ?? meta.stoppedAt ?? lastChange(dir);
+    if (meta.outcome === "empty" || now - since >= KEEP_MS) {
+      deleteRecording(dataDir, sessionId);
+      deleted.push(sessionId);
+    }
+  }
+  return deleted;
+}
+
+function lastChange(dir: string): number {
+  let newest = statSync(dir).mtimeMs;
+  for (const name of readdirSync(dir)) newest = Math.max(newest, statSync(join(dir, name)).mtimeMs);
+  return newest;
 }

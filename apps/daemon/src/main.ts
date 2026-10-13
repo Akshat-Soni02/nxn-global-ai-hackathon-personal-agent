@@ -39,6 +39,7 @@ import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
 import { finishRecording } from "./record.ts";
 import { createRecordControl, type RecordControl } from "./record-control.ts";
+import { sweepRecordings } from "./recording-store.ts";
 import { runSkillOn } from "./runner.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
 import { findSkills, listSkills, saveSkill, versions } from "./skill-store.ts";
@@ -160,6 +161,18 @@ record = createRecordControl({
 });
 const recordControl = record;
 recordControl.subscribe((event) => daemon.publish(event));
+// A recording's folder (events, screenshots, audio) is deleted a day after its workflow is saved, or a day after Stop
+// if it never was: looked at now and every hour.
+const sweep = () => {
+  try {
+    const gone = sweepRecordings(home, { active: recordControl.view().sessionId });
+    if (gone.length > 0) log(`deleted ${gone.length} recording(s) older than a day`);
+  } catch (error) {
+    log.error("could not delete old recordings:", (error as Error).message);
+  }
+};
+sweep();
+setInterval(sweep, 60 * 60_000).unref();
 api = createApi(service, recordControl);
 const http = await startHttp({
   api,

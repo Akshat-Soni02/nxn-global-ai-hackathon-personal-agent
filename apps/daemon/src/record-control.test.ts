@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,8 +9,17 @@ import { createApi } from "./api.ts";
 import { type Daemon, startDaemon } from "./daemon.ts";
 import { finishRecording } from "./record.ts";
 import { createRecordControl, type RecordControlOptions } from "./record-control.ts";
-import { readConsent, readForm } from "./recording-store.ts";
+import {
+  type RecordingMeta,
+  readConsent,
+  readForm,
+  readMeta,
+  sweepRecordings,
+  writeForm,
+  writeMeta,
+} from "./recording-store.ts";
 import type { Service } from "./service.ts";
+import { appendTrace, listTraces, tracePath } from "./trace-store.ts";
 
 const temp = () => mkdtempSync(join(tmpdir(), "rc-"));
 const PAGE = "http://localhost:5173/upload.html";
@@ -184,5 +193,73 @@ describe("recording from the window's API", () => {
     ]);
     expect(skill.history).toEqual([expect.objectContaining({ version: 1, by: "record" })]);
     expect(control.view()).toMatchObject({ phase: "idle", last: { outcome: "saved", skillId: skill.id } });
+  });
+});
+
+describe("keeping a recording for a day", () => {
+  const H = 60 * 60_000;
+  const form = { goal: "x", changes: [], constants: [], never: [], when: [{ type: "manual" as const }] };
+  const consent = { screen: false, microphone: false };
+
+  it("deletes a folder a day after its workflow is saved, or a day after Stop, and never the older traces", () => {
+    const home = temp();
+    const now = Date.UTC(2026, 9, 13, 12);
+    const make = (id: string, meta: RecordingMeta) => {
+      writeForm(home, id, { ...form, consent });
+      appendTrace(home, { id: "e", sessionId: id, at: 1, event: "click" });
+      writeMeta(home, id, meta);
+    };
+    make("saved-old", { stoppedAt: now - 30 * H, savedAt: now - 25 * H, outcome: "saved" });
+    make("saved-new", { stoppedAt: now - 30 * H, savedAt: now - 2 * H, outcome: "saved" }); // saved late: 24 h from saving
+    make("failed-old", { stoppedAt: now - 25 * H, outcome: "failed" });
+    make("failed-new", { stoppedAt: now - 3 * H, outcome: "failed" });
+    make("going-on", {});
+    mkdirSync(join(home, "traces"), { recursive: true });
+    writeFileSync(join(home, "traces", "before-oct-13.jsonl"), "");
+
+    const gone = sweepRecordings(home, { now, active: "going-on" });
+    expect(gone.sort()).toEqual(["failed-old", "saved-old"]);
+    expect(
+      listTraces(home)
+        .map((t) => t.sessionId)
+        .sort(),
+    ).toEqual(["before-oct-13", "failed-new", "going-on", "saved-new"]);
+    expect(tracePath(home, "saved-new")).toBe(join(home, "recordings", "saved-new", "trace.jsonl"));
+    expect(tracePath(home, "before-oct-13")).toBe(join(home, "traces", "before-oct-13.jsonl"));
+  });
+
+  it("deletes a recording with nothing in it at once, and says why a deleted one can't be compiled", async () => {
+    const home = temp();
+    const { daemon } = fakeDaemon(false);
+    const said: string[] = [];
+    const control = createRecordControl({
+      dataDir: home,
+      daemon,
+      ask: async () => "",
+      finish: async () => undefined, // nothing recorded
+      log: (...args) => said.push(args.join(" ")),
+    });
+    control.start({ goal: "x" });
+    expect(existsSync(join(home, "recordings", "s1"))).toBe(true);
+    await control.stop();
+    expect(existsSync(join(home, "recordings", "s1"))).toBe(false);
+    await control.compile("s1");
+    expect(said.at(-1)).toMatch(/no recording s1: a recording is deleted a day after Stop/);
+  });
+
+  it("marks when a recording stopped and when its workflow was saved", async () => {
+    const home = temp();
+    const { daemon } = fakeDaemon(false);
+    const control = createRecordControl({
+      dataDir: home,
+      daemon,
+      ask: async () => "",
+      finish: async () => ({ skill: { id: "x-abc123" } }),
+      log: () => {},
+    });
+    control.start({ goal: "x" });
+    await control.stop();
+    expect(readMeta(home, "s1")).toMatchObject({ outcome: "saved", skillId: "x-abc123" });
+    expect(readMeta(home, "s1").savedAt).toBeGreaterThanOrEqual(readMeta(home, "s1").stoppedAt ?? Infinity);
   });
 });

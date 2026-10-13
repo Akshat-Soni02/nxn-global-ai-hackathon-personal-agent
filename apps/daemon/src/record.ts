@@ -1,7 +1,7 @@
 // Record, daemon side. While recording: every event goes to the session's trace file, web events from the extension
 // and file events from the folder watcher alike. After stop: trace -> normalise -> compile (Nemotron, with the
-// description form) -> drill -> approvals (code) -> skills/<id>/vN.json. The trace is kept, so a failed or poor
-// compile can be redone with `compile <session>`.
+// description form) -> drill -> approvals (code) -> skills/<id>/vN.json. The recording's folder is kept for a day
+// (recording-store.ts), so a failed or poor compile can be redone with `compile <session>` until then.
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, sep } from "node:path";

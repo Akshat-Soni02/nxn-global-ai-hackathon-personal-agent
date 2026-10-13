@@ -9,12 +9,15 @@ import { randomUUID } from "node:crypto";
 import type { Trigger } from "@shadow/core";
 import type { Daemon } from "./daemon.ts";
 import {
+  deleteRecording,
   type RecordForm,
   type RecordFormInput,
   RecordForm as RecordFormSchema,
   readConsent,
+  recordingExists,
   saveConsent,
   writeForm,
+  writeMeta,
 } from "./recording-store.ts";
 import type { Question, RecordingView, RecordPhase } from "./types.ts";
 
@@ -99,18 +102,22 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
     try {
       const saved = await options.finish(id);
       if (saved) {
+        // The recording's folder is deleted a day from now (recording-store.ts).
+        writeMeta(dataDir, id, { savedAt: Date.now(), skillId: saved.skill.id, outcome: "saved" });
         log(`replay it with: run ${saved.skill.id}`);
         last = { sessionId: id, outcome: "saved", skillId: saved.skill.id, text: `Saved ${saved.skill.id}` };
         status("saved", `Saved ${saved.skill.id}. Replay: run ${saved.skill.id}`);
       } else {
         last = { sessionId: id, outcome: "empty", text: "Nothing to save: no steps were recorded" };
         status("empty", last.text);
+        deleteRecording(dataDir, id); // nothing worth keeping
       }
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error);
       log("compile failed:", why);
       log(`the recording is kept: retry with "compile ${id}"`);
       last = { sessionId: id, outcome: "failed", text: `Could not save it: ${why}` };
+      writeMeta(dataDir, id, { outcome: "failed" });
       status("failed", "Compile failed: see the daemon's log");
     } finally {
       phase = "idle";
@@ -210,6 +217,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
       phase = "compiling"; // covers the wait for late events too, so a new recording can't start in between
       changed();
       const stopped = await daemon.stopRecording();
+      if (stopped) writeMeta(dataDir, stopped, { stoppedAt: Date.now() });
       if (stopped) await compile(stopped);
       else {
         phase = "idle";
@@ -220,6 +228,10 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
 
     async compile(id) {
       if (phase !== "idle") return busy();
+      if (!recordingExists(dataDir, id)) {
+        log(`no recording ${id}: a recording is deleted a day after Stop, or a day after its workflow is saved`);
+        return;
+      }
       await compile(id);
     },
 

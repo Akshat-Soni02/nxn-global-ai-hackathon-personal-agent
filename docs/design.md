@@ -678,7 +678,7 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Triggers from Frequency; live, paused and draft workflows | ✅ (Oct 12): `lifecycle.ts` (state, going live), `triggers.ts` (schedules with croner, missed times per workflow, folder watches), skip on overlap, auto-pause, the Frequency picker and state in the window, the next run in the menu bar, `live` / `pause` / `resume-workflow` in the terminal | Left: drafts kept beside a live workflow (milestone 10); "when an email arrives" |
 | Workflow lifecycle: draft, live, paused, autosave | ✅ in part (Oct 12): draft, live and paused, going live, auto-pause (see Triggers above) | Left: drafts beside a live workflow and autosave (milestone 10) |
 | `packages/llm` with profiles, structured output, tools, usage meter | ✅ client, catalog, fake client, `pnpm llm:check`; compile, llm steps and `pnpm replay` use it (Oct 10) | Confirm the catalog with `pnpm llm:check` and a real key |
-| Consent, redaction, 24-hour retention | Consent: the two switches on the form, remembered in `config.json` (Oct 13). Redaction, retention: ❌ | New |
+| Consent, redaction, 24-hour retention | ✅ consent: the two switches on the form, remembered in `config.json`; ✅ retention: one folder per recording, `meta.json`, deleted a day after saving or Stop, at once when empty, checked at start and hourly (`recording-store.ts`, Oct 13). Redaction: ❌ | Redaction comes with screenshots |
 | Packaging: the `.dmg`, Node and the daemon inside the app, Keychain key, first run, `pnpm package` / `pnpm release` | ❌ (`.env`, `tsx` from source, `pnpm setup:*` by hand) | New: [Deployment](#deployment) |
 
 ## Build order

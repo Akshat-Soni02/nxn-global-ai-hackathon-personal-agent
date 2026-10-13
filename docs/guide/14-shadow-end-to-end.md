@@ -18,7 +18,7 @@ Editable: [`14-shadow-architecture.excalidraw`](14-shadow-architecture.excalidra
 | 4 | **Stop → first draft** | Code tidies the events into steps (`normalise`), remembers each control by its role and name, never x/y (`skeleton`), then one Nemotron call adds what each step is for, which values change, and checks (`compile`) | Built |
 | 5 | **Understand** | The **design agent** turns the flat list into a tree: a loop for repeated work, a branch for "only if", an LLM step for reading or summarising, variables for what changes | Not yet |
 | 6 | **Drill** | Questions only where it is unsure ("always the newest email from Reporting Bot, or this one?"). They wait in the inbox; answers are remembered | Inbox: built. Shown on the tree: not yet |
-| 7 | **Save** | The workflow is saved as `skills/<id>/v1.json`. Approval is turned on, by code, for every step that sends, submits, pays, publishes or deletes, or matches Never. The recording folder is deleted 24 hours later | Save, forced approvals: built. Deletion: not yet |
+| 7 | **Save** | The workflow is saved as `skills/<id>/v1.json`. Approval is turned on, by code, for every step that sends, submits, pays, publishes or deletes, or matches Never. The recording folder is deleted 24 hours later | Built |
 
 Every recording becomes a **new** workflow with its own id (`upload-invoice-k3f9q2`); `run upload-invoice` finds it by the start of its id.
 
@@ -52,7 +52,7 @@ All calls go through `packages/llm` to Nebius Token Factory with your own key.
 | --- | --- | --- |
 | `~/Library/Application Support/Shadow/skills/<id>/vN.json` | Each version of a workflow | Kept |
 | `…/Shadow/skills/<id>/state.json` | Draft, live or paused, and why | Kept |
-| `…/Shadow/recordings/<session>/` | One recording: the form, events, screenshots, words read from them, audio, transcript (planned) | 24 h after the workflow is saved (planned) |
+| `…/Shadow/recordings/<session>/` | One recording: the form (`description.json`), events (`trace.jsonl`), `meta.json`; later screenshots, words read from them, audio, transcript | 24 h after the workflow is saved, or after Stop if never saved; at once if empty |
 | `…/Shadow/traces/<session>.jsonl` | Recordings made before 13 Oct: events only | Kept, left as they are |
 | `…/Shadow/runs/<run>.jsonl`, `<run>.repair-N.json` | What each run did; each repair's transcript | Kept (30 days planned) |
 | `…/Shadow/shadow.db` | The runs list and the inbox (SQLite) | Kept |
@@ -85,7 +85,7 @@ All calls go through `packages/llm` to Nebius Token Factory with your own key.
 ## 8. Next on the record side, in order
 
 1. ~~The description form and the two consents, from every Record button.~~ Done.
-2. The recording folder and deletion after 24 hours.
+2. ~~The recording folder and deletion after 24 hours.~~ Done.
 3. The design agent.
 4. The drill shown on the draft tree.
 5. Screenshots: words read on the Mac, private ones masked.
