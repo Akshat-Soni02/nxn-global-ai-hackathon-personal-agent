@@ -20,6 +20,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { Skill } from "@shadow/core";
@@ -70,15 +71,27 @@ const watchDirs = watchDirsFromEnv();
 let api: Api | undefined; // set once the service exists; api.call messages before then are answered "not ready"
 let record: RecordControl | undefined; // the same: Record pressed before then is ignored
 let screen: ScreenReader | undefined; // screenshots arriving before then are dropped
+let onWake: () => void = () => {}; // set once the triggers exist: a wake looks at them at once
 const daemon = await startDaemon({
   socketPath: path,
   log,
   dataDir: home,
   watchDirs,
-  onRecordCommand: (command) => (command === "start" ? record?.press() : void record?.stop()),
+  onRecordCommand: (command) =>
+    command === "start" ? record?.press() : command === "stop" ? void record?.stop() : void record?.discard(),
+  onSystem: (event) => {
+    if (event === "wake") onWake();
+  },
   onShot: (shot) => screen?.add(shot),
   api: { call: (method, params) => (api ? api.call(method, params) : Promise.reject(new Error("not ready"))) },
 });
+// Development mode: a daemon started in a terminal stops when the terminal closes. The LaunchAgent (pnpm
+// setup:daemon, or the packaged app) keeps it running at login and after a crash.
+if (process.stderr.isTTY && !existsSync(join(homedir(), "Library", "LaunchAgents", "com.shadow.daemon.plist"))) {
+  console.error(
+    "[daemon] development mode: Shadow stops when this terminal closes. pnpm setup:daemon keeps it running at login.",
+  );
+}
 const memory = openMemory(join(home, "memory.db"));
 const store = openStore(join(home, "shadow.db"));
 // One model client for everything (compile, llm steps, repair), and one meter counting what it spends.
@@ -285,6 +298,11 @@ setInterval(lookAtTriggers, 30_000);
 service.subscribe((event) => {
   if (event.type === "workflow") lookAtTriggers();
 });
+// The Mac woke up: a schedule missed while it slept runs now (per its `missed` setting), not up to 30 s later.
+onWake = () => {
+  log("the Mac woke up: looking at the triggers");
+  lookAtTriggers();
+};
 
 function announce(item: InboxItem) {
   const options = (item.detail.options as string[] | undefined) ?? [];

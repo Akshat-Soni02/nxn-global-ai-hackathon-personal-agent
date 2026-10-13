@@ -99,11 +99,25 @@ export async function runSkillOn(
     if (!(await daemon.waitForExtension(CHROME_START_MS))) throw new Error("Chrome's extension did not connect");
   };
 
+  // A request that got no answer because the Mac slept through its timeout is asked once more after the wake: the
+  // page or app didn't fail, the clock just jumped.
+  const unlessAsleep = async <T>(ask: () => Promise<T>): Promise<T> => {
+    const askedAt = Date.now();
+    try {
+      return await ask();
+    } catch (error) {
+      if (daemon.wokeAt() > askedAt && /did not answer/.test((error as Error).message)) return await ask();
+      throw error;
+    }
+  };
+
   const web = async (step: ActionStep, ctx: { runId: string }): Promise<StepResult> => {
     await ensureExtension();
-    const reply = await daemon.request(
-      { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
-      (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 3 + EXTENSION_MARGIN_MS,
+    const reply = await unlessAsleep(() =>
+      daemon.request(
+        { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
+        (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 3 + EXTENSION_MARGIN_MS,
+      ),
     );
     if (reply.type !== "run.step_result") throw new Error(`unexpected reply ${reply.type}`);
     const { ok, value, matchScore, matchedBy, failedCheck, error } = reply;
@@ -114,9 +128,11 @@ export async function runSkillOn(
   // when macOS hasn't allowed it yet (the step fails with how to allow it).
   const ax = async (step: ActionStep, ctx: { runId: string }): Promise<StepResult> => {
     if (!daemon.mac().connected) throw new Error("Shadow.app is not running: build it with pnpm setup:mac");
-    const reply = await daemon.requestMac(
-      { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
-      (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 2 + EXTENSION_MARGIN_MS,
+    const reply = await unlessAsleep(() =>
+      daemon.requestMac(
+        { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
+        (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 2 + EXTENSION_MARGIN_MS,
+      ),
     );
     if (reply.type !== "run.step_result") throw new Error(`unexpected reply ${reply.type}`);
     const { ok, value, matchScore, matchedBy, error } = reply;

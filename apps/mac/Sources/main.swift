@@ -69,6 +69,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
       menu.onOpen = { [weak self] route in self?.window.show(route: route) }
       menu.onRecord = { [weak self] in self?.press() }
       menu.onQuit = { NSApp.terminate(nil) }
+      menu.onStartDaemon = { DaemonControl.kickstart() }
       menu.isRecording = { [weak self] in self?.panel.isRecording ?? false }
       statusMenu = menu
       notifier.onOpen = { [weak self] route in self?.window.show(route: route) }
@@ -82,25 +83,47 @@ final class AppMain: NSObject, NSApplicationDelegate {
     }
     panel.trusted = trusted
     panel.onPress = { [weak self] in self?.press() }
+    panel.onDiscard = { [weak self] in self?.discard() }
     panel.onAllow = { [weak self] in self?.askForAccessibility() }
     panel.onQuit = { NSApp.terminate(nil) }
     link.onState = { [weak self] up in self?.connection(up) }
     link.onMessage = { [weak self] message in self?.handle(message) }
     link.start()
+    // The Mac going to sleep or waking up: the daemon looks at its triggers on wake, and a step that timed out
+    // across the sleep is tried once more.
+    let center = NSWorkspace.shared.notificationCenter
+    center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+      self?.link.send(["id": UUID().uuidString, "type": "system.sleep"])
+    }
+    center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+      self?.link.send(["id": UUID().uuidString, "type": "system.wake"])
+    }
     if arguments.contains("--fixture"), let state = argument("--state") {
       recorder.recordSelf = true
       fixture = Fixture(recorder: recorder, statePath: state, log: log)
     }
     // Accessibility can be allowed (or taken away) in System Settings at any time.
     Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.checkTrust() }
-    // Started but never reached the daemon: nothing to be the button of.
+    // Started but never reached the daemon, and nothing (launchd) to start it: nothing to be the button of.
     DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
-      if self?.everConnected == false { NSApp.terminate(nil) }
+      if self?.everConnected == false && !DaemonControl.installed { NSApp.terminate(nil) }
+    }
+    // With the daemon registered with launchd (pnpm setup:daemon, or the packaged app), the app outlives it: it
+    // asks launchd to start it again whenever it is not there.
+    Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+      guard let self, !self.connected, DaemonControl.installed else { return }
+      log("the daemon is not running: asking launchd to start it")
+      DaemonControl.kickstart()
     }
     log("Shadow.app started, socket \(socketPath), Accessibility \(trusted ? "allowed" : "not allowed")")
   }
 
+  private var connected = false
+  private var healthTimer: Timer?
+
   private func connection(_ up: Bool) {
+    connected = up
+    statusMenu?.daemonUp = up
     if up {
       everConnected = true
       link.send(["id": UUID().uuidString, "type": "hello", "from": "mac", "version": "0.0.0", "trusted": trusted])
@@ -111,12 +134,23 @@ final class AppMain: NSObject, NSApplicationDelegate {
         link.send(["id": UUID().uuidString, "type": "api.subscribe"])
         refreshInbox()
         refreshHealth()
-        Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.refreshHealth() }
+        healthTimer?.invalidate()
+        healthTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+          self?.refreshHealth()
+        }
       }
     } else if everConnected {
       recorder.stop()
-      log("the daemon went away: quitting")
-      NSApp.terminate(nil)
+      panel.stopped()
+      if DaemonControl.installed {
+        // launchd starts it again (KeepAlive); the link keeps trying to connect, and the timer above nudges launchd.
+        log("the daemon went away: waiting for launchd to start it again")
+        panel.refused("Shadow's daemon stopped: starting it again")
+        DaemonControl.kickstart()
+      } else {
+        log("the daemon went away: quitting")
+        NSApp.terminate(nil)
+      }
     }
   }
 
@@ -135,7 +169,8 @@ final class AppMain: NSObject, NSApplicationDelegate {
       }
       let started = (message["startedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
       recorder.start()
-      panel.recording(since: started)
+      panel.recording(
+        since: started, mic: (message["consent"] as? JSON)?["microphone"] as? Bool ?? false, screen: screenConsent)
     case "record.stop":
       recorder.stop()  // flushes the field being typed into, while the session id is still known
       sessionId = nil
@@ -277,6 +312,11 @@ final class AppMain: NSObject, NSApplicationDelegate {
     link.send(["id": UUID().uuidString, "type": "record.command", "command": panel.isRecording ? "stop" : "start"])
   }
 
+  // The trash on the pill: the recording ends and everything it captured is deleted; nothing is compiled.
+  private func discard() {
+    link.send(["id": UUID().uuidString, "type": "record.command", "command": "discard"])
+  }
+
   // macOS's own prompt, then the Accessibility pane of System Settings, where the switch for Shadow is.
   private func askForAccessibility() {
     let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
@@ -301,12 +341,30 @@ final class AppMain: NSObject, NSApplicationDelegate {
   }
 }
 
+// The daemon's LaunchAgent (docs/design.md, "Who starts what"): installed by pnpm setup:daemon, or registered by the
+// packaged app. When it is there, launchd owns the daemon's life: Shadow.app only nudges it.
+enum DaemonControl {
+  static let label = "com.shadow.daemon"
+  static var installed: Bool {
+    FileManager.default.fileExists(atPath: NSHomeDirectory() + "/Library/LaunchAgents/\(label).plist")
+      || SMAppServiceBridge.registered
+  }
+  static func kickstart() {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+    task.arguments = ["kickstart", "gui/\(getuid())/\(label)"]
+    task.standardOutput = FileHandle.nullDevice
+    task.standardError = FileHandle.nullDevice
+    try? task.run()
+  }
+}
+
 if Screen.runCommand(arguments) { exit(0) }
 Voice.runCommand(arguments)
 
 if let dir = argument("--snapshot") {
   _ = NSApplication.shared
-  Panel().snapshots(to: dir)
+  MainActor.assumeIsolated { Panel().snapshots(to: dir) }
   exit(0)
 }
 

@@ -26,6 +26,9 @@ export interface Daemon {
   waitForExtension(timeoutMs: number): Promise<boolean>;
   // Shadow.app (apps/mac): the desktop button, Mac-app recording and the ax channel.
   mac(): { connected: boolean; trusted: boolean };
+  // When the Mac last woke up (epoch ms; 0 if it hasn't since the daemon started). A request that timed out across a
+  // sleep is tried once more (runner.ts).
+  wokeAt(): number;
   // Sends an ax step to Shadow.app and resolves with its reply.
   requestMac(message: Message, timeoutMs: number): Promise<Message>;
   // An API event (runs, steps, inbox) to every connection that sent api.subscribe.
@@ -51,7 +54,9 @@ export async function startDaemon(options: {
   drainMs?: number;
   // The Record / Stop button in Chrome. main.ts routes it to the same code as a typed `record` / `stop`, so a click
   // is refused while a recording is still being compiled. Without it, the button only starts and stops the session.
-  onRecordCommand?(command: "start" | "stop"): void;
+  onRecordCommand?(command: "start" | "stop" | "discard"): void;
+  // The Mac going to sleep or waking up (Shadow.app reports it).
+  onSystem?(event: "sleep" | "wake"): void;
   // The daemon's API (api.ts) for api.call messages. Without it, they are answered "not ready".
   api?: { call(method: string, params: unknown): Promise<unknown> };
   // A screenshot of the recording going on (record.shot), for screen.ts. Without it, screenshots are dropped.
@@ -63,6 +68,7 @@ export async function startDaemon(options: {
   let sessionId: string | undefined;
   let startedAt = 0;
   let consent: { screen: boolean; microphone: boolean; pictures?: boolean } | undefined;
+  let wokeAt = 0;
   // record.start, as every connection gets it (again, when it connects mid-session).
   const startMessage = (id: string): Message => ({
     id: randomUUID(),
@@ -132,6 +138,12 @@ export async function startDaemon(options: {
           if (options.onRecordCommand) options.onRecordCommand(message.command);
           else if (message.command === "start") daemon.startRecording();
           else void daemon.stopRecording();
+          break;
+        case "system.sleep":
+        case "system.wake":
+          if (message.type === "system.wake") wokeAt = Date.now();
+          log(message.type === "system.wake" ? "the Mac woke up" : "the Mac is going to sleep");
+          options.onSystem?.(message.type === "system.wake" ? "wake" : "sleep");
           break;
         case "record.event":
           // Into the session's trace, alongside the file events (record.ts). Events for any other session are dropped.
@@ -260,6 +272,7 @@ export async function startDaemon(options: {
       const [state] = macs.values();
       return { connected: state !== undefined, trusted: state?.trusted ?? false };
     },
+    wokeAt: () => wokeAt,
     async requestMac(message, timeoutMs) {
       const [connection] = macs.keys();
       if (!connection) throw new Error("Shadow.app is not running (it starts with the daemon: pnpm setup:mac)");

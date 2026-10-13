@@ -43,7 +43,7 @@ export const Message = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("record.stop"), sessionId: z.string() }),
   // extension -> daemon: the Record / Stop button (floating in the page, or the toolbar icon). The daemon still owns
   // the session: it handles this exactly like a typed `record` / `stop`, and answers with record.start / record.stop.
-  z.object({ ...base, type: z.literal("record.command"), command: z.enum(["start", "stop"]) }),
+  z.object({ ...base, type: z.literal("record.command"), command: z.enum(["start", "stop", "discard"]) }),
   // daemon -> extension and Shadow.app: what happens after stop, shown on the button (questions wait in the inbox).
   // "form": Record was pressed; Shadow.app opens its window on the description form, and recording starts once the
   // form is sent.
@@ -78,6 +78,10 @@ export const Message = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("desktop.button"), present: z.boolean() }),
   // mac -> daemon: Accessibility was allowed or taken away while the app was running.
   z.object({ ...base, type: z.literal("mac.trusted"), trusted: z.boolean() }),
+  // mac -> daemon: the Mac is going to sleep, or just woke up (NSWorkspace). On wake the daemon looks at its
+  // triggers at once, and a step that timed out across the sleep is tried once more.
+  z.object({ ...base, type: z.literal("system.sleep") }),
+  z.object({ ...base, type: z.literal("system.wake") }),
   // mac -> daemon: a folder a Finder window shows while you record. One outside the watched folders (an external
   // drive, /Users/Shared) is watched from then on, so a file you move there is recorded.
   z.object({ ...base, type: z.literal("watch.folder"), path: z.string() }),
