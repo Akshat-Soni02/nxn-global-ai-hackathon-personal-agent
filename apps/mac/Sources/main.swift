@@ -13,9 +13,12 @@
 //            --snapshot <dir>  draw each look of the button to PNG files and exit
 //            --ocr <image> | --redact <image> <boxes.json>   read or black out text in a picture, and exit (Screen.swift)
 //            --transcribe <audio>   turn narration into text on the Mac, and exit (Voice.swift)
+//            --icon <dir>      draw the app icon's PNGs into a folder, for iconutil, and exit (Icon.swift)
+//            --first-run       show the setup window (shown by itself the first time the packaged app runs)
 //            --log <file>      append diagnostics to a file (an app started by `open` has no terminal)
 import AppKit
 import ApplicationServices
+import AVFoundation
 
 let arguments = CommandLine.arguments
 func argument(_ name: String) -> String? {
@@ -116,6 +119,15 @@ final class AppMain: NSObject, NSApplicationDelegate {
       DaemonControl.kickstart()
     }
     log("Shadow.app started, socket \(socketPath), Accessibility \(trusted ? "allowed" : "not allowed")")
+    // The packaged app owns its daemon: register the LaunchAgent inside the bundle (launchd starts the daemon now
+    // and at every login), then walk a new user through the setup once.
+    if packaged && !arguments.contains("--fixture") {
+      if !SMAppServiceBridge.registered, let problem = SMAppServiceBridge.register() {
+        log("could not register the daemon with launchd: \(problem)")
+      }
+      if !UserDefaults.standard.bool(forKey: "firstRunDone") { showFirstRun() }
+    }
+    if arguments.contains("--first-run") { showFirstRun() }
   }
 
   private var connected = false
@@ -124,6 +136,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
   private func connection(_ up: Bool) {
     connected = up
     statusMenu?.daemonUp = up
+    firstRun?.model.daemonUp = up
     if up {
       everConnected = true
       link.send(["id": UUID().uuidString, "type": "hello", "from": "mac", "version": "0.0.0", "trusted": trusted])
@@ -246,9 +259,93 @@ final class AppMain: NSObject, NSApplicationDelegate {
 
   // One call to the daemon's API (apps/daemon/src/api.ts); `done` gets the value, or nil when it failed.
   private func api(_ method: String, _ params: JSON = [:], done: @escaping (Any?) -> Void) {
+    apiCall(method, params) { value, _ in done(value) }
+  }
+
+  // The same, with the daemon's reason when the call failed.
+  private func apiCall(_ method: String, _ params: JSON = [:], done: @escaping (Any?, String?) -> Void) {
     let id = UUID().uuidString
-    calls[id] = { reply in done(reply["ok"] as? Bool == true ? reply["value"] : nil) }
+    calls[id] = { reply in
+      if reply["ok"] as? Bool == true { done(reply["value"], nil) } else { done(nil, reply["error"] as? String ?? "failed") }
+    }
     link.send(["id": id, "type": "api.call", "method": method, "params": params])
+  }
+
+  // MARK: first run (FirstRun.swift)
+
+  private var firstRun: FirstRunWindow?
+
+  // The packaged app: the daemon lives inside it (Resources/daemon.js).
+  private var packaged: Bool { Bundle.main.url(forResource: "daemon", withExtension: "js") != nil }
+
+  private func showFirstRun() {
+    let win = firstRun ?? FirstRunWindow()
+    firstRun = win
+    let model = win.model
+    model.daemonUp = connected
+    model.extensionFolder = packaged
+      ? Bundle.main.resourceURL?.appendingPathComponent("extension").path ?? ""
+      : (Bundle.main.bundlePath as NSString).deletingLastPathComponent + "/../../extension/dist"
+    win.show(
+      FirstRunView(
+        model: model,
+        onSaveKey: { [weak self] key in
+          model.checking = true
+          model.keyStatus = "Storing the key in your Keychain…"
+          self?.apiCall("setApiKey", ["key": key]) { _, error in
+            if let error {
+              model.checking = false
+              model.keyOk = false
+              model.keyStatus = error
+              return
+            }
+            model.keyStatus = "Checking the connection to Nemotron…"
+            self?.apiCall("checkModel") { value, error in
+              model.checking = false
+              let check = value as? JSON
+              model.keyOk = check?["ok"] as? Bool == true
+              if model.keyOk {
+                let n = check?["reachable"] as? Int ?? 0
+                model.keyStatus = "Connected to Nemotron: \(n) models reachable."
+              } else {
+                model.keyStatus = "Not connected: \(check?["error"] as? String ?? error ?? "the model did not answer")"
+              }
+            }
+          }
+        },
+        onSetupChrome: { [weak self] in
+          self?.apiCall("setupChrome") { value, error in
+            model.chromeOk = error == nil
+            model.chromeStatus = error ?? "Chrome can reach Shadow. Now load the extension (the folder is shown)."
+            if error == nil, let chrome = (value as? JSON)?["chrome"] as? JSON, let path = chrome["manifest"] as? String {
+              log("wrote Chrome's connection file: \(path)")
+            }
+          }
+          self?.showExtensionFolder()
+        },
+        onShowExtension: { [weak self] in self?.showExtensionFolder() },
+        onAccessibility: { [weak self] in
+          self?.askForAccessibility()
+          DispatchQueue.main.asyncAfter(deadline: .now() + 3) { model.accessibility = AXIsProcessTrusted() }
+        },
+        onScreenRecording: {
+          model.screenRecording = CGRequestScreenCaptureAccess()
+          DispatchQueue.main.asyncAfter(deadline: .now() + 3) { model.screenRecording = CGPreflightScreenCaptureAccess() }
+        },
+        onMicrophone: {
+          AVCaptureDevice.requestAccess(for: .audio) { granted in DispatchQueue.main.async { model.microphone = granted } }
+        },
+        onDone: { [weak self] in
+          UserDefaults.standard.set(true, forKey: "firstRunDone")
+          win.close()
+          self?.window.show(route: "/workflows")
+        }))
+  }
+
+  private func showExtensionFolder() {
+    let folder = firstRun?.model.extensionFolder ?? ""
+    guard !folder.isEmpty else { return }
+    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder)])
   }
 
   private func refreshInbox() {
@@ -360,6 +457,7 @@ enum DaemonControl {
 }
 
 if Screen.runCommand(arguments) { exit(0) }
+if Icon.runCommand(arguments) { exit(0) }
 Voice.runCommand(arguments)
 
 if let dir = argument("--snapshot") {

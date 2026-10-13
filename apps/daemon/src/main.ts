@@ -24,8 +24,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { Skill } from "@shadow/core";
-import { dataDir, logDir, migrateLegacyDataDir, socketPath } from "@shadow/ipc";
-import { configFromEnv, createLlm, UsageMeter } from "@shadow/llm";
+import { bundlePath, dataDir, logDir, migrateLegacyDataDir, socketPath } from "@shadow/ipc";
+import { configFromEnv, createLlm, type Llm, type LlmConfig, UsageMeter } from "@shadow/llm";
 import { openMemory } from "@shadow/memory";
 import type { RunLogEvent } from "@shadow/player";
 import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@shadow/player/node";
@@ -45,6 +45,7 @@ import { readConsent, readForm, sweepRecordings } from "./recording-store.ts";
 import { runSkillOn } from "./runner.ts";
 import { createScreenReader, type ScreenReader, screenToolsFrom } from "./screen.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
+import { createAppControl, type KeySource, llmFromKeychain } from "./settings.ts";
 import { findSkills, listSkills, saveSkill, versions } from "./skill-store.ts";
 import { type InboxItem, openStore, type RunRow } from "./store.ts";
 import { listTraces } from "./trace-store.ts";
@@ -68,6 +69,14 @@ const userCwd = process.env.INIT_CWD ?? process.cwd();
 const path = socketPath();
 const home = dataDir();
 const watchDirs = watchDirsFromEnv();
+// Packaged (scripts/package.ts): the daemon runs from inside Shadow.app, with the app, the window's pages and the
+// native host next to it. In development they are in the repo.
+const bundle = bundlePath();
+const macApp = bundle ?? join(import.meta.dirname, "../../mac/build/Shadow.app");
+const uiDir =
+  process.env.SHADOW_UI_DIR ??
+  (bundle ? join(bundle, "Contents/Resources/ui") : join(import.meta.dirname, "../../ui/dist"));
+const nativeHost = bundle ? join(bundle, "Contents/Resources/native-host") : join(home, "native-host");
 let api: Api | undefined; // set once the service exists; api.call messages before then are answered "not ready"
 let record: RecordControl | undefined; // the same: Record pressed before then is ignored
 let screen: ScreenReader | undefined; // screenshots arriving before then are dropped
@@ -94,14 +103,28 @@ if (process.stderr.isTTY && !existsSync(join(homedir(), "Library", "LaunchAgents
 }
 const memory = openMemory(join(home, "memory.db"));
 const store = openStore(join(home, "shadow.db"));
-// One model client for everything (compile, llm steps, repair), and one meter counting what it spends.
-const llmConfig = configFromEnv();
-const model = llmConfig ? createLlm(llmConfig) : undefined;
+// One model client for everything (compile, llm steps, repair), and one meter counting what it spends. The key comes
+// from .env in development, else from the Keychain (settings.ts); a key pasted in Settings replaces the client.
 const usage = new UsageMeter();
+const envConfig = configFromEnv();
+let model: Llm | undefined = envConfig ? createLlm(envConfig) : undefined;
+let keySource: KeySource = envConfig ? "env" : "none";
+if (!model) {
+  model = await llmFromKeychain();
+  if (model) keySource = "keychain";
+}
 // data.pick rules are free; llm steps call the model on every run, so they are capped (calls per run, input size)
 // and their answers are cached by question and data.
 const data = dataChannel();
-const llm = llmExecutor({ llm: model, cacheDir: join(home, "ai-cache"), limits: aiLimitsFromEnv(), meter: usage });
+const llmStep = () =>
+  llmExecutor({ llm: model, cacheDir: join(home, "ai-cache"), limits: aiLimitsFromEnv(), meter: usage });
+let llm = llmStep();
+const applyKey = (config: LlmConfig) => {
+  model = createLlm(config);
+  keySource = "keychain";
+  llm = llmStep();
+  log(`model: a new key is in use (${config.profiles.smart.model})`);
+};
 log("listening on", path);
 // macOS asks once for Desktop, Documents and Downloads: now, rather than when you press Record.
 for (const folder of askFolderAccess(watchDirs)) {
@@ -112,11 +135,11 @@ for (const folder of askFolderAccess(watchDirs)) {
 startMacApp();
 log("data in", home, watchDirs.length > 0 ? `| watching ${watchDirs.join(", ")}` : "| file capture off");
 log(
-  llmConfig
-    ? `models: ${Object.entries(llmConfig.profiles)
+  model
+    ? `models (${keySource}): ${Object.entries(model.config.profiles)
         .map(([name, p]) => `${name} ${p.model}`)
         .join(", ")}`
-    : "no model configured: skills are compiled by code only (.env.example)",
+    : "no model configured: skills are compiled by code only (paste a key in Settings, or .env.example)",
 );
 
 // One leg of a run (service.ts): through the extension and Shadow.app, with recovery. The service's hooks make a
@@ -158,8 +181,10 @@ const service = createService({
   health: () => ({
     extensions: daemon.extensions.size,
     macApp: daemon.mac(),
-    model: llmConfig ? "configured" : "none",
+    model: model ? "configured" : "none",
+    keySource,
     api: httpPort,
+    bundle,
   }),
 });
 // Recording: the description form, then the recording, then Stop turns it into a workflow. Its questions (the
@@ -176,8 +201,8 @@ const prompter: Prompter = {
     }),
 };
 // Screenshots (when the form allowed them): their words are read and masked on the Mac by Shadow.app's binary, and
-// only the masked words are kept (screen.ts).
-const macBinary = join(import.meta.dirname, "../../mac/build/Shadow.app/Contents/MacOS/Shadow");
+// only the masked words are kept (screen.ts). Packaged, the app is the bundle the daemon runs inside.
+const macBinary = join(macApp, "Contents/MacOS/Shadow");
 screen = createScreenReader({
   dataDir: home,
   tools: screenToolsFrom(macBinary),
@@ -236,7 +261,17 @@ const sweep = () => {
 };
 sweep();
 setInterval(sweep, 60 * 60_000).unref();
-api = createApi(service, recordControl);
+const app = createAppControl({
+  dataDir: home,
+  logDir: logDir(),
+  bundle,
+  nativeHost,
+  model: () => model,
+  keySource: () => keySource,
+  applyKey,
+  memory,
+});
+api = createApi(service, recordControl, app);
 const http = await startHttp({
   api,
   subscribe: (listener) => {
@@ -249,7 +284,7 @@ const http = await startHttp({
   },
   infoFile: join(home, "api.json"),
   // The window's pages: built by `pnpm ui` (apps/ui/dist); inside the app when packaged.
-  staticDir: process.env.SHADOW_UI_DIR ?? join(import.meta.dirname, "../../ui/dist"),
+  staticDir: uiDir,
   log,
 });
 httpPort = http.port;
@@ -510,11 +545,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 // Shadow.app: the floating Record / Stop button on the desktop, Mac-app recording and the ax channel. Started
 // through `open`, so macOS asks for Accessibility in its own name (not your terminal's). It quits when the daemon does.
 function startMacApp() {
-  const app = join(import.meta.dirname, "../../mac/build/Shadow.app");
   if (process.env.SHADOW_MAC === "off") return;
-  if (!existsSync(app)) return log("no desktop button: build it with pnpm setup:mac");
+  if (!existsSync(macApp)) return log("no desktop button: build it with pnpm setup:mac");
   const args = ["--socket", resolve(path), "--api", join(home, "api.json"), "--log", join(logDir(), "app.log")];
-  execFile("open", ["-g", app, "--args", ...args], (error) => {
+  execFile("open", ["-g", macApp, "--args", ...args], (error) => {
     if (error) log("could not start Shadow.app:", error.message);
   });
 }

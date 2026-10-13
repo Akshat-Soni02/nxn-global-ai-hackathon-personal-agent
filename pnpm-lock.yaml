@@ -17,6 +17,9 @@ importers:
       '@types/node':
         specifier: ^26.6.3
         version: 26.6.3
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
       jsdom:
         specifier: ^30.1.1
         version: 30.1.1

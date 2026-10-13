@@ -8,6 +8,7 @@ import { Inbox } from "./screens/Inbox.tsx";
 import { Record } from "./screens/Record.tsx";
 import { Run } from "./screens/Run.tsx";
 import { Runs } from "./screens/Runs.tsx";
+import { Settings } from "./screens/Settings.tsx";
 import { Workflow } from "./screens/Workflow.tsx";
 import { Workflows } from "./screens/Workflows.tsx";
 
@@ -73,6 +74,7 @@ function Shell({ connected }: { connected: boolean }) {
     { to: "workflows", label: "Workflows" },
     { to: "runs", label: "Runs" },
     { to: "record", label: "Record" },
+    { to: "settings", label: "Settings" },
   ];
   return (
     <div className="shell">
@@ -95,6 +97,7 @@ function Shell({ connected }: { connected: boolean }) {
         {screen === "runs" && !id && <Runs />}
         {screen === "runs" && id && <Run id={id} />}
         {screen === "record" && <Record again={id === "again" ? sub : undefined} />}
+        {screen === "settings" && <Settings />}
       </main>
     </div>
   );

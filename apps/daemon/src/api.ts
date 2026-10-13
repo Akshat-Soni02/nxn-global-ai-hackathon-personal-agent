@@ -9,8 +9,9 @@
 import { Edit, type EditInput, Trigger } from "@shadow/core";
 import { z } from "zod";
 import type { RecordControl } from "./record-control.ts";
-import { RecordForm } from "./recording-store.ts";
+import { Consent, RecordForm } from "./recording-store.ts";
 import type { Service } from "./service.ts";
+import type { AppControl } from "./settings.ts";
 
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "not an id");
 const methods = {
@@ -111,14 +112,37 @@ const recordMethods = {
   },
 } as const;
 
-export type Method = keyof typeof methods | keyof typeof recordMethods;
-export const METHODS = [...Object.keys(methods), ...Object.keys(recordMethods)] as Method[];
+// Settings and first-run setup (settings.ts): the window's Settings screen and Shadow.app's first-run window.
+const appMethods = {
+  settings: { params: z.object({}).default({}), run: (a: AppControl) => a.settings() },
+  setApiKey: {
+    params: z.object({ key: z.string().min(8).max(500) }),
+    run: (a: AppControl, p: { key: string }) => a.setApiKey(p.key),
+  },
+  setConsent: {
+    params: z.object({ consent: Consent }),
+    run: (a: AppControl, p: { consent: Consent }) => a.setConsent(p.consent),
+  },
+  checkModel: { params: z.object({}).default({}), run: (a: AppControl) => a.checkModel() },
+  memory: { params: z.object({}).default({}), run: (a: AppControl) => a.memory() },
+  forget: {
+    params: z.object({ id }),
+    run: async (a: AppControl, p: { id: string }) => {
+      await a.forget(p.id);
+      return { ok: true };
+    },
+  },
+  setupChrome: { params: z.object({}).default({}), run: (a: AppControl) => a.setupChrome() },
+} as const;
+
+export type Method = keyof typeof methods | keyof typeof recordMethods | keyof typeof appMethods;
+export const METHODS = [...Object.keys(methods), ...Object.keys(recordMethods), ...Object.keys(appMethods)] as Method[];
 
 export interface Api {
   call(method: string, params: unknown): Promise<unknown>;
 }
 
-export function createApi(service: Service, record?: RecordControl): Api {
+export function createApi(service: Service, record?: RecordControl, app?: AppControl): Api {
   return {
     async call(method, params) {
       if (record && Object.hasOwn(recordMethods, method)) {
@@ -128,6 +152,14 @@ export function createApi(service: Service, record?: RecordControl): Api {
           throw new Error(parsed.error.issues.map((i) => `${i.path.join(".") || method}: ${i.message}`).join("; "));
         }
         return (entry.run as (r: RecordControl, p: unknown) => unknown)(record, parsed.data);
+      }
+      if (app && Object.hasOwn(appMethods, method)) {
+        const entry = appMethods[method as keyof typeof appMethods];
+        const parsed = entry.params.safeParse(params ?? {});
+        if (!parsed.success) {
+          throw new Error(parsed.error.issues.map((i) => `${i.path.join(".") || method}: ${i.message}`).join("; "));
+        }
+        return (entry.run as (a: AppControl, p: unknown) => unknown)(app, parsed.data);
       }
       if (!Object.hasOwn(methods, method)) throw new Error(`no method ${method}`);
       const entry = methods[method as keyof typeof methods];
