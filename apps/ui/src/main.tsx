@@ -79,7 +79,10 @@ function Shell({ connected }: { connected: boolean }) {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand">Shadow</div>
+        <div className="brand">
+          <Mark />
+          Shadow
+        </div>
         <nav>
           {nav.map((n) => (
             <a key={n.to} href={`#/${n.to}`} className={screen === n.to ? "active" : undefined}>
@@ -100,6 +103,19 @@ function Shell({ connected }: { connected: boolean }) {
         {screen === "settings" && <Settings />}
       </main>
     </div>
+  );
+}
+
+// The mark (docs/design-ui.md): a white dot and the blue shadow it casts, on night blue.
+function Mark() {
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <title>Shadow</title>
+      <rect width="64" height="64" rx="14" fill="#13142a" />
+      <circle cx="36" cy="36" r="12" fill="#3a5bd9" opacity="0.85" />
+      <circle cx="30" cy="30" r="12" fill="#fafaff" />
+      <circle cx="30" cy="30" r="4" fill="#ef4444" />
+    </svg>
   );
 }
 
