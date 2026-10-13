@@ -30,7 +30,16 @@ export const Message = z.discriminatedUnion("type", [
 
   // Record: the daemon owns the session (started from the menu bar), and also watches the filesystem itself.
   // daemon -> extension: start/stop capturing web events for this session. startedAt drives the button's timer.
-  z.object({ ...base, type: z.literal("record.start"), sessionId: z.string(), startedAt: z.number().optional() }),
+  // consent: what the description form allowed (a screenshot per step, the microphone); dir: the recording's folder,
+  // where Shadow.app saves its window screenshots and audio.
+  z.object({
+    ...base,
+    type: z.literal("record.start"),
+    sessionId: z.string(),
+    startedAt: z.number().optional(),
+    consent: z.object({ screen: z.boolean(), microphone: z.boolean() }).optional(),
+    dir: z.string().optional(),
+  }),
   z.object({ ...base, type: z.literal("record.stop"), sessionId: z.string() }),
   // extension -> daemon: the Record / Stop button (floating in the page, or the toolbar icon). The daemon still owns
   // the session: it handles this exactly like a typed `record` / `stop`, and answers with record.start / record.stop.
@@ -47,6 +56,23 @@ export const Message = z.discriminatedUnion("type", [
   // extension -> daemon: one captured web or browser event. The fields are the trace format (trace.ts), so an
   // unknown event kind is rejected here instead of reaching the compiler.
   TraceEvent.extend({ type: z.literal("record.event") }),
+  // extension or Shadow.app -> daemon: a screenshot taken right after an event, only when the form allowed it. From
+  // Chrome the picture itself (a JPEG data URL) and the boxes of password and card fields to black out (in the
+  // picture's pixels); from Shadow.app the file it saved in the recording's folder. The daemon reads its words on
+  // the Mac and keeps only the masked words (apps/daemon/src/screen.ts).
+  z.object({
+    ...base,
+    type: z.literal("record.shot"),
+    sessionId: z.string(),
+    eventId: z.string(),
+    at: z.number(),
+    image: z.string().max(20_000_000).optional(),
+    path: z.string().optional(),
+    masks: z
+      .array(z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }))
+      .max(200)
+      .optional(),
+  }),
 
   // daemon -> extension: whether Shadow.app's floating button is on screen (Chrome then hides its own).
   z.object({ ...base, type: z.literal("desktop.button"), present: z.boolean() }),

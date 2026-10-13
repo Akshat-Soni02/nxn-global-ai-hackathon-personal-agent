@@ -11,6 +11,7 @@
 //            --api <file>      the daemon's api.json (HTTP port and token), for the window (default: next to the socket)
 //            --fixture --state <file>   test mode: a timesheet window inside the app and a scripted user (Fixture.swift)
 //            --snapshot <dir>  draw each look of the button to PNG files and exit
+//            --ocr <image> | --redact <image> <boxes.json>   read or black out text in a picture, and exit (Screen.swift)
 //            --log <file>      append diagnostics to a file (an app started by `open` has no terminal)
 import AppKit
 import ApplicationServices
@@ -50,6 +51,10 @@ final class AppMain: NSObject, NSApplicationDelegate {
   let notifier = Notifier()
   var fixture: Fixture?
   var sessionId: String?
+  // The recording's folder and whether the form allowed screenshots (record.start).
+  var recordingDir: String?
+  var screenConsent = false
+  var lastShot = Date.distantPast
   var trusted = AXIsProcessTrusted()
   var everConnected = false
   // The daemon's API over the socket (api.call): replies by request id.
@@ -117,12 +122,16 @@ final class AppMain: NSObject, NSApplicationDelegate {
     switch message["type"] as? String {
     case "record.start":
       sessionId = message["sessionId"] as? String
+      recordingDir = message["dir"] as? String
+      screenConsent = (message["consent"] as? JSON)?["screen"] as? Bool ?? false
       let started = (message["startedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
       recorder.start()
       panel.recording(since: started)
     case "record.stop":
       recorder.stop()  // flushes the field being typed into, while the session id is still known
       sessionId = nil
+      recordingDir = nil
+      screenConsent = false
       panel.stopped()
       fixture?.reset()
     case "record.status":
@@ -191,6 +200,39 @@ final class AppMain: NSObject, NSApplicationDelegate {
     message["type"] = "record.event"
     message["sessionId"] = sessionId
     link.send(message)
+    shoot(after: message)
+  }
+
+  // A picture of the window the user just acted in, when the form allowed it (Screen Recording permission). Saved in
+  // the recording's folder; the daemon reads its words, masks them and blacks out what it masked (screen.ts).
+  // Never over a password field, at most one every 0.7 s, and never Shadow's own windows.
+  private func shoot(after message: JSON) {
+    guard screenConsent, let dir = recordingDir, let sessionId else { return }
+    let element = message["element"] as? JSON
+    if message["secret"] as? Bool == true || element?["role"] as? String == "AXSecureTextField"
+      || element?["subrole"] as? String == "AXSecureTextField"
+    {
+      return
+    }
+    guard Date().timeIntervalSince(lastShot) > 0.7, let app = NSWorkspace.shared.frontmostApplication,
+      app.processIdentifier != ProcessInfo.processInfo.processIdentifier
+    else { return }
+    lastShot = Date()
+    let eventId = message["id"] as? String ?? UUID().uuidString
+    let shots = (dir as NSString).appendingPathComponent("shots")
+    try? FileManager.default.createDirectory(
+      atPath: shots, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let path = (shots as NSString).appendingPathComponent("\(eventId).jpg")
+    let at = message["at"] as? Double ?? Date().timeIntervalSince1970 * 1000
+    Screen.captureWindow(pid: app.processIdentifier, to: path) { [weak self] ok in
+      DispatchQueue.main.async {
+        guard ok else { return log("no screenshot: no window, or Screen Recording isn't allowed for Shadow") }
+        self?.link.send([
+          "id": UUID().uuidString, "type": "record.shot", "sessionId": sessionId, "eventId": eventId, "at": at,
+          "path": path,
+        ])
+      }
+    }
   }
 
   private func press() {
@@ -220,6 +262,8 @@ final class AppMain: NSObject, NSApplicationDelegate {
     }
   }
 }
+
+if Screen.runCommand(arguments) { exit(0) }
 
 if let dir = argument("--snapshot") {
   _ = NSApplication.shared

@@ -45,6 +45,10 @@ execFileSync(
     "AppKit",
     "-framework",
     "ApplicationServices",
+    "-framework",
+    "Vision",
+    "-framework",
+    "ScreenCaptureKit",
   ],
   { stdio: "inherit" },
 );

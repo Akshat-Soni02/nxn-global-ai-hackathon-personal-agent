@@ -24,7 +24,7 @@ import {
 import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { goLiveProblems } from "./lifecycle.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
-import { readForm, recordingDir } from "./recording-store.ts";
+import { readForm, readNotes, recordingDir } from "./recording-store.ts";
 import { newSkillId, saveSkill } from "./skill-store.ts";
 import { appendTrace, readTrace } from "./trace-store.ts";
 
@@ -147,6 +147,8 @@ export async function finishRecording(
       questions,
       steps,
       form,
+      // What was seen (masked screenshot words) and said (the narration) while recording.
+      notes: readNotes(dataDir, sessionId),
       memory: options.memory,
       prompter: options.prompter,
       // It may finish only once a run started by the Frequency could fill every input on its own.

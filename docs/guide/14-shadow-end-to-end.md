@@ -13,8 +13,8 @@ Editable: [`14-shadow-architecture.excalidraw`](14-shadow-architecture.excalidra
 | # | Step | What happens | Status |
 | --- | --- | --- | --- |
 | 1 | **Describe** | Pressing Record (Chrome button, desktop button, menu bar, or `record` in the terminal) opens a short form. **Goal** is required. **Frequency** defaults to "Only when I start it". **What changes**, **What stays the same** and **Never** may be left empty. Recording starts when you send the form | Built |
-| 2 | **Consent** | Two switches on the form: **Screen** (a picture at each step; only the words read from it leave the Mac) and **Microphone** (your narration; only its text leaves the Mac) | Switches: built. What they turn on: not yet |
-| 3 | **Record** | You do the task. Three things are captured on one clock, into `recordings/<session>/`: the **events** (Chrome extension, Shadow.app for Mac apps, the file watcher), a **screenshot** per event, and your **voice** | Events: built. Screenshots, voice: not yet |
+| 2 | **Consent** | Two switches on the form: **Screen** (a picture at each step; only the words read from it leave the Mac) and **Microphone** (your narration; only its text leaves the Mac) | Screen: built. Microphone: not yet |
+| 3 | **Record** | You do the task. Three things are captured on one clock, into `recordings/<session>/`: the **events** (Chrome extension, Shadow.app for Mac apps, the file watcher), a **screenshot** per event, and your **voice** | Events, screenshots: built. Voice: not yet |
 | 4 | **Stop → first draft** | Code tidies the events into steps (`normalise`), remembers each control by its role and name, never x/y (`skeleton`), then one Nemotron call adds what each step is for, which values change, and checks (`compile`) | Built |
 | 5 | **Understand** | The **design agent** turns the flat list into a tree: a loop for repeated work, a branch for "only if", an LLM step for reading or summarising, variables for what changes. If it can't finish, the first draft is kept | Built; tried with a scripted model only (no API key yet) |
 | 6 | **Drill** | Questions only where it is unsure ("always the newest email from Reporting Bot, or this one?"). They wait in the inbox and show on the Record screen next to the draft, with the step marked; answers are remembered | Built |
@@ -52,7 +52,7 @@ All calls go through `packages/llm` to Nebius Token Factory with your own key.
 | --- | --- | --- |
 | `~/Library/Application Support/Shadow/skills/<id>/vN.json` | Each version of a workflow | Kept |
 | `…/Shadow/skills/<id>/state.json` | Draft, live or paused, and why | Kept |
-| `…/Shadow/recordings/<session>/` | One recording: the form (`description.json`), events (`trace.jsonl`), `meta.json`; later screenshots, words read from them, audio, transcript | 24 h after the workflow is saved, or after Stop if never saved; at once if empty |
+| `…/Shadow/recordings/<session>/` | One recording: the form (`description.json`), events (`trace.jsonl`), `meta.json`, screenshots with private lines blacked out (`shots/`), their masked words (`screen.jsonl`), what the design agent did (`design.json`); later audio and transcript | 24 h after the workflow is saved, or after Stop if never saved; at once if empty |
 | `…/Shadow/traces/<session>.jsonl` | Recordings made before 13 Oct: events only | Kept, left as they are |
 | `…/Shadow/runs/<run>.jsonl`, `<run>.repair-N.json` | What each run did; each repair's transcript | Kept (30 days planned) |
 | `…/Shadow/shadow.db` | The runs list and the inbox (SQLite) | Kept |
@@ -88,5 +88,5 @@ All calls go through `packages/llm` to Nebius Token Factory with your own key.
 2. ~~The recording folder and deletion after 24 hours.~~ Done.
 3. ~~The design agent.~~ Done (the real model still to try).
 4. ~~The drill shown on the draft tree.~~ Done.
-5. Screenshots: words read on the Mac, private ones masked.
+5. ~~Screenshots: words read on the Mac, private ones masked.~~ Done (Chrome and Mac windows still to try by hand).
 6. Voice: narration turned into text on the Mac.

@@ -6,6 +6,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Description, Trigger } from "@shadow/core";
+import type { Note } from "@shadow/recorder";
 import { z } from "zod";
 
 export const Consent = z.object({
@@ -149,4 +150,27 @@ function lastChange(dir: string): number {
   let newest = statSync(dir).mtimeMs;
   for (const name of readdirSync(dir)) newest = Math.max(newest, statSync(join(dir, name)).mtimeMs);
   return newest;
+}
+
+// What was seen and said while recording, on the recording's clock, for the design agent: the masked words read from
+// each screenshot (screen.jsonl, screen.ts) and the narration's text (transcript.jsonl). Both are already masked text.
+export function readNotes(dataDir: string, sessionId: string): Note[] {
+  const notes: Note[] = [];
+  const read = (file: string, kind: Note["kind"]) => {
+    const path = join(recordingDir(dataDir, sessionId), file);
+    if (!existsSync(path)) return;
+    for (const line of readFileSync(path, "utf8").split("\n")) {
+      try {
+        const entry = JSON.parse(line) as { at?: unknown; text?: unknown };
+        if (typeof entry.at === "number" && typeof entry.text === "string" && entry.text.trim()) {
+          notes.push({ at: entry.at, kind, text: entry.text });
+        }
+      } catch {
+        // an empty or half-written line
+      }
+    }
+  };
+  read("screen.jsonl", "screen");
+  read("transcript.jsonl", "said");
+  return notes.sort((a, b) => a.at - b.at);
 }

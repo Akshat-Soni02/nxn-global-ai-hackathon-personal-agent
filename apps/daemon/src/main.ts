@@ -39,8 +39,9 @@ import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
 import { finishRecording } from "./record.ts";
 import { createRecordControl, type RecordControl } from "./record-control.ts";
-import { sweepRecordings } from "./recording-store.ts";
+import { readForm, sweepRecordings } from "./recording-store.ts";
 import { runSkillOn } from "./runner.ts";
+import { createScreenReader, type ScreenReader, screenToolsFrom } from "./screen.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
 import { findSkills, listSkills, saveSkill, versions } from "./skill-store.ts";
 import { type InboxItem, openStore, type RunRow } from "./store.ts";
@@ -66,12 +67,14 @@ const home = dataDir();
 const watchDirs = watchDirsFromEnv();
 let api: Api | undefined; // set once the service exists; api.call messages before then are answered "not ready"
 let record: RecordControl | undefined; // the same: Record pressed before then is ignored
+let screen: ScreenReader | undefined; // screenshots arriving before then are dropped
 const daemon = await startDaemon({
   socketPath: path,
   log,
   dataDir: home,
   watchDirs,
   onRecordCommand: (command) => (command === "start" ? record?.press() : void record?.stop()),
+  onShot: (shot) => screen?.add(shot),
   api: { call: (method, params) => (api ? api.call(method, params) : Promise.reject(new Error("not ready"))) },
 });
 const memory = openMemory(join(home, "memory.db"));
@@ -151,12 +154,24 @@ const prompter: Prompter = {
       draft: about?.draft,
     }),
 };
+// Screenshots (when the form allowed them): their words are read and masked on the Mac by Shadow.app's binary, and
+// only the masked words are kept (screen.ts).
+const macBinary = join(import.meta.dirname, "../../mac/build/Shadow.app/Contents/MacOS/Shadow");
+screen = createScreenReader({
+  dataDir: home,
+  tools: screenToolsFrom(macBinary),
+  never: (sessionId) => readForm(home, sessionId)?.never ?? [],
+  log,
+});
+const screenReader = screen;
 record = createRecordControl({
   dataDir: home,
   daemon,
   ask: (question) => service.ask(question),
-  finish: (sessionId) =>
-    finishRecording(sessionId, {
+  finish: async (sessionId) => {
+    // Every screenshot is read and masked before the recording becomes a workflow.
+    await screenReader.idle();
+    return finishRecording(sessionId, {
       dataDir: home,
       prompter,
       llm: model,
@@ -164,7 +179,8 @@ record = createRecordControl({
       locate: { searchDirs: defaultSearchDirs(watchDirs) },
       meter: usage,
       log,
-    }),
+    });
+  },
   log,
 });
 const recordControl = record;

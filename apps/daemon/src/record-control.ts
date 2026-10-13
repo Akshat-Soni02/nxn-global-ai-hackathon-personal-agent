@@ -202,7 +202,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
       form = parsed.data;
       saveConsent(dataDir, form.consent);
       // startRecording and writeForm both run before any event is handled, so the folder has its form first.
-      sessionId = daemon.startRecording();
+      sessionId = daemon.startRecording({ consent: form.consent });
       writeForm(dataDir, sessionId, form);
       startedAt = Date.now();
       phase = "recording";

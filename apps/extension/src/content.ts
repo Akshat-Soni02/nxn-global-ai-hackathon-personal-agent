@@ -6,6 +6,7 @@
 // exported from this file.
 import { type Button, type ButtonState, mountButton, type Position } from "./button.ts";
 import { startCapture } from "./capture.ts";
+import { shotHint } from "./shot.ts";
 
 const scope = globalThis as typeof globalThis & { __shadowStop?: () => void };
 
@@ -52,7 +53,9 @@ const stopCapture = startCapture(
   document,
   (event) => {
     if (!chrome.runtime?.id) return stop(); // orphaned: the extension was reloaded or removed
-    chrome.runtime.sendMessage({ type: "record.event", at: Date.now(), ...event }).catch(() => {});
+    // With a hint for the screenshot the background may take after it (shot.ts): skip it, or what to black out.
+    const shot = shotHint(document, event as { secret?: boolean });
+    chrome.runtime.sendMessage({ type: "record.event", at: Date.now(), ...event, shot }).catch(() => {});
   },
   () => sessionId !== undefined,
   {
