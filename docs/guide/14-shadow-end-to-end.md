@@ -90,6 +90,7 @@ All calls go through `packages/llm` to Nebius Token Factory with your own key, r
 2. `try_steps` can start after the failed step, so a fix may be saved without proof that the failed step works. Left to you: the confirmation-page repair legitimately starts after it, so the rule needs an exception.
 3. The per-run repair limits ($0.25, 2 episodes) start again after every wait.
 4. `on_item_fail: "skip"` never skips while recovery is on: one bad item fails the run.
+5. **The folder rule, run-time half.** The design agent may only read files in folders the recording touched. Since 13 Oct (evening) `designViolations` checks every way a path can be written (a new or changed fs step's `dir`, `path`, `from` and `to`, a glob that climbs, an input the agent declares, a local `file://` page, symlinks followed). What a design-time check cannot see is a path that only exists at run time, such as an llm step's output used as a file path. The clean fix is on your side: carry the allowed folders on the workflow and refuse in `packages/player/src/node/fs-channel.ts` before a file is opened.
 
 ## 8. What is left, and the sign-off list
 

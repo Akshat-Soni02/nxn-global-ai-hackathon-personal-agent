@@ -2,8 +2,9 @@
 // starts from, the draft it is changing, the recording, and the questions still open. Look tools read; edit tools
 // change the draft through core's edit operations, and every change is checked against what the agent may never do
 // (designViolations) before it is kept; ask_user is the drill; finish ends.
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { type AnyTool, tool } from "@shadow/agent";
 import {
   applyEdits,
@@ -80,15 +81,52 @@ const originOf = (url: unknown): string | undefined => {
 // Steps the agent may add: they only read or open a page the recording visited; they change nothing.
 const READ_ONLY = new Set(["fs.find", "fs.read", "data.pick", "web.extract", "web.wait_for", "web.navigate"]);
 
-const expand = (path: string) => resolve(path.startsWith("~/") ? `${homedir()}/${path.slice(2)}` : path);
+// A path as the player will open it: ~ expanded, made absolute, and symlinks followed as far as the path exists, so
+// a link inside an allowed folder can't reach outside it.
+const expand = (path: string): string => {
+  const abs = resolve(path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path);
+  let head = abs;
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync(head), ...tail);
+    } catch {
+      const parent = dirname(head);
+      if (parent === head) return abs;
+      tail.unshift(basename(head));
+      head = parent;
+    }
+  }
+};
+const inside = (where: unknown, folders: string[]): boolean =>
+  typeof where === "string" && folders.some((f) => expand(where) === f || expand(where).startsWith(`${f}${sep}`));
+// A whole-string reference to a value an earlier step produced, or a run was given.
+const isReference = (where: unknown): boolean => typeof where === "string" && /^\{\{[^}]+\}\}$/.test(where.trim());
+// A glob that leaves its folder: absolute, from ~, or climbing with "..".
+const climbs = (glob: unknown): boolean =>
+  typeof glob === "string" && (isAbsolute(glob) || glob.startsWith("~") || /(^|[\\/])\.\.([\\/]|$)/.test(glob));
+// The arguments of fs steps that name a place on disk.
+const PATH_ARGS = ["dir", "path", "from", "to"] as const;
 
-// The folders a recording touched (files picked, dropped, moved or downloaded, and where the first draft looks for
-// files): a new fs.find or fs.read may look only there, so no step can read ~/.ssh and hand it to an llm step.
+// The folders a recording touched (files picked, dropped, moved or downloaded, the folder its trigger watches, and
+// where the first draft looks for files): a new or changed fs step may look only there, so no step can read ~/.ssh
+// and hand it to an llm step.
 export function recordedFolders(steps: NormalisedStep[], original: Skill): string[] {
-  const paths = steps.flatMap((s) => [s.path, s.toPath, s.file?.path, ...(s.files ?? []).map((f) => f.path)]);
+  const paths = steps.flatMap((s) => [
+    s.path,
+    s.toPath,
+    s.file?.path,
+    ...(s.files ?? []).map((f) => f.path),
+    ...(s.produces ?? []),
+  ]);
   const folders = paths.filter((p): p is string => !!p).map((p) => dirname(expand(p)));
-  for (const input of Object.values(triggerOf(original).inputs)) {
+  const trigger = triggerOf(original);
+  for (const input of Object.values(trigger.inputs)) {
     if (typeof input.resolve?.dir === "string") folders.push(expand(input.resolve.dir));
+  }
+  for (const when of trigger.when) {
+    const dir = (when as { dir?: unknown }).dir;
+    if (typeof dir === "string") folders.push(expand(dir));
   }
   for (const { step } of walkSteps(original.steps)) {
     if (isAction(step) && step.channel === "fs" && typeof step.args.dir === "string")
@@ -116,13 +154,24 @@ export function designViolations(original: Skill, draft: Skill, form?: Form, fol
 
   const before = new Map<string, Step>([...walkSteps(original.steps)].map(({ step }) => [step.id, step]));
   const recorded = new Set([...before.values()].filter(isAction).map((s) => keyOf(s.target)));
-  const sites = new Set(
-    [...before.values()]
-      .filter(isAction)
-      .map((s) => (s.action === "navigate" ? originOf(s.args.url) : undefined))
-      .filter((o): o is string => !!o),
-  );
+  const visited = [...before.values()].filter(isAction).flatMap((s) => (s.action === "navigate" ? [s.args.url] : []));
+  // A local file has no site (its origin is "null"): it counts only by its exact address.
+  const sites = new Set(visited.map(originOf).filter((o): o is string => !!o && o !== "null"));
+  const pages = new Set(visited.filter((u): u is string => typeof u === "string" && /^file:/i.test(u)));
   const after = new Map<string, Step>([...walkSteps(draft.steps)].map(({ step }) => [step.id, step]));
+  const where = `folders the recording touched (${folders.join(", ") || "none"})`;
+
+  // An input the agent declares may not point outside those folders either (a default path, or where to look).
+  const inputsBefore = triggerOf(original).inputs;
+  for (const [name, input] of Object.entries(triggerOf(draft).inputs)) {
+    if (same(inputsBefore[name], input)) continue;
+    const fixed = typeof input.default === "string" && /^[~/]/.test(input.default) ? input.default : undefined;
+    for (const place of [input.resolve?.dir, fixed]) {
+      if (place !== undefined && !inside(place, folders)) {
+        problems.push(`${name}: an input may only point at ${where}, not ${String(place)}`);
+      }
+    }
+  }
 
   for (const step of after.values()) {
     if (!isAction(step)) continue;
@@ -132,22 +181,22 @@ export function designViolations(original: Skill, draft: Skill, form?: Form, fol
       problems.push(
         `${step.id}: a new ${kind} step would do something the user didn't show. Only steps that read (${[...READ_ONLY].join(", ")}) can be added; ask the user to show the rest`,
       );
-    } else if (!old && (kind === "fs.find" || kind === "fs.read")) {
-      const where = kind === "fs.find" ? step.args.dir : step.args.path;
-      // A reference to a file an earlier step found (or a run was given) is fine; a written path must be in a folder
-      // the recording touched.
-      const reference = typeof where === "string" && /^\{\{[^}]+\}\}$/.test(where.trim());
-      const inside =
-        typeof where === "string" && folders.some((f) => expand(where) === f || expand(where).startsWith(`${f}${sep}`));
-      if (!reference && !inside) {
-        problems.push(
-          `${step.id}: it may only look in folders the recording touched (${folders.join(", ") || "none"}), not ${String(where)}`,
-        );
-      }
     } else if (old && (!isAction(old) || `${old.channel}.${old.action}` !== kind)) {
       problems.push(
         `${step.id}: a recorded step keeps its kind of action (it was ${isAction(old) ? `${old.channel}.${old.action}` : old.type})`,
       );
+    }
+    // Every place a new or changed fs step names must be in a folder the recording touched (a reference to a value
+    // an earlier step produced, or a run was given, is fine), and its glob stays in its folder.
+    if (step.channel === "fs" && !(old && isAction(old) && same(old.args, step.args))) {
+      for (const key of PATH_ARGS) {
+        const place = step.args[key];
+        if (place === undefined || isReference(place) || inside(place, folders)) continue;
+        problems.push(`${step.id}: it may only look in ${where}, not ${String(place)}`);
+      }
+      if (climbs(step.args.glob)) {
+        problems.push(`${step.id}: its glob (${String(step.args.glob)}) must stay inside its folder`);
+      }
     }
     if (step.target && !recorded.has(keyOf(step.target))) {
       problems.push(
@@ -160,8 +209,13 @@ export function designViolations(original: Skill, draft: Skill, form?: Form, fol
       problems.push(`${step.id}: script steps can't be added`);
     }
     if (step.action === "navigate" && !(old && isAction(old) && same(old.args.url, step.args.url))) {
-      const origin = originOf(step.args.url);
-      if (!origin || !sites.has(origin)) {
+      const url = step.args.url;
+      const origin = originOf(url);
+      const ok =
+        typeof url === "string" && /^file:/i.test(url)
+          ? pages.has(url)
+          : !!origin && origin !== "null" && sites.has(origin);
+      if (!ok) {
         problems.push(`${step.id}: it may only open a site the recording visited (${[...sites].join(", ") || "none"})`);
       }
     }

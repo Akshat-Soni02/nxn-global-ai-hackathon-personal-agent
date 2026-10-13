@@ -3,9 +3,9 @@ import { type FakeReply, fakeLlm } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
 import { compile, type Form, type Question } from "../compile.ts";
 import type { Prompter } from "../drill.ts";
-import { normalise } from "../normalise.ts";
+import { type NormalisedStep, normalise } from "../normalise.ts";
 import { designWorkflow } from "./design.ts";
-import { designViolations, notesByStep } from "./tools.ts";
+import { designViolations, notesByStep, recordedFolders } from "./tools.ts";
 
 const PAGE = "http://localhost:5173/upload.html";
 const control = (name: string, extra: Partial<ElementDescriptor> = {}): ElementDescriptor => ({
@@ -355,6 +355,65 @@ describe("the rules and the recording view", () => {
     expect(designViolations(skill, renamed, form)).toEqual([expect.stringMatching(/description is the user's/)]);
     // Without a form (a recording from before Oct 13), the agent may write the goal.
     expect(designViolations(skill, renamed)).toEqual([]);
+  });
+
+  it("keeps file steps, inputs and local pages inside what the recording touched, however the path is written", async () => {
+    const { steps, skill } = await draft();
+    // A download's folder counts as touched.
+    const downloaded = { ...steps[1], produces: ["/tmp/exports/kpis.csv"] } as NormalisedStep;
+    const folders = recordedFolders([...steps, downloaded], skill);
+    const clone = (s: Skill = skill) => JSON.parse(JSON.stringify(s)) as Skill;
+    const withStep = (s: Skill, step: object) => ({ ...s, steps: [...s.steps, step] }) as Skill;
+    const step = (id: string, channel: string, action: string, args: object) => ({
+      id,
+      type: "action",
+      intent: id,
+      channel,
+      action,
+      args,
+      output: { name: id, type: { type: "text" } },
+    });
+    const problems = (d: Skill, o: Skill = skill) => designViolations(o, d, undefined, folders);
+
+    // A new read in a touched folder is fine; elsewhere it is refused, as is a glob that climbs out.
+    expect(problems(withStep(clone(), step("r1", "fs", "read", { path: "/tmp/exports/kpis.csv" })))).toEqual([]);
+    expect(problems(withStep(clone(), step("r2", "fs", "read", { path: "~/Desktop/notes.txt" })))).toEqual([
+      expect.stringMatching(/r2: it may only look in folders .* not ~\/Desktop\/notes.txt/),
+    ]);
+    expect(
+      problems(
+        withStep(clone(), step("f1", "fs", "find", { dir: "/tmp/exports", glob: "../../Users/*", pick: "all" })),
+      ),
+    ).toEqual([expect.stringMatching(/f1: its glob .* must stay inside its folder/)]);
+    // A recorded file step re-pointed elsewhere counts as new.
+    const original = withStep(clone(), step("f2", "fs", "find", { dir: "/tmp/exports", glob: "*.csv", pick: "all" }));
+    const repointed = withStep(clone(), step("f2", "fs", "find", { dir: "~/.ssh", glob: "*", pick: "all" }));
+    expect(problems(repointed, original)).toEqual([expect.stringMatching(/f2: it may only look .* not ~\/\.ssh/)]);
+    expect(problems(clone(original), original)).toEqual([]);
+    // An input the agent declares may not point outside either.
+    const input = clone();
+    (input.steps[0] as { inputs: Record<string, unknown> }).inputs.key = {
+      type: { type: "text" },
+      default: "~/.ssh/id_rsa",
+    };
+    expect(problems(input)).toEqual([
+      expect.stringMatching(/key: an input may only point at folders .* not ~\/\.ssh\/id_rsa/),
+    ]);
+    // A local page is a site only by its exact address.
+    const local = clone();
+    (local.steps[1] as { args: Record<string, unknown> }).args.url = "file:///Users/me/Documents/report.html";
+    const nav = (id: string, url: string) => ({
+      id,
+      type: "action",
+      intent: id,
+      channel: "web",
+      action: "navigate",
+      args: { url },
+    });
+    expect(problems(withStep(clone(local), nav("n1", "file:///Users/me/Documents/report.html")), local)).toEqual([]);
+    expect(problems(withStep(clone(local), nav("n2", "file:///Users/me/.ssh/id_rsa")), local)).toEqual([
+      expect.stringMatching(/n2: it may only open a site the recording visited/),
+    ]);
   });
 
   it("puts what was said next to the step it was said over", () => {
