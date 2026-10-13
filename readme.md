@@ -63,7 +63,7 @@ Every model call goes through `packages/llm` to **Nebius Token Factory**. Caller
 | --- | --- | --- |
 | `fast` | **NVIDIA Nemotron 3.5 Lightning** | The workflow's LLM steps on every run: summarise an email, read an invoice, classify a ticket. Cheap and fast ($0.06 / $0.24 per 1M tokens), thinking off, output checked against the step's type |
 | `smart` | **NVIDIA Nemotron 3 Super** | Compiling a recording into a workflow; the **repair agent** (works out why a step failed on a changed page, fixes the workflow, verifies, saves a new version); planned: the **design agent** (description, recording and transcript into a workflow tree) |
-| `vision` | GLM-5.3-Flash | Planned: describing redacted screenshots for the agents (the cheapest vision model on Token Factory) |
+| `vision` | GLM-5.3-Flash | Not used yet. Recordings never send pictures, only the words read from them on the Mac; whether the repair agent may send one is open |
 
 Why Token Factory: one OpenAI-compatible API for every profile, structured JSON output with a schema, Nemotron's thinking switched on or off per call, and **Zero Data Retention**, which we require on the account so prompts are neither stored nor used for training. Details, costs and limits: [docs/design.md#models](docs/design.md#models).
 
@@ -73,7 +73,7 @@ Why Token Factory: one OpenAI-compatible API for every profile, structured JSON 
 - **Only text goes to the model**: the recorded events without sensitive values, the failing step and a page outline for repair. Secret values are never logged or sent.
 - **Local doors are locked**: the daemon's socket only accepts your macOS user; its HTTP API listens only on `127.0.0.1` and needs a token made at every start, which only you can read ([how](docs/guide/13-the-whole-picture.md)).
 - **Risky steps wait for you**: steps that send, submit, pay or delete ask for approval, and repair can never add them.
-- **Planned with screenshots and voice**: separate consent for each; redaction on the Mac before anything is sent (password, payment and marked fields, then on-device text recognition for emails, phone and card numbers, IBANs, IDs, API keys and your "Never" terms); audio never leaves the Mac; raw recordings deleted 24 hours after the workflow is finalised.
+- **Planned with screenshots and voice**: separate consent for each. Pictures and audio never leave the Mac: only the words read from a screenshot on the Mac (with emails, phone and card numbers, IBANs, API keys and your "Never" words masked) and the narration's text go to the model. Raw recordings are deleted 24 hours after the workflow is saved.
 
 Details: [docs/design.md#consent-redaction-and-retention](docs/design.md#consent-redaction-and-retention).
 

@@ -2,6 +2,8 @@
 
 > Written 12 Oct 2026, after milestones 6 and 7 (the daemon as a service, the inbox and API, the window, the menu bar).
 > The design itself is [`docs/design.md`](../design.md); this page is a map of it.
+>
+> **Since 13 Oct:** no screenshot from a recording goes to Nebius, only the words read from it on the Mac, with private ones masked (design.md, "Redaction"). Whether the repair agent may send a redacted picture is an open question; it doesn't today. The diagram's box "Is it secure?" predates this.
 
 ![Shadow: the whole picture](13-the-whole-picture.png)
 

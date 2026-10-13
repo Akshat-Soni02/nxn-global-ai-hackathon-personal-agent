@@ -1,6 +1,6 @@
 # 02 · The product, the architecture, record vs replay, the folders
 
-> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../../design.md).
 
 > *"Break down the project idea and execution along with the folder structure."*
 
@@ -123,7 +123,7 @@ Notice what the two sides did *not* share. Record saw a click plus an OS dialog 
 
 ## The architecture: three processes, one file format
 
-![Architecture](../architecture.png)
+![Architecture](../../architecture.png)
 
 `design.md:32`: *"the daemon owns skills, memory, triggers and the LLM; the extension and the Mac actuator only observe (record) and act (replay)."*
 

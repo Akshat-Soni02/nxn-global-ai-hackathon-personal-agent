@@ -1,6 +1,6 @@
 # 12 · How Shadow works, in plain words
 
-> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../design.md).
+> **Superseded (Oct 8, 2026).** This note describes the flat-skill flow from before the workflow pivot (describe + record with screenshots and voice → editable workflow tree → self-correcting replay). It is kept as history; the current design is [docs/design.md](../../design.md).
 
 > Picture: [12-how-it-works-simply.excalidraw](12-how-it-works-simply.excalidraw) (PNG next to it). Written 4 Oct 2026.
 
