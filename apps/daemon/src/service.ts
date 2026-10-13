@@ -434,7 +434,7 @@ export function createService(options: ServiceOptions): Service {
       const item = addItem({
         kind: "question",
         title: question.title,
-        detail: { options: question.options, default: question.default },
+        detail: { options: question.options, default: question.default, step: question.step, draft: question.draft },
       });
       return new Promise((resolve) => questions.set(item.id, resolve));
     },

@@ -95,11 +95,14 @@ export interface WorkflowSummary {
   nextRunAt?: number;
 }
 
-// A question outside a run: the drill after a recording, which file to use.
+// A question outside a run: the drill after a recording, which file to use. A drill question can be about one step
+// of the draft workflow: the window shows the draft with that step marked.
 export interface Question {
   title: string;
   options?: string[];
   default?: string;
+  step?: string;
+  draft?: unknown;
 }
 
 // Recording (record-control.ts), as the window's Record screen gets it from `recording`.

@@ -1,6 +1,7 @@
 // Record a task (docs/design.md, "1. Describe" and "2. Record"): the description form first, then the recording, then
 // Stop turns it into a workflow, and its questions are answered here. Every Record button (Chrome, the desktop, the
 // menu bar) opens this screen; recording starts only when the form is sent.
+import type { Skill } from "@shadow/core";
 import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { useEffect, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
@@ -8,6 +9,7 @@ import { Action, Loading } from "../components.tsx";
 import { FrequencyFields, type Missed } from "../FrequencyPicker.tsx";
 import { type Choice, describe, toTrigger } from "../frequency.ts";
 import { Card } from "./Inbox.tsx";
+import { StepTree } from "./Workflow.tsx";
 
 export function Record() {
   const { data, error } = useQuery<RecordingView>("recording");
@@ -36,12 +38,29 @@ export function Record() {
           <h2>Questions</h2>
           <div className="cards">
             {questions.map((item) => (
-              <Card key={item.id} item={item} />
+              <Question key={item.id} item={item} />
             ))}
           </div>
         </section>
       ) : null}
     </>
+  );
+}
+
+// A question about the draft (the design agent's drill) is shown next to the draft, with its step marked.
+function Question({ item }: { item: InboxItem }) {
+  const draft = item.detail.draft as Skill | undefined;
+  if (!draft?.steps) return <Card item={item} />;
+  return (
+    <div className="drill">
+      <div className="drill-draft">
+        <div className="muted small">
+          The workflow so far{item.detail.step ? `: the question is about ${item.detail.step}` : ""}
+        </div>
+        <StepTree steps={draft.steps} highlight={item.detail.step as string | undefined} />
+      </div>
+      <Card item={item} />
+    </div>
   );
 }
 
@@ -91,7 +110,7 @@ function Form({ consent, last }: { consent: RecordingView["consent"]; last: Reco
   return (
     <>
       {last ? (
-        <p className={last.outcome === "saved" ? "muted" : "error"}>
+        <p className={last.outcome === "failed" ? "error" : "muted"}>
           Last recording: {last.text}
           {last.skillId ? (
             <>

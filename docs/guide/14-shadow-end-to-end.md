@@ -17,7 +17,7 @@ Editable: [`14-shadow-architecture.excalidraw`](14-shadow-architecture.excalidra
 | 3 | **Record** | You do the task. Three things are captured on one clock, into `recordings/<session>/`: the **events** (Chrome extension, Shadow.app for Mac apps, the file watcher), a **screenshot** per event, and your **voice** | Events: built. Screenshots, voice: not yet |
 | 4 | **Stop → first draft** | Code tidies the events into steps (`normalise`), remembers each control by its role and name, never x/y (`skeleton`), then one Nemotron call adds what each step is for, which values change, and checks (`compile`) | Built |
 | 5 | **Understand** | The **design agent** turns the flat list into a tree: a loop for repeated work, a branch for "only if", an LLM step for reading or summarising, variables for what changes. If it can't finish, the first draft is kept | Built; tried with a scripted model only (no API key yet) |
-| 6 | **Drill** | Questions only where it is unsure ("always the newest email from Reporting Bot, or this one?"). They wait in the inbox; answers are remembered | Inbox: built. Shown on the tree: not yet |
+| 6 | **Drill** | Questions only where it is unsure ("always the newest email from Reporting Bot, or this one?"). They wait in the inbox and show on the Record screen next to the draft, with the step marked; answers are remembered | Built |
 | 7 | **Save** | The workflow is saved as `skills/<id>/v1.json`. Approval is turned on, by code, for every step that sends, submits, pays, publishes or deletes, or matches Never. The recording folder is deleted 24 hours later | Built |
 
 Every recording becomes a **new** workflow with its own id (`upload-invoice-k3f9q2`); `run upload-invoice` finds it by the start of its id.
@@ -87,6 +87,6 @@ All calls go through `packages/llm` to Nebius Token Factory with your own key.
 1. ~~The description form and the two consents, from every Record button.~~ Done.
 2. ~~The recording folder and deletion after 24 hours.~~ Done.
 3. ~~The design agent.~~ Done (the real model still to try).
-4. The drill shown on the draft tree.
+4. ~~The drill shown on the draft tree.~~ Done.
 5. Screenshots: words read on the Mac, private ones masked.
 6. Voice: narration turned into text on the Mac.

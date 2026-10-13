@@ -96,13 +96,7 @@ export function Workflow({ id }: { id: string }) {
 
       <section className="section">
         <h2>Steps</h2>
-        <ol className="tree">
-          {latest.steps
-            .filter((s) => s.type !== "trigger")
-            .map((s) => (
-              <StepRow key={s.id} step={s} />
-            ))}
-        </ol>
+        <StepTree steps={latest.steps} />
       </section>
 
       <section className="section">
@@ -162,8 +156,22 @@ export function Workflow({ id }: { id: string }) {
   );
 }
 
-function StepRow({ step }: { step: Step }) {
+// The steps as a tree; `highlight` marks the step a question is about (the Record screen's drill).
+export function StepTree({ steps, highlight }: { steps: Step[]; highlight?: string }) {
+  return (
+    <ol className="tree">
+      {steps
+        .filter((s) => s.type !== "trigger")
+        .map((s) => (
+          <StepRow key={s.id} step={s} highlight={highlight} />
+        ))}
+    </ol>
+  );
+}
+
+function StepRow({ step, highlight }: { step: Step; highlight?: string }) {
   if (step.type === "trigger") return null;
+  const asked = step.id === highlight ? " asked" : "";
   const flags = (
     <>
       {step.requires_approval ? <span className="flag">approval</span> : null}
@@ -172,7 +180,7 @@ function StepRow({ step }: { step: Step }) {
   );
   if (step.type === "control") {
     return (
-      <li className="step control">
+      <li className={`step control${asked}`}>
         <div className="step-line">
           <span className="step-kind">{step.kind === "loop" ? "for each" : "if"}</span>
           <span className="step-intent">{step.intent}</span>
@@ -184,7 +192,7 @@ function StepRow({ step }: { step: Step }) {
         </div>
         <ol className="tree">
           {step.steps.map((s) => (
-            <StepRow key={s.id} step={s} />
+            <StepRow key={s.id} step={s} highlight={highlight} />
           ))}
         </ol>
         {step.kind === "branch" && step.else.length > 0 ? (
@@ -192,7 +200,7 @@ function StepRow({ step }: { step: Step }) {
             <div className="step-kind else">otherwise</div>
             <ol className="tree">
               {step.else.map((s) => (
-                <StepRow key={s.id} step={s} />
+                <StepRow key={s.id} step={s} highlight={highlight} />
               ))}
             </ol>
           </>
@@ -202,7 +210,7 @@ function StepRow({ step }: { step: Step }) {
   }
   const kind = step.type === "llm" ? "model" : step.channel === "ax" ? "mac" : step.channel;
   return (
-    <li className="step">
+    <li className={`step${asked}`}>
       <div className="step-line">
         <span className="step-kind">{kind}</span>
         <span className="step-intent">{step.intent}</span>

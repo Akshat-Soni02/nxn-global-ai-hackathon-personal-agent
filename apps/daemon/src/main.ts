@@ -141,8 +141,15 @@ const service = createService({
 // Recording: the description form, then the recording, then Stop turns it into a workflow. Its questions (the
 // form's, from the terminal, and the drill's) wait in the inbox.
 const prompter: Prompter = {
-  ask: (question: Question) =>
-    service.ask({ title: question.text, options: question.options?.map((o) => o.label), default: question.default }),
+  ask: (question: Question, about) =>
+    service.ask({
+      title: question.text,
+      options: question.options?.map((o) => o.label),
+      default: question.default,
+      // A design-agent question is shown on the draft, next to its step.
+      step: about?.step,
+      draft: about?.draft,
+    }),
 };
 record = createRecordControl({
   dataDir: home,

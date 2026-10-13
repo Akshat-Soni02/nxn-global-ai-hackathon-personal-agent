@@ -602,3 +602,27 @@ nav a.active .badge {
   align-items: center;
   gap: 8px;
 }
+
+/* The step a drill question is about (screens/Record.tsx) */
+.step.asked > .step-line {
+  outline: 2px solid var(--accent, #3b5bdb);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+.drill {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.drill-draft {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+@media (max-width: 760px) {
+  .drill {
+    grid-template-columns: 1fr;
+  }
+}

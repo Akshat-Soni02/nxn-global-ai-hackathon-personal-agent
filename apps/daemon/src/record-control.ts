@@ -14,6 +14,7 @@ import {
   type RecordFormInput,
   RecordForm as RecordFormSchema,
   readConsent,
+  readForm,
   recordingExists,
   saveConsent,
   writeForm,
@@ -97,6 +98,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
   async function compile(id: string) {
     phase = "compiling";
     sessionId = id;
+    form ??= readForm(dataDir, id);
     changed();
     status("compiling", "Turning your recording into a workflow…");
     try {
