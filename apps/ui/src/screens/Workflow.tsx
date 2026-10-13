@@ -7,6 +7,7 @@ import { Action, Loading, StateChip, StatusChip } from "../components.tsx";
 import { FrequencyPicker } from "../FrequencyPicker.tsx";
 import { ago, duration, money, when } from "../format.ts";
 import { describe } from "../frequency.ts";
+import { Editor } from "./Editor.tsx";
 
 const BY = { record: "Recorded", user: "Changed by you", debug: "Repaired during a run" } as const;
 
@@ -16,6 +17,7 @@ export function Workflow({ id }: { id: string }) {
   const summary = useQuery<WorkflowSummary[]>("workflows");
   const runs = useQuery<RunRow[]>("runs", { skillId: id, limit: 20 });
   const [picking, setPicking] = useState(false);
+  const [editing, setEditing] = useState(false);
   if (workflow.data === null) return <p className="error">No workflow {id}.</p>;
   if (!workflow.data) return <Loading error={workflow.error} />;
   const { latest, versions } = workflow.data;
@@ -36,6 +38,18 @@ export function Workflow({ id }: { id: string }) {
             {latest.name} {state ? <StateChip state={state} /> : null}
           </h1>
           <span className="action">
+            <a
+              className="button"
+              href={`#/record/again/${id}`}
+              title="Do the task once more: the recording becomes the next version"
+            >
+              Record again
+            </a>
+            {editing ? null : (
+              <button type="button" className="button" onClick={() => setEditing(true)}>
+                Edit
+              </button>
+            )}
             {state?.state === "live" ? (
               <Action run={() => session.call("pause", { id })}>Pause</Action>
             ) : (
@@ -102,10 +116,20 @@ export function Workflow({ id }: { id: string }) {
         )}
       </section>
 
-      <section className="section">
-        <h2>Steps</h2>
-        <StepTree steps={latest.steps} />
-      </section>
+      {editing ? (
+        <Editor
+          id={id}
+          onDone={() => {
+            setEditing(false);
+            workflow.reload();
+          }}
+        />
+      ) : (
+        <section className="section">
+          <h2>Steps</h2>
+          <StepTree steps={latest.steps} />
+        </section>
+      )}
 
       <section className="section">
         <div className="title-row">

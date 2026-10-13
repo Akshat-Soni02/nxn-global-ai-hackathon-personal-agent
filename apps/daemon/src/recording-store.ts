@@ -38,6 +38,12 @@ export const RecordForm = Description.extend({
     .max(5)
     .default([{ type: "manual" }]),
   consent: Consent.default({ screen: false, microphone: false, pictures: false }),
+  // Recording a task again (docs/design.md, open question closed 13 Oct): the id of the workflow this recording is a
+  // new version of. It keeps that id, its Frequency and its state; the recording becomes its next version.
+  again: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]*$/)
+    .optional(),
 });
 export type RecordForm = z.infer<typeof RecordForm>;
 export type RecordFormInput = z.input<typeof RecordForm>;

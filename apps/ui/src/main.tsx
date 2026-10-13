@@ -60,7 +60,8 @@ function App() {
 }
 
 function Shell({ connected }: { connected: boolean }) {
-  const [screen = "inbox", id] = useRoute();
+  // "#/record/again/<id>": the Record screen prefilled from a workflow, to record it again.
+  const [screen = "inbox", id, sub] = useRoute();
   const inbox = useQuery<unknown[]>("inbox", { open: true });
   const waiting = inbox.data?.length ?? 0;
   useEffect(() => {
@@ -93,7 +94,7 @@ function Shell({ connected }: { connected: boolean }) {
         {screen === "workflows" && id && <Workflow id={id} />}
         {screen === "runs" && !id && <Runs />}
         {screen === "runs" && id && <Run id={id} />}
-        {screen === "record" && <Record />}
+        {screen === "record" && <Record again={id === "again" ? sub : undefined} />}
       </main>
     </div>
   );

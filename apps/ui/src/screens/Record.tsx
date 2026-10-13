@@ -1,15 +1,18 @@
 // Record a task (docs/design.md, "1. Describe" and "2. Record"): the description form first, then the recording, then
 // Stop turns it into a workflow, and its questions are answered here. Every Record button (Chrome, the desktop, the
 // menu bar) opens this screen; recording starts only when the form is sent.
+import type { Skill, Trigger } from "@shadow/core";
 import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { useEffect, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
 import { FrequencyFields, type Missed } from "../FrequencyPicker.tsx";
-import { type Choice, describe, toTrigger } from "../frequency.ts";
+import { type Choice, describe, toChoice, toTrigger } from "../frequency.ts";
 import { Question } from "./Inbox.tsx";
 
-export function Record() {
+// `again`: a workflow's id, to record that task again: the form starts filled in from it, and the recording becomes
+// the workflow's next version (same id, Frequency and state).
+export function Record({ again }: { again?: string }) {
   const { data, error } = useQuery<RecordingView>("recording");
   const inbox = useQuery<InboxItem[]>("inbox", { open: true });
   if (!data) return <Loading error={error} />;
@@ -19,10 +22,20 @@ export function Record() {
   return (
     <>
       <header className="page-header">
-        <h1>Record a task</h1>
-        <p className="muted">Say what it is for, then do it once. Shadow turns it into a workflow you can run again.</p>
+        <h1>{again ? "Record it again" : "Record a task"}</h1>
+        <p className="muted">
+          {again
+            ? "Do the task once more. The new recording becomes the next version of this workflow; its Frequency and whether it is live stay as they are."
+            : "Say what it is for, then do it once. Shadow turns it into a workflow you can run again."}
+        </p>
       </header>
-      {data.phase === "idle" ? <Form consent={data.consent} last={data.last} /> : null}
+      {data.phase === "idle" ? (
+        again ? (
+          <AgainForm again={again} consent={data.consent} last={data.last} />
+        ) : (
+          <Form consent={data.consent} last={data.last} />
+        )
+      ) : null}
       {data.phase === "describing" ? <p>Answer the questions below (or in the terminal) to start recording.</p> : null}
       {data.phase === "recording" ? <Recording view={data} /> : null}
       {data.phase === "compiling" ? (
@@ -68,22 +81,77 @@ function Recording({ view }: { view: RecordingView }) {
         done.
       </p>
       <div className="answers">
-        <Action kind="danger" run={() => session.call("recordStop")}>
+        <Action kind="primary" run={() => session.call("recordStop")}>
           Stop
+        </Action>
+        <Action kind="danger" confirm="Throw this recording away?" run={() => session.call("recordDiscard")}>
+          Discard
         </Action>
       </div>
     </section>
   );
 }
 
-function Form({ consent, last }: { consent: RecordingView["consent"]; last: RecordingView["last"] }) {
+// The form filled in from the workflow being recorded again.
+function AgainForm({
+  again,
+  consent,
+  last,
+}: {
+  again: string;
+  consent: RecordingView["consent"];
+  last: RecordingView["last"];
+}) {
+  const workflow = useQuery<{ id: string; versions: number[]; latest: Skill } | null>("workflow", { id: again });
+  if (workflow.data === null) return <p className="error">No workflow {again}.</p>;
+  if (!workflow.data) return <Loading error={workflow.error} />;
+  const { latest } = workflow.data;
+  const trigger = latest.steps.find((s) => s.type === "trigger");
+  const when = trigger?.type === "trigger" ? trigger.when : [];
+  return (
+    <>
+      <p className="muted small">
+        <a href={`#/workflows/${again}`}>{latest.name}</a> · v{latest.version} now; this recording becomes v
+        {latest.version + 1}.
+      </p>
+      <Form
+        consent={consent}
+        last={last}
+        again={again}
+        initial={{ ...latest.description, when: when.find((t) => t.type !== "manual") ?? when[0] }}
+      />
+    </>
+  );
+}
+
+interface Initial {
+  goal: string;
+  changes: string[];
+  constants: string[];
+  never: string[];
+  when?: Trigger;
+}
+
+function Form({
+  consent,
+  last,
+  again,
+  initial,
+}: {
+  consent: RecordingView["consent"];
+  last: RecordingView["last"];
+  again?: string;
+  initial?: Initial;
+}) {
   const session = useSession();
-  const [goal, setGoal] = useState("");
-  const [choice, setChoice] = useState<Choice>({ kind: "manual" });
-  const [missed, setMissed] = useState<Missed>("run_once");
-  const [changes, setChanges] = useState("");
-  const [constants, setConstants] = useState("");
-  const [never, setNever] = useState("");
+  const [goal, setGoal] = useState(initial?.goal ?? "");
+  const [choice, setChoice] = useState<Choice>(initial?.when ? toChoice(initial.when) : { kind: "manual" });
+  const [missed, setMissed] = useState<Missed>(
+    initial?.when && initial.when.type !== "manual" ? initial.when.missed : "run_once",
+  );
+  const [changes, setChanges] = useState(initial?.changes.join(", ") ?? "");
+  const [constants, setConstants] = useState(initial?.constants.join(", ") ?? "");
+  const [never, setNever] = useState(initial?.never.join(", ") ?? "");
   const [screen, setScreen] = useState(consent.screen);
   const [microphone, setMicrophone] = useState(consent.microphone);
   const [pictures, setPictures] = useState(consent.pictures);
@@ -184,10 +252,11 @@ function Form({ consent, last }: { consent: RecordingView["consent"]; last: Reco
                 constants: split(constants),
                 never: split(never),
                 consent: { screen, microphone, pictures: screen && pictures },
+                ...(again ? { again } : {}),
               })
             }
           >
-            Start recording
+            {again ? "Start recording again" : "Start recording"}
           </Action>
         </div>
       </form>

@@ -6,7 +6,7 @@
 //
 // Recording (record-control.ts): `recording` is what the Record screen shows; `recordStart` takes the description
 // form and starts recording; `recordStop` stops and turns the recording into a workflow (its questions go to the inbox).
-import { Trigger } from "@shadow/core";
+import { Edit, type EditInput, Trigger } from "@shadow/core";
 import { z } from "zod";
 import type { RecordControl } from "./record-control.ts";
 import { RecordForm } from "./recording-store.ts";
@@ -72,6 +72,20 @@ const methods = {
     params: z.object({ id, when: z.array(Trigger).min(1).max(5) }),
     run: (s: Service, p: { id: string; when: unknown[] }) => s.setTrigger(p.id, p.when),
   },
+  // The editor (docs/design.md, "6. Edit"): a draft beside the workflow, changed through the same edit operations
+  // the agents use, autosaved; undo, redo, discard; publish saves it as the next version.
+  draft: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.draft(p.id) },
+  editDraft: {
+    params: z.object({ id, edits: z.array(Edit).min(1).max(50) }),
+    run: (s: Service, p: { id: string; edits: EditInput[] }) => s.editDraft(p.id, p.edits),
+  },
+  undoDraft: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.undoDraft(p.id) },
+  redoDraft: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.redoDraft(p.id) },
+  discardDraft: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.discardDraft(p.id) },
+  publishDraft: {
+    params: z.object({ id, summary: z.string().max(300).optional() }),
+    run: (s: Service, p: { id: string; summary?: string }) => s.publishDraft(p.id, p.summary),
+  },
 } as const;
 
 const recordMethods = {
@@ -83,6 +97,15 @@ const recordMethods = {
     run: (r: RecordControl) => {
       const sessionId = r.view().sessionId;
       void r.stop();
+      return { sessionId };
+    },
+  },
+  // Throws the recording away: nothing is compiled, its folder is deleted at once.
+  recordDiscard: {
+    params: z.object({}).default({}),
+    run: (r: RecordControl) => {
+      const sessionId = r.view().sessionId;
+      void r.discard();
       return { sessionId };
     },
   },

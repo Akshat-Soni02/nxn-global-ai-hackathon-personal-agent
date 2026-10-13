@@ -2,14 +2,16 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, utime
 import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { isAction, Skill } from "@shadow/core";
+import { isAction, Skill, triggerOf } from "@shadow/core";
 import { createDecoder, encode } from "@shadow/ipc";
 import { afterEach, describe, expect, it } from "vitest";
 import { chooseFiles, cleanPath, givenInputs, splitArgs } from "./choose-file.ts";
 import { type Daemon, startDaemon } from "./daemon.ts";
 import { classify, type FsChange, ignored, watchDirsFromEnv, watchFiles } from "./fs-watch.ts";
+import { readState, writeState } from "./lifecycle.ts";
 import { locateFile, locateFiles } from "./locate-file.ts";
 import { finishRecording } from "./record.ts";
+import { writeForm } from "./recording-store.ts";
 import { findSkills, loadSkill, saveSkill, versions } from "./skill-store.ts";
 import { appendTrace, readTrace, tracePath } from "./trace-store.ts";
 
@@ -289,6 +291,55 @@ describe("record end to end", () => {
     // "run upload-invoice" now matches two skills, so it must name both rather than guess.
     expect(findSkills(home, "upload-invoice").sort()).toEqual([saved?.skill.id, again?.skill.id].sort());
     expect(findSkills(home, saved?.skill.id ?? "")).toEqual([saved?.skill.id]);
+  });
+
+  it("recorded again, a task becomes the next version of the same workflow: its id, name and state stay", async () => {
+    const home = temp();
+    const first = saveSkill(
+      home,
+      Skill.parse({
+        id: "upload-invoice-abc123",
+        name: "Upload the invoice",
+        version: 1,
+        description: { goal: "old goal" },
+        steps: [
+          { id: "start", type: "trigger", intent: "by hand" },
+          { id: "s1", type: "action", intent: "open", channel: "web", action: "navigate", args: { url: PAGE } },
+        ],
+        history: [{ version: 1, by: "record", summary: "Recorded", at: "2026-10-13T00:00:00Z" }],
+      }),
+    );
+    writeState(home, first.skill.id, { state: "live", since: 1 });
+    const sessionId = "again-1";
+    writeForm(home, sessionId, {
+      goal: "The invoice is in the portal",
+      changes: [],
+      constants: [],
+      never: [],
+      when: [{ type: "schedule", cron: "0 9 * * 1", missed: "run_once" }],
+      consent: { screen: false, microphone: false, pictures: false },
+      again: first.skill.id,
+    });
+    appendTrace(home, { id: "e1", sessionId, at: 1000, event: "click", url: PAGE, target: upload });
+    appendTrace(home, {
+      id: "e2",
+      sessionId,
+      at: 6000,
+      event: "file",
+      url: PAGE,
+      target: upload,
+      file: { name: "invoice-0923.pdf", size: 10, type: "application/pdf" },
+    });
+    appendTrace(home, { id: "e3", sessionId, at: 9000, event: "click", url: PAGE, target: submit });
+    const saved = await finishRecording(sessionId, { dataDir: home, log: () => {}, prompter: { ask: async () => "" } });
+    expect(saved?.skill).toMatchObject({ id: first.skill.id, name: "Upload the invoice", version: 2 });
+    expect(saved?.skill.history.map((h) => h.summary)).toEqual(["Recorded", "Recorded again"]);
+    expect(saved?.skill.description.goal).toBe("The invoice is in the portal");
+    expect(triggerOf(saved?.skill as Skill).when).toEqual([
+      { type: "schedule", cron: "0 9 * * 1", missed: "run_once" },
+    ]);
+    expect(readState(home, first.skill.id).state).toBe("live");
+    expect(versions(home, first.skill.id)).toEqual([1, 2]);
   });
 });
 

@@ -1,6 +1,6 @@
 // The daemon's API types, without Node: shared by the daemon (store.ts, service.ts) and the app's window (apps/ui),
 // which imports them to type what the API returns.
-import type { Trigger } from "@shadow/core";
+import type { Skill, Trigger } from "@shadow/core";
 import type { Resume, RunLogEvent, Waiting } from "@shadow/player";
 
 // running → one of the others. waiting: stopped until an inbox item is answered. interrupted: the daemon stopped
@@ -26,6 +26,22 @@ export interface Checkpoint {
   waiting: Waiting;
   // A run started from a workflow file rather than the store: the file, to load that version again.
   file?: string;
+  // A walk-through of a draft: the exact tree being walked (a draft is not a version in the store).
+  skill?: Skill;
+}
+
+// A workflow's draft as the editor shows it (docs/design.md, "6. Edit"): the tree with the edits applied, what
+// changed in words, and what still stops it from going live.
+export interface DraftView {
+  id: string;
+  // The version the edits were made on, and the latest version in the store.
+  base: number;
+  latest: number;
+  skill: Skill;
+  changes: string[];
+  canUndo: boolean;
+  canRedo: boolean;
+  problems: string[];
 }
 
 export interface RunRow {

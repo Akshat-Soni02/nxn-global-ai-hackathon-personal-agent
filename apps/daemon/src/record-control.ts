@@ -51,6 +51,8 @@ export interface RecordControl {
   start(form: RecordFormInput): { sessionId: string };
   // Stop: recording ends and is turned into a workflow; resolves once it is saved (or failed).
   stop(): Promise<{ sessionId?: string }>;
+  // Discard: recording ends and everything it captured is deleted at once; nothing is compiled or kept.
+  discard(): Promise<{ sessionId?: string }>;
   // Turn a kept recording into a workflow again.
   compile(sessionId: string): Promise<void>;
   subscribe(listener: (event: RecordEvent) => void): () => void;
@@ -225,6 +227,26 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
         phase = "idle";
         changed();
       }
+      return { sessionId: stopped };
+    },
+
+    async discard() {
+      if (phase !== "recording") {
+        if (phase === "compiling") busy();
+        return {};
+      }
+      phase = "compiling"; // no new recording while late events drain
+      changed();
+      const stopped = await daemon.stopRecording();
+      if (stopped) deleteRecording(dataDir, stopped);
+      last = stopped ? { sessionId: stopped, outcome: "empty", text: "Recording discarded: nothing was kept" } : last;
+      phase = "idle";
+      sessionId = undefined;
+      startedAt = undefined;
+      form = undefined;
+      changed();
+      status("empty", "Recording discarded");
+      log("recording discarded: its folder is gone");
       return { sessionId: stopped };
     },
 

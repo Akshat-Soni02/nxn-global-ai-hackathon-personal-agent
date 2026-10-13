@@ -27,7 +27,7 @@ import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { goLiveProblems } from "./lifecycle.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
 import { readForm, readNotes, recordingDir } from "./recording-store.ts";
-import { newSkillId, saveSkill } from "./skill-store.ts";
+import { loadSkill, newSkillId, saveSkill } from "./skill-store.ts";
 import { appendTrace, readTrace } from "./trace-store.ts";
 
 type Log = (...args: unknown[]) => void;
@@ -138,8 +138,13 @@ export async function finishRecording(
   for (const warning of compiled.warnings) log(warning);
   if (compiled.model === "nemotron") log(`model answer accepted after ${compiled.attempts} attempt(s)`);
 
-  // Every recording is a new skill, even of a task you already have: its own id, so recordings never collide.
-  let skill: Skill = { ...compiled.skill, id: newSkillId(dataDir, compiled.skill.id) };
+  // A recording is a new skill with its own id, so recordings never collide; unless the form said it is the task you
+  // already have, recorded again: then it becomes that workflow's next version, keeping its id, name and state.
+  const existing = recorded?.again ? loadSkill(dataDir, recorded.again) : undefined;
+  if (recorded?.again && !existing) log(`no workflow ${recorded.again} to record again: saving a new one`);
+  let skill: Skill = existing
+    ? { ...compiled.skill, id: existing.id, name: existing.name }
+    : { ...compiled.skill, id: newSkillId(dataDir, compiled.skill.id) };
   let questions = compiled.questions;
   let designed: string | undefined;
 
@@ -204,19 +209,32 @@ export async function finishRecording(
   const approved = requireApprovals(filled);
   if (approved.added.length > 0) log(`approval needed before: ${approved.added.join(", ")}`);
   const at = (options.now ?? (() => new Date()))().toISOString();
-  const noted = approved.skill.history.length
-    ? approved.skill
-    : {
+  const noted = existing
+    ? {
         ...approved.skill,
         history: [
+          ...existing.history,
           {
-            version: approved.skill.version,
+            version: existing.version + 1,
             by: "record" as const,
-            summary: designed ? `Recorded; ${designed}` : "Recorded",
+            summary: designed ? `Recorded again; ${designed}` : "Recorded again",
             at,
           },
         ],
-      };
+      }
+    : approved.skill.history.length
+      ? approved.skill
+      : {
+          ...approved.skill,
+          history: [
+            {
+              version: approved.skill.version,
+              by: "record" as const,
+              summary: designed ? `Recorded; ${designed}` : "Recorded",
+              at,
+            },
+          ],
+        };
   const saved = saveSkill(dataDir, noted);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
   return saved;
