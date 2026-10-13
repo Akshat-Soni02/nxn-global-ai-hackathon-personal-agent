@@ -36,7 +36,7 @@ function recording(home: string, sessionId = "s1", never: string[] = []) {
     constants: [],
     never,
     when: [{ type: "manual" }],
-    consent: { screen: true, microphone: false },
+    consent: { screen: true, microphone: false, pictures: false },
   });
   return sessionId;
 }
@@ -168,10 +168,10 @@ describe("screenshots over the socket", () => {
     const shot = (sessionId: string, eventId: string) =>
       ext.write(encode({ id: eventId, type: "record.shot", sessionId, eventId, at: 1, image: JPEG }));
 
-    const yes = daemon.startRecording({ consent: { screen: true, microphone: false } });
+    const yes = daemon.startRecording({ consent: { screen: true, microphone: false, pictures: false } });
     await until(() => received.some((m) => m.type === "record.start"));
     expect(received.find((m) => m.type === "record.start")).toMatchObject({
-      consent: { screen: true, microphone: false },
+      consent: { screen: true, microphone: false, pictures: false },
       dir: join(home, "recordings", yes),
     });
     shot(yes, "a");
@@ -188,7 +188,7 @@ describe("screenshots over the socket", () => {
     await until(() => shots.length > 1);
     await daemon.stopRecording();
 
-    const no = daemon.startRecording({ consent: { screen: false, microphone: false } });
+    const no = daemon.startRecording({ consent: { screen: false, microphone: false, pictures: false } });
     shot(no, "c");
     await new Promise((r) => setTimeout(r, 50));
     await daemon.stopRecording();

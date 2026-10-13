@@ -42,6 +42,8 @@ export interface DesignOptions {
   prompter: Prompter;
   // What else must hold before it may finish (the daemon's go-live checks for an unattended Frequency).
   checks?: (skill: Skill) => string[];
+  // A recorded step's masked picture, described by the vision model (describe_screen). Only with pictures consent.
+  describeScreen?: (step: NormalisedStep) => Promise<string>;
   budget?: Partial<Budget>;
   maxQuestions?: number;
   protocol?: Protocol;
@@ -75,6 +77,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     prompter: options.prompter,
     memory: options.memory,
     checks: options.checks,
+    describe: options.describeScreen,
   };
   const episode = await runAgent<DesignFinish>({
     llm: options.llm,
@@ -143,8 +146,10 @@ meant, so it runs right next time, with next time's data.
 - Ask (ask_user) only what the recording and the description can't tell you, with options and a default, at most
   ${MAX_QUESTIONS} questions. The open questions from the first draft are listed: ask the ones that matter by id;
   the rest are asked after you finish.
-- Keep step ids. When validate says ok, finish with one sentence on what you changed. If the draft is already right,
-  finish at once.`;
+- describe_screen shows a step's picture described (when the user allowed pictures): use it before asking, when the
+  words near a step don't say what the control was for.
+- Keep step ids. Every kept edit says what still stops the workflow (still_to_fix): fix those before you finish.
+  When nothing is left, finish with one sentence on what you changed. If the draft is already right, finish at once.`;
 
 function taskOf(session: DesignSession): string {
   const form = session.form;

@@ -16,11 +16,13 @@ import {
   type DesignOptions,
   designWorkflow,
   drill,
+  type NormalisedStep,
   normalise,
   type Prompter,
   type Question,
   requireApprovals,
 } from "@shadow/recorder";
+import type { ScreenDescriber } from "./describe.ts";
 import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { goLiveProblems } from "./lifecycle.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
@@ -92,6 +94,9 @@ export interface FinishOptions {
   meter?: UsageMeter;
   // The design agent's budget, for tests.
   design?: Pick<DesignOptions, "budget" | "protocol">;
+  // Masked pictures described by the vision model (describe.ts), for the design agent's describe_screen. Used only
+  // when this recording's form allowed pictures.
+  describer?: ScreenDescriber;
 }
 
 export async function finishRecording(
@@ -141,6 +146,28 @@ export async function finishRecording(
   // The design agent: the flat first draft -> the workflow meant. It asks its own questions (the drill).
   if (llm) {
     log("the design agent is reading the recording...");
+    // A step's picture, already masked by screen.ts (shots/<event>.jpg), described: only when this recording's form
+    // allowed pictures to be sent.
+    const describer = options.describer;
+    const describeScreen =
+      describer && recorded?.consent.pictures && describer.allowed()
+        ? async (step: NormalisedStep) => {
+            const dir = recordingDir(dataDir, sessionId);
+            const shot = step.events.map((id) => join(dir, "shots", `${id}.jpg`)).find((p) => existsSync(p));
+            if (!shot) throw new Error("no picture was kept for that step");
+            const did = [
+              step.kind.replace(/_/g, " "),
+              step.target?.name ?? step.element?.title ?? step.element?.description,
+              step.value && !step.secret ? `"${step.value.slice(0, 60)}"` : undefined,
+            ]
+              .filter(Boolean)
+              .join(" ");
+            return describer.describeMasked(
+              shot,
+              `The user did: ${did}. Describe what is on screen and what the control they used is for.`,
+            );
+          }
+        : undefined;
     const design = await designWorkflow({
       llm,
       skill,
@@ -153,6 +180,7 @@ export async function finishRecording(
       prompter: options.prompter,
       // It may finish only once a run started by the Frequency could fill every input on its own.
       checks: unattendedGaps,
+      describeScreen,
       meter: options.meter,
       ...options.design,
     });

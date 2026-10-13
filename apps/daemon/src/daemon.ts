@@ -14,7 +14,7 @@ export interface Daemon {
   extensions: ReadonlySet<Connection>;
   // Starts a recording session. Web capture joins if Chrome is connected; Mac-only tasks work without it. `consent`
   // (from the description form) says whether the extension and Shadow.app take screenshots and record the microphone.
-  startRecording(options?: { consent?: { screen: boolean; microphone: boolean } }): string;
+  startRecording(options?: { consent?: { screen: boolean; microphone: boolean; pictures?: boolean } }): string;
   // Resolves with the stopped session once late events have arrived, ready to compile.
   stopRecording(): Promise<string | undefined>;
   // Sends a request to the extension and resolves with its reply (same id). Waits for an extension to connect.
@@ -62,7 +62,7 @@ export async function startDaemon(options: {
   const macs = new Map<Connection, { trusted: boolean }>(); // Shadow.app; one at a time in practice
   let sessionId: string | undefined;
   let startedAt = 0;
-  let consent: { screen: boolean; microphone: boolean } | undefined;
+  let consent: { screen: boolean; microphone: boolean; pictures?: boolean } | undefined;
   // record.start, as every connection gets it (again, when it connects mid-session).
   const startMessage = (id: string): Message => ({
     id: randomUUID(),
@@ -163,7 +163,8 @@ export async function startDaemon(options: {
         case "run.step_result":
         case "run.check_result":
         case "page.op_result":
-        case "ax.highlight_result": {
+        case "ax.highlight_result":
+        case "mac.screenshot_result": {
           const waiter = pending.get(message.id);
           if (!waiter) break;
           pending.delete(message.id);

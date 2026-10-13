@@ -25,6 +25,7 @@ import { fileExists, fsChannel, type LlmExecutor, poll, resolveInputs, scriptCha
 import { type Recovery as PlayerRecovery, runWithRecovery } from "@shadow/player/repair";
 import type { PageOp, PageOpResult } from "@shadow/player/web";
 import type { Daemon } from "./daemon.ts";
+import type { ScreenDescriber } from "./describe.ts";
 
 // Extra time on top of a step's own timeout for the round trip and the extension's work.
 const EXTENSION_MARGIN_MS = 20_000;
@@ -44,10 +45,15 @@ export interface RunHooks {
   llm?: LlmExecutor;
   // Recovery from failures. Without it, a step that fails every attempt fails the run.
   recovery?: Recovery;
+  // Masked pictures for the repair agent's describe_screen (describe.ts). Used only when the user allowed pictures.
+  describer?: ScreenDescriber;
 }
 
-// Recovery as the daemon sets it up: the page, site notes, and transcripts are filled in here.
-export type Recovery = Omit<PlayerRecovery, "page" | "recall" | "note" | "available" | "onEpisode"> & {
+// Recovery as the daemon sets it up: the page, site notes, pictures and transcripts are filled in here.
+export type Recovery = Omit<
+  PlayerRecovery,
+  "page" | "recall" | "note" | "available" | "onEpisode" | "describeScreen"
+> & {
   // Site notes for the repair agent.
   memory?: MemoryStore;
 };
@@ -170,6 +176,27 @@ export async function runSkillOn(
     const { memory, ...recovery } = hooks.recovery;
     // Episodes are numbered across the run's legs, so a leg after a wait doesn't overwrite an earlier transcript.
     const earlier = readdirSync(logDir).filter((f) => f.startsWith(`${runId}.repair-`)).length;
+    const describer = hooks.describer?.allowed() ? hooks.describer : undefined;
+    // The page's own picture (through the extension) or the frontmost window's (through Shadow.app), masked by the
+    // describer before the vision model sees it. The workflow's Never words are masked too.
+    const describeScreen = describer
+      ? async (question: string, channel: "web" | "ax") => {
+          const never = skill.description.never;
+          let described: { description: string; words: string };
+          if (channel === "ax") {
+            const path = describer.tempPath();
+            const reply = await daemon.requestMac({ id: randomUUID(), type: "mac.screenshot", path }, 15_000);
+            if (reply.type !== "mac.screenshot_result") throw new Error(`unexpected reply ${reply.type}`);
+            if (!reply.ok) throw new Error(reply.error ?? "no picture of the window");
+            described = await describer.describe({ path }, question, never);
+          } else {
+            const shot = await page({ op: "screenshot" });
+            if (!shot.ok) throw new Error(shot.error);
+            described = await describer.describe({ image: String(shot.value) }, question, never);
+          }
+          return `${described.description}\n\nWords on screen (private ones masked):\n${described.words}`;
+        }
+      : undefined;
     return await runWithRecovery(skill, deps, {
       runId,
       inputs,
@@ -184,10 +211,11 @@ export async function runSkillOn(
           (async (text, skillId) => {
             await memory.add({ kind: "site_note", text, skillId });
           }),
+        describeScreen,
         available: () => ({
           extension: daemon.extensions.size > 0,
           macApp: daemon.mac().connected,
-          screenConsent: false,
+          screenConsent: describer !== undefined,
         }),
         onEpisode: (n, record) =>
           writeFileSync(

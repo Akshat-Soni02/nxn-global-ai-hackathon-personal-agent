@@ -49,6 +49,8 @@ export interface DesignSession {
   memory?: Pick<MemoryStore, "search">;
   // What else must hold before the workflow is finished: what an unattended run needs (the daemon's go-live checks).
   checks?: (skill: Skill) => string[];
+  // The masked picture of a recorded step, described by the vision model (only with the user's pictures consent).
+  describe?: (step: NormalisedStep) => Promise<string>;
 }
 
 export type DesignFinish = { summary: string };
@@ -264,7 +266,10 @@ const StepIds = z.array(z.string()).min(1);
 const OutputSpec = z.object({ name: z.string(), type: z.record(z.string(), z.unknown()) });
 
 export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
-  // Applies edits to the draft if the result parses, passes check.ts and breaks no rule; else nothing changes.
+  const problems = () => session.checks?.(session.draft) ?? [];
+  // Applies edits to the draft if the result parses, passes check.ts and breaks no rule; else nothing changes. Every
+  // kept edit comes back with what still stops the workflow (validate, inside the loop): the agent fixes its own
+  // draft as it goes, instead of finding out at finish.
   const change = (edits: EditInput[]) => {
     const result = applyEdits(session.draft, edits);
     if (!result.ok) return { output: { ok: false, problems: result.problems } };
@@ -272,7 +277,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
     if (broken.length > 0) return { output: { ok: false, refused: broken } };
     session.draft = result.skill;
     session.edits.push(...edits);
-    return { output: { ok: true, workflow: outlineOf(session.draft) } };
+    return { output: { ok: true, workflow: outlineOf(session.draft), still_to_fix: problems() } };
   };
   const nextId = (prefix: string) => {
     const used = new Set([...walkSteps(session.draft.steps)].map(({ step }) => step.id));
@@ -280,7 +285,6 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
     while (used.has(`${prefix}${n}`)) n++;
     return `${prefix}${n}`;
   };
-  const problems = () => session.checks?.(session.draft) ?? [];
 
   return [
     // ---- Look ----
@@ -312,6 +316,23 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
         if (!step) return { output: outlineOf(session.draft) };
         const found = [...walkSteps(session.draft.steps)].find((s) => s.step.id === step);
         return { output: found ? found.step : `No step ${step}` };
+      },
+    }),
+    tool({
+      name: "describe_screen",
+      kind: "look",
+      description:
+        "What was on screen at recorded step n: its picture (private text blacked out) described by the vision model. Only with the user's consent, and only when the words near the step don't say what the control was for",
+      input: z.object({ step: z.number().int().min(1) }),
+      run: async ({ step }) => {
+        const recorded = session.steps[step - 1];
+        if (!recorded) return { output: `No step ${step}: the recording has ${session.steps.length}` };
+        if (!session.describe) return { output: "No pictures: the user did not allow pictures to be sent." };
+        try {
+          return { output: await session.describe(recorded), untrusted: true };
+        } catch (error) {
+          return { output: `Couldn't describe it: ${(error as Error).message}` };
+        }
       },
     }),
     tool({

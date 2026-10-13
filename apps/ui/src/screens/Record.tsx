@@ -86,6 +86,7 @@ function Form({ consent, last }: { consent: RecordingView["consent"]; last: Reco
   const [never, setNever] = useState("");
   const [screen, setScreen] = useState(consent.screen);
   const [microphone, setMicrophone] = useState(consent.microphone);
+  const [pictures, setPictures] = useState(consent.pictures);
   const when = toTrigger(choice, missed);
 
   return (
@@ -159,6 +160,17 @@ function Form({ consent, last }: { consent: RecordingView["consent"]; last: Reco
             voice while I explain. It is turned into text on your Mac; only the text is sent. The audio never leaves
             your Mac.
           </label>
+          <label className={screen ? undefined : "muted"}>
+            <input
+              type="checkbox"
+              checked={screen && pictures}
+              disabled={!screen}
+              onChange={(e) => setPictures(e.target.checked)}
+            />{" "}
+            Let the model see the masked pictures too. Private lines and secret fields are blacked out first; the
+            blacked-out picture is sent once, to be described, only when Shadow needs more than the words. Off: only
+            words ever leave your Mac.
+          </label>
         </fieldset>
 
         <div className="answers">
@@ -171,7 +183,7 @@ function Form({ consent, last }: { consent: RecordingView["consent"]; last: Reco
                 changes: split(changes),
                 constants: split(constants),
                 never: split(never),
-                consent: { screen, microphone },
+                consent: { screen, microphone, pictures: screen && pictures },
               })
             }
           >

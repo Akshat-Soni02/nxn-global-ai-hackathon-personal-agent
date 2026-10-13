@@ -37,7 +37,7 @@ export const Message = z.discriminatedUnion("type", [
     type: z.literal("record.start"),
     sessionId: z.string(),
     startedAt: z.number().optional(),
-    consent: z.object({ screen: z.boolean(), microphone: z.boolean() }).optional(),
+    consent: z.object({ screen: z.boolean(), microphone: z.boolean(), pictures: z.boolean().optional() }).optional(),
     dir: z.string().optional(),
   }),
   z.object({ ...base, type: z.literal("record.stop"), sessionId: z.string() }),
@@ -118,6 +118,10 @@ export const Message = z.discriminatedUnion("type", [
   // daemon -> Shadow.app: a walk-through shows where an ax step would act (Highlight.swift), acting on nothing.
   z.object({ ...base, type: z.literal("ax.highlight"), target: Locator }),
   z.object({ ...base, type: z.literal("ax.highlight_result"), ok: z.boolean(), error: z.string().optional() }),
+  // daemon -> Shadow.app: a picture of the frontmost app's window, saved to `path` (needs Screen Recording), for the
+  // repair agent's describe_screen. The daemon masks it before anything else sees it (apps/daemon/src/describe.ts).
+  z.object({ ...base, type: z.literal("mac.screenshot"), path: z.string() }),
+  z.object({ ...base, type: z.literal("mac.screenshot_result"), ok: z.boolean(), error: z.string().optional() }),
 
   // The daemon's API (apps/daemon/src/api.ts), for any client on the socket (Shadow.app, tools). Replies reuse the id.
   z.object({ ...base, type: z.literal("api.call"), method: z.string(), params: z.unknown().optional() }),

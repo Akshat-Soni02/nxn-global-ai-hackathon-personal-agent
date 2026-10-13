@@ -13,7 +13,7 @@ function recording(home: string, startedAt?: number) {
     constants: [],
     never: ["Project Falcon"],
     when: [{ type: "manual" }],
-    consent: { screen: false, microphone: true },
+    consent: { screen: false, microphone: true, pictures: false },
   });
   const dir = recordingDir(home, "s1");
   writeFileSync(join(dir, "voice.m4a"), "audio");

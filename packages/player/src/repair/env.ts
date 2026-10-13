@@ -15,6 +15,9 @@ export interface RepairEnv {
   // Long-term memory: site notes and earlier fixes ("the billing portal shows a cookie banner first").
   recall?(query: string): Promise<string[]>;
   note?(fact: string): Promise<void>;
+  // A masked picture of the page or window as it is now, described by the vision model (describe_screen). Present
+  // only when the user allowed pictures to be sent; the daemon masks the picture before it leaves the Mac.
+  describeScreen?(question: string): Promise<string>;
   // What is connected and allowed right now, for the briefing.
   available?: Availability;
 }

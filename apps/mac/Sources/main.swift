@@ -164,6 +164,24 @@ final class AppMain: NSObject, NSApplicationDelegate {
         let outcome = result["ok"] as? Bool == true ? "ok" : (result["error"] as? String ?? "failed")
         log("ran \(step["id"] as? String ?? "?") \(step["action"] as? String ?? "?"): \(outcome)")
       }
+    case "mac.screenshot":
+      // The repair agent's describe_screen: a picture of the frontmost app's window, saved where the daemon says.
+      // The daemon masks it before anything else sees it. Needs Screen Recording for Shadow.
+      guard let path = message["path"] as? String else { return }
+      let shotId = message["id"] as? String ?? ""
+      guard let front = NSWorkspace.shared.frontmostApplication,
+        front.processIdentifier != ProcessInfo.processInfo.processIdentifier
+      else {
+        link.send(["id": shotId, "type": "mac.screenshot_result", "ok": false, "error": "no app window in front"])
+        return
+      }
+      Screen.captureWindow(pid: front.processIdentifier, to: path) { [weak self] ok in
+        DispatchQueue.main.async {
+          var reply: JSON = ["id": shotId, "type": "mac.screenshot_result", "ok": ok]
+          if !ok { reply["error"] = "no window, or Screen Recording isn't allowed for Shadow" }
+          self?.link.send(reply)
+        }
+      }
     case "ax.highlight":
       // A walk-through: outline the control an ax step would act on (Highlight.swift), acting on nothing.
       guard let target = message["target"] as? JSON else { return }

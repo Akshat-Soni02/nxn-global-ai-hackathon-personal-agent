@@ -113,6 +113,8 @@ export interface Consent {
   screen: boolean;
   // Narration, turned into text on the Mac; only the text leaves it.
   microphone: boolean;
+  // The masked picture may be sent to the vision model to be described (design and repair). Off: words only.
+  pictures: boolean;
 }
 // The description form, as recording-store.ts checks and saves it.
 export interface RecordFormView {

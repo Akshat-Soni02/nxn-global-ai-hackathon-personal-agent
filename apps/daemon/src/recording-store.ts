@@ -14,6 +14,9 @@ export const Consent = z.object({
   screen: z.boolean().default(false),
   // Narration, turned into text on the Mac; only the text leaves it.
   microphone: z.boolean().default(false),
+  // The masked picture itself (private lines and secret fields blacked out) may be sent to the vision model, to be
+  // described, by the design agent and the repair agent (describe_screen). Off: only words ever leave.
+  pictures: z.boolean().default(false),
 });
 export type Consent = z.infer<typeof Consent>;
 
@@ -34,7 +37,7 @@ export const RecordForm = Description.extend({
     .min(1)
     .max(5)
     .default([{ type: "manual" }]),
-  consent: Consent.default({ screen: false, microphone: false }),
+  consent: Consent.default({ screen: false, microphone: false, pictures: false }),
 });
 export type RecordForm = z.infer<typeof RecordForm>;
 export type RecordFormInput = z.input<typeof RecordForm>;
@@ -76,7 +79,7 @@ function readConfig(dataDir: string): Record<string, unknown> {
 
 export function readConsent(dataDir: string): Consent {
   const parsed = Consent.safeParse(readConfig(dataDir).consent ?? {});
-  return parsed.success ? parsed.data : { screen: false, microphone: false };
+  return parsed.success ? parsed.data : { screen: false, microphone: false, pictures: false };
 }
 
 // Only the "consent" key is written; anything else in config.json is kept as it is.

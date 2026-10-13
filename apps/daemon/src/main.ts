@@ -33,13 +33,14 @@ import type { Prompter, Question } from "@shadow/recorder";
 import { type Api, createApi } from "./api.ts";
 import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
 import { startDaemon } from "./daemon.ts";
+import { createScreenDescriber } from "./describe.ts";
 import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
 import { startHttp } from "./http.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
 import { finishRecording } from "./record.ts";
 import { createRecordControl, type RecordControl } from "./record-control.ts";
-import { readForm, sweepRecordings } from "./recording-store.ts";
+import { readConsent, readForm, sweepRecordings } from "./recording-store.ts";
 import { runSkillOn } from "./runner.ts";
 import { createScreenReader, type ScreenReader, screenToolsFrom } from "./screen.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
@@ -121,6 +122,7 @@ const execute: Execute = (skill, leg) =>
       // A walk-through: every step waits for you, with its target outlined. A failing step just fails: nothing is
       // repaired while you are looking.
       walk: leg.walk ? leg.hooks.walk : undefined,
+      describer,
       // A failed step pauses the run: repair, then resume (docs/design.md, section 9).
       recovery: leg.walk
         ? undefined
@@ -171,6 +173,15 @@ screen = createScreenReader({
 });
 const screenReader = screen;
 const transcribe = transcriberFrom(macBinary);
+// Masked pictures described by the vision model, for the design agent and the repair agent (describe_screen): only
+// with the "pictures" consent, and masked by the same tools as the recording's screenshots.
+const describer = createScreenDescriber({
+  dataDir: home,
+  tools: screenToolsFrom(macBinary),
+  llm: () => model,
+  consent: () => readConsent(home),
+  log,
+});
 record = createRecordControl({
   dataDir: home,
   daemon,
@@ -192,6 +203,7 @@ record = createRecordControl({
       memory,
       locate: { searchDirs: defaultSearchDirs(watchDirs) },
       meter: usage,
+      describer,
       log,
     });
   },

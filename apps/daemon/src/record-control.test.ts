@@ -159,13 +159,13 @@ describe("recording from the window's API", () => {
       when: [{ type: "schedule", cron: "0 9 * * 1", missed: "skip" }],
       changes: ["the invoice"],
       never: ["archive anything without asking"],
-      consent: { screen: true, microphone: false },
+      consent: { screen: true, microphone: false, pictures: false },
     })) as { sessionId: string };
     for (let i = 0; i < 50 && !received.some((m) => m.type === "record.start"); i++) {
       await new Promise((r) => setTimeout(r, 10));
     }
     expect((await api.call("recording", {})) as { phase: string }).toMatchObject({ phase: "recording" });
-    expect(readConsent(home)).toEqual({ screen: true, microphone: false }); // the form's next defaults
+    expect(readConsent(home)).toEqual({ screen: true, microphone: false, pictures: false }); // the form's next defaults
 
     const event = (id: string, at: number, body: object) =>
       ext.write(encode({ id, type: "record.event", sessionId, at, tabId: 1, frameId: 0, url: PAGE, ...body }));
@@ -200,7 +200,7 @@ describe("recording from the window's API", () => {
 describe("keeping a recording for a day", () => {
   const H = 60 * 60_000;
   const form = { goal: "x", changes: [], constants: [], never: [], when: [{ type: "manual" as const }] };
-  const consent = { screen: false, microphone: false };
+  const consent = { screen: false, microphone: false, pictures: false };
 
   it("deletes a folder a day after its workflow is saved, or a day after Stop, and never the older traces", () => {
     const home = temp();
@@ -277,7 +277,7 @@ describe("after Stop, with a model", () => {
       constants: [],
       never: [],
       when: [{ type: "schedule", cron: "0 17 * * 5", missed: "run_once" }],
-      consent: { screen: false, microphone: false },
+      consent: { screen: false, microphone: false, pictures: false },
     });
     const field = { ...button("Week", "week"), tag: "input", role: "textbox", name: "Week" };
     appendTrace(home, { id: "e1", sessionId, at: 1000, event: "type", url: PAGE, target: field, value: "2026-W41" });

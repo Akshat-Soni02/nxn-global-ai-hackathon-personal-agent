@@ -260,6 +260,71 @@ describe("the design agent", () => {
     expect(outcome).toMatchObject({ kind: "designed", summary: "Added how to tell it worked" });
   });
 
+  it("tells the agent after every edit what still stops the workflow", async () => {
+    const { steps, skill, questions } = await draft();
+    const llm = fakeLlm([
+      call("edit", { edits: [{ op: "set", step: "s2", field: "intent", value: "Attach the invoice" }] }),
+      call("edit", { edits: [{ op: "set_skill", field: "success", value: [{ text_visible: "Upload complete" }] }] }),
+      call("finish", { summary: "done" }),
+    ]);
+    const outcome = await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      prompter: prompter().p,
+      protocol: "tools",
+      checks: (s) => (s.success.length > 0 ? [] : ["say how to tell it worked"]),
+    });
+    const [first, second] = results(outcome.episode);
+    expect(first).toContain('"still_to_fix":["say how to tell it worked"]');
+    expect(second).toContain('"still_to_fix":[]');
+    expect(outcome.kind).toBe("designed");
+  });
+
+  it("describes a recorded step's masked picture when asked, as data", async () => {
+    const { steps, skill, questions } = await draft();
+    const described: number[] = [];
+    const llm = fakeLlm([
+      call("describe_screen", { step: 2 }),
+      call("describe_screen", { step: 9 }),
+      call("finish", { summary: "done" }),
+    ]);
+    const outcome = await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      prompter: prompter().p,
+      protocol: "tools",
+      describeScreen: async (step) => {
+        described.push(step.index);
+        return "An upload form with one file field and a Submit button.";
+      },
+    });
+    expect(described).toEqual([steps[1]?.index]);
+    const [first, second] = results(outcome.episode);
+    expect(first).toBe("<untrusted_data>\nAn upload form with one file field and a Submit button.\n</untrusted_data>");
+    expect(second).toMatch(/No step 9/);
+  });
+
+  it("says there are no pictures when the user did not allow them", async () => {
+    const { steps, skill, questions } = await draft();
+    const llm = fakeLlm([call("describe_screen", { step: 1 }), call("finish", { summary: "done" })]);
+    const outcome = await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      prompter: prompter().p,
+      protocol: "tools",
+    });
+    expect(results(outcome.episode)[0]).toMatch(/did not allow pictures/);
+  });
+
   it("keeps the first draft, with the answers already given, when it runs out of turns", async () => {
     const { steps, skill, questions } = await draft();
     const open = questions[0];

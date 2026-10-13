@@ -24,7 +24,9 @@ const FUZZY_MARGIN = 0.2;
 
 export async function ladder(skill: Skill, failure: Failure, env: RepairEnv): Promise<LadderFix | undefined> {
   const original = findStep(skill, failure.stepId);
-  if (!original || !isAction(original) || original.channel !== "web" || !original.target) return undefined;
+  if (!original || !isAction(original) || !original.target) return undefined;
+  // Web steps get both rungs; Mac-app (ax) steps only the first: there is no page to search for a lookalike.
+  if (original.channel !== "web" && original.channel !== "ax") return undefined;
   const from = { at: failure.path, vars: failure.vars };
 
   const attempt = async (rung: LadderFix["rung"], summary: string, edits: EditInput[]) => {
@@ -34,14 +36,22 @@ export async function ladder(skill: Skill, failure: Failure, env: RepairEnv): Pr
     return tried.ok && tried.evidence ? { rung, summary, edits, skill: draft.skill, tried } : undefined;
   };
 
-  // 1. Wait longer: only when the target didn't show up at all, not when something else was in the way.
-  if (/target not found/i.test(failure.result.error ?? "") && (failure.result.matchScore ?? 0) === 0) {
+  // 1. Wait longer: only when the target didn't show up at all, not when something else was in the way. A Mac app
+  // says "no AXButton like the recorded one" (AX.swift) when the window hasn't drawn it yet.
+  const error = failure.result.error ?? "";
+  const nothingThere =
+    original.channel === "web"
+      ? /target not found/i.test(error) && (failure.result.matchScore ?? 0) === 0
+      : /like the recorded one|not found/i.test(error);
+  if (nothingThere) {
     const longer = Math.max(2 * (original.timeout_ms ?? DEFAULT_TIMEOUT_MS), 20_000);
-    const fix = await attempt("wait longer", `${original.id}: waits up to ${longer / 1000}s for the page`, [
+    const where = original.channel === "web" ? "the page" : "the app";
+    const fix = await attempt("wait longer", `${original.id}: waits up to ${longer / 1000}s for ${where}`, [
       { op: "set", step: original.id, field: "timeout_ms", value: longer },
     ]);
     if (fix) return fix;
   }
+  if (original.channel !== "web") return undefined;
 
   // 2. Fuzzy match: same kind of control, a similar name, one clear winner. A target built from a variable
   // ("{{client.name}}") is never replaced by a literal one: that is the agent's call.

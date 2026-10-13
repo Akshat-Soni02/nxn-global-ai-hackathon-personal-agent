@@ -30,3 +30,4 @@ export { configFromEnv, type LlmConfig, type LlmSettings, llmConfig, TOKEN_FACTO
 export { type FakeLlm, type FakeReply, fakeLlm } from "./fake.ts";
 export { extractJson, stripThinking } from "./json.ts";
 export { type Usage, UsageMeter } from "./usage.ts";
+export { type DescribeImageRequest, describeImage } from "./vision.ts";
