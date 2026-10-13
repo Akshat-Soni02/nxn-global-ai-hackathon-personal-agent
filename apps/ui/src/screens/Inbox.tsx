@@ -31,7 +31,8 @@ export function Inbox() {
   );
 }
 
-function Card({ item }: { item: InboxItem }) {
+// One item with its answers; the Record screen shows its own questions with it.
+export function Card({ item }: { item: InboxItem }) {
   return (
     <article className={`card kind-${item.kind}`} id={`item-${item.id}`}>
       <div className="card-meta">

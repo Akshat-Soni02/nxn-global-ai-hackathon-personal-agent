@@ -7,7 +7,7 @@ import AppKit
 
 final class Panel {
   enum Icon { case record, stop, spinner, terminal, check, alert }
-  enum Phase: String { case compiling, question, saved, empty, failed, busy, replay }
+  enum Phase: String { case compiling, question, saved, empty, failed, busy, replay, form }
 
   struct Look: Equatable {
     var kind: Kind
@@ -92,6 +92,8 @@ final class Panel {
       switch st.phase {
       case .compiling, .replay: return Look(kind: .work, icon: .spinner, text: st.text)
       case .question: return Look(kind: .work, icon: .terminal, text: st.text)
+      case .form:  // Record was pressed: the form is open in the window
+        if now.timeIntervalSince(st.at) < 15 { return Look(kind: .note, icon: .terminal, text: st.text) }
       default:
         if now.timeIntervalSince(st.at) < 15 {
           return Look(kind: .note, icon: st.phase == .saved ? .check : .alert, text: st.text)

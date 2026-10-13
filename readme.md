@@ -12,7 +12,7 @@ Status on **Oct 12, 2026**. The full design is [`docs/design.md`](docs/design.md
 
 | Built | Not yet |
 | --- | --- |
-| **Recording** web pages, Mac apps (Accessibility) and file moves, turned into a workflow, with questions on what is unclear | Turning a recording into **loops and branches** (the design agent); the **description form**; **screenshots** with redaction and **voice** narration |
+| **Recording** web pages, Mac apps (Accessibility) and file moves, turned into a workflow, with questions on what is unclear | Turning a recording into **loops and branches** (the design agent); **screenshots** (only the words read from them leave the Mac) and **voice** narration |
 | **Running** the workflow tree: loops, branches, LLM steps, questions and approvals, in your own Chrome and in Mac apps | **Highlight-only test** play |
 | **Recovering** from failures on web pages: classify, repair with cheap fixes or the repair agent (Nemotron 3 Super), keep the fix as a new version, roll back | Repair of Mac-app steps; the fix shown by you recorded as the repair |
 | **The inbox**: a run that needs you waits there, even across a restart, and goes on when you answer | |
@@ -35,8 +35,8 @@ flowchart LR
   G -- "new version" --> T
 ```
 
-1. **Describe** *(planned)*. A short form: **Goal**, **Frequency** (becomes the trigger), **What changes each run**, **What stays the same** and, optionally, **Never**. These answers separate variables from constants.
-2. **Record.** You do the task your usual way while Shadow records **events** in Chrome, Mac apps and Finder. Planned, with your consent: **a screenshot at each event** with sensitive information blacked out on the Mac ([how](#privacy)), and **voice narration** transcribed on the Mac (the audio never leaves it).
+1. **Describe.** A short form before recording: **Goal** (required), **Frequency** (becomes the trigger; default: only when you start it), and optionally **What changes each run**, **What stays the same** and **Never**. These answers separate variables from constants, and steps matching Never always wait for your approval.
+2. **Record.** You do the task your usual way while Shadow records **events** in Chrome, Mac apps and Finder. Planned, with your consent: **a screenshot at each event**, of which only the words read on the Mac (private ones masked) leave it ([how](#privacy)), and **voice narration** transcribed on the Mac (the audio never leaves it).
 3. **Understand.** Nemotron 3 Super turns the events (and, later, the description, transcript and screenshot descriptions) into a **workflow**: a click on an email becomes "the newest email from this sender", changing values become variables. Turning repetition into a loop is planned.
 4. **Drill.** Questions only on the steps it is unsure about; answers go to memory.
 5. **Workflow tree.** Each step is a browser or Mac action, or an **LLM step** that transforms data (summarise, classify, read a document). LLM steps never drive the UI. The tree also has **variables**, **loops** and **branches**, and any step can **ask you** something or need your **approval** before it runs.
@@ -168,7 +168,7 @@ Shadow appears in the menu bar (how many things wait for you, Record, health, th
 
 ### 4. Record a task
 
-1. Press the round **Record** button (drag it anywhere). Do the task in Chrome, Finder or any Mac app, then press **Stop**. Without Shadow.app, the same button appears inside Chrome pages, and the extension's toolbar icon does the same.
+1. Press the round **Record** button (drag it anywhere), **Record a task** in the menu bar, or **Record** in the window. The window opens the short form: say what the task is for (the goal) and how often it should run, then **Start recording**. Do the task in Chrome, Finder or any Mac app, then press **Stop**. Without Shadow.app, the same button appears inside Chrome pages (and the extension's toolbar icon), and the form's questions come to the Inbox; `record` in the terminal asks them there too.
 2. Shadow compiles the recording and asks its questions: answer them in the window's **Inbox** (or type the answer in the terminal; Enter takes the default). The saved workflow appears under **Workflows**.
 3. Finder is recorded by what it does to files (moves, renames), not by its clicks. File moves anywhere in your home folder are recorded with no setup (macOS asks once for Desktop, Documents and Downloads when the daemon starts); a folder outside it, such as an external drive, is added when a Finder window shows it.
 4. Every recording is saved as its own workflow with its own id, a readable name plus a random tag (`upload-invoice-k3f9q2`), even when you record the same task again, so recordings never overwrite or mix. In the terminal, `run` takes the whole id or just its start when only one matches (`run upload-invoice`). Versions of one workflow (`v2`, `v3`) are its fixes, Frequency changes and rollbacks.

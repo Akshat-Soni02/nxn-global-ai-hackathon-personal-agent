@@ -1,9 +1,11 @@
 // Daemon entry point: the always-on process (launched at login later; `pnpm daemon` for now).
 // Everything that waits for you is in the inbox (shadow.db), answered here, over the socket, or over local HTTP
 // (api.json says where); a run that needs you waits there and goes on when it is answered, even after a restart.
-// Record and Stop are also a floating button in Chrome (and the extension's toolbar icon). Type commands on stdin:
-//   record | stop                       record a task; stop compiles it into a skill (its questions go to the inbox)
-//   compile <session>                   recompile a kept trace
+// Record and Stop are also a floating button in Chrome (and the extension's toolbar icon), on the desktop and in the
+// menu bar; each opens the description form first (record-control.ts). Type commands on stdin:
+//   record | stop                       record a task: its form's questions first (the goal, how often, what changes,
+//                                       what stays, never); stop turns it into a workflow (its questions go to the inbox)
+//   compile <session>                   turn a kept recording into a workflow again
 //   run <skill-id | skill.json> [name=value ... | path]   replay a skill (web steps go through the extension); a
 //                                       file it needs can be given here, else it is asked for before the first step
 //   inbox                               what waits for you
@@ -36,6 +38,7 @@ import { startHttp } from "./http.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
 import { finishRecording } from "./record.ts";
+import { createRecordControl, type RecordControl } from "./record-control.ts";
 import { runSkillOn } from "./runner.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
 import { findSkills, listSkills, saveSkill, versions } from "./skill-store.ts";
@@ -61,12 +64,13 @@ const path = socketPath();
 const home = dataDir();
 const watchDirs = watchDirsFromEnv();
 let api: Api | undefined; // set once the service exists; api.call messages before then are answered "not ready"
+let record: RecordControl | undefined; // the same: Record pressed before then is ignored
 const daemon = await startDaemon({
   socketPath: path,
   log,
   dataDir: home,
   watchDirs,
-  onRecordCommand: (command) => (command === "start" ? startRecording() : stopRecording()),
+  onRecordCommand: (command) => (command === "start" ? record?.press() : void record?.stop()),
   api: { call: (method, params) => (api ? api.call(method, params) : Promise.reject(new Error("not ready"))) },
 });
 const memory = openMemory(join(home, "memory.db"));
@@ -133,10 +137,40 @@ const service = createService({
     api: httpPort,
   }),
 });
-api = createApi(service);
+// Recording: the description form, then the recording, then Stop turns it into a workflow. Its questions (the
+// form's, from the terminal, and the drill's) wait in the inbox.
+const prompter: Prompter = {
+  ask: (question: Question) =>
+    service.ask({ title: question.text, options: question.options?.map((o) => o.label), default: question.default }),
+};
+record = createRecordControl({
+  dataDir: home,
+  daemon,
+  ask: (question) => service.ask(question),
+  finish: (sessionId) =>
+    finishRecording(sessionId, {
+      dataDir: home,
+      prompter,
+      llm: model,
+      memory,
+      locate: { searchDirs: defaultSearchDirs(watchDirs) },
+      log,
+    }),
+  log,
+});
+const recordControl = record;
+recordControl.subscribe((event) => daemon.publish(event));
+api = createApi(service, recordControl);
 const http = await startHttp({
   api,
-  subscribe: (listener) => service.subscribe(listener),
+  subscribe: (listener) => {
+    const offService = service.subscribe(listener);
+    const offRecord = recordControl.subscribe(listener);
+    return () => {
+      offService();
+      offRecord();
+    };
+  },
   infoFile: join(home, "api.json"),
   // The window's pages: built by `pnpm ui` (apps/ui/dist); inside the app when packaged.
   staticDir: process.env.SHADOW_UI_DIR ?? join(import.meta.dirname, "../../ui/dist"),
@@ -147,12 +181,11 @@ httpPort = http.port;
 // to the log file.
 if (process.stderr.isTTY) console.error(`[daemon] open Shadow: http://127.0.0.1:${http.port}/#token=${http.token}`);
 
-let compiling = false; // from stop until the skill is saved: no new recording meanwhile (its questions are open)
 // The question or step question the next typed line answers.
 let focus: string | undefined;
 
 // The status line on the button in Chrome and on the desktop.
-type Phase = "compiling" | "question" | "saved" | "empty" | "failed" | "busy" | "replay";
+type Phase = "compiling" | "question" | "saved" | "empty" | "failed" | "busy" | "replay" | "form";
 const status = (phase: Phase, text: string) =>
   daemon.broadcast({ id: randomUUID(), type: "record.status", phase, text });
 
@@ -189,12 +222,6 @@ setInterval(lookAtTriggers, 30_000);
 service.subscribe((event) => {
   if (event.type === "workflow") lookAtTriggers();
 });
-
-// The drill and "which file?" put their questions in the inbox.
-const prompter: Prompter = {
-  ask: (question: Question) =>
-    service.ask({ title: question.text, options: question.options?.map((o) => o.label), default: question.default }),
-};
 
 function announce(item: InboxItem) {
   const options = (item.detail.options as string[] | undefined) ?? [];
@@ -243,45 +270,6 @@ function showRun(run: RunRow) {
   else if (run.status === "nothing_to_do") status("saved", `Nothing to do for ${run.skillId} this time`);
   else if (run.status !== "waiting")
     status("failed", `Replay ${run.status}${run.failedStep ? ` at ${run.failedStep}` : ""}: see the terminal`);
-}
-
-async function compileSession(sessionId: string) {
-  compiling = true;
-  status("compiling", model ? "Compiling with Nemotron…" : "Compiling…");
-  try {
-    const locate = { searchDirs: defaultSearchDirs(watchDirs) };
-    const saved = await finishRecording(sessionId, { dataDir: home, prompter, llm: model, memory, locate, log });
-    if (saved) {
-      log(`replay it with: run ${saved.skill.id}`);
-      status("saved", `Saved ${saved.skill.id}. Replay: run ${saved.skill.id}`);
-    } else status("empty", "Nothing to save: no steps were recorded");
-  } catch (error) {
-    log.error("compile failed:", error instanceof Error ? error.message : error);
-    log(`the trace is kept: retry with "compile ${sessionId}"`);
-    status("failed", "Compile failed: see the daemon terminal");
-  } finally {
-    compiling = false;
-  }
-}
-
-// `record` / `stop`, typed here or pressed in Chrome.
-function startRecording() {
-  if (compiling) return refuse();
-  daemon.startRecording();
-}
-async function stopRecording() {
-  if (compiling) return refuse();
-  compiling = true; // covers the wait for late events too, so a new recording can't start in between
-  try {
-    const sessionId = await daemon.stopRecording();
-    if (sessionId) await compileSession(sessionId);
-  } finally {
-    compiling = false;
-  }
-}
-function refuse() {
-  log("still compiling the last recording; answer its questions first");
-  status("busy", "Still compiling the last recording: answer its questions first");
 }
 
 function printRun(e: RunLogEvent) {
@@ -389,7 +377,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     }
     return;
   }
-  if (compiling) return refuse();
+  if (recordControl.view().phase === "compiling") {
+    log("still turning the last recording into a workflow; answer its questions first");
+    return;
+  }
   if (command === "run") void run(args);
   else if (command === "rollback" && args[0]) {
     try {
@@ -410,9 +401,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     } catch (error) {
       log((error as Error).message);
     }
-  } else if (command === "record") startRecording();
-  else if (command === "stop") void stopRecording();
-  else if (command === "compile" && args[0]) void compileSession(args[0]);
+  } else if (command === "record") void recordControl.describeInInbox();
+  else if (command === "stop") void recordControl.stop();
+  else if (command === "compile" && args[0]) void recordControl.compile(args[0]);
   else if (command === "skills")
     for (const w of service.workflows()) {
       const next = w.nextRunAt ? `, next ${new Date(w.nextRunAt).toLocaleString()}` : "";

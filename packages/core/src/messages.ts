@@ -35,11 +35,13 @@ export const Message = z.discriminatedUnion("type", [
   // extension -> daemon: the Record / Stop button (floating in the page, or the toolbar icon). The daemon still owns
   // the session: it handles this exactly like a typed `record` / `stop`, and answers with record.start / record.stop.
   z.object({ ...base, type: z.literal("record.command"), command: z.enum(["start", "stop"]) }),
-  // daemon -> extension: what happens after stop, shown on the button (drill questions are answered in the terminal).
+  // daemon -> extension and Shadow.app: what happens after stop, shown on the button (questions wait in the inbox).
+  // "form": Record was pressed; Shadow.app opens its window on the description form, and recording starts once the
+  // form is sent.
   z.object({
     ...base,
     type: z.literal("record.status"),
-    phase: z.enum(["compiling", "question", "saved", "empty", "failed", "busy", "replay"]),
+    phase: z.enum(["compiling", "question", "saved", "empty", "failed", "busy", "replay", "form"]),
     text: z.string(),
   }),
   // extension -> daemon: one captured web or browser event. The fields are the trace format (trace.ts), so an

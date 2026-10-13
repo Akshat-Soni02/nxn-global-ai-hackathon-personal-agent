@@ -204,6 +204,9 @@ nav a.active .badge {
 .dot.bad {
   background: var(--muted);
 }
+.dot.rec {
+  background: var(--bad);
+}
 
 /* Pages */
 .page-header {
@@ -561,4 +564,41 @@ nav a.active .badge {
 }
 .field input[type="number"] {
   width: 80px;
+}
+
+/* The description form (screens/Record.tsx) */
+.record-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 760px;
+}
+.field.wide .input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.field textarea {
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+.consent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13px;
+}
+.consent legend {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 4px;
+}
+.recording h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }

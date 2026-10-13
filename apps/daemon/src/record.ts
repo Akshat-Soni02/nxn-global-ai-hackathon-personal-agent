@@ -1,15 +1,17 @@
 // Record, daemon side. While recording: every event goes to the session's trace file, web events from the extension
-// and file events from the folder watcher alike. After stop: trace -> normalise -> compile (Nemotron) -> drill ->
-// skills/<id>/vN.json. The trace is kept, so a failed or poor compile can be redone with `compile <session>`.
+// and file events from the folder watcher alike. After stop: trace -> normalise -> compile (Nemotron, with the
+// description form) -> drill -> approvals (code) -> skills/<id>/vN.json. The trace is kept, so a failed or poor
+// compile can be redone with `compile <session>`.
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, sep } from "node:path";
 import type { Skill, TraceEvent } from "@shadow/core";
 import type { Llm } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
-import { type Chat, compile, drill, normalise, type Prompter } from "@shadow/recorder";
+import { type Chat, compile, drill, normalise, type Prompter, requireApprovals } from "@shadow/recorder";
 import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
+import { readForm } from "./recording-store.ts";
 import { newSkillId, saveSkill } from "./skill-store.ts";
 import { appendTrace, readTrace } from "./trace-store.ts";
 
@@ -72,6 +74,7 @@ export interface FinishOptions {
   // Where to look for files the pages saw (picked or dropped). Off when absent, e.g. in tests.
   locate?: LocateOptions;
   log: Log;
+  now?: () => Date;
 }
 
 export async function finishRecording(
@@ -90,6 +93,17 @@ export async function finishRecording(
   }
 
   const { llm } = options;
+  // The description form filled in before Record; recordings made before Oct 13 have none.
+  const recorded = readForm(dataDir, sessionId);
+  const form = recorded && {
+    description: {
+      goal: recorded.goal,
+      changes: recorded.changes,
+      constants: recorded.constants,
+      never: recorded.never,
+    },
+    when: recorded.when,
+  };
   log(llm ? "compiling with Nemotron..." : "compiling with code only (no model configured)...");
   // Per-run AI steps run on the fast profile: its input price is what the drill shows them costing.
   const fast = llm?.config.catalog[llm.config.profiles.fast.model];
@@ -97,6 +111,7 @@ export async function finishRecording(
     chat: llm ? compileChat(llm) : undefined,
     memory: options.memory,
     pricePerMTok: fast?.priceIn,
+    form,
   });
   for (const warning of compiled.warnings) log(warning);
   if (compiled.model === "nemotron") log(`model answer accepted after ${compiled.attempts} attempt(s)`);
@@ -109,8 +124,17 @@ export async function finishRecording(
   const drilled = await drill(skill, compiled.questions, { prompter: options.prompter, memory: options.memory });
   for (const problem of drilled.problems) log("answer not applied:", problem);
 
-  // A per-run AI step you declined in the drill goes back to its free rule.
-  const saved = saveSkill(dataDir, drilled.skill);
+  // Approval on every step that sends, pays or deletes, or matches the Never list: by code, whatever was answered.
+  const approved = requireApprovals(drilled.skill);
+  if (approved.added.length > 0) log(`approval needed before: ${approved.added.join(", ")}`);
+  const at = (options.now ?? (() => new Date()))().toISOString();
+  const noted = approved.skill.history.length
+    ? approved.skill
+    : {
+        ...approved.skill,
+        history: [{ version: approved.skill.version, by: "record" as const, summary: "Recorded", at }],
+      };
+  const saved = saveSkill(dataDir, noted);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
   return saved;
 }

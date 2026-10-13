@@ -5,11 +5,14 @@
 //   skeleton     steps -> a valid skill built by code: actions, targets, recorded values
 //   compile      skeleton + Nemotron -> intents, inputs, checks, approvals, questions
 //   drill        the questions, asked once before saving; lasting answers go to memory
+//   approvals    approval on every step that sends, pays or deletes, or matches the user's Never list (code, last)
+export { requireApprovals } from "./approvals.ts";
 export {
   type Chat,
   type Compiled,
   compile,
   extractJson,
+  type Form,
   Question,
   systemPrompt,
   templateProblems,

@@ -26,6 +26,9 @@ describe("what the button shows", () => {
     expect(viewOf(status("question", now - 60_000), now)).toMatchObject({ kind: "work", icon: "terminal" });
     expect(viewOf(status("saved"), now)).toMatchObject({ kind: "note", icon: "check" });
     expect(viewOf(status("saved", now - 16_000), now)).toMatchObject({ kind: "idle" }); // the note has expired
+    // Record pressed: the form is open in Shadow's window; left unsent, the button goes back to Record.
+    expect(viewOf(status("form"), now)).toMatchObject({ kind: "note", icon: "terminal" });
+    expect(viewOf(status("form", now - 16_000), now)).toMatchObject({ kind: "idle" });
   });
 });
 

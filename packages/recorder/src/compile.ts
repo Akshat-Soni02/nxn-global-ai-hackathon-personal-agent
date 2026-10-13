@@ -2,7 +2,9 @@
 // what code can't know: what each step is for, which values change each run, how to tell it worked, what to ask you.
 // The model's answer is merged by step id, validated with the same zod schema the player parses, and sent back with
 // the errors when it fails (at most 3 attempts). If it never passes, the skeleton is saved: a recording is never lost.
-import { ACTIONS, Check, Input, type LlmStep, Skill, Trigger, type VarType } from "@shadow/core";
+// The description form filled in before recording (goal, Frequency, what changes, what stays, never) is the user's:
+// the model reads it, and it is copied into the skill as it is; no answer, the model's or the drill's, changes it.
+import { ACTIONS, Check, type Description, Input, type LlmStep, Skill, Trigger, type VarType } from "@shadow/core";
 import type { ChatMessage } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import { z } from "zod";
@@ -63,8 +65,15 @@ export const Annotations = z.object({
 });
 export type Annotations = z.infer<typeof Annotations>;
 
+// The description form: the user's own words and Frequency, kept as they are.
+export interface Form {
+  description: Description;
+  when: Trigger[];
+}
+
 export interface CompileOptions {
   chat?: Chat;
+  form?: Form;
   memory?: Pick<MemoryStore, "search">;
   maxAttempts?: number;
   // US dollars per million input tokens, to show what a per-run AI step costs (the fast profile's model price).
@@ -81,8 +90,13 @@ export interface Compiled {
 
 export async function compile(steps: NormalisedStep[], options: CompileOptions = {}): Promise<Compiled> {
   if (steps.length === 0) throw new Error("nothing to compile: the trace has no steps");
-  const { draft, idsByStep, questions: skeletonQuestions } = skeletonOf(steps);
-  const ownQuestions = [...skeletonQuestions, ...codeQuestions(draft, steps)];
+  const { form } = options;
+  const { draft: recorded, idsByStep, questions: skeletonQuestions } = skeletonOf(steps);
+  // Named after the goal until the model names it.
+  const draft = form ? { ...withForm(recorded, form), name: shortName(form.description.goal) } : recorded;
+  // What the form decided is not asked again.
+  const open = (q: Question) => !(form && q.appliesTo && FORM_PATHS.some((p) => q.appliesTo?.startsWith(p)));
+  const ownQuestions = [...skeletonQuestions, ...codeQuestions(draft, steps)].filter(open);
   const reported = steps.flatMap((s, i) =>
     s.drawnBefore
       ? [
@@ -93,7 +107,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
   const warnings: string[] = [...reported];
   const skeletonOnly = (attempts: number): Compiled => ({
     skill: Skill.parse(skillInput(draft)),
-    questions: [...ownQuestions, describeQuestion(draft)],
+    questions: form ? ownQuestions : [...ownQuestions, describeQuestion(draft)],
     model: "none",
     attempts,
     warnings,
@@ -110,6 +124,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
     {
       role: "user",
       content: JSON.stringify({
+        ...(form ? { description: form.description, frequency: form.when } : {}),
         steps: forModel(steps, idsByStep),
         skeleton: skeletonForModel(draft),
         memory: memory.map((m) => m.text),
@@ -132,7 +147,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
     let costQuestions: Question[] = [];
     try {
       notes = Annotations.parse(extractJson(raw));
-      merged = merge(draft, notes);
+      merged = withForm(merge(draft, notes), form);
       costQuestions = aiQuestions(merged, notes, steps, idsByStep, options.pricePerMTok);
       const parsed = Skill.safeParse(skillInput(merged));
       issues = [
@@ -151,7 +166,11 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
       const asked = new Set(notes.questions.map((q) => q.appliesTo));
       return {
         skill: Skill.parse(skillInput(merged)),
-        questions: [...costQuestions, ...notes.questions, ...ownQuestions.filter((q) => !asked.has(q.appliesTo))],
+        questions: [
+          ...costQuestions,
+          ...notes.questions.filter(open),
+          ...ownQuestions.filter((q) => !asked.has(q.appliesTo)),
+        ],
         model: "nemotron",
         attempts: attempt,
         warnings,
@@ -172,7 +191,8 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
 export function systemPrompt(): string {
   return [
     "You turn one recorded demonstration of a computer task into a reusable skill for an automation player.",
-    "You get JSON with: steps (what the person did, in order), skeleton (a valid draft skill that code built from those steps), memory (things the person told us before).",
+    "You get JSON with: steps (what the person did, in order), skeleton (a valid draft skill that code built from those steps), memory (things the person told us before), and when the person filled in the form before recording, description and frequency.",
+    "description is the person's own words: goal (what is done when the task is done), changes (values that are different each run: make them inputs, never fixed values), constants (things that stay the same: they may stay fixed), never (things it must never do without asking: steps like that need approval). frequency is when it runs. Both are final: use them, never change or ask about them.",
     "Reply with ONE JSON object and nothing else. Every field is optional:",
     '{"id": string, "intent": string, "inputs": {...}, "when": [...], "success": [...], "steps": [{"id": "s1", "intent": string, "args": {...}, "check": {...}, "wait": {...}, "requires_approval": boolean, "save_as": string, "on_fail": {"retries": number, "fallback": "agent" | "ask"}}], "questions": [...]}',
     "Rules:",
@@ -235,6 +255,23 @@ function forModel(steps: NormalisedStep[], idsByStep: string[][]) {
 
 function skeletonForModel(draft: SkillDraft) {
   return { ...draft, steps: draft.steps.map(({ target: _target, ...step }) => step) };
+}
+
+// The parts of a skill the form decides.
+const FORM_PATHS = [`steps.${TRIGGER_ID}.when`, "description"];
+
+// A name for lists and notifications: the goal, cut at a word if it is long.
+function shortName(goal: string): string {
+  const text = goal.trim().replace(/\s+/g, " ");
+  if (text.length <= 60) return text;
+  const cut = text.slice(0, 60);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 30)).trim()}…`;
+}
+
+// The form's description and Frequency, over whatever code or the model wrote there.
+function withForm(draft: SkillDraft, form: Form | undefined): SkillDraft {
+  if (!form) return draft;
+  return { ...draft, description: structuredClone(form.description), when: structuredClone(form.when) };
 }
 
 function memoryQuery(steps: NormalisedStep[]): string {

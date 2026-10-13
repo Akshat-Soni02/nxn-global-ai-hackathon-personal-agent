@@ -101,3 +101,34 @@ export interface Question {
   options?: string[];
   default?: string;
 }
+
+// Recording (record-control.ts), as the window's Record screen gets it from `recording`.
+export type RecordPhase = "idle" | "describing" | "recording" | "compiling";
+export interface Consent {
+  // A screenshot of the active window at each event; only the words read from it (masked) leave the Mac.
+  screen: boolean;
+  // Narration, turned into text on the Mac; only the text leaves it.
+  microphone: boolean;
+}
+// The description form, as recording-store.ts checks and saves it.
+export interface RecordFormView {
+  goal: string;
+  changes: string[];
+  constants: string[];
+  never: string[];
+  when: Trigger[];
+  consent: Consent;
+}
+export interface RecordingView {
+  phase: RecordPhase;
+  sessionId?: string;
+  startedAt?: number;
+  // The form of the recording going on, or being turned into a workflow.
+  form?: RecordFormView;
+  // The consents the form starts with: the ones given last time.
+  consent: Consent;
+  // How the last recording ended.
+  last?: { sessionId: string; outcome: "saved" | "empty" | "failed"; skillId?: string; text: string };
+  // Whether Shadow.app is running (it shows the form in its window).
+  macApp: boolean;
+}

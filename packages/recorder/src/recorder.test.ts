@@ -1,5 +1,6 @@
 import { type ActionStep, type ElementDescriptor, Skill, type TraceEvent, triggerOf } from "@shadow/core";
 import { describe, expect, it, vi } from "vitest";
+import { requireApprovals } from "./approvals.ts";
 import { type Chat, compile, extractJson, type Question } from "./compile.ts";
 import { applyAnswer, drill } from "./drill.ts";
 import { normalise } from "./normalise.ts";
@@ -746,5 +747,63 @@ describe("which file a skill uses next time", () => {
       glob: "Rushil Jariwala Photo.jpeg",
       ask: false,
     });
+  });
+});
+
+describe("the description form", () => {
+  const form = {
+    description: {
+      goal: "The month's invoice is uploaded",
+      changes: ["the invoice file"],
+      constants: ["the vendor portal"],
+      never: ["archive anything"],
+    },
+    when: [{ type: "schedule" as const, cron: "0 9 1 * *", missed: "run_once" as const }],
+  };
+
+  it("is read by the model and kept as written: no answer changes the goal or the Frequency", async () => {
+    const seen: string[] = [];
+    const chat: Chat = async (messages) => {
+      seen.push(messages.map((m) => m.content).join("\n"));
+      return JSON.stringify({
+        intent: "Upload an invoice",
+        when: [{ type: "manual" }],
+        questions: [
+          { id: "q-when", text: "Run it monthly?", appliesTo: "steps.start.when" },
+          { id: "q-goal", text: "What is it for?", appliesTo: "description.goal" },
+          { id: "q-ok", text: "Approve the submit?", appliesTo: "steps.s3.requires_approval" },
+        ],
+      });
+    };
+    const result = await compile(normalise(uploadTrace()), { chat, form });
+    expect(seen[0]).toContain('"never":["archive anything"]');
+    expect(seen[0]).toContain('"frequency":[{"type":"schedule"');
+    expect(result.skill.description).toEqual(form.description);
+    expect(triggerOf(result.skill).when).toEqual(form.when);
+    expect(result.skill.name).toBe("Upload an invoice");
+    expect(result.questions.map((q) => q.id)).not.toContain("q-when");
+    expect(result.questions.map((q) => q.id)).not.toContain("q-goal");
+    expect(result.questions.map((q) => q.id)).toContain("q-ok");
+  });
+
+  it("names the workflow after the goal, and asks no goal question, when there is no model", async () => {
+    const result = await compile(normalise(uploadTrace()), { form });
+    expect(result.skill.name).toBe("The month's invoice is uploaded");
+    expect(result.skill.description.never).toEqual(["archive anything"]);
+    expect(result.questions.map((q) => q.id)).not.toContain("intent");
+  });
+
+  it("turns approval on, in code, for steps that send or delete and for steps matching Never", async () => {
+    const archive: ElementDescriptor = { ...submitButton, name: "Archive", text: "Archive", attrs: { id: "arc" } };
+    const steps = normalise([
+      ev("click", 0, { target: archive }),
+      ev("click", 1000, { target: { ...submitButton, name: "Send", text: "Send", attrs: { id: "send" } } }),
+    ]);
+    const { skill } = await compile(steps, { form });
+    // The skeleton already asks for approval on "Send"; nothing asks for it on "Archive" yet.
+    expect(acts(skill).map((s) => s.requires_approval)).toEqual([false, false, true]);
+    const { skill: approved, added } = requireApprovals(skill);
+    expect(added).toEqual([acts(skill)[1]?.id]);
+    expect(acts(approved).map((s) => s.requires_approval)).toEqual([false, true, true]);
   });
 });

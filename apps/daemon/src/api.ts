@@ -3,8 +3,13 @@
 //
 // `start` takes a workflow id from the store, never a file path: a workflow can hold script steps, so the API must not
 // run an arbitrary file. The terminal, which runs as the user, may still run a file.
+//
+// Recording (record-control.ts): `recording` is what the Record screen shows; `recordStart` takes the description
+// form and starts recording; `recordStop` stops and turns the recording into a workflow (its questions go to the inbox).
 import { Trigger } from "@shadow/core";
 import { z } from "zod";
+import type { RecordControl } from "./record-control.ts";
+import { RecordForm } from "./recording-store.ts";
 import type { Service } from "./service.ts";
 
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "not an id");
@@ -61,18 +66,40 @@ const methods = {
   },
 } as const;
 
-export type Method = keyof typeof methods;
-export const METHODS = Object.keys(methods) as Method[];
+const recordMethods = {
+  recording: { params: z.object({}).default({}), run: (r: RecordControl) => r.view() },
+  recordStart: { params: RecordForm, run: (r: RecordControl, p: RecordForm) => r.start(p) },
+  // Answers at once; turning the recording into a workflow goes on (the Record screen follows it on `recording`).
+  recordStop: {
+    params: z.object({}).default({}),
+    run: (r: RecordControl) => {
+      const sessionId = r.view().sessionId;
+      void r.stop();
+      return { sessionId };
+    },
+  },
+} as const;
+
+export type Method = keyof typeof methods | keyof typeof recordMethods;
+export const METHODS = [...Object.keys(methods), ...Object.keys(recordMethods)] as Method[];
 
 export interface Api {
   call(method: string, params: unknown): Promise<unknown>;
 }
 
-export function createApi(service: Service): Api {
+export function createApi(service: Service, record?: RecordControl): Api {
   return {
     async call(method, params) {
+      if (record && Object.hasOwn(recordMethods, method)) {
+        const entry = recordMethods[method as keyof typeof recordMethods];
+        const parsed = entry.params.safeParse(params ?? {});
+        if (!parsed.success) {
+          throw new Error(parsed.error.issues.map((i) => `${i.path.join(".") || method}: ${i.message}`).join("; "));
+        }
+        return (entry.run as (r: RecordControl, p: unknown) => unknown)(record, parsed.data);
+      }
       if (!Object.hasOwn(methods, method)) throw new Error(`no method ${method}`);
-      const entry = methods[method as Method];
+      const entry = methods[method as keyof typeof methods];
       const parsed = entry.params.safeParse(params ?? {});
       if (!parsed.success) {
         throw new Error(parsed.error.issues.map((i) => `${i.path.join(".") || method}: ${i.message}`).join("; "));

@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { call, SessionContext, takeToken, useEvents, useQuery } from "./api.ts";
 import { money } from "./format.ts";
 import { Inbox } from "./screens/Inbox.tsx";
+import { Record } from "./screens/Record.tsx";
 import { Run } from "./screens/Run.tsx";
 import { Runs } from "./screens/Runs.tsx";
 import { Workflow } from "./screens/Workflow.tsx";
@@ -70,6 +71,7 @@ function Shell({ connected }: { connected: boolean }) {
     { to: "inbox", label: "Inbox", badge: waiting },
     { to: "workflows", label: "Workflows" },
     { to: "runs", label: "Runs" },
+    { to: "record", label: "Record" },
   ];
   return (
     <div className="shell">
@@ -91,6 +93,7 @@ function Shell({ connected }: { connected: boolean }) {
         {screen === "workflows" && id && <Workflow id={id} />}
         {screen === "runs" && !id && <Runs />}
         {screen === "runs" && id && <Run id={id} />}
+        {screen === "record" && <Record />}
       </main>
     </div>
   );

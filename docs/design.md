@@ -665,7 +665,7 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Running loops, branches and asks | ✅ the interpreter in `packages/player/src/run.ts`; asks answered in the daemon terminal or `pnpm replay` | Asks move to notifications and the editor later |
 | llm steps | ✅ anywhere in the tree (capped, cached, typed output) | Done |
 | Compile | Trace → skill (code, then one Nemotron call); its questions wait in the inbox (Oct 11); a flat list of steps | The design agent: description + trace + transcript + masked screen text → tree; drill on the tree |
-| Description form | ❌ | New: all five fields before recording starts (decided Oct 13) |
+| Description form | ✅ (Oct 13): every Record button opens it (the window's Record screen; the inbox from the terminal); saved as `recordings/<session>/description.json`; the compiler reads it and keeps it as written; approval forced by code on outward and Never steps (`recorder/src/approvals.ts`); API `recording`, `recordStart`, `recordStop` | Done |
 | Screenshots per event | ❌ (only cropped element images in web capture) | New: only masked text leaves the Mac (decided Oct 13) |
 | Voice + transcription (macOS SpeechAnalyzer) | ❌ | New |
 | Daemon as a service: LaunchAgent, saved inbox, API (socket + local HTTP) | ✅ except the LaunchAgent (Oct 11): runs wait in the inbox with a checkpoint and go on after an answer, also after a restart (`apps/daemon/src/service.ts`, `store.ts`); the API on the socket and on local HTTP with a token (`api.ts`, `http.ts`); the terminal is a client | Left: the daemon inside the packaged app (`pnpm setup:daemon` installs a LaunchAgent for development; milestone 9); API methods for edits, recording, settings, memory and version diffs (go live, pause, resume and the Frequency were added Oct 12); stopping a run in the middle of a step |
@@ -678,7 +678,7 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Triggers from Frequency; live, paused and draft workflows | ✅ (Oct 12): `lifecycle.ts` (state, going live), `triggers.ts` (schedules with croner, missed times per workflow, folder watches), skip on overlap, auto-pause, the Frequency picker and state in the window, the next run in the menu bar, `live` / `pause` / `resume-workflow` in the terminal | Left: drafts kept beside a live workflow (milestone 10); "when an email arrives" |
 | Workflow lifecycle: draft, live, paused, autosave | ✅ in part (Oct 12): draft, live and paused, going live, auto-pause (see Triggers above) | Left: drafts beside a live workflow and autosave (milestone 10) |
 | `packages/llm` with profiles, structured output, tools, usage meter | ✅ client, catalog, fake client, `pnpm llm:check`; compile, llm steps and `pnpm replay` use it (Oct 10) | Confirm the catalog with `pnpm llm:check` and a real key |
-| Consent, redaction, 24-hour retention | ❌ | New |
+| Consent, redaction, 24-hour retention | Consent: the two switches on the form, remembered in `config.json` (Oct 13). Redaction, retention: ❌ | New |
 | Packaging: the `.dmg`, Node and the daemon inside the app, Keychain key, first run, `pnpm package` / `pnpm release` | ❌ (`.env`, `tsx` from source, `pnpm setup:*` by hand) | New: [Deployment](#deployment) |
 
 ## Build order

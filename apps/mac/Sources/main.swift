@@ -128,6 +128,8 @@ final class AppMain: NSObject, NSApplicationDelegate {
     case "record.status":
       if let phase = (message["phase"] as? String).flatMap(Panel.Phase.init(rawValue:)) {
         panel.status(phase, message["text"] as? String ?? "")
+        // Record was pressed (here, in Chrome or in the menu bar): the description form comes first.
+        if phase == .form { window.show(route: "/record") }
       }
     case "run.step":
       guard let step = message["step"] as? JSON else { return }
