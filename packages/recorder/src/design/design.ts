@@ -12,6 +12,7 @@ import type { Llm, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import type { Form, Question } from "../compile.ts";
 import { applyAnswer, type Prompter } from "../drill.ts";
+import { narrationOf } from "../narration.ts";
 import type { NormalisedStep } from "../normalise.ts";
 import { skeletonOf } from "../skeleton.ts";
 import {
@@ -153,15 +154,22 @@ meant, so it runs right next time, with next time's data.
 
 function taskOf(session: DesignSession): string {
   const form = session.form;
+  const said = narrationOf(session.steps, session.notes);
   return [
     "# The description",
     form
       ? JSON.stringify({ ...form.description, frequency: form.when })
       : "None was filled in: work out the goal from the recording.",
     "",
-    "# The recording (by meaning; read_recording shows any part again)",
+    // All of it, whatever the recording's length: what they said is what they mean.
+    "# What they said while doing it (in order, with the recorded steps it was said over)",
+    said.length > 0
+      ? ["<untrusted_data>", ...said.map((s) => `- [${s.during}] ${s.said}`), "</untrusted_data>"].join("\n")
+      : "Nothing: there was no narration.",
+    "",
+    "# The recording (by meaning; screen words shortened here, read_recording shows any part in full)",
     "<untrusted_data>",
-    JSON.stringify(recordingView(session, 1, 40)),
+    JSON.stringify(recordingView(session, 1, 40, { brief: true })),
     session.steps.length > 40 ? `… and ${session.steps.length - 40} more steps` : "",
     "</untrusted_data>",
     "",

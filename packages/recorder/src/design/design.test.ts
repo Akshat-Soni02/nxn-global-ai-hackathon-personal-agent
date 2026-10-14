@@ -416,6 +416,53 @@ describe("the rules and the recording view", () => {
     ]);
   });
 
+  it("gives the narration whole, before the recording, with the steps each piece spans", async () => {
+    const { steps, skill, questions } = await draft();
+    const upload = steps.findIndex((s) => s.kind === "upload") + 1;
+    const said = [
+      { at: -3_000, kind: "said" as const, text: "every day I take the top 5 new ones" },
+      { at: 5_200, until: 9_000, kind: "said" as const, text: "skip the ones already in my sheet" },
+    ];
+    // The same page read twice, and a long one: said once, and cut short, in the first message.
+    const screen = [
+      { at: 5_100, kind: "screen" as const, text: `Invoices ${"x".repeat(400)}` },
+      { at: 8_100, kind: "screen" as const, text: `Invoices ${"x".repeat(400)}` },
+    ];
+    const llm = fakeLlm([call("finish", { summary: "done" })]);
+    await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      notes: [...said, ...screen],
+      prompter: prompter().p,
+      protocol: "tools",
+    });
+    const task = ((llm.requests[0]?.messages ?? []) as { content: string }[])[1]?.content ?? "";
+    expect(task).toContain("- [before step 1] every day I take the top 5 new ones");
+    expect(task).toContain(`- [steps ${upload}-${steps.length}] skip the ones already in my sheet`);
+    expect(task.indexOf("# What they said")).toBeLessThan(task.indexOf("# The recording"));
+    expect(task).toContain("on screen: (as before)");
+    expect(task).not.toContain("x".repeat(301));
+  });
+
+  it("lets the first draft hear the narration too", async () => {
+    const steps = normalise(trace());
+    const seen: string[] = [];
+    await compile(steps, {
+      form,
+      notes: [{ at: 5_200, kind: "said", text: "always the newest invoice" }],
+      chat: async (messages) => {
+        seen.push(String(messages[1]?.content));
+        return "{}";
+      },
+    });
+    expect(JSON.parse(seen[0] ?? "{}").narration).toEqual([
+      { during: `step ${steps.findIndex((s) => s.kind === "upload") + 1}`, said: "always the newest invoice" },
+    ]);
+  });
+
   it("puts what was said next to the step it was said over", () => {
     const steps = normalise(trace());
     const notes = notesByStep(steps, [

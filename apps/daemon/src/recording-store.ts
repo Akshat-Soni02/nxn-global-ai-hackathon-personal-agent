@@ -170,9 +170,11 @@ export function readNotes(dataDir: string, sessionId: string): Note[] {
     if (!existsSync(path)) return;
     for (const line of readFileSync(path, "utf8").split("\n")) {
       try {
-        const entry = JSON.parse(line) as { at?: unknown; text?: unknown };
+        const entry = JSON.parse(line) as { at?: unknown; until?: unknown; text?: unknown };
         if (typeof entry.at === "number" && typeof entry.text === "string" && entry.text.trim()) {
-          notes.push({ at: entry.at, kind, text: entry.text });
+          // A piece of narration also says when it ended, so it can span the steps it was said over.
+          const until = typeof entry.until === "number" ? { until: entry.until } : {};
+          notes.push({ at: entry.at, ...until, kind, text: entry.text });
         }
       } catch {
         // an empty or half-written line

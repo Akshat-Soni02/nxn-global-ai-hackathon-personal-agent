@@ -20,15 +20,11 @@ import type { MemoryStore } from "@shadow/memory";
 import { z } from "zod";
 import { type Form, type Question, stepsForModel } from "../compile.ts";
 import { applyAnswer, type Prompter } from "../drill.ts";
+import { type Note, notesByStep } from "../narration.ts";
 import type { NormalisedStep } from "../normalise.ts";
 
-// Something said or seen while recording, on the recording's clock: the narration's text, or the masked words read
-// from a screenshot.
-export interface Note {
-  at: number;
-  kind: "said" | "screen";
-  text: string;
-}
+export type { Note } from "../narration.ts";
+export { notesByStep } from "../narration.ts";
 
 export interface DesignSession {
   // Where every target and site comes from: the workflow as compiled from the recording.
@@ -293,26 +289,35 @@ function typeText(type: { type: string; items?: { type: string } }): string {
 const clip = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max)}…`);
 
 // The recording by meaning (what compile's model saw), each step with the skill steps it became and what was said
-// or seen around it.
-export function recordingView(session: DesignSession, from = 1, to = session.steps.length): unknown[] {
+// or seen around it. `brief` (the agent's first message): a screen's words cut short, and a screen like the one
+// before it said once, so 30 screenshots of the same page don't bury the 14 sentences the person said. read_recording
+// shows them whole.
+export function recordingView(
+  session: DesignSession,
+  from = 1,
+  to = session.steps.length,
+  { brief = false } = {},
+): unknown[] {
   const view = stepsForModel(session.steps, session.idsByStep);
-  const near = notesByStep(session.steps, session.notes);
+  let near = notesByStep(session.steps, session.notes);
+  if (brief) {
+    let last = "";
+    near = near.map((notes) =>
+      notes.map((note) => {
+        if (!note.startsWith("on screen: ")) return note;
+        const full = note.slice("on screen: ".length);
+        const words = full.slice(0, BRIEF_SCREEN);
+        if (words === last) return "on screen: (as before)";
+        last = words;
+        return `on screen: ${words}${full.length > BRIEF_SCREEN ? "…" : ""}`;
+      }),
+    );
+  }
   return view
     .map((step, i) => ({ n: i + 1, ...step, ...(near[i]?.length ? { notes: near[i] } : {}) }))
     .slice(Math.max(0, from - 1), Math.max(from, to));
 }
-
-// Each note goes with the last step that started before it (a second's grace: people talk as they click), or the
-// first step when it came before any.
-export function notesByStep(steps: NormalisedStep[], notes: Note[]): string[][] {
-  const out: string[][] = steps.map(() => []);
-  for (const note of [...notes].sort((a, b) => a.at - b.at)) {
-    let index = 0;
-    for (let i = 0; i < steps.length; i++) if ((steps[i]?.at ?? 0) <= note.at + 1000) index = i;
-    out[index]?.push(`${note.kind === "said" ? "said" : "on screen"}: ${note.text}`);
-  }
-  return out;
-}
+const BRIEF_SCREEN = 300;
 
 // ---- The tools ------------------------------------------------------------------------------------------------
 

@@ -127,6 +127,8 @@ export async function finishRecording(
     when: recorded.when,
   };
   log(llm ? "compiling with Nemotron..." : "compiling with code only (no model configured)...");
+  // What was seen (masked screenshot words) and said (the narration) while recording, on the recording's clock.
+  const notes = readNotes(dataDir, sessionId);
   // Per-run AI steps run on the fast profile: its input price is what the drill shows them costing.
   const fast = llm?.config.catalog[llm.config.profiles.fast.model];
   const compiled = await compile(steps, {
@@ -134,6 +136,8 @@ export async function finishRecording(
     memory: options.memory,
     pricePerMTok: fast?.priceIn,
     form,
+    // The narration too, so the first draft's questions don't ask what was already said.
+    notes,
   });
   for (const warning of compiled.warnings) log(warning);
   if (compiled.model === "nemotron") log(`model answer accepted after ${compiled.attempts} attempt(s)`);
@@ -184,8 +188,7 @@ export async function finishRecording(
       questions,
       steps,
       form,
-      // What was seen (masked screenshot words) and said (the narration) while recording.
-      notes: readNotes(dataDir, sessionId),
+      notes,
       memory: options.memory,
       prompter: options.prompter,
       // It may finish only once a run started by the Frequency could fill every input on its own.

@@ -8,6 +8,7 @@ import { ACTIONS, Check, type Description, Input, type LlmStep, Skill, Trigger, 
 import type { ChatMessage } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import { z } from "zod";
+import { type Note, narrationOf } from "./narration.ts";
 import type { NormalisedStep } from "./normalise.ts";
 import { type ActionDraft, type SkillDraft, skeletonOf, skillInput, TRIGGER_ID } from "./skeleton.ts";
 
@@ -74,6 +75,8 @@ export interface Form {
 export interface CompileOptions {
   chat?: Chat;
   form?: Form;
+  // What was said while recording (the narration); the masked screen words aren't needed here.
+  notes?: Note[];
   memory?: Pick<MemoryStore, "search">;
   maxAttempts?: number;
   // US dollars per million input tokens, to show what a per-run AI step costs (the fast profile's model price).
@@ -119,12 +122,14 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
   }
 
   const memory = options.memory ? await options.memory.search(memoryQuery(steps), { limit: 8 }) : [];
+  const narration = narrationOf(steps, options.notes ?? []);
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt() },
     {
       role: "user",
       content: JSON.stringify({
         ...(form ? { description: form.description, frequency: form.when } : {}),
+        ...(narration.length > 0 ? { narration } : {}),
         steps: stepsForModel(steps, idsByStep),
         skeleton: skeletonForModel(draft),
         memory: memory.map((m) => m.text),
@@ -193,6 +198,7 @@ export function systemPrompt(): string {
     "You turn one recorded demonstration of a computer task into a reusable skill for an automation player.",
     "You get JSON with: steps (what the person did, in order), skeleton (a valid draft skill that code built from those steps), memory (things the person told us before), and when the person filled in the form before recording, description and frequency.",
     "description is the person's own words: goal (what is done when the task is done), changes (values that are different each run: make them inputs, never fixed values), constants (things that stay the same: they may stay fixed), never (things it must never do without asking: steps like that need approval). frequency is when it runs. Both are final: use them, never change or ask about them.",
+    'narration, when present, is what the person said while doing it, in order, with the recorded steps each piece was said over ("steps 4-7"). It says what they mean: how many ("the top 5"), which ones ("only remote ones", "skip those already in my sheet"), what to do when there are fewer, which value goes where. The recording is one example of that; the narration and the description are the rule.',
     "Reply with ONE JSON object and nothing else. Every field is optional:",
     '{"id": string, "intent": string, "inputs": {...}, "when": [...], "success": [...], "steps": [{"id": "s1", "intent": string, "args": {...}, "check": {...}, "wait": {...}, "requires_approval": boolean, "save_as": string, "on_fail": {"retries": number, "fallback": "agent" | "ask"}}], "questions": [...]}',
     "Rules:",
