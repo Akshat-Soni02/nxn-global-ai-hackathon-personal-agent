@@ -426,10 +426,12 @@ function typeText(type: { type: string; items?: { type: string } }): string {
   return type.type === "list" && type.items ? `list of ${type.items.type}` : type.type;
 }
 const clip = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max)}…`);
-// The recording by meaning (what compile's model saw), each step with the skill steps it became and what was said
-// or seen around it. `brief` (the agent's first message): a screen's words cut short, and a screen like the one
-// before it said once, so 30 screenshots of the same page don't bury the 14 sentences the person said. read_recording
-// shows them whole.
+
+// The recording by meaning (what compile's model saw), each step with the skill steps it became and the screen words
+// seen at it. `brief` (the agent's first message): of each picture's words, only the lines around what the step
+// acted on (the line holding the clicked control's name, a typed or copied value, and a few lines either side), or the
+// top of the page when no line holds them; a stretch like the one before is said once. A page's full text is mostly
+// menus and headers, and 29 of them buried the 14 sentences the person said. read_recording shows them whole.
 export function recordingView(
   session: DesignSession,
   from = 1,
@@ -440,14 +442,13 @@ export function recordingView(
   let near = notesByStep(session.steps, session.notes);
   if (brief) {
     let last = "";
-    near = near.map((notes) =>
+    near = near.map((notes, i) =>
       notes.map((note) => {
         if (!note.startsWith("on screen: ")) return note;
-        const full = note.slice("on screen: ".length);
-        const words = full.slice(0, BRIEF_SCREEN);
+        const { words, around } = focusOn(note.slice("on screen: ".length), anchorsOf(view[i]));
         if (words === last) return "on screen: (as before)";
         last = words;
-        return `on screen: ${words}${full.length > BRIEF_SCREEN ? "…" : ""}`;
+        return around ? `on screen, around "${around}": ${words}` : `on screen, top of page: ${words}`;
       }),
     );
   }
@@ -455,7 +456,34 @@ export function recordingView(
     .map((step, i) => ({ n: i + 1, ...step, ...(near[i]?.length ? { notes: near[i] } : {}) }))
     .slice(Math.max(0, from - 1), Math.max(from, to));
 }
-const BRIEF_SCREEN = 300;
+// Lines either side of the one that holds what the step acted on, and the most characters of either kind of excerpt.
+const AROUND_LINES = 4;
+const AROUND_CHARS = 600;
+const TOP_CHARS = 300;
+
+// The words a step acted on, as they'd appear on screen: the control's name or label, a typed or copied value.
+function anchorsOf(step: ReturnType<typeof stepsForModel>[number] | undefined): string[] {
+  const element = step?.element as { name?: unknown; label?: unknown } | undefined;
+  return [element?.name, element?.label, step?.value, step?.copied]
+    .filter((w): w is string => typeof w === "string" && w.trim().length >= 2 && !w.startsWith("(secret"))
+    .map((w) => w.trim().slice(0, 40));
+}
+
+// The lines of a picture's words around the first one holding an anchor, or its top when none does.
+function focusOn(text: string, anchors: string[]): { words: string; around?: string } {
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  for (const anchor of anchors) {
+    const at = lines.findIndex((l) => l.toLowerCase().includes(anchor.toLowerCase()));
+    if (at < 0) continue;
+    const words = lines.slice(Math.max(0, at - AROUND_LINES), at + AROUND_LINES + 1).join(" · ");
+    return { words: words.length > AROUND_CHARS ? `${words.slice(0, AROUND_CHARS)}…` : words, around: anchor };
+  }
+  const top = lines.join(" · ");
+  return { words: top.length > TOP_CHARS ? `${top.slice(0, TOP_CHARS)}…` : top };
+}
 
 // ---- The tools ------------------------------------------------------------------------------------------------
 

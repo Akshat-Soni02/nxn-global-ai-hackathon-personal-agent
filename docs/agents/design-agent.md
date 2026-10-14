@@ -156,7 +156,7 @@ Then `briefing({ edits: true })` ([README](README.md) §4; **without** "Availabl
 
 # The recording (by meaning; screen words shortened here, read_recording shows any part in full)
 <untrusted_data>
-[ { n, ids, did, page, element, …, notes: ["on screen: <≤300 chars> | (as before)"] }, … ]   steps 1–40
+[ { n, ids, did, page, element, …, notes: ["on screen, around \"Numeral\": <the lines around it, ≤600 chars> | on screen, top of page: <≤300 chars> | (as before)"] }, … ]   steps 1–40
 … and N more steps                                                                   (when > 40)
 </untrusted_data>
 

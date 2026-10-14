@@ -628,6 +628,37 @@ describe("the rules and the recording view", () => {
     expect(task).not.toContain("said: ");
   });
 
+  it("sends the screen lines around what a step clicked, not the top of the page", async () => {
+    const steps = normalise([
+      ev("click", 0, { target: control("Jobs") }),
+      ev("click", 3_000, { target: control("Numeral", { role: "link", tag: "a" }) }),
+    ]);
+    const { skill, questions } = await compile(steps, { form });
+    // A long page: menus first, the clicked company far down.
+    const page = [
+      ...Array.from({ length: 30 }, (_, i) => `Menu item ${i + 1}`),
+      "Numeral (W23) · Data Analyst · Remote (US) · $55K - $65K",
+      ...Array.from({ length: 10 }, (_, i) => `Footer ${i + 1}`),
+    ].join("\n");
+    const llm = fakeLlm([call("finish", { summary: "done" })]);
+    await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      notes: [{ at: 3_400, kind: "screen", text: page }],
+      prompter: prompter().p,
+      protocol: "tools",
+    });
+    const task = ((llm.requests[0]?.messages ?? []) as { content: string }[])[1]?.content ?? "";
+    expect(task).toContain('on screen, around \\"Numeral\\"');
+    expect(task).toContain("$55K - $65K");
+    expect(task).toContain("Menu item 27");
+    expect(task).not.toContain("Menu item 1 ");
+    expect(task).not.toContain("Footer 6");
+  });
+
   it("lets the first draft hear the narration too", async () => {
     const steps = normalise(trace());
     const seen: string[] = [];

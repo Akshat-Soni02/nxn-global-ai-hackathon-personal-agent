@@ -165,9 +165,10 @@ does.)
      Analyst · Remote · $55K - $65K …"}` (masked, at most 2,000 characters).
 - **How the words meet the steps:** by time only. After Stop, each line goes next to the last step that started
   before it (one second of grace). No model "maps" them; the design agent reads them next to the step as
-  `on screen: …`. Since 15 Oct its first message cuts each to 300 characters and says a repeated page once
-  (`(as before)`), because 29 near-identical pages buried the 14 sentences you said; `read_recording` still shows the
-  full text.
+  `on screen: …`. Since 15 Oct its first message sends only the lines around what the step acted on: the line that
+  holds the clicked control's name, or a typed or copied value, with four lines either side (at most 600
+  characters), or the top 300 characters of the page when no line holds them. A stretch like the one before is said
+  once (`(as before)`). 29 full pages had buried the 14 sentences you said; `read_recording` still shows the full text.
 - **The picture itself never leaves the Mac**, unless you also allowed **Pictures**. Then, and only when an agent asks
   `describe_screen` (the design agent about a recorded step, the repair agent about the live page or window), the
   daemon sends that one already blacked-out picture to GLM-5.3-Flash with the agent's question and hands back a text
