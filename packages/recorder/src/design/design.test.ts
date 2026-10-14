@@ -3,9 +3,9 @@ import { type FakeReply, fakeLlm } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
 import { compile, type Form, type Question } from "../compile.ts";
 import type { Prompter } from "../drill.ts";
+import { narrationOf } from "../narration.ts";
 import { type NormalisedStep, normalise } from "../normalise.ts";
 import { designWorkflow } from "./design.ts";
-import { narrationOf } from "../narration.ts";
 import { designViolations, notesByStep, recordedFolders, recordedOpens } from "./tools.ts";
 
 const PAGE = "http://localhost:5173/upload.html";

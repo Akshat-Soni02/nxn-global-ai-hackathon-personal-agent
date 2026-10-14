@@ -9,7 +9,7 @@
 // If it stops early (out of turns or money, an error, no model), its last valid draft is kept, with the answers the
 // user already gave in it; if it changed nothing, that is the plain step list. A recording is never lost.
 import { type AgentEvent, type Budget, type Episode, type Protocol, runAgent } from "@shadow/agent";
-import { briefing, type EditInput, type Skill, triggerOf, walkSteps } from "@shadow/core";
+import { briefing, type EditInput, type Skill } from "@shadow/core";
 import type { Llm, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import { type Base, type Form, labelRules, type Question } from "../compile.ts";
