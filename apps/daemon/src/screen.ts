@@ -5,10 +5,11 @@
 // model; the picture never leaves the Mac and goes with the folder a day later. One picture at a time, so recording
 // is never held up. A picture that can't be read or blacked out is deleted rather than kept unmasked.
 import { execFile } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { type Box, type Line, maskLines } from "@shadow/recorder";
+import { macCapabilities } from "./mac-binary.ts";
 import { recordingDir } from "./recording-store.ts";
 
 const run = promisify(execFile);
@@ -50,13 +51,10 @@ export function appScreenTools(binary: string): ScreenTools {
   };
 }
 
-// Shadow.app's binary, if it is built and new enough to read pictures (an older build would start the app instead).
+// Shadow.app's binary, if it is built and new enough to read pictures (mac-binary.ts).
 export function screenToolsFrom(binary: string): ScreenTools | undefined {
-  try {
-    return existsSync(binary) && readFileSync(binary).includes("--redact") ? appScreenTools(binary) : undefined;
-  } catch {
-    return undefined;
-  }
+  const can = macCapabilities(binary);
+  return can.has("ocr") && can.has("redact") ? appScreenTools(binary) : undefined;
 }
 
 export interface ScreenReader {

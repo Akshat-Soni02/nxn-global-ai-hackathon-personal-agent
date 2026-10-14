@@ -8,6 +8,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { maskText } from "@shadow/recorder";
+import { macCapabilities } from "./mac-binary.ts";
 import { recordingDir } from "./recording-store.ts";
 
 const run = promisify(execFile);
@@ -20,13 +21,9 @@ export interface Segment {
 }
 export type Transcribe = (audio: string) => Promise<Segment[]>;
 
-// Shadow.app's binary, if it is built and new enough to turn speech into text.
+// Shadow.app's binary, if it is built and new enough to turn speech into text (mac-binary.ts).
 export function transcriberFrom(binary: string): Transcribe | undefined {
-  try {
-    if (!existsSync(binary) || !readFileSync(binary).includes("--transcribe")) return undefined;
-  } catch {
-    return undefined;
-  }
+  if (!macCapabilities(binary).has("transcribe")) return undefined;
   return async (audio) => {
     const { stdout } = await run(binary, ["--transcribe", audio], { timeout: 300_000, maxBuffer: 10_000_000 });
     return (JSON.parse(stdout) as { segments: Segment[] }).segments;

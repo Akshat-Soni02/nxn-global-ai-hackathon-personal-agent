@@ -14,6 +14,7 @@
 //            --ocr <image> | --redact <image> <boxes.json>   read or black out text in a picture, and exit (Screen.swift)
 //            --transcribe <audio>   turn narration into text on the Mac, and exit (Voice.swift)
 //            --icon <dir>      draw the app icon's PNGs into a folder, for iconutil, and exit (Icon.swift)
+//            --capabilities    print which of the modes above this build has, and exit
 //            --first-run       show the setup window (shown by itself the first time the packaged app runs)
 //            --log <file>      append diagnostics to a file (an app started by `open` has no terminal)
 import AppKit
@@ -456,6 +457,14 @@ enum DaemonControl {
   }
 }
 
+// What this build's command-line modes can do. The daemon finds this line in the binary rather than running it
+// (apps/daemon/src/mac-binary.ts): a build too old to know --capabilities would start the whole app instead. Keep it
+// longer than 15 bytes: Swift keeps shorter strings inside the machine code, where a search of the file can't see them.
+let capabilities = "shadow-capabilities: ocr redact transcribe"
+if arguments.contains("--capabilities") {
+  print(capabilities)
+  exit(0)
+}
 if Screen.runCommand(arguments) { exit(0) }
 if Icon.runCommand(arguments) { exit(0) }
 Voice.runCommand(arguments)
