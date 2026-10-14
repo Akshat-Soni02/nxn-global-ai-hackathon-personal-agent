@@ -151,23 +151,36 @@ the form first means every recording has its guard rails from the first click.
 **The question.** How does the screenshot step work? Does it know which event to capture, or capture everything and
 drop the useless ones? Why isn't the GLM vision model used? What is the pipeline, with masking?
 
-**The answer.**
-- Capture everything, keep what matters. A picture is taken after every settled event (a click, typing, a file, a
-  page change), throttled to one every 600 ms, never while a password field has focus. Chrome captures its visible
-  tab; Shadow.app captures the active Mac window. Pictures are not "verified": the design agent later reads the words
-  near each step and uses what helps.
-- Masking has three layers: don't capture (password focus); black out the fields the page named (password and card
-  fields); read all the words on the Mac with Apple Vision and replace emails, phone numbers, card numbers (Luhn
-  checked), IBANs, keys, tokens and your Never words with ███, then black out those lines in the picture too.
-- Two consents. "Read my screen": only the masked words reach the model (`screen.jsonl`). "Let the model see masked
-  pictures": the blacked-out picture may be sent, once, to GLM-5.3-Flash (the vision profile) through one tool,
-  `describe_screen`, used by the design agent (a recorded step's picture) and the repair agent (the live page or
-  window). Off by default.
-- One pipeline for both: the daemon's describer masks any picture with the same OCR and blackout before it leaves,
-  and a test proves the original bytes never reach a request. Pictures are deleted with the recording a day later.
+**The answer.** (Rewritten 15 Oct: the old version made it sound as if a model read the pictures after Stop. None
+does.)
+- **When a picture is taken:** after every settled event (a click, typing, a file, a page change), at most one every
+  600 ms, never while a password field has focus. Chrome takes its visible tab; Shadow.app takes the active window.
+- **What happens to it, at once, while you keep recording** (`apps/daemon/src/screen.ts`, one picture at a time):
+  1. saved as `shots/<event id>.jpg` in the recording's folder;
+  2. **Apple Vision reads every line of text on the Mac** (`Shadow --ocr`). This is on-device text recognition, not a
+     model call, and nothing leaves the Mac;
+  3. `mask.ts` replaces emails, phone and card numbers, IBANs, keys and your Never words with ███;
+  4. those lines, and the password and card fields the page named, are blacked out in the picture (`Shadow --redact`);
+  5. one line is added to `screen.jsonl`: `{"at": 1760421637000, "eventId": "e12", "text": "Jobs at Numeral · Data
+     Analyst · Remote · $55K - $65K …"}` (masked, at most 2,000 characters).
+- **How the words meet the steps:** by time only. After Stop, each line goes next to the last step that started
+  before it (one second of grace). No model "maps" them; the design agent reads them next to the step as
+  `on screen: …`. Since 15 Oct its first message cuts each to 300 characters and says a repeated page once
+  (`(as before)`), because 29 near-identical pages buried the 14 sentences you said; `read_recording` still shows the
+  full text.
+- **The picture itself never leaves the Mac**, unless you also allowed **Pictures**. Then, and only when an agent asks
+  `describe_screen` (the design agent about a recorded step, the repair agent about the live page or window), the
+  daemon sends that one already blacked-out picture to GLM-5.3-Flash with the agent's question and hands back a text
+  description, marked as untrusted. A test proves the original bytes never reach a request. Pictures are deleted with
+  the recording a day after saving.
+- **What would make it smarter (not built):** send the words around the clicked control first (Vision gives each
+  line's box and we know where the click was) instead of the whole page; send only what changed since the last picture
+  of the same page; skip pictures where nothing changed.
 
-**Example.** A Gmail compose window. Words only: "To, Subject, Send, ███@███". With pictures on, the model adds "a
-compose window; the To field is empty; Send is at the bottom left".
+**Example.** You click "Numeral" on the YC jobs page. 0.4 s later the tab is captured; Vision reads "Jobs at Numeral ·
+Data Analyst · Remote (US) · $55K - $65K · ███@███"; the email is blacked out in the JPEG; the line lands in
+`screen.jsonl` and, after Stop, next to the step "click Numeral". With Pictures on, the agent could ask "what is the
+highlighted row for?" and get "a job listing; the row shows a remote data analyst role and its salary".
 
 **Why not the other way.** Always sending pictures would ship your screen to a third party on every click; words
 cover most of what the agents need, and the picture is there, blacked out, for the few cases they don't.
@@ -182,18 +195,28 @@ cover most of what the agents need, and the picture is there, blacked out, for t
 
 **The question.** Don't ask everything at the start; it is overwhelming. But then when are the other options asked?
 
-**The answer.**
-- Before recording, only the **goal** is required. Frequency defaults to "only when I start it". What changes,
-  what stays the same and Never may be empty.
-- After Stop, the design agent asks only what the recording and the goal can't tell it, at most 5 questions, each
-  shown next to the step it is about. Typical: "always the newest email from this sender, or this one?", "what should
-  the folder be when it runs on its own?".
-- Anything still open waits in the Editor: every step can be changed later, approvals toggled, the Frequency set on
-  the workflow's page.
-- Nothing is asked twice: lasting answers go to memory.
+**The answer.** (Updated 15 Oct: the form is now one goal box.)
+- **Before recording: one box.** The goal, a Frequency chip beside it ("only when I start it" by default), the screen /
+  voice / pictures switches, and Record. "What changes" and "what stays" are gone: you say them while you do the task.
+  Never is still there, folded, because its words are masked from the screen text and the narration while you record;
+  asked later it would be too late.
+- **After Stop, one asker: the design agent.** The order:
+  1. the first-draft call (one model call) writes candidate questions. Since 15 Oct it hears the narration too, and is
+     told never to ask what the description or the narration says;
+  2. the design agent **closes** the candidates your words already answer, by quoting them (`close_question`; code
+     checks the quote is really in what you wrote or said), asks at most 5 of the rest (`ask_user`), each shown next to
+     its step, and gets each answer back in its own loop to build into the workflow;
+  3. what it neither asked nor closed is asked by the daemon after it finishes (the drill), and written in by code
+     (`applyAnswer`, which now creates a missing input instead of dropping the answer);
+  4. only for a schedule or folder Frequency: a default for each input still empty.
+- **Every question with options also takes your own words** ("Or write your own answer"), unless an option stands for
+  something words can't fill (a whole step, a schedule).
+- Anything still open waits in the Editor. Lasting answers go to memory.
 
-**Example timeline.** 10:00 the form: goal only. 10:04 Stop. 10:04 one question on step 2. 10:05 saved as v1. 10:10
-in the Editor you tick approval on step 5 and set "every Monday 09:00". 10:11 Go live.
+**Example timeline.** 10:00 the goal box: "every morning, the 5 newest YC jobs into my sheet". 10:01–10:04 you do one
+and say "skip the ones already there". 10:04 Stop. The candidate "how many?" is closed with the quote "the 5 newest";
+"skip existing?" with "skip the ones already there". One question is asked: "which column gets the date?". 10:05 saved
+as v1.
 
 **Why not the other way.** A full form before recording asks people to describe variables they haven't thought about
 yet; after the recording the questions are concrete, and most never need asking.
@@ -238,29 +261,35 @@ guard keeps it to understanding, not acting.
 **The question.** The voice part is mysterious. People speak before they act, while, after, or just explain
 without acting. How does it line up?
 
-**The answer.**
-- While recording, with the microphone consent, Shadow.app records `voice.m4a` and notes when it started on the
-  daemon's clock. Nothing is transcribed live.
-- After Stop, `Shadow --transcribe` runs Apple's on-device speech recognizer and returns pieces of text with their
-  start and end seconds. The daemon masks them and writes `transcript.jsonl` with each piece's time on the
-  recording's clock. The audio never leaves the Mac.
-- Lining up: each piece goes with the last step that started before it, with one second of grace. So "I always take
-  the newest one" said just before clicking the email goes with the click (speaking a little early is normal);
-  said during or just after, it goes with the same click; a sentence said over no click goes with the step before
-  it.
-- The design agent sees the text next to the step, as "said: …". It uses it for intent, never as a step: "always
-  the newest" makes the click "the newest email from this sender"; "I usually do this in Excel too" is just context.
-- Weak spots: a long explanation with no action lands on whichever step came before it; two sentences across a
-  click boundary split; the recognizer needs a clear voice.
+**The answer.** (Updated 15 Oct, after the YC recording: the loop you said out loud never became a loop.)
+- **Capture:** with the microphone consent, Shadow.app records `voice.m4a` and notes when it started on the daemon's
+  clock. Nothing is transcribed live and the audio never leaves the Mac.
+- **After Stop:** `Shadow --transcribe` (Apple's on-device recognizer) returns pieces of text with start and end
+  seconds; the daemon masks them and writes `transcript.jsonl`: `{"at": …, "until": …, "text": "…"}` on the
+  recording's clock.
+- **The real path, since 15 Oct: what you say is the rule, what you do is one example of it.**
+  1. The **whole narration goes first, as its own section**, in order, each piece with the steps it spans
+     (`[before step 1] I take the top 5 latest ones`, `[steps 4-7] I skip the ones already in my sheet`), to both
+     model calls: the first draft (which never heard it before) and the design agent. Nothing is cut after step 40.
+  2. Each piece also still sits next to its step as `said: …`.
+  3. The agent is told that "do this for 5 a day", "only remote ones", "if there are fewer, take what there is" are
+     rules: a loop, a filter, a fallback, even when you showed only one item.
+- **Before, during, after:** a piece's start picks the step it begins on (the last step that started before it, plus
+  one second, because people talk as they click); its end picks where it stops. Said before any action, it is
+  `before step 1`: about the whole task. A long explanation over several clicks spans them all instead of landing on
+  one.
+- **Still weak:** the recognizer needs a clear voice; nothing checks that every rule you said became a step (the
+  agent is told to, and a test with the real model is the proof).
 
-**Example.** 00:12 click the email. 00:13 "this is always from Reporting Bot". The text is attached to the click;
-the step becomes "open the newest email from Reporting Bot".
+**Example.** 00:05 you say "I take the top 5 latest ones" before touching anything; 00:12 click the first job; 00:13
+"skip ones already in my sheet". The agent gets `[before step 1] I take the top 5 latest ones` at the top of its
+first message, so it builds: read the job list → pick 5 new ones (an llm step) → a loop over them.
 
 **Why not the other way.** Word-level alignment to mouse events would be fragile and would still not know what a
 sentence refers to; by-step attachment plus the model reading both is simpler and good enough.
 
 **Files, in order.** `apps/mac/Sources/Voice.swift` · `apps/daemon/src/voice.ts` ·
-`apps/daemon/src/recording-store.ts` (`readNotes`) · `packages/recorder/src/design/tools.ts` (`notesByStep`).
+`apps/daemon/src/recording-store.ts` (`readNotes`) · `packages/recorder/src/narration.ts` (`narrationOf`, `notesByStep`) · `compile.ts` (the narration in the first draft) · `design/design.ts` (`taskOf`: the "What they said" section).
 
 ## J. Steps 6 and 7
 
