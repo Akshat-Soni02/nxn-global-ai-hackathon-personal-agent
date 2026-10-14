@@ -156,7 +156,7 @@ Then `briefing({ edits: true })` ([README](README.md) §4; **without** "Availabl
 
 # The recording (by meaning; screen words shortened here, read_recording shows any part in full)
 <untrusted_data>
-[ { n, ids, did, page, element, …, notes: ["said: …", "on screen: <≤300 chars> | (as before)"] }, … ]   steps 1–40
+[ { n, ids, did, page, element, …, notes: ["on screen: <≤300 chars> | (as before)"] }, … ]   steps 1–40
 … and N more steps                                                                   (when > 40)
 </untrusted_data>
 
@@ -170,22 +170,8 @@ Then `briefing({ edits: true })` ([README](README.md) §4; **without** "Availabl
 Steps past 40 are only reachable with `read_recording`, but since 15 Oct the narration section is never cut, so what was said about them is in the first message.
 
 ### 5.3 How notes attach to steps (`packages/recorder/src/narration.ts`)
-- `notesByStep`: each note goes with the **last step that started at or before the note's time + 1 s** (people talk as they click), or with step 1 when it came before any step. A screenshot's words are attached to the step after which it was taken.
-- `narrationOf` (since 15 Oct): each narration piece also gets the **span** of steps from where it started to where it ended (`until`, kept by `readNotes`), or `before step 1`. That is the "What they said" section, so a sentence about the whole task is no longer stuck on one step.
-
-### 5.4 The outline format (`outlineOf`)
-```
-start  trigger  when: manual  inputs: count (number) = 5; sheet_url (text) from {"…"}
-  s1  web.navigate  "Open www.ycombinator.com/jobs"  args {"url":"…"}
-  l1  loop "Each new job"  for each job in {{jobs}} (max 50, stop on a failing item)
-    s5  web.click  "Open the company"  on link "Numeral"
-  ai1  llm  "Pick 5 new jobs"  reads {{jobs}}, {{existing}}  → picked (list of object)
-  b1  if {"left":…}  "Only remote"
-  s9  web.type  "Paste the name"  on combobox "A2"  args {"text":"{{copied_1}}"}  [approval]
-```
-Args are clipped to 160 characters. Targets show `role "name|label|text|?"`.
-
----
+- What was **seen** (`notesByStep`): each screenshot's words go with the **last step that started at or before the note's time + 1 s**, or with step 1 when they came before any step.
+- What was **said** (`narrationOf`, since 15 Oct): only in the "What they said" list, never as a note on a step. Each piece is marked with the span of steps from where it started to where it ended (`until`), or `before step 1`. Pages opened again that the recording had already been on (switching back to a tab) are skipped when marking, so a mark always points at something the person did.
 
 ## 6. Session state (`DesignSession`)
 

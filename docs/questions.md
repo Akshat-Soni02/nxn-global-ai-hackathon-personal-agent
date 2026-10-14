@@ -272,7 +272,8 @@ without acting. How does it line up?
   1. The **whole narration goes first, as its own section**, in order, each piece with the steps it spans
      (`[before step 1] I take the top 5 latest ones`, `[steps 4-7] I skip the ones already in my sheet`), to both
      model calls: the first draft (which never heard it before) and the design agent. Nothing is cut after step 40.
-  2. Each piece also still sits next to its step as `said: …`.
+  2. It is only in that list, never repeated as a note on a step, and its step marks skip a page you only switched
+     back to, so they point at something you did.
   3. The agent is told that "do this for 5 a day", "only remote ones", "if there are fewer, take what there is" are
      rules: a loop, a filter, a fallback, even when you showed only one item.
 - **Before, during, after:** a piece's start picks the step it begins on (the last step that started before it, plus

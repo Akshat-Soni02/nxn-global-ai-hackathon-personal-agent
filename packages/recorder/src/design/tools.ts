@@ -557,7 +557,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
       name: "read_recording",
       kind: "look",
       description:
-        "What the user did, in order and by meaning (n = step number), with the workflow steps each became (ids) and what was said or seen near it. from/to: step numbers",
+        "What the user did, in order and by meaning (n = step number), with the workflow steps each became (ids) and the screen words seen near it (what was said is the list in your first message). from/to: step numbers",
       input: z.object({ from: z.number().int().min(1).optional(), to: z.number().int().min(1).optional() }),
       run: ({ from, to }) => ({ output: recordingView(session, from, to), untrusted: true }),
     }),

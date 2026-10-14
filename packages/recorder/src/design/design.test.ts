@@ -5,6 +5,7 @@ import { compile, type Form, type Question } from "../compile.ts";
 import type { Prompter } from "../drill.ts";
 import { type NormalisedStep, normalise } from "../normalise.ts";
 import { designWorkflow } from "./design.ts";
+import { narrationOf } from "../narration.ts";
 import { designViolations, notesByStep, recordedFolders, recordedOpens } from "./tools.ts";
 
 const PAGE = "http://localhost:5173/upload.html";
@@ -623,6 +624,8 @@ describe("the rules and the recording view", () => {
     expect(task.indexOf("# What they said")).toBeLessThan(task.indexOf("# The recording"));
     expect(task).toContain("on screen: (as before)");
     expect(task).not.toContain("x".repeat(301));
+    // Said once, in the list: never again as a note on a step.
+    expect(task).not.toContain("said: ");
   });
 
   it("lets the first draft hear the narration too", async () => {
@@ -641,15 +644,37 @@ describe("the rules and the recording view", () => {
     ]);
   });
 
-  it("puts what was said next to the step it was said over", () => {
+  it("puts what was seen next to its step, and what was said only in its own list", () => {
     const steps = normalise(trace());
     const notes = notesByStep(steps, [
       { at: 5_500, kind: "said", text: "always the newest one" },
       { at: -2_000, kind: "screen", text: "Invoices · ███@███" },
     ]);
-    const said = notes.findIndex((n) => n.some((t) => t.includes("newest")));
-    expect(steps[said]?.kind).toBe("upload");
     expect(notes[0]).toEqual(["on screen: Invoices · ███@███"]);
+    expect(notes.flat().some((t) => t.includes("newest"))).toBe(false);
+    const upload = steps.findIndex((s) => s.kind === "upload") + 1;
+    expect(narrationOf(steps, [{ at: 5_500, kind: "said", text: "always the newest one" }])).toEqual([
+      { during: `step ${upload}`, said: "always the newest one" },
+    ]);
+  });
+
+  it("marks a sentence against what the person did, never a page they switched back to", () => {
+    const jobs = "https://www.ycombinator.com/jobs";
+    const sheet = "https://docs.google.com/spreadsheets/d/abc/edit";
+    // 1 open the jobs, 2 click Numeral, 3 open the sheet, 4 back to the jobs tab (it reloads), 5 click the next job.
+    const steps = [
+      { kind: "navigate", at: 0, url: jobs },
+      { kind: "click", at: 2_000, url: jobs },
+      { kind: "navigate", at: 5_000, url: sheet },
+      { kind: "navigate", at: 9_000, url: `${jobs}?ref=tab` },
+      { kind: "click", at: 15_000, url: jobs },
+    ] as NormalisedStep[];
+    const said = (at: number) => narrationOf(steps, [{ at, kind: "said", text: "I take the top 5" }])[0]?.during;
+    // Said just after switching back to the jobs tab: not "step 4" (the reload), but the sheet step before it.
+    expect(said(10_000)).toBe("step 3");
+    expect(said(16_000)).toBe("step 5");
+    // The first time a page is opened counts.
+    expect(said(5_500)).toBe("step 3");
   });
 });
 
