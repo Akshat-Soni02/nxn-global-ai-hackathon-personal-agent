@@ -547,10 +547,12 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
         if (!open) return { output: { answer } };
         session.pending = session.pending.filter((q) => q !== open);
         if (!answer || !open.appliesTo) return { output: { answer } };
+        // An answer that couldn't go in by itself is still the user's answer: the agent puts it in, or it is lost.
+        const yours = "the user answered this: put it into the workflow yourself with an edit";
         const applied = applyAnswer(session.draft, open, answer);
-        if (!applied.ok) return { output: { answer, not_applied: applied.error } };
+        if (!applied.ok) return { output: { answer, not_applied: applied.error, now: yours } };
         const broken = designViolations(session.original, applied.skill, session.form, session.folders);
-        if (broken.length > 0) return { output: { answer, not_applied: broken } };
+        if (broken.length > 0) return { output: { answer, not_applied: broken, now: yours } };
         session.draft = applied.skill;
         return { output: { answer, applied: true, workflow: outlineOf(session.draft) } };
       },

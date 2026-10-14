@@ -55,6 +55,27 @@ export function applyAnswer(
   if (keys.some((k) => PROTECTED.has(k)))
     return { ok: false, error: `${question.appliesTo} can't be set by an answer` };
 
+  // An answer about one of the run's inputs ("steps.start.inputs.count", or ".default", or the trigger by its position
+  // "steps.0"): an input is a typed object, so the answer becomes its default, and an input that doesn't exist yet
+  // is created, typed from the answer ("5" a number, "yes" a yes/no). Writing the bare answer there would never parse.
+  if (keys[0] === "steps" && keys[2] === "inputs" && keys[3] && (keys.length === 4 || keys[4] === "default")) {
+    const steps = copy.steps as Record<string, unknown>[];
+    const trigger = keys[1] === "0" ? steps[0] : steps.find((s) => s.id === keys[1]);
+    if (trigger?.type === "trigger") {
+      const inputs = (trigger.inputs ?? {}) as Record<string, Record<string, unknown>>;
+      trigger.inputs = inputs;
+      const name = keys[3] as string;
+      const current = inputs[name];
+      const value = valueFor(question, answer, current?.default);
+      if (keys.length === 4 && isInput(value)) inputs[name] = value as Record<string, unknown>;
+      else if (current) current.default = typed(value, (current.type as { type?: string })?.type);
+      else inputs[name] = { type: { type: typeOf(value) }, default: typed(value, typeOf(value)) };
+      const parsed = Skill.safeParse(copy);
+      if (parsed.success) return { ok: true, skill: parsed.data };
+      return { ok: false, error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+    }
+  }
+
   let node = copy;
   // "steps.s3" with an object answer replaces the whole step (keep an llm step, or the recorded rule instead).
   if (keys[0] === "steps" && keys.length === 2) {
@@ -87,6 +108,25 @@ export function applyAnswer(
   const parsed = Skill.safeParse(copy);
   if (parsed.success) return { ok: true, skill: parsed.data };
   return { ok: false, error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+}
+
+// A whole input as an option's value: { type: { type: "number" }, default: 5 }.
+const isInput = (value: unknown): boolean =>
+  typeof value === "object" && value !== null && typeof (value as { type?: unknown }).type === "object";
+const YES = /^(y|yes|true|ok|sure)$/i;
+const YES_OR_NO = /^(y|yes|true|ok|sure|n|no|false)$/i;
+// The type a new input gets from its answer.
+function typeOf(value: unknown): "number" | "boolean" | "text" {
+  if (typeof value === "number" || (typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value.trim()))) return "number";
+  if (typeof value === "boolean" || (typeof value === "string" && YES_OR_NO.test(value.trim()))) return "boolean";
+  return "text";
+}
+// The answer as a value of that type; anything else stays as it is (the schema says if it is wrong).
+function typed(value: unknown, type: string | undefined): unknown {
+  if (typeof value !== "string") return value;
+  if (type === "number" && Number.isFinite(Number(value))) return Number(value);
+  if (type === "boolean") return YES.test(value.trim());
+  return value;
 }
 
 // An option chosen by number or label gives its value. Otherwise the typed text is read as the type already there.

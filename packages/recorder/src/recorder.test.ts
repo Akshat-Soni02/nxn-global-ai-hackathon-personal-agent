@@ -607,6 +607,25 @@ describe("drill", () => {
     ]);
   });
 
+  it("creates the input an answer is about, typed from the answer (the YC recording's lost answers)", async () => {
+    const skill = await base();
+    const ask = (appliesTo: string, answer: string) => applyAnswer(skill, { id: "q", text: "?", appliesTo }, answer);
+    // The trigger by its position, as the first draft wrote it on Oct 14: "5", "Yes", and a text.
+    const count = ask("steps.0.inputs.number", "5");
+    expect(count.ok && inputsOf(count.skill).number).toEqual({ type: { type: "number" }, default: 5 });
+    const skip = ask("steps.start.inputs.skip_existing", "Yes");
+    expect(skip.ok && inputsOf(skip.skill).skip_existing).toEqual({ type: { type: "boolean" }, default: true });
+    const columns = ask("steps.start.inputs.name_column.default", "B");
+    expect(columns.ok && inputsOf(columns.skill).name_column).toEqual({ type: { type: "text" }, default: "B" });
+    // An input that exists keeps its type, and the answer becomes its default.
+    const typed = applyAnswer(
+      count.ok ? count.skill : skill,
+      { id: "q", text: "?", appliesTo: "steps.start.inputs.number" },
+      "7",
+    );
+    expect(typed.ok && inputsOf(typed.skill).number).toEqual({ type: { type: "number" }, default: 7 });
+  });
+
   it("refuses answers that would change a target or break the schema", async () => {
     const skill = await base();
     expect(applyAnswer(skill, { id: "x", text: "?", appliesTo: "steps.s2.target.name" }, "Other").ok).toBe(false);
