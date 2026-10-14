@@ -22,6 +22,7 @@ import {
   type Note,
   outlineOf,
   recordedFolders,
+  recordedPages,
   recordingView,
 } from "./tools.ts";
 
@@ -67,6 +68,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
   const session: DesignSession = {
     original: options.skill,
     folders: recordedFolders(options.steps, options.skill),
+    pages: recordedPages(options.steps),
     draft: options.skill,
     form: options.form,
     steps: options.steps,

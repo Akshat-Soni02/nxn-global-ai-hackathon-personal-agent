@@ -357,6 +357,46 @@ describe("the rules and the recording view", () => {
     expect(designViolations(skill, renamed)).toEqual([]);
   });
 
+  it("keeps what the user showed: no recorded write removed, at most half the steps; a click may open its page", async () => {
+    const { skill } = await draft();
+    const clone = (s: Skill = skill) => JSON.parse(JSON.stringify(s)) as Skill;
+    const without = (s: Skill, ...ids: string[]) => ({ ...s, steps: s.steps.filter((x) => !ids.includes(x.id)) });
+    // The upload is the work itself (Oct 14: the agent removed s1-s30, typing and pasting included).
+    expect(designViolations(skill, without(clone(), "s2"), form)).toEqual([
+      expect.stringMatching(/s2: it does what the user showed \(web.upload\).*never remove it/),
+    ]);
+    // Ten recorded actions: four clicks may go as noise, five may not.
+    const long = clone();
+    const submit = long.steps[3] as Record<string, unknown>;
+    for (let i = 1; i <= 6; i++) {
+      long.steps.push({
+        ...submit,
+        id: `c${i}`,
+        requires_approval: false,
+        target: { role: "button", name: `Next ${i}`, fallbacks: [] },
+      } as never);
+    }
+    expect(designViolations(long, without(clone(long), "c1", "c2", "c3", "c4"), form)).toEqual([]);
+    expect(designViolations(long, without(clone(long), "c1", "c2", "c3", "c4", "c5"), form)).toEqual([
+      expect.stringMatching(/5 of the 9 recorded steps would be gone \(at most 4\)/),
+    ]);
+    // A click that took them to a sheet may become "open the sheet", if the recording reached that page.
+    const sheet = "https://docs.google.com/spreadsheets/d/abc/edit";
+    const opened = clone(long);
+    opened.steps[4] = {
+      id: "c1",
+      type: "action",
+      intent: "Open the sheet",
+      channel: "web",
+      action: "navigate",
+      args: { url: sheet },
+    } as never;
+    expect(designViolations(long, opened, form, [], [sheet])).toEqual([]);
+    expect(designViolations(long, opened, form)).toEqual([
+      expect.stringMatching(/c1: it may only open a site the recording visited/),
+    ]);
+  });
+
   it("keeps file steps, inputs and local pages inside what the recording touched, however the path is written", async () => {
     const { steps, skill } = await draft();
     // A download's folder counts as touched.

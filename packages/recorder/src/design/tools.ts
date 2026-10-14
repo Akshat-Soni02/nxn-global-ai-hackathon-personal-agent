@@ -31,6 +31,8 @@ export interface DesignSession {
   original: Skill;
   // The folders the recording touched: the only places a new step may read from.
   folders: string[];
+  // Every page the recording was on or reached: the only sites a step may open.
+  pages: string[];
   draft: Skill;
   form?: Form;
   steps: NormalisedStep[];
@@ -78,6 +80,22 @@ const originOf = (url: unknown): string | undefined => {
 
 // Steps the agent may add: they only read or open a page the recording visited; they change nothing.
 const READ_ONLY = new Set(["fs.find", "fs.read", "data.pick", "web.extract", "web.wait_for", "web.navigate"]);
+// Recorded steps that are the work itself (typing, pasting, choosing, uploading, moving files): they can be moved into
+// a loop or a branch, never removed. Without this, an agent could delete everything the user showed (Oct 14: 30 of 35).
+const WRITES = new Set([
+  "web.type",
+  "web.select",
+  "web.upload",
+  "web.drag",
+  "ax.set_value",
+  "fs.move",
+  "fs.copy",
+  "fs.rename",
+  "fs.write",
+]);
+// At most this share of the recorded actions may be removed (noise: double clicks, repeated page loads). Beyond it,
+// the agent asks the user.
+const MAX_REMOVED = 0.5;
 
 // A path as the player will open it: ~ expanded, made absolute, and symlinks followed as far as the path exists, so
 // a link inside an allowed folder can't reach outside it.
@@ -133,6 +151,11 @@ export function recordedFolders(steps: NormalisedStep[], original: Skill): strin
   return [...new Set(folders)];
 }
 
+// Every page the recording was on, or a click took it to (a sheet opened from Drive is a page it visited).
+export function recordedPages(steps: NormalisedStep[]): string[] {
+  return [...new Set(steps.flatMap((s) => [s.url, s.navigatesTo]).filter((u): u is string => !!u))];
+}
+
 // Every way the draft breaks the rules, as sentences the agent reads; empty when it may be kept.
 //   targets       only from the recording: no new control, and no control changed
 //   actions       a new step may only read (READ_ONLY), and files only in folders the recording touched; a recorded
@@ -140,7 +163,15 @@ export function recordedFolders(steps: NormalisedStep[], original: Skill): strin
 //   reach         no script steps, no navigating to a site the recording didn't visit
 //   the user's    the form's description and Frequency stay as written
 //   safety        approval is never turned off, and a step that needs it is never removed
-export function designViolations(original: Skill, draft: Skill, form?: Form, folders: string[] = []): string[] {
+//   the work      a recorded step that writes is never removed, and at most half the recorded actions are
+// `visited`: every page the recording was on or reached (by a click, too), not only its navigate steps.
+export function designViolations(
+  original: Skill,
+  draft: Skill,
+  form?: Form,
+  folders: string[] = [],
+  visitedPages: string[] = [],
+): string[] {
   const problems: string[] = [];
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
   if (form && !same(triggerOf(draft).when, triggerOf(original).when)) {
@@ -152,7 +183,10 @@ export function designViolations(original: Skill, draft: Skill, form?: Form, fol
 
   const before = new Map<string, Step>([...walkSteps(original.steps)].map(({ step }) => [step.id, step]));
   const recorded = new Set([...before.values()].filter(isAction).map((s) => keyOf(s.target)));
-  const visited = [...before.values()].filter(isAction).flatMap((s) => (s.action === "navigate" ? [s.args.url] : []));
+  const visited = [
+    ...[...before.values()].filter(isAction).flatMap((s) => (s.action === "navigate" ? [s.args.url] : [])),
+    ...visitedPages,
+  ];
   // A local file has no site (its origin is "null"): it counts only by its exact address.
   const sites = new Set(visited.map(originOf).filter((o): o is string => !!o && o !== "null"));
   const pages = new Set(visited.filter((u): u is string => typeof u === "string" && /^file:/i.test(u)));
@@ -175,11 +209,14 @@ export function designViolations(original: Skill, draft: Skill, form?: Form, fol
     if (!isAction(step)) continue;
     const old = before.get(step.id);
     const kind = `${step.channel}.${step.action}`;
+    // A click that only took them to a page may become "open that page" (the navigate rule below checks the site):
+    // Drive -> Recent -> the sheet becomes one step that opens the sheet.
+    const opened = !!old && isAction(old) && old.channel === "web" && old.action === "click" && kind === "web.navigate";
     if (!old && !READ_ONLY.has(kind)) {
       problems.push(
         `${step.id}: a new ${kind} step would do something the user didn't show. Only steps that read (${[...READ_ONLY].join(", ")}) can be added; ask the user to show the rest`,
       );
-    } else if (old && (!isAction(old) || `${old.channel}.${old.action}` !== kind)) {
+    } else if (old && !opened && (!isAction(old) || `${old.channel}.${old.action}` !== kind)) {
       problems.push(
         `${step.id}: a recorded step keeps its kind of action (it was ${isAction(old) ? `${old.channel}.${old.action}` : old.type})`,
       );
@@ -200,7 +237,7 @@ export function designViolations(original: Skill, draft: Skill, form?: Form, fol
       problems.push(
         `${step.id}: its target is not one you recorded. Targets come only from the recording: if a step needs a control the user didn't use, ask them`,
       );
-    } else if (old && isAction(old) && old.target && keyOf(old.target) !== keyOf(step.target)) {
+    } else if (old && isAction(old) && old.target && !opened && keyOf(old.target) !== keyOf(step.target)) {
       problems.push(`${step.id}: its target can't change (it is what the user clicked)`);
     }
     if (step.channel === "script" && !(old && isAction(old) && old.channel === "script")) {
@@ -217,6 +254,23 @@ export function designViolations(original: Skill, draft: Skill, form?: Form, fol
         problems.push(`${step.id}: it may only open a site the recording visited (${[...sites].join(", ") || "none"})`);
       }
     }
+  }
+  // What the user showed stays: no recorded write disappears, and no more than half of the recorded actions.
+  const actions = [...before.values()].filter(isAction);
+  const removed = actions.filter((s) => !after.has(s.id));
+  for (const step of removed) {
+    const kind = `${step.channel}.${step.action}`;
+    if (WRITES.has(kind)) {
+      problems.push(
+        `${step.id}: it ${step.action === "type" ? "types" : "does"} what the user showed (${kind}), which is the work itself: move it or wrap it in a loop or branch, never remove it`,
+      );
+    }
+  }
+  const allowed = Math.max(2, Math.floor(actions.length * MAX_REMOVED));
+  if (removed.length > allowed) {
+    problems.push(
+      `${removed.length} of the ${actions.length} recorded steps would be gone (at most ${allowed}): keep what the user showed, and ask them before dropping more`,
+    );
   }
   for (const [id, old] of before) {
     if (!("requires_approval" in old) || !old.requires_approval) continue;
@@ -340,7 +394,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
   const change = (edits: EditInput[]) => {
     const result = applyEdits(session.draft, edits);
     if (!result.ok) return { output: { ok: false, problems: result.problems } };
-    const broken = designViolations(session.original, result.skill, session.form, session.folders);
+    const broken = designViolations(session.original, result.skill, session.form, session.folders, session.pages);
     if (broken.length > 0) return { output: { ok: false, refused: broken } };
     session.draft = result.skill;
     session.edits.push(...edits);
@@ -428,7 +482,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
       kind: "edit",
       description:
         "Apply edit operations to the draft, in order (see the briefing): set a field, insert, replace, remove or move a step. All or none are kept",
-      input: z.object({ edits: z.array(z.record(z.string(), z.unknown())).min(1).max(30) }),
+      input: z.object({ edits: z.array(z.record(z.string(), z.unknown())).min(1).max(100) }),
       run: ({ edits }) => change(edits as unknown as EditInput[]),
     }),
     tool({
@@ -551,7 +605,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
         const yours = "the user answered this: put it into the workflow yourself with an edit";
         const applied = applyAnswer(session.draft, open, answer);
         if (!applied.ok) return { output: { answer, not_applied: applied.error, now: yours } };
-        const broken = designViolations(session.original, applied.skill, session.form, session.folders);
+        const broken = designViolations(session.original, applied.skill, session.form, session.folders, session.pages);
         if (broken.length > 0) return { output: { answer, not_applied: broken, now: yours } };
         session.draft = applied.skill;
         return { output: { answer, applied: true, workflow: outlineOf(session.draft) } };
