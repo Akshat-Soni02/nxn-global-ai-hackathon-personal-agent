@@ -328,7 +328,10 @@ describe("after Stop, with a model", () => {
     expect(triggerOf(skill).inputs.week?.default).toBe("{{today}}");
     expect(skill.history[0]?.summary).toBe("Recorded; A scheduled run logs the current week");
     const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
-    expect(kept).toMatchObject({ summary: "A scheduled run logs the current week", turns: 4 });
+    expect(kept).toMatchObject({ summary: "A scheduled run logs the current week", turns: 4, closed: [] });
+    // What the agent was told is kept, so a poor result can be explained (Oct 14: it couldn't be).
+    expect(kept.prompt.system).toMatch(/^You are Shadow's design agent/);
+    expect(kept.prompt.task).toMatch(/# What they said while doing it/);
   });
 
   it("when the agent can't finish, the first draft is kept and the missing default is asked for", async () => {

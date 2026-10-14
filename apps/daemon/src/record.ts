@@ -202,6 +202,9 @@ export async function finishRecording(
       designed = design.summary;
       log(`design agent: ${design.summary} (${design.episode?.turns ?? 0} turns${cost})`);
     } else log(`design agent: ${design.reason}${cost}; keeping the first draft`);
+    if (design.closed.length > 0) {
+      log(`not asked: ${design.closed.length} question(s) the description or narration already answered`);
+    }
     skill = design.skill;
     questions = design.pending;
     await remember(options.memory, skill.id, design.answered);
@@ -304,9 +307,11 @@ function keepEpisode(dataDir: string, sessionId: string, design: Awaited<ReturnT
   const { transcript, usage, turns } = design.episode;
   const result =
     design.kind === "designed" ? { summary: design.summary, edits: design.edits } : { kept: design.reason };
+  // What it was told and which questions it closed (and with which words), so a poor result can be explained.
+  const closed = design.closed.map(({ question, quote }) => ({ id: question.id, text: question.text, quote }));
   writeFileSync(
     join(dir, "design.json"),
-    `${JSON.stringify({ ...result, turns, usage, transcript }, null, 2)}
+    `${JSON.stringify({ ...result, turns, usage, closed, prompt: design.prompt, transcript }, null, 2)}
 `,
     {
       mode: 0o600,

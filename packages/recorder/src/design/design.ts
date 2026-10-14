@@ -61,6 +61,8 @@ export type DesignOutcome = {
   pending: Question[];
   answered: { question: Question; answer: string }[];
   closed: { question: Question; quote: string }[];
+  // What the agent was told (its system prompt and first message), kept for debugging a poor result.
+  prompt: { system: string; task: string };
   episode?: Episode<DesignFinish>;
 } & ({ kind: "designed"; summary: string; edits: EditInput[] } | { kind: "kept"; reason: string });
 
@@ -85,11 +87,11 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     checks: options.checks,
     describe: options.describeScreen,
   };
+  const prompt = { system: `${ROLE}\n\n${briefing({ edits: true })}`, task: taskOf(session) };
   const episode = await runAgent<DesignFinish>({
     llm: options.llm,
     profile: "smart",
-    system: `${ROLE}\n\n${briefing({ edits: true })}`,
-    task: taskOf(session),
+    ...prompt,
     tools: designTools(session),
     budget: { ...DESIGN_BUDGET, ...options.budget },
     protocol: options.protocol,
@@ -108,6 +110,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
       pending: session.pending.filter((q) => stillOpen(session.draft, q)),
       answered: session.answered,
       closed: session.closed,
+      prompt,
       episode,
     };
   }
@@ -131,6 +134,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     pending: session.pending,
     answered: session.answered,
     closed: session.closed,
+    prompt,
     episode,
   };
 }
