@@ -194,6 +194,8 @@ const prompter: Prompter = {
     service.ask({
       title: question.text,
       options: question.options?.map((o) => o.label),
+      // Your own words are always welcome, unless an option is a whole step or a schedule that words can't stand for.
+      freeText: !(question.options ?? []).some((o) => typeof o.value === "object" && o.value !== null),
       default: question.default,
       // A design-agent question is shown on the draft, next to its step.
       step: about?.step,
