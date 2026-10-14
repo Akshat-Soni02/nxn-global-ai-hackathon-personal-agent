@@ -44,8 +44,9 @@ export interface DesignSession {
   // The first draft's questions not asked yet, and the answers given so far (to them and to the agent's own).
   pending: Question[];
   answered: { question: Question; answer: string }[];
-  // Open questions the description or the narration already answered, with the words that answer them.
-  closed: { question: Question; quote: string }[];
+  // For each open question, what sat where its answer goes when the question appeared (slotOf): if the agent changes
+  // that place, it decided from what was said, and the question isn't asked after it.
+  baseline: Map<string, string | null>;
   // The plain step list, to label first (label_steps), and whether that happened. Without one there is nothing to label.
   base?: Base;
   labelled: boolean;
@@ -425,13 +426,6 @@ function typeText(type: { type: string; items?: { type: string } }): string {
   return type.type === "list" && type.items ? `list of ${type.items.type}` : type.type;
 }
 const clip = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max)}…`);
-// Words only, for comparing a quote with what was written or said: case, punctuation and spacing don't count.
-const plain = (text: string) =>
-  text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-
 // The recording by meaning (what compile's model saw), each step with the skill steps it became and what was said
 // or seen around it. `brief` (the agent's first message): a screen's words cut short, and a screen like the one
 // before it said once, so 30 screenshots of the same page don't bury the 14 sentences the person said. read_recording
@@ -492,7 +486,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
         ok: true,
         workflow: outlineOf(session.draft),
         still_to_fix: problems(),
-        // A reminder, not a block: each one is asked, closed, or asked after the agent finishes.
+        // A reminder, not a block: each one is answered with an edit, asked, or asked after the agent finishes.
         ...(session.pending.length > 0 ? { open_questions: session.pending.map((q) => `${q.id}: ${q.text}`) } : {}),
       },
     };
@@ -748,33 +742,6 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
       },
     }),
 
-    tool({
-      name: "close_question",
-      kind: "look",
-      description:
-        "Close an open question the description or what they said already answers, quoting their words exactly (`quote`): it is never put to the user. Then make the workflow use what they said",
-      input: z.object({ id: z.string(), quote: z.string().min(1) }),
-      run: ({ id, quote }) => {
-        const open = session.pending.find((q) => q.id === id);
-        if (!open) return { output: `No open question ${id}. Open: ${session.pending.map((q) => q.id).join(", ")}` };
-        // Only their own words close a question: the agent can't decide for the user by claiming they said it.
-        const said = [
-          ...(session.form ? Object.values(session.form.description).flat() : []),
-          ...session.notes.filter((n) => n.kind === "said").map((n) => n.text),
-        ].map((text) => plain(String(text)));
-        const words = plain(quote);
-        // At least three words, so "the" or "5" can't close anything.
-        if (words.split(" ").length < 3 || !said.some((text) => text.includes(words))) {
-          return {
-            output: `"${quote}" is not in the description or what they said: quote at least three of their exact words, or ask the question instead.`,
-          };
-        }
-        session.pending = session.pending.filter((q) => q !== open);
-        session.closed.push({ question: open, quote });
-        return { output: { closed: id, now: "make the workflow use it if it doesn't yet" } };
-      },
-    }),
-
     // ---- Finish ----
     tool({
       name: "finish",
@@ -788,4 +755,25 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
       },
     }),
   ];
+}
+
+// What sits where a question's answer goes ("steps.start.inputs.invoice.resolve.dir"), as JSON, so the agent's
+// change to it can be noticed; null when the step or input the question is about is gone (nothing left to ask).
+export function slotOf(skill: Skill, appliesTo: string | undefined): string | null {
+  let keys = (appliesTo ?? "").split(".").filter(Boolean);
+  let node: unknown = skill;
+  if (keys[0] === "steps" && keys.length >= 2) {
+    const step =
+      keys[1] === "0" ? skill.steps[0] : [...walkSteps(skill.steps)].find(({ step }) => step.id === keys[1])?.step;
+    if (!step) return null;
+    if (step.type === "trigger" && keys[2] === "inputs" && keys[3] && !(keys[3] in triggerOf(skill).inputs))
+      return null;
+    node = step;
+    keys = keys.slice(2);
+  }
+  for (const key of keys) {
+    if (node === null || typeof node !== "object") return "-";
+    node = (node as Record<string, unknown>)[key];
+  }
+  return JSON.stringify(node) ?? "-";
 }

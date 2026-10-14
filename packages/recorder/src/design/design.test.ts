@@ -654,35 +654,21 @@ describe("the rules and the recording view", () => {
 });
 
 describe("questions left after the agent", () => {
-  it("closes a question the narration already answers, by quoting it, and never asks it", async () => {
-    const { steps, skill, questions } = await draft();
-    const open = questions[0];
-    expect(open).toBeDefined();
+  it("asks after it only what it left untouched: an answer it put in from what was said isn't asked again", async () => {
+    const { steps, skill } = await draft();
+    // Two questions code might have: where the answer goes is a step's timeout.
+    const questions: Question[] = [
+      { id: "slow-upload", text: "How long can the upload take?", appliesTo: "steps.s2.timeout_ms" },
+      { id: "slow-page", text: "How long can the page take to open?", appliesTo: "steps.s1.timeout_ms" },
+    ];
     const { p, asked } = prompter();
     const llm = fakeLlm([
-      // Words nobody said can't close it: the agent can't answer for the user. Nor can a word or two that any form has.
-      call("close_question", { id: open?.id, quote: "they are always in Desktop" }),
-      call("close_question", { id: open?.id, quote: "the invoices" }),
-      call("close_question", { id: open?.id, quote: "Always arrive in my Downloads folder!" }),
-      call("finish", { summary: "Uses the folder they named" }),
+      // They said "the upload takes about a minute": the agent writes that in.
+      call("edit", { edits: [{ op: "set", step: "s2", field: "timeout_ms", value: 60_000 }] }),
+      call("finish", { summary: "Gave the upload a minute" }),
     ]);
-    const outcome = await designWorkflow({
-      llm,
-      skill,
-      questions,
-      steps,
-      form,
-      notes: [{ at: 4_000, kind: "said", text: "the invoices always arrive in my Downloads folder" }],
-      prompter: p,
-      protocol: "tools",
-    });
-    const [refused, short, closed] = results(outcome.episode);
-    expect(refused).toMatch(/is not in the description or what they said/);
-    expect(short).toMatch(/quote at least three of their exact words/);
-    expect(closed).toContain(`"closed":"${open?.id}"`);
-    expect(outcome.closed).toEqual([{ question: open, quote: "Always arrive in my Downloads folder!" }]);
-    // Neither the agent nor the drill after it puts it to the user.
-    expect(outcome.pending.map((q) => q.id)).not.toContain(open?.id);
+    const outcome = await designWorkflow({ llm, skill, questions, steps, form, prompter: p, protocol: "tools" });
+    expect(outcome.pending.map((q) => q.id)).toEqual(["slow-page"]);
     expect(asked).toEqual([]);
   });
 

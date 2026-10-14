@@ -328,7 +328,7 @@ describe("after Stop, with a model", () => {
     expect(triggerOf(skill).inputs.week?.default).toBe("{{today}}");
     expect(skill.history[0]?.summary).toBe("Recorded; A scheduled run logs the current week");
     const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
-    expect(kept).toMatchObject({ summary: "A scheduled run logs the current week", turns: 5, closed: [] });
+    expect(kept).toMatchObject({ summary: "A scheduled run logs the current week", turns: 5 });
     // One AI read the recording: every model call was the agent's (no separate first-draft call).
     expect(llm.requests.every((r) => Array.isArray((r as { tools?: unknown }).tools))).toBe(true);
     // What the agent was told is kept, so a poor result can be explained (Oct 14: it couldn't be).

@@ -91,7 +91,7 @@ The result is checked with the `Skill` schema; problems go back to the model (`T
 3. **Code questions** not already asked: "Where do files like X arrive?" for file inputs (`remember: "fact"`).
 4. Without a form: "Describe this task in one sentence".
 
-Duplicates are filtered by code **only by `appliesTo` path**. Since 15 Oct the compile prompt also says never to ask what the description or the narration states (make it an input's default), and a question that still slips through can be **closed** by the design agent with a quote of the user's words (§7, `close_question`), so it is never asked.
+Since 15 Oct (evening) there is no separate first-draft AI, so only code writes these questions. After the agent, one is asked only if the agent left the place its answer goes (`appliesTo`) as it was when the question appeared (`slotOf`, `stillOpen`): if the agent filled it from what was said, it isn't asked again.
 
 ### 2.6 Cost
 One call on `smart` with `json: true`. **It isn't metered** (`compileChat` passes no meter), so it shows in neither the design budget nor the daemon's spend.
@@ -137,7 +137,7 @@ One call on `smart` with `json: true`. **It isn't metered** (`compileChat` passe
 > - A common shape: read a list (`web.extract`) → pick the items with an llm step → a loop whose body is the recorded steps for one item.
 > - Controls come only from the recording. **Steps that type, paste, select or upload what they showed are the work itself: move or wrap them, never remove them.**
 > - Never change the description or the Frequency; never turn approval off.
-> - **Never ask what the description or what they said already answers**: close such an open question with `close_question`, quoting their words. Ask only what is left (≤ 5); an answer that comes back `not_applied` is the agent's to put in.
+> - **Never ask what the description or what they said already answers**: put the answer into the workflow with an edit; a code question whose answer it fills in this way is not asked afterwards. Ask only what is left (≤ 5); an answer that comes back `not_applied` is the agent's to put in.
 > - `describe_screen` before asking, when the words near a step don't say what a control was for.
 > - Keep step ids; an edit is all or nothing, so a big change goes in a few calls, each valid on its own; fix `still_to_fix` before `finish`.
 
@@ -194,7 +194,7 @@ Args are clipped to 160 characters. Targets show `role "name|label|text|?"`.
 | `original` | The compiled draft. Every target, site and approval rule is relative to it |
 | `folders` | `recordedFolders`: folders of files picked, dropped, moved, downloaded, produced; input `resolve.dir`s; folder-trigger dirs; `fs` steps' `dir`s. All expanded (`~`, absolute, symlinks followed) |
 | `pages` | `recordedPages` (15 Oct): every page the recording was on or a click led to: the sites a step may open |
-| `closed` | Open questions closed with a quote of the user's words (15 Oct): never asked |
+| `baseline` | For each open question, what sat where its answer goes when the question appeared: changed by the end means the agent settled it |
 | `draft` | The current draft. Changes only through `change()` and `ask_user`'s applied answers |
 | `form`, `steps`, `idsByStep`, `notes` | As given |
 | `pending` | First-draft questions not asked yet |
@@ -209,7 +209,7 @@ Args are clipped to 160 characters. Targets show `role "name|label|text|?"`.
 
 13 tools. None are `probe` or `try`: the agent never touches a live page.
 
-**`close_question`** (15 Oct) `{ id, quote }`: closes an open first-draft question the description or what was said already answers. The quote must be at least three words and appear in the form or the narration (case, punctuation and spacing ignored), else: *"… is not in the description or what they said: quote their exact words, or ask the question instead."* A closed question is never put to the user, by the agent or the drill.
+**`label_steps`** (15 Oct, evening) `Labels` (the one-call compile's annotations without questions): the agent's first move, once, on the plain step list (`labelDraft`: the same merge rules). Every other edit and `ask_user` is refused until it has run ("label the steps first"). The `close_question` tool from earlier on 15 Oct was removed: an answer the agent writes in is enough.
 
 ### Look
 
@@ -363,7 +363,6 @@ All three go to the inbox as `question` items with options and default. The desi
   "edits": [ … ],           // session.edits (answers applied by ask_user are not here)
   "turns": 8,
   "usage": { "calls", "input", "output", "costUsd" },
-  "closed": [ { "id", "text", "quote" } ],   // since 15 Oct
   "prompt": { "system", "task" },          // since 15 Oct: what it was told (the loop's own rules not included)
   "transcript": [ AgentEvent, … ]
 }
@@ -404,7 +403,8 @@ With a scripted model:
 - puts what was said next to the step it was said over
 - drops a first-draft question about an input the agent removed
 - (15 Oct) gives the narration whole, before the recording, with the steps each piece spans; lets the first draft hear it too
-- (15 Oct) closes a question the narration already answers by quoting it, refuses a quote nobody said, and never asks it
+- (15 Oct) asks after it only what it left untouched: an answer it wrote in from what was said isn't asked again
+- (15 Oct) labels the plain list first, refusing any other change or question before it; when it stops early keeps what it reached, or the plain list
 - (15 Oct) keeps what the user showed: no recorded write removed, at most half the steps; a click may open a page the recording reached
 - (15 Oct, `recorder.test.ts`) creates the input an answer is about, typed from the answer (the three answers lost in the YC run)
 
@@ -433,7 +433,7 @@ From the code above and the first real recording (`reports/first-real-recording-
 
 ### Questions
 7. *(Fixed 15 Oct.)* **Answers to new-input questions never apply** (§10.2). Create the input (`{ type: <from the answer>, default }`) when the path names one that doesn't exist, and return `not_applied` as an error the agent must resolve before `finish`.
-8. *(Fixed 15 Oct: both prompts, and close_question with a checked quote; proven only by a real re-recording.)* **Duplicate questions** (§2.5). Tell both prompts not to ask what the form or narration says, and filter by meaning: the agent quotes the line that leaves it open, or doesn't ask.
+8. *(Fixed 15 Oct: one AI writes questions, and code's questions the agent already settled aren't asked again.)* **Duplicate questions** (§2.5). Tell both prompts not to ask what the form or narration says, and filter by meaning: the agent quotes the line that leaves it open, or doesn't ask.
 9. **No timeout on questions** (§10.3). Fall back to the default after N minutes, and survive a daemon restart.
 
 ### What the agent sees

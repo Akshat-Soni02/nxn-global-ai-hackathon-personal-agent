@@ -27,6 +27,7 @@ import {
   recordedOpens,
   recordedPages,
   recordingView,
+  slotOf,
 } from "./tools.ts";
 
 // 16 turns (a long recording needs several looks and edits), $0.10, no live actions, and no time limit: a question
@@ -62,11 +63,10 @@ export interface DesignOptions {
 
 export type DesignOutcome = {
   skill: Skill;
-  // Questions still to ask (the drill after the agent), the ones answered during it, and the ones the agent closed
-  // because the description or the narration already answered them (never put to the user).
+  // Questions still to ask (the drill after the agent: only those whose answer the agent left untouched), and the
+  // ones answered during it.
   pending: Question[];
   answered: { question: Question; answer: string }[];
-  closed: { question: Question; quote: string }[];
   // What the agent was told (its system prompt and first message), kept for debugging a poor result.
   prompt: { system: string; task: string };
   episode?: Episode<DesignFinish>;
@@ -85,7 +85,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     notes: options.notes ?? [],
     pending: [...options.questions],
     answered: [],
-    closed: [],
+    baseline: new Map(options.questions.map((q) => [q.id, slotOf(options.skill, q.appliesTo)])),
     base: options.base,
     labelled: !options.base,
     asked: 0,
@@ -119,9 +119,8 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
       skill: session.draft,
       summary: outcome.value.summary,
       edits: session.edits,
-      pending: session.pending.filter((q) => stillOpen(session.draft, q)),
+      pending: session.pending.filter((q) => stillOpen(session, q)),
       answered: session.answered,
-      closed: session.closed,
       prompt,
       episode,
     };
@@ -140,22 +139,20 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     kind: "kept",
     reason,
     skill: kept,
-    pending: session.pending.filter((q) => stillOpen(kept, q)),
+    pending: session.pending.filter((q) => stillOpen(session, q)),
     answered: session.answered,
-    closed: session.closed,
     prompt,
     episode,
   };
 }
 
-// A first-draft question about a step or an input the agent has since removed has nothing left to answer.
-function stillOpen(skill: Skill, question: Question): boolean {
-  const [root, id, inputs, name] = (question.appliesTo ?? "").split(".");
-  if (root !== "steps" || !id) return true;
-  const step = [...walkSteps(skill.steps)].find(({ step }) => step.id === id)?.step;
-  if (!step) return false;
-  if (step.type === "trigger" && inputs === "inputs" && name) return name in triggerOf(skill).inputs;
-  return true;
+// A question is asked after the agent only if the place its answer goes is as it was when the question appeared:
+// if the agent changed it (from what was said or shown), it decided; if it removed the step or input, there is
+// nothing left to ask. The drill never repeats what the agent already settled.
+function stillOpen(session: DesignSession, question: Question): boolean {
+  const now = slotOf(session.draft, question.appliesTo);
+  if (now === null) return false;
+  return !session.baseline.has(question.id) || session.baseline.get(question.id) === now;
 }
 
 const ROLE = `You are Shadow's design agent. A person described a task and showed it once, often saying out loud what
@@ -181,10 +178,10 @@ they did, once. Make the draft do what they meant, so it runs right next time, w
   loop (the second item shown). Keep the step that opens the first page. If the task needs a control they didn't
   use, ask them.
 - Never change the description or the Frequency (the user's own), and never turn approval off.
-- Never ask what the description or what they said already answers: use it. An open question from the first draft
-  that they already answered: close it (close_question), quoting their words. Ask (ask_user) only what is left, with
-  options and a default, at most ${MAX_QUESTIONS} questions; open questions you neither ask nor close are asked after
-  you finish. An answer that comes back not_applied is yours to put into the workflow with an edit.
+- Never ask what the description or what they said already answers: use it. An open question that their words
+  answer: put the answer into the workflow with an edit (then it isn't asked). Ask (ask_user) only what is left, with
+  options and a default, at most ${MAX_QUESTIONS} questions; an open question whose answer you leave untouched is
+  asked after you finish. An answer that comes back not_applied is yours to put into the workflow with an edit.
 - describe_screen shows a step's picture described (when the user allowed pictures): use it before asking, when the
   words near a step don't say what the control was for.
 - Keep step ids. An edit is all or nothing: make a big change in a few calls, each one valid on its own. Every kept

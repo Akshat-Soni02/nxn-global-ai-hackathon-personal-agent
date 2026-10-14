@@ -204,19 +204,19 @@ cover most of what the agents need, and the picture is there, blacked out, for t
   1. code (no model) builds the plain step list and lists only the questions code knows it can't decide (where files
      arrive, what a pasted value should be). Since 15 Oct evening there is no separate first-draft AI call: the agent
      labels the steps itself as its first move;
-  2. the design agent **closes** the candidates your words already answer, by quoting them (`close_question`; code
-     checks the quote is really in what you wrote or said), asks at most 5 of the rest (`ask_user`), each shown next to
-     its step, and gets each answer back in its own loop to build into the workflow;
-  3. what it neither asked nor closed is asked by the daemon after it finishes (the drill), and written in by code
-     (`applyAnswer`, which now creates a missing input instead of dropping the answer);
+  2. the design agent, the only AI, labels the steps, then goes through code's questions: one your words answer, it
+     writes into the workflow; it asks at most 5 of the rest (`ask_user`), each shown next to its step, and gets each
+     answer back in its own loop to build in;
+  3. after it finishes, the daemon asks only the questions whose answer the agent left untouched (the drill), and code
+     writes those answers in (`applyAnswer`, which now creates a missing input instead of dropping the answer);
   4. only for a schedule or folder Frequency: a default for each input still empty.
 - **Every question with options also takes your own words** ("Or write your own answer"), unless an option stands for
   something words can't fill (a whole step, a schedule).
 - Anything still open waits in the Editor. Lasting answers go to memory.
 
 **Example timeline.** 10:00 the goal box: "every morning, the 5 newest YC jobs into my sheet". 10:01–10:04 you do one
-and say "skip the ones already there". 10:04 Stop. The candidate "how many?" is closed with the quote "the 5 newest";
-"skip existing?" with "skip the ones already there". One question is asked: "which column gets the date?". 10:05 saved
+and say "skip the ones already there". 10:04 Stop. The agent writes "5 a day" and "skip the ones already there" into the workflow itself, so nobody
+asks. One question is asked: "which column gets the date?". 10:05 saved
 as v1.
 
 **Why not the other way.** A full form before recording asks people to describe variables they haven't thought about
