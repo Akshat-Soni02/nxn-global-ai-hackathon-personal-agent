@@ -1,0 +1,427 @@
+# The design agent
+
+**Job:** turn one recording into the workflow the user meant. The input is a flat replay of what they did, plus their own words (the description form) and what they said and saw while doing it. The output is a workflow tree in which:
+- values that change become **inputs**,
+- repeated work becomes a **loop**,
+- "only if" becomes a **branch**,
+- reading or judging becomes an **llm step**.
+
+The agent asks the user only what it can't tell.
+
+It runs once per recording, right after **Stop**, in the daemon. It's Nemotron 3 Super in the shared loop ([README](README.md) §2) with 12 tools of its own and a set of rules (`designViolations`) checked inside its edit tools.
+
+Code: `packages/recorder/src/design/design.ts` (prompt, entry point), `packages/recorder/src/design/tools.ts` (tools, rules, views), called from `apps/daemon/src/record.ts` (`finishRecording`).
+
+---
+
+## 1. Where it sits: from Stop to a saved workflow
+
+`finishRecording(sessionId)` in `apps/daemon/src/record.ts`:
+
+| # | Stage | Model? | What happens |
+|---|---|---|---|
+| 1 | Read the trace | — | `recordings/<session>/trace.jsonl`. Picked or dropped files are located on disk (`locateFiles`) |
+| 2 | **Normalise** | — | `normalise(trace)` → `NormalisedStep[]`: events by meaning (click, type, copy, paste, navigate, upload, app_press, …) with targets, values, URLs, "led to", copied sheet context |
+| 3 | Read the form | — | `description.json` → `form = { description: { goal, changes, constants, never }, when }`. Recordings before Oct 13 have none |
+| 4 | **Compile** (first draft) | 1 call, `smart`, JSON | §2. Code builds a skeleton; the model adds intents, inputs, checks, approvals, questions. Up to 3 attempts; fallback: skeleton only |
+| 5 | Pick the id | — | New: `newSkillId` (name + random tag). **Record again** (`form.again`): the existing workflow's id and name |
+| 6 | **The design agent** | the agent | §3–§9. Only when a model is configured |
+| 7 | Remember answers | — | Answers to questions that carry `remember` go to memory (§11) |
+| 8 | Keep the transcript | — | `recordings/<session>/design.json` (§12) |
+| 9 | **Drill** what's left | — | The questions the agent didn't ask (`pending`), asked one by one in the inbox and applied with `applyAnswer` (§10) |
+| 10 | Fill for unattended runs | — | For a schedule or folder trigger: asks a default for every input that has none (`fillForUnattended`) |
+| 11 | **Approvals** | — | `requireApprovals`: every outward step and every step matching Never gets `requires_approval: true`, whatever came before |
+| 12 | History note and save | — | `skills/<id>/v<N>.json`, history `{ by: "record", summary: "Recorded; <agent summary>" }` (or "Recorded again; …" as the next version) |
+
+If the agent doesn't finish (no model, an error, out of budget), the compiled draft is saved, with the answers the user already gave re-applied.
+
+---
+
+## 2. Its starting point: the first draft (compile)
+
+`packages/recorder/src/compile.ts`, `compile(steps, { chat, form, memory, pricePerMTok })`.
+
+### 2.1 What code builds (the skeleton)
+`skeletonOf(steps)` turns each normalised step into one or more workflow steps (`s1, s2, …`), with targets, channels, actions and recorded values. It also records `idsByStep` (which skill steps each recorded step became) and a few code questions. With a form, the description and Frequency are copied in as written, and the workflow is named after the goal (cut at 60 characters).
+
+### 2.2 What the model is sent
+- **System:** `systemPrompt()`. Its rules:
+  - never output targets, selectors, channels or actions;
+  - write intents as outcomes;
+  - values that change become inputs (with types and `resolve` for files);
+  - `check` / `success` / `requires_approval` (add, never remove);
+  - exact args per action; `save_as`; `when`;
+  - "Ask, don't guess", with `appliesTo` paths, at most 5 questions, none that memory answers;
+  - copies from a sheet become `data.pick` rules, `ai` only when no rule can express the choice;
+  - examples of when to ask and when not to.
+- **User**: JSON with:
+  - `description`, `frequency` (when there's a form)
+  - `steps`: `stepsForModel`, i.e. per recorded step `{ ids, did, page, element {role,name,label,near}, app, menu, keys, dropped_on, value (≤200 chars, secrets hidden), checked, file, path, to, led_to, produced, likely_changes, copied, sheet {header,row,column}, pasted_from_copy }`
+  - `skeleton`: the draft **without targets**
+  - `memory`: up to 8 memory entries matching the recording's names, files, hosts, apps
+
+### 2.3 What the model may return (`Annotations`)
+```ts
+{ id?, intent?, inputs?: Record<name, Input>, when?: Trigger[], success?: Check[],
+  steps: [{ id, intent?, args?, check?, wait?, requires_approval?, ai?: { instruction, output, reason },
+            save_as?, timeout_ms? (≤600000), on_fail?: { retries? (0–5), fallback?: "agent" | "ask" } }],
+  questions: Question[] (≤ 8) }
+```
+
+### 2.4 How it's merged (`merge`)
+- `id`, `intent` (also becomes name and goal, then **overwritten by the form** if there is one), `inputs` added, `when` (then **overwritten by the form**), `success`.
+- Per step: intent, check, wait, on_fail, timeout; `save_as` → `output` with the type the action produces; `requires_approval` only **added**.
+- Args are merged, except:
+  - a drag's `to`;
+  - a Mac step's app, path, key, modifiers and button;
+  - a navigate `url` on another origin;
+  - typed text that already uses an input (secrets).
+- A recorded value replaced by `{{input}}` becomes that input's `default` (not for file and secret inputs).
+
+The result is checked with the `Skill` schema; problems go back to the model (`That JSON was rejected: … Return the corrected JSON object only.`), up to 3 attempts. After that, the skeleton is kept.
+
+### 2.5 Where the first draft's questions come from
+1. **Cost questions**: a `data.pick` step the model marked `ai` becomes "keep the AI step (about N tokens, $X a run) or use the recorded rule?". `appliesTo: steps.<id>`; each option carries a whole step.
+2. **The model's own** `questions`, minus those whose `appliesTo` starts with `steps.start.when` or `description` (the form decides those).
+3. **Code questions** not already asked: "Where do files like X arrive?" for file inputs (`remember: "fact"`).
+4. Without a form: "Describe this task in one sentence".
+
+Duplicates are filtered **only by `appliesTo` path**. A question whose *meaning* the form or narration already answers ("how many companies?" when the form says "always 5") passes through.
+
+### 2.6 Cost
+One call on `smart` with `json: true`. **It isn't metered** (`compileChat` passes no meter), so it shows in neither the design budget nor the daemon's spend.
+
+---
+
+## 3. When the agent runs
+
+- After every recording that produced at least one step, when a model is configured (`.env` or Keychain key).
+- Also for **Record again** (the result becomes the existing workflow's next version).
+- Not at run time, not for repairs, not in a walk-through.
+
+---
+
+## 4. Inputs (`DesignOptions`)
+
+| Field | From | Notes |
+|---|---|---|
+| `llm` | the daemon's client | `smart` profile |
+| `skill` | the compiled first draft, id assigned | The agent's `original`: every rule compares against it |
+| `questions` | compile's questions | Become `pending` |
+| `steps` | `normalise(trace)` | The recording by meaning |
+| `form` | `description.json` | Optional |
+| `notes` | `readNotes(dataDir, session)` | `screen.jsonl` (masked words per screenshot, kind `screen`) and `transcript.jsonl` (narration, kind `said`), on the recording's clock |
+| `memory` | `memory.db` | `search` only |
+| `prompter` | the daemon's inbox (`service.ask`) | Shows the question with the draft and the step marked |
+| `checks` | `unattendedGaps` | §8.3 |
+| `describeScreen` | `describer.describeMasked` | Only if the form allowed **Pictures**, a model is configured, and the step has a kept screenshot |
+| `budget`, `protocol`, `meter`, `signal`, `onEvent` | tests / daemon | Defaults in §9 |
+
+---
+
+## 5. The prompt
+
+### 5.1 System = ROLE + briefing + loop rules
+
+`ROLE` (verbatim):
+
+> You are Shadow's design agent. A person described a task and showed it once. Code and one model call turned the recording into a first draft: a flat list of steps that replays what they did. Make the draft do what they meant, so it runs right next time, with next time's data.
+> - Start with read_description, read_recording and workflow.
+> - Values that will be different next time (what the description says changes: an email, a file, a date, numbers) must not stay as fixed text: make them inputs, or take them from an earlier step's output.
+> - The same actions done for several items become one loop (wrap_in_loop) over a list an earlier step produces.
+> - "Only if" (in the description or what was said) becomes a branch (wrap_in_branch).
+> - Reading, summarising, classifying or working something out from text becomes an llm step (add_llm_step). llm steps never click or type.
+> - Controls come only from the recording: you may move and wrap steps and change their intents, args, waits, checks and outputs, never invent a click on something the person didn't use. If the task needs one, ask them.
+> - Never change the description or the Frequency (the user's own), and never turn approval off.
+> - Ask (ask_user) only what the recording and the description can't tell you, with options and a default, at most 5 questions. The open questions from the first draft are listed: ask the ones that matter by id; the rest are asked after you finish.
+> - describe_screen shows a step's picture described (when the user allowed pictures): use it before asking, when the words near a step don't say what the control was for.
+> - Keep step ids. Every kept edit says what still stops the workflow (still_to_fix): fix those before you finish. When nothing is left, finish with one sentence on what you changed. If the draft is already right, finish at once.
+
+Then `briefing({ edits: true })` ([README](README.md) §4; **without** "Available now"), then the loop's "How you work".
+
+### 5.2 Task (`taskOf`)
+```
+# The description
+{"goal": …, "changes": […], "constants": […], "never": […], "frequency": [...]}     (or: "None was filled in: …")
+
+# The recording (by meaning; read_recording shows any part again)
+<untrusted_data>
+[ { n, ids, did, page, element, …, notes: ["said: …", "on screen: …"] }, … ]        steps 1–40 only
+… and N more steps                                                                   (when > 40)
+</untrusted_data>
+
+# The draft
+<outline>
+
+# Open questions from the first draft
+- <id>: <text> (options: a / b) [default: x]                                         (or: "None.")
+```
+
+The ROLE says "Start with read_description, read_recording and workflow", but the task message already contains all three (for the first 40 steps). In practice the agent skips the reads. That's fine for short recordings; anything past step 40 is only reachable with `read_recording`.
+
+### 5.3 How notes attach to steps (`notesByStep`)
+Each note goes with the **last step that started at or before the note's time + 1 s** (people talk as they click), or with step 1 when it came before any step. A screenshot's words are attached to the step after which it was taken; a narration piece goes to whatever step was last before it **started**. A sentence spanning several steps is attached once.
+
+### 5.4 The outline format (`outlineOf`)
+```
+start  trigger  when: manual  inputs: count (number) = 5; sheet_url (text) from {"…"}
+  s1  web.navigate  "Open www.ycombinator.com/jobs"  args {"url":"…"}
+  l1  loop "Each new job"  for each job in {{jobs}} (max 50, stop on a failing item)
+    s5  web.click  "Open the company"  on link "Numeral"
+  ai1  llm  "Pick 5 new jobs"  reads {{jobs}}, {{existing}}  → picked (list of object)
+  b1  if {"left":…}  "Only remote"
+  s9  web.type  "Paste the name"  on combobox "A2"  args {"text":"{{copied_1}}"}  [approval]
+```
+Args are clipped to 160 characters. Targets show `role "name|label|text|?"`.
+
+---
+
+## 6. Session state (`DesignSession`)
+
+| Field | Meaning |
+|---|---|
+| `original` | The compiled draft. Every target, site and approval rule is relative to it |
+| `folders` | `recordedFolders`: folders of files picked, dropped, moved, downloaded, produced; input `resolve.dir`s; folder-trigger dirs; `fs` steps' `dir`s. All expanded (`~`, absolute, symlinks followed) |
+| `draft` | The current draft. Changes only through `change()` and `ask_user`'s applied answers |
+| `form`, `steps`, `idsByStep`, `notes` | As given |
+| `pending` | First-draft questions not asked yet |
+| `answered` | `{ question, answer }` for every question asked (open or the agent's own) |
+| `asked`, `maxQuestions` | Count and limit (5) |
+| `edits` | Every `EditInput` kept, in order. **Answers applied by `ask_user` are not in it** |
+| `prompter`, `memory`, `checks`, `describe` | As given |
+
+---
+
+## 7. Tools
+
+12 tools. None are `probe` or `try`: the agent never touches a live page.
+
+### Look
+
+| Tool | Input | Output | Notes |
+|---|---|---|---|
+| `read_description` | `{}` | the form's description + `frequency`, or "No form was filled in…" | |
+| `read_recording` | `{ from?: int ≥1, to?: int ≥1 }` | `recordingView(from, to)`: `[{ n, ids, did, page, element, …, notes? }]` | **untrusted**. Defaults to all steps. Clipped at 12,000 characters by the loop |
+| `workflow` | `{ step?: string }` | the outline, or one step as JSON, or `No step X` | |
+| `describe_screen` | `{ step: int ≥1 }` (the **recorded** step number `n`, not a skill id) | the vision model's description | **untrusted**. "No pictures: the user did not allow pictures to be sent." without consent; "Couldn't describe it: …" when the step has no kept picture |
+| `recall` | `{ query: string }` | up to 8 memory texts, any workflow | "No memory." / "Nothing remembered about that." |
+| `validate` | `{}` | `{ ok, problems: checks(draft), open_questions: [{id,text}] }` | `problems` are only `unattendedGaps` (§8.3) |
+
+### Edit
+All edits go through `change(edits)`: `applyEdits` (README §5), then `designViolations` (§8). Either is all-or-nothing.
+
+| Tool | Input | What it does |
+|---|---|---|
+| `edit` | `{ edits: object[] }` (**1–30**) | Raw edit operations |
+| `wrap_in_loop` | `{ steps: id[] (≥1), over: "{{list}}", item: { name, type }, intent, on_item_fail?: stop\|skip }` | Inserts `l<N>` before the first step, then moves each listed step into it. `max_items` comes from the schema default |
+| `wrap_in_branch` | `{ steps: id[], if: Condition, intent, otherwise?: id[] }` | Inserts `b<N>` before the first step, moves `steps` into it and `otherwise` into its `else` |
+| `add_llm_step` | `{ after: id, intent, instruction, inputs: string[] (≥1), output: { name, type } }` | Inserts `ai<N>` (llm step, `requires_approval: false`) after `after` |
+
+Results:
+- **Kept:** `{ ok: true, workflow: <outline>, still_to_fix: checks(draft) }`
+- **Bad edit:** `{ ok: false, problems: [...] }` (from `applyEdits`: schema, references, positions)
+- **Against the rules:** `{ ok: false, refused: [...] }` (from `designViolations`)
+
+### Ask (the drill)
+
+`ask_user` `{ id?, question?, options?: string[] (≤6), default?, step? }`:
+1. If 5 questions were already asked: *"You have asked 5 questions: decide the rest yourself, or finish."*
+2. With an `id`: it must be in `pending`, else *"No open question X. Open: …"*. Without one, a new question `design-<n>` is built from `question`, `options` and `default`.
+3. Empty text: *"Give the question, or the id of an open question."*
+4. Asks the user through the inbox, **with no time limit**. An empty answer takes the default.
+5. **Own question:** returns `{ answer }`. The agent must apply it with edits itself.
+6. **Open question:** removed from `pending`. Then:
+   - no `appliesTo`, or an empty answer → `{ answer }`;
+   - otherwise `applyAnswer` (§10.2), then `designViolations`. Failure → `{ answer, not_applied: <reason> }`; success → `{ answer, applied: true, workflow }`.
+
+A `not_applied` answer is lost: the agent isn't told it must fix it, and the drill won't ask again (the question is no longer pending).
+
+### Finish
+`finish` `{ summary: string (1–300) }`: refuses with `{ refused: "not finished yet", problems }` while `checks(draft)` isn't empty; otherwise ends the episode with `{ summary }`. **The summary isn't compared with what was actually done.**
+
+---
+
+## 8. Guardrails
+
+### 8.1 `designViolations(original, draft, form, folders)`
+
+Checked on every `change()` and every applied answer. Each rule and its exact message:
+
+| Rule | Message |
+|---|---|
+| With a form, the trigger's `when` can't change | the Frequency is the user's (they chose it on the form): it can't change |
+| With a form, the description can't change | the description is the user's (their own words on the form): it can't change |
+| A changed or new input's `resolve.dir`, or a default that looks like a path (`~…`, `/…`), must be inside a recorded folder | `<name>`: an input may only point at folders the recording touched (…), not X |
+| A **new** action must be read-only: `fs.find, fs.read, data.pick, web.extract, web.wait_for, web.navigate` | `<id>`: a new X step would do something the user didn't show. Only steps that read (…) can be added; ask the user to show the rest |
+| A **recorded** step keeps its `channel.action` | `<id>`: a recorded step keeps its kind of action (it was X) |
+| A new or changed `fs` step's `dir`, `path`, `from`, `to` must be inside a recorded folder (a whole-string `{{reference}}` is allowed) | `<id>`: it may only look in folders the recording touched (…), not X |
+| A new or changed `fs` glob can't climb (absolute, `~`, `..`) | `<id>`: its glob (X) must stay inside its folder |
+| Every target must be one the recording had (by exact locator) | `<id>`: its target is not one you recorded… ask them |
+| A recorded step's target can't change | `<id>`: its target can't change (it is what the user clicked) |
+| No new `script` step | `<id>`: script steps can't be added |
+| A new or changed `navigate` URL must be on an **origin of a navigate step in the first draft** (a `file://` page must match exactly) | `<id>`: it may only open a site the recording visited (…) |
+| A step that needed approval can't be removed | `<id>`: a step that needs approval can't be removed |
+| Approval can't be turned off | `<id>`: approval can't be turned off |
+
+### 8.2 What is **not** checked
+- **Removing recorded steps** is free (except approval steps). The agent can delete every action the user showed.
+- **Args** of recorded steps can change freely (e.g. typed text), except fs paths.
+- **llm steps, loops and branches** have no rules: any instruction, any inputs, any condition.
+- A llm step's output used later as a **file path** or **URL** isn't checked (a run-time path is invisible here; see `docs/guide/14-shadow-end-to-end.md` §7 item 5).
+- **Sites the user reached by clicking** don't count as visited. Only navigate steps of the first draft do, so a page opened from a link or a Drive item can't be opened directly.
+- **Changing a click into a navigate** is refused (kind of action), even when the click only opened a document.
+- **The summary** passed to `finish`.
+
+### 8.3 The `checks` (`unattendedGaps`)
+`goLiveProblems(draft)` filtered to `input "<name>" has no default and no way to be found…`, excluding secret inputs. It applies only when the trigger is a **schedule or folder_watch**. **For a manual workflow it's always empty**, so `validate.ok` is always `true`, `still_to_fix` is always `[]`, and `finish` is never refused.
+
+### 8.4 Size limits
+- `edit`: 1–30 operations. A bigger call is refused as invalid input, and the model often re-sends only the first 30 (see `reports/first-real-recording-yc-to-sheets.md`, issue 1).
+- `wrap_in_loop` / `wrap_in_branch` build their own operations (1 insert + 1 move per step), so wrapping 30+ steps hits no cap.
+- `ask_user`: 5 questions, ≤ 6 options each.
+- `finish` summary: ≤ 300 characters.
+
+---
+
+## 9. Budget and runtime settings
+
+| Setting | Value | Where |
+|---|---|---|
+| Profile | `smart` (Nemotron 3 Super, thinking on, 8,192 output tokens incl. reasoning, temp 0, 180 s) | `design.ts`, `catalog.ts` |
+| Turns | 16 | `DESIGN_BUDGET` |
+| Cost | $0.10 (vision calls not counted) | `DESIGN_BUDGET` |
+| Live actions | 0 | `DESIGN_BUDGET` |
+| Time | none: a question can wait for ever | |
+| Guard | none | |
+| Working memory | last 4 tool results whole, older ones cut to 400 characters | loop default |
+| Tool result cap | 12,000 characters | loop default |
+| Protocol | native tools; JSON actions if the API refuses tools | loop default |
+
+---
+
+## 10. Questions and answers
+
+### 10.1 The three places a question can be asked
+1. **During the agent**, via `ask_user` (≤ 5): the first draft's open questions by id, or its own.
+2. **After the agent** (`drill`): every question still `pending` and still relevant (`stillOpen`: a question about a step or trigger input the agent removed is dropped).
+3. **For unattended runs** (`fillForUnattended`): a default for each input that has none, when the Frequency is a schedule or folder.
+
+All three go to the inbox as `question` items with options and default. The design agent's also carry the draft and the step to mark.
+
+### 10.2 How an answer is written (`applyAnswer`, `drill.ts`)
+- `appliesTo` is a dot path. `steps.<id>` or `steps.<n>` (by position: `steps.0` is the trigger) selects a step. Keys `target, channel, action, version` are refused.
+- `steps.<id>` alone with an option whose value is an object: **replaces the whole step** (the cost question).
+- Otherwise it walks the path, **creating empty objects** for missing keys, and sets the last key to `valueFor(answer)`:
+  - an option chosen by number or label → its `value`;
+  - else, if the current value is a boolean → yes/true/ok/sure;
+  - a number → `Number(answer)`;
+  - text starting with `[` or `{` → parsed JSON;
+  - else the text.
+- The skill is re-parsed. Errors come back as `path: message`.
+
+**Known failure:** a question that points at a **new** input (`steps.0.inputs.count`) writes the raw answer (`"5"`) where an `Input` object (`{ type, default }`) is required, so it always fails (*"expected object, received string"*). The first draft's model often writes questions like that.
+
+### 10.3 Waiting
+`service.ask` creates an inbox item and waits on a promise with **no timeout**. If the daemon restarts, open questions are marked `{ expired: "the daemon restarted" }`, and that design run is gone with the process (the recording folder is still there for 24 h; `compile <session>` can redo it).
+
+---
+
+## 11. Memory
+
+| | |
+|---|---|
+| Reads | `recall(query)` → `memory.search(query, { limit: 8 })` across **all** workflows. The first-draft compile also puts up to 8 matching entries in its prompt |
+| Writes | After the agent: `remember()` stores `"<question text> <answer>"` as `fact` / `preference` for each answered question that has `remember` set (only first-draft questions can; the agent's own never do). After the drill: the same for drill answers |
+| Never written | What the agent learned, the narration, the screen words, the final design |
+
+---
+
+## 12. What is kept
+
+`recordings/<session>/design.json` (mode 0600; deleted with the recording 24 h after saving):
+
+```json
+{
+  "summary": "…",          // or "kept": "<reason>" when it didn't finish
+  "edits": [ … ],           // session.edits (answers applied by ask_user are not here)
+  "turns": 8,
+  "usage": { "calls", "input", "output", "costUsd" },
+  "transcript": [ AgentEvent, … ]
+}
+```
+
+The daemon log gets `design agent: <summary> (<turns> turns, $<cost>)` or `design agent: <reason>; keeping the first draft`. The saved workflow's history gets `Recorded; <summary>`.
+
+**Not kept:** the system prompt, the task message (so which notes the agent saw can't be checked), the model's reasoning, the input of a refused (`invalid`) edit, and the first-draft compile's prompt and reply.
+
+---
+
+## 13. Outcomes
+
+```ts
+type DesignOutcome = { skill, pending: Question[], answered, episode? } & (
+  | { kind: "designed"; summary; edits }   // finish was called
+  | { kind: "kept"; reason }                // out of turns/cost, error, aborted, or no model
+);
+```
+
+- **designed**: `skill = session.draft`; `pending` is filtered by `stillOpen`.
+- **kept**: `skill =` the compiled draft with every already-given answer re-applied (`applyAnswer`; failures skipped); `pending` unchanged. Reasons: `it ran out of turns|cost`, `it failed: <error>`, `it was stopped`.
+
+---
+
+## 14. Tests (`packages/recorder/src/design/design.test.ts`)
+
+With a scripted model:
+- reads, edits, asks on the step, finishes with what it changed
+- is refused anything outside the rules, and the draft is left as it was
+- builds a loop over files and an llm step from the recorded steps (replayed in headless Chrome)
+- may finish only once the checks pass
+- tells the agent after every edit what still stops the workflow
+- describes a recorded step's masked picture when asked, as data; says there are no pictures without consent
+- keeps the first draft, with the answers already given, when it runs out of turns
+- lets the user's own fields and approvals through unchanged, and nothing else
+- keeps file steps, inputs and local pages inside what the recording touched, however the path is written
+- puts what was said next to the step it was said over
+- drops a first-draft question about an input the agent removed
+
+Plus `apps/daemon/src/e2e.test.ts` (form → events → compile → design agent on a scripted model).
+
+**Not tested:** a real model; removing most of the recorded steps; an answer to a question about a new input; a recording longer than 40 steps; a manual workflow's `finish` with nothing designed.
+
+---
+
+## 15. Known weaknesses: where to improve
+
+From the code above and the first real recording (`reports/first-real-recording-yc-to-sheets.md`).
+
+### Rules that let bad results through
+1. **No limit on removing recorded steps** (§8.2). Fix: refuse removing steps that write (type, paste, upload, outward) unless replaced, or cap removals and ask beyond.
+2. **The `checks` are empty for manual workflows** (§8.3), so nothing structural is checked before `finish`. Add design-time checks:
+   - the workflow starts by opening a page (or a file step);
+   - every recorded write still happens;
+   - no recorded example value (a date, a name) is still typed literally when the description says it changes.
+3. **`finish` summary unchecked.** Build the history note from `session.edits`, and keep the model's sentence as a comment.
+
+### Rules that block good results
+4. **Visited sites** = only first-draft navigate steps. Use every URL the trace navigated to (including pages reached by a click), so "open the sheet directly" is possible.
+5. **Kind of action is fixed.** Allow `web.click` → `web.navigate` when the click led to a stable URL (the trace has it).
+6. **30 operations per edit.** Raise it, or add `replace_range` / `rebuild` operations so a restructure isn't 30+ single ops that get cut in half.
+
+### Questions
+7. **Answers to new-input questions never apply** (§10.2). Create the input (`{ type: <from the answer>, default }`) when the path names one that doesn't exist, and return `not_applied` as an error the agent must resolve before `finish`.
+8. **Duplicate questions** (§2.5). Tell both prompts not to ask what the form or narration says, and filter by meaning: the agent quotes the line that leaves it open, or doesn't ask.
+9. **No timeout on questions** (§10.3). Fall back to the default after N minutes, and survive a daemon restart.
+
+### What the agent sees
+10. **Only steps 1–40 are in the first message.** Always include every note (said and seen), even when steps are shortened.
+11. **The briefing has no "Available now"** and no worked examples of the common shapes ("list → pick N new → loop → write a row"). A few examples would make better use of the existing tools.
+12. **Notes attach to one step** (§5.3). A sentence about the whole task ("do this for 5 a day") lands on whatever step was last; consider a separate "what was said overall" section.
+
+### Capabilities
+13. **No "append a row" action.** Writes go to fixed cells (`A2`), so a daily run overwrites the same row. `web.extract { source: "google_sheet" }` can read rows, but nothing writes the next empty one.
+14. **Typing into another site's document isn't outward** ([README](README.md) §6), so a sheet write never needs approval by default.
+
+### Observability and cost
+15. Keep the system and task messages, the reasoning, and the input of refused calls in `design.json` (README §10).
+16. Meter the compile call and vision calls (README §3.4).
