@@ -39,6 +39,8 @@ export interface DesignSession {
   // The first draft's questions not asked yet, and the answers given so far (to them and to the agent's own).
   pending: Question[];
   answered: { question: Question; answer: string }[];
+  // Open questions the description or the narration already answered, with the words that answer them.
+  closed: { question: Question; quote: string }[];
   asked: number;
   maxQuestions: number;
   edits: EditInput[];
@@ -287,6 +289,12 @@ function typeText(type: { type: string; items?: { type: string } }): string {
   return type.type === "list" && type.items ? `list of ${type.items.type}` : type.type;
 }
 const clip = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max)}…`);
+// Words only, for comparing a quote with what was written or said: case, punctuation and spacing don't count.
+const plain = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 
 // The recording by meaning (what compile's model saw), each step with the skill steps it became and what was said
 // or seen around it. `brief` (the agent's first message): a screen's words cut short, and a screen like the one
@@ -336,7 +344,15 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
     if (broken.length > 0) return { output: { ok: false, refused: broken } };
     session.draft = result.skill;
     session.edits.push(...edits);
-    return { output: { ok: true, workflow: outlineOf(session.draft), still_to_fix: problems() } };
+    return {
+      output: {
+        ok: true,
+        workflow: outlineOf(session.draft),
+        still_to_fix: problems(),
+        // A reminder, not a block: each one is asked, closed, or asked after the agent finishes.
+        ...(session.pending.length > 0 ? { open_questions: session.pending.map((q) => `${q.id}: ${q.text}`) } : {}),
+      },
+    };
   };
   const nextId = (prefix: string) => {
     const used = new Set([...walkSteps(session.draft.steps)].map(({ step }) => step.id));
@@ -537,6 +553,32 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
         if (broken.length > 0) return { output: { answer, not_applied: broken } };
         session.draft = applied.skill;
         return { output: { answer, applied: true, workflow: outlineOf(session.draft) } };
+      },
+    }),
+
+    tool({
+      name: "close_question",
+      kind: "look",
+      description:
+        "Close an open question the description or what they said already answers, quoting their words exactly (`quote`): it is never put to the user. Then make the workflow use what they said",
+      input: z.object({ id: z.string(), quote: z.string().min(1) }),
+      run: ({ id, quote }) => {
+        const open = session.pending.find((q) => q.id === id);
+        if (!open) return { output: `No open question ${id}. Open: ${session.pending.map((q) => q.id).join(", ")}` };
+        // Only their own words close a question: the agent can't decide for the user by claiming they said it.
+        const said = [
+          ...(session.form ? Object.values(session.form.description).flat() : []),
+          ...session.notes.filter((n) => n.kind === "said").map((n) => n.text),
+        ].map((text) => plain(String(text)));
+        const words = plain(quote);
+        if (words.length < 3 || !said.some((text) => text.includes(words))) {
+          return {
+            output: `"${quote}" is not in the description or what they said: quote their exact words, or ask the question instead.`,
+          };
+        }
+        session.pending = session.pending.filter((q) => q !== open);
+        session.closed.push({ question: open, quote });
+        return { output: { closed: id, now: "make the workflow use it if it doesn't yet" } };
       },
     }),
 

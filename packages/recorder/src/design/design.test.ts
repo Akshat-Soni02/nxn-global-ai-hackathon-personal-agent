@@ -476,6 +476,36 @@ describe("the rules and the recording view", () => {
 });
 
 describe("questions left after the agent", () => {
+  it("closes a question the narration already answers, by quoting it, and never asks it", async () => {
+    const { steps, skill, questions } = await draft();
+    const open = questions[0];
+    expect(open).toBeDefined();
+    const { p, asked } = prompter();
+    const llm = fakeLlm([
+      // Words nobody said can't close it: the agent can't answer for the user.
+      call("close_question", { id: open?.id, quote: "they are always in Desktop" }),
+      call("close_question", { id: open?.id, quote: "Always arrive in my Downloads folder!" }),
+      call("finish", { summary: "Uses the folder they named" }),
+    ]);
+    const outcome = await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      notes: [{ at: 4_000, kind: "said", text: "the invoices always arrive in my Downloads folder" }],
+      prompter: p,
+      protocol: "tools",
+    });
+    const [refused, closed] = results(outcome.episode);
+    expect(refused).toMatch(/is not in the description or what they said/);
+    expect(closed).toContain(`"closed":"${open?.id}"`);
+    expect(outcome.closed).toEqual([{ question: open, quote: "Always arrive in my Downloads folder!" }]);
+    // Neither the agent nor the drill after it puts it to the user.
+    expect(outcome.pending.map((q) => q.id)).not.toContain(open?.id);
+    expect(asked).toEqual([]);
+  });
+
   it("drops a first-draft question about an input the agent removed", async () => {
     const { steps, skill, questions } = await draft();
     const aboutInput = questions.filter((q) => q.appliesTo?.startsWith("steps.start.inputs."));

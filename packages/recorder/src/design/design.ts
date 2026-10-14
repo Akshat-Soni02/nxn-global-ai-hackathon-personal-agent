@@ -55,9 +55,11 @@ export interface DesignOptions {
 
 export type DesignOutcome = {
   skill: Skill;
-  // Questions still to ask (the drill after the agent), and the ones answered during it.
+  // Questions still to ask (the drill after the agent), the ones answered during it, and the ones the agent closed
+  // because the description or the narration already answered them (never put to the user).
   pending: Question[];
   answered: { question: Question; answer: string }[];
+  closed: { question: Question; quote: string }[];
   episode?: Episode<DesignFinish>;
 } & ({ kind: "designed"; summary: string; edits: EditInput[] } | { kind: "kept"; reason: string });
 
@@ -72,6 +74,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     notes: options.notes ?? [],
     pending: [...options.questions],
     answered: [],
+    closed: [],
     asked: 0,
     maxQuestions: options.maxQuestions ?? MAX_QUESTIONS,
     edits: [],
@@ -102,6 +105,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
       edits: session.edits,
       pending: session.pending.filter((q) => stillOpen(session.draft, q)),
       answered: session.answered,
+      closed: session.closed,
       episode,
     };
   }
@@ -118,7 +122,15 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
       : outcome.kind === "error"
         ? `it failed: ${outcome.error}`
         : "it was stopped";
-  return { kind: "kept", reason, skill: kept, pending: session.pending, answered: session.answered, episode };
+  return {
+    kind: "kept",
+    reason,
+    skill: kept,
+    pending: session.pending,
+    answered: session.answered,
+    closed: session.closed,
+    episode,
+  };
 }
 
 // A first-draft question about a step or an input the agent has since removed has nothing left to answer.
@@ -131,26 +143,37 @@ function stillOpen(skill: Skill, question: Question): boolean {
   return true;
 }
 
-const ROLE = `You are Shadow's design agent. A person described a task and showed it once. Code and one model call turned
-the recording into a first draft: a flat list of steps that replays what they did. Make the draft do what they
-meant, so it runs right next time, with next time's data.
-- Start with read_description, read_recording and workflow.
+const ROLE = `You are Shadow's design agent. A person described a task and showed it once, often saying out loud what
+they mean. Code and one model call turned the recording into a first draft: a flat list of steps that replays what
+they did, once. Make the draft do what they meant, so it runs right next time, with next time's data.
+- Your first message has the description, what they said, the recording (read_recording shows more) and the draft.
+- The description and what they said are the rule; the recording is one example of it. "The top 5", "skip the ones
+  already in my sheet", "only remote ones", "if there are fewer, take what there is" are rules the workflow follows.
 - Values that will be different next time (what the description says changes: an email, a file, a date, numbers)
-  must not stay as fixed text: make them inputs, or take them from an earlier step's output.
-- The same actions done for several items become one loop (wrap_in_loop) over a list an earlier step produces.
+  must not stay as fixed text: make them inputs, or take them from an earlier step's output. A date they typed is
+  usually the day it runs: {{today}}.
+- The same actions done for several items become one loop (wrap_in_loop) over a list an earlier step produces. Shown
+  once but said to be done for several ("do this for 5 a day") is a loop too.
 - "Only if" (in the description or what was said) becomes a branch (wrap_in_branch).
-- Reading, summarising, classifying or working something out from text becomes an llm step (add_llm_step). llm steps
-  never click or type.
+- Reading, summarising, classifying, picking or working something out from text becomes an llm step (add_llm_step).
+  llm steps never click or type.
+- A common shape: read a list (web.extract), pick the items wanted with an llm step (the top N, only new ones, a
+  filter), then a loop whose body is the recorded steps for one item, with the item's fields in place of the
+  recorded values.
 - Controls come only from the recording: you may move and wrap steps and change their intents, args, waits, checks
-  and outputs, never invent a click on something the person didn't use. If the task needs one, ask them.
+  and outputs, never invent a click on something the person didn't use. The steps that type, paste, select or upload
+  what they showed are the work itself: move or wrap them, never remove them. If the task needs a control they didn't
+  use, ask them.
 - Never change the description or the Frequency (the user's own), and never turn approval off.
-- Ask (ask_user) only what the recording and the description can't tell you, with options and a default, at most
-  ${MAX_QUESTIONS} questions. The open questions from the first draft are listed: ask the ones that matter by id;
-  the rest are asked after you finish.
+- Never ask what the description or what they said already answers: use it. An open question from the first draft
+  that they already answered: close it (close_question), quoting their words. Ask (ask_user) only what is left, with
+  options and a default, at most ${MAX_QUESTIONS} questions; open questions you neither ask nor close are asked after
+  you finish. An answer that comes back not_applied is yours to put into the workflow with an edit.
 - describe_screen shows a step's picture described (when the user allowed pictures): use it before asking, when the
   words near a step don't say what the control was for.
-- Keep step ids. Every kept edit says what still stops the workflow (still_to_fix): fix those before you finish.
-  When nothing is left, finish with one sentence on what you changed. If the draft is already right, finish at once.`;
+- Keep step ids. An edit is all or nothing: make a big change in a few calls, each one valid on its own. Every kept
+  edit says what still stops the workflow (still_to_fix): fix those before you finish. When nothing is left, finish
+  with one sentence on what you changed. If the draft is already right, finish at once.`;
 
 function taskOf(session: DesignSession): string {
   const form = session.form;
