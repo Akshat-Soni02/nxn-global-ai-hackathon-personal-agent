@@ -489,14 +489,6 @@ nav a.active .badge {
   flex-wrap: wrap;
   align-items: center;
 }
-/* "Or write your own answer", under a question's options. */
-.answers.other {
-  margin-top: 10px;
-}
-.answers.other .input {
-  flex: 1;
-  min-width: 200px;
-}
 .card-link {
   display: inline-block;
   margin-top: 10px;
@@ -834,6 +826,15 @@ nav a.active .badge {
   width: 100%;
   box-sizing: border-box;
   margin-top: 8px;
+}
+
+/* "Or write your own answer", under a question's options (screens/Inbox.tsx). */
+.answers.other {
+  margin-top: 10px;
+}
+.answers.other .input {
+  flex: 1;
+  min-width: 200px;
 }
 
 /* The description form (screens/Record.tsx) */
