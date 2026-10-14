@@ -15,7 +15,7 @@ export const Consent = z.object({
   // Narration, turned into text on the Mac; only the text leaves it.
   microphone: z.boolean().default(false),
   // The masked picture itself (private lines and secret fields blacked out) may be sent to the vision model, to be
-  // described, by the design agent and the repair agent (describe_screen). Off: only words ever leave.
+  // described, by the design agent (describe_step_screenshot) and the repair agent (describe_screen). Off: only words ever leave.
   pictures: z.boolean().default(false),
 });
 export type Consent = z.infer<typeof Consent>;

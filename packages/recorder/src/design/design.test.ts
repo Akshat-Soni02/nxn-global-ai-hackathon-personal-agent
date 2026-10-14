@@ -288,8 +288,8 @@ describe("the design agent", () => {
     const { steps, skill, questions } = await draft();
     const described: number[] = [];
     const llm = fakeLlm([
-      call("describe_screen", { step: 2 }),
-      call("describe_screen", { step: 9 }),
+      call("describe_step_screenshot", { step: 2 }),
+      call("describe_step_screenshot", { step: 9 }),
       call("finish", { summary: "done" }),
     ]);
     const outcome = await designWorkflow({
@@ -313,7 +313,7 @@ describe("the design agent", () => {
 
   it("says there are no pictures when the user did not allow them", async () => {
     const { steps, skill, questions } = await draft();
-    const llm = fakeLlm([call("describe_screen", { step: 1 }), call("finish", { summary: "done" })]);
+    const llm = fakeLlm([call("describe_step_screenshot", { step: 1 }), call("finish", { summary: "done" })]);
     const outcome = await designWorkflow({
       llm,
       skill,

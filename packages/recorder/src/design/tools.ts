@@ -601,7 +601,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
       },
     }),
     tool({
-      name: "describe_screen",
+      name: "describe_step_screenshot",
       kind: "look",
       description:
         "What was on screen at recorded step n: its picture (private text blacked out) described by the vision model. Only with the user's consent, and only when the words near the step don't say what the control was for",

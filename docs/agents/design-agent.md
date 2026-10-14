@@ -138,7 +138,7 @@ One call on `smart` with `json: true`. **It isn't metered** (`compileChat` passe
 > - Controls come only from the recording. **Steps that type, paste, select or upload what they showed are the work itself: move or wrap them, never remove them.**
 > - Never change the description or the Frequency; never turn approval off.
 > - **Never ask what the description or what they said already answers**: put the answer into the workflow with an edit; a code question whose answer it fills in this way is not asked afterwards. Ask only what is left (≤ 5); an answer that comes back `not_applied` is the agent's to put in.
-> - `describe_screen` before asking, when the words near a step don't say what a control was for.
+> - `describe_step_screenshot` before asking, when the words near a step don't say what a control was for.
 > - Keep step ids; an edit is all or nothing, so a big change goes in a few calls, each valid on its own; fix `still_to_fix` before `finish`.
 
 Then `briefing({ edits: true })` ([README](README.md) §4; **without** "Available now"), then the loop's "How you work".
@@ -204,7 +204,7 @@ Steps past 40 are only reachable with `read_recording`, but since 15 Oct the nar
 | `read_description` | `{}` | the form's description + `frequency`, or "No form was filled in…" | |
 | `read_recording` | `{ from?: int ≥1, to?: int ≥1 }` | `recordingView(from, to)`: `[{ n, ids, did, page, element, …, notes? }]` | **untrusted**. Defaults to all steps. Clipped at 12,000 characters by the loop |
 | `workflow` | `{ step?: string }` | the outline, or one step as JSON, or `No step X` | |
-| `describe_screen` | `{ step: int ≥1 }` (the **recorded** step number `n`, not a skill id) | the vision model's description | **untrusted**. "No pictures: the user did not allow pictures to be sent." without consent; "Couldn't describe it: …" when the step has no kept picture |
+| `describe_step_screenshot` (named `describe_screen` until 15 Oct) | `{ step: int ≥1 }` (the **recorded** step number `n`, not a skill id) | the vision model's description | **untrusted**. "No pictures: the user did not allow pictures to be sent." without consent; "Couldn't describe it: …" when the step has no kept picture |
 | `recall` | `{ query: string }` | up to 8 memory texts, any workflow | "No memory." / "Nothing remembered about that." |
 | `validate` | `{}` | `{ ok, problems: checks(draft), open_questions: [{id,text}] }` | `problems` are only `unattendedGaps` (§8.3) |
 

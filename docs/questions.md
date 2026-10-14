@@ -170,7 +170,8 @@ does.)
   characters), or the top 300 characters of the page when no line holds them. A stretch like the one before is said
   once (`(as before)`). 29 full pages had buried the 14 sentences you said; `read_recording` still shows the full text.
 - **The picture itself never leaves the Mac**, unless you also allowed **Pictures**. Then, and only when an agent asks
-  `describe_screen` (the design agent about a recorded step, the repair agent about the live page or window), the
+  `describe_step_screenshot` (the design agent, about a recorded step) or `describe_screen` (the repair agent, about the live page or
+  window), the
   daemon sends that one already blacked-out picture to GLM-5.3-Flash with the agent's question and hands back a text
   description, marked as untrusted. A test proves the original bytes never reach a request. Pictures are deleted with
   the recording a day after saving.
@@ -190,7 +191,7 @@ cover most of what the agents need, and the picture is there, blacked out, for t
 `apps/mac/Sources/main.swift` (`shoot`), `Screen.swift` (capture, `--ocr`, `--redact`) ·
 `apps/daemon/src/screen.ts` (read, mask, black out, `screen.jsonl`) · `packages/recorder/src/mask.ts` ·
 `apps/daemon/src/describe.ts` (pictures for the model) · `packages/llm/src/vision.ts` ·
-`packages/recorder/src/design/tools.ts` and `packages/player/src/repair/tools.ts` (`describe_screen`).
+`packages/recorder/src/design/tools.ts` (`describe_step_screenshot`) and `packages/player/src/repair/tools.ts` (`describe_screen`).
 
 ## G. When the rest of the form is asked
 
@@ -241,7 +242,7 @@ workflow, and which tools does it have?
   comes back with what still stops the workflow (validate inside the loop, "6c") → ask at most 5 questions → finish
   only when nothing is left. If it can't finish (no model, an error, out of budget), the first draft is kept with the
   answers already given.
-- Its tools: look: `read_description`, `read_recording`, `workflow`, `recall`, `describe_screen`; edit: `edit`
+- Its tools: look: `read_description`, `read_recording`, `workflow`, `recall`, `describe_step_screenshot`; edit: `edit`
   (operations), `wrap_in_loop`, `wrap_in_branch`, `add_llm_step`; check: `validate`; ask: `ask_user`; finish:
   `finish`.
 - Its guard, in code: targets only from the recording; a new step may only read (find, read, pick, extract, wait,

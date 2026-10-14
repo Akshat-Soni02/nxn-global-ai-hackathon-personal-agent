@@ -2,7 +2,7 @@
 // a picture on the Mac and only the masked words leave (screen.ts). Pictures only with the second consent ("Let the
 // model see masked pictures", config.json consent.pictures): the picture is read and masked the same way, the masked
 // lines and the known secret fields are blacked out, and that blacked-out picture goes to the vision model once, to be
-// described (describe_screen, used by the design agent and the repair agent). Nothing leaves without the consent, and
+// described (describe_step_screenshot in the design agent, describe_screen in the repair agent). Nothing leaves without the consent, and
 // never unmasked; the working copy is deleted as soon as the model has answered.
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";

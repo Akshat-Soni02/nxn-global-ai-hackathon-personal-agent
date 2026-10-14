@@ -94,7 +94,7 @@ export interface FinishOptions {
   meter?: UsageMeter;
   // The design agent's budget, for tests.
   design?: Pick<DesignOptions, "budget" | "protocol">;
-  // Masked pictures described by the vision model (describe.ts), for the design agent's describe_screen. Used only
+  // Masked pictures described by the vision model (describe.ts), for the design agent's describe_step_screenshot. Used only
   // when this recording's form allowed pictures.
   describer?: ScreenDescriber;
 }

@@ -51,7 +51,7 @@ export interface DesignOptions {
   prompter: Prompter;
   // What else must hold before it may finish (the daemon's go-live checks for an unattended Frequency).
   checks?: (skill: Skill) => string[];
-  // A recorded step's masked picture, described by the vision model (describe_screen). Only with pictures consent.
+  // A recorded step's masked picture, described by the vision model (describe_step_screenshot). Only with pictures consent.
   describeScreen?: (step: NormalisedStep) => Promise<string>;
   budget?: Partial<Budget>;
   maxQuestions?: number;
@@ -182,7 +182,7 @@ they did, once. Make the draft do what they meant, so it runs right next time, w
   answer: put the answer into the workflow with an edit (then it isn't asked). Ask (ask_user) only what is left, with
   options and a default, at most ${MAX_QUESTIONS} questions; an open question whose answer you leave untouched is
   asked after you finish. An answer that comes back not_applied is yours to put into the workflow with an edit.
-- describe_screen shows a step's picture described (when the user allowed pictures): use it before asking, when the
+- describe_step_screenshot shows the screenshot taken at a recorded step, described (when the user allowed pictures): use it before asking, when the
   words near a step don't say what the control was for.
 - Keep step ids. An edit is all or nothing: make a big change in a few calls, each one valid on its own. Every kept
   edit says what still stops the workflow (still_to_fix): fix those before you finish. When nothing is left, finish

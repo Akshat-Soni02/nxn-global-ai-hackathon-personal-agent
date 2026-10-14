@@ -213,7 +213,7 @@ screen = createScreenReader({
 });
 const screenReader = screen;
 const transcribe = transcriberFrom(macBinary);
-// Masked pictures described by the vision model, for the design agent and the repair agent (describe_screen): only
+// Masked pictures described by the vision model, for the design agent (describe_step_screenshot) and the repair agent (describe_screen): only
 // with the "pictures" consent, and masked by the same tools as the recording's screenshots.
 const describer = createScreenDescriber({
   dataDir: home,
