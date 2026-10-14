@@ -159,11 +159,12 @@ export function recordedPages(steps: NormalisedStep[]): string[] {
   return [...new Set(steps.flatMap((s) => [s.url, s.navigatesTo]).filter((u): u is string => !!u))];
 }
 
-// For each skill step a recorded click became, the page that click opened.
+// For each skill step a recorded click or key press became, the page it opened. A step that submitted a form is left
+// out: its page is a result, and opening it directly would skip the submitting.
 export function recordedOpens(steps: NormalisedStep[], idsByStep: string[][]): Record<string, string> {
   const opens: Record<string, string> = {};
   steps.forEach((s, i) => {
-    if (!s.navigatesTo) return;
+    if (!s.navigatesTo || s.submits) return;
     for (const id of idsByStep[i] ?? []) opens[id] = s.navigatesTo;
   });
   return opens;
@@ -246,11 +247,15 @@ export function designViolations(
       continue;
     }
     const kind = `${step.channel}.${step.action}`;
-    // A click that only took them to a page may become "open that page", that page and no other (Drive -> Recent ->
-    // the sheet becomes one step that opens the sheet). Never a click that sends or needs approval: its page is a
-    // result, and opening it would skip the sending.
+    // A recorded step that only took them to a page (a click, a key press such as Enter in a search box) may become
+    // "open that page", that page and no other (Drive -> Recent -> the sheet becomes one step that opens the sheet).
+    // Never a step that submitted, sends or needs approval: its page is a result, and opening it would skip the work.
     const clickToPage =
-      !!old && isAction(old) && old.channel === "web" && old.action === "click" && kind === "web.navigate";
+      !!old &&
+      isAction(old) &&
+      old.channel === "web" &&
+      (old.action === "click" || old.action === "press") &&
+      kind === "web.navigate";
     const opened =
       clickToPage &&
       isAction(old) &&
@@ -263,7 +268,7 @@ export function designViolations(
       );
     } else if (clickToPage && !opened) {
       problems.push(
-        `${step.id}: a click may become "open this page" only for the page it opened (${recording.opens?.[step.id] ?? "it opened none"}), and never a click that sends or needs approval`,
+        `${step.id}: a step may become "open this page" only for the page it opened (${recording.opens?.[step.id] ?? "it opened none"}), and never one that submits, sends or needs approval`,
       );
     } else if (old && !opened && (!isAction(old) || `${old.channel}.${old.action}` !== kind)) {
       problems.push(

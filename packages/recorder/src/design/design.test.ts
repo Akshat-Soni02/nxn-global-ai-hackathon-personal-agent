@@ -5,7 +5,7 @@ import { compile, type Form, type Question } from "../compile.ts";
 import type { Prompter } from "../drill.ts";
 import { type NormalisedStep, normalise } from "../normalise.ts";
 import { designWorkflow } from "./design.ts";
-import { designViolations, notesByStep, recordedFolders } from "./tools.ts";
+import { designViolations, notesByStep, recordedFolders, recordedOpens } from "./tools.ts";
 
 const PAGE = "http://localhost:5173/upload.html";
 const control = (name: string, extra: Partial<ElementDescriptor> = {}): ElementDescriptor => ({
@@ -395,13 +395,21 @@ describe("the rules and the recording view", () => {
     // Only the page that click opened, never another visited page; and never a click that needs approval (Submit).
     const elsewhere = "https://docs.google.com/spreadsheets/d/other/edit";
     expect(designViolations(long, opened, form, [], { pages: [sheet, elsewhere], opens: { c1: elsewhere } })).toEqual([
-      expect.stringMatching(/c1: a click may become "open this page" only for the page it opened/),
+      expect.stringMatching(/c1: a step may become "open this page" only for the page it opened/),
     ]);
     const submitted = clone(long);
     submitted.steps[3] = { ...(opened.steps[4] as object), id: "s3", requires_approval: true } as never;
     expect(designViolations(long, submitted, form, [], { pages: [sheet], opens: { s3: sheet } })).toEqual(
-      expect.arrayContaining([expect.stringMatching(/s3: a click may become "open this page" only/)]),
+      expect.arrayContaining([expect.stringMatching(/s3: a step may become "open this page" only/)]),
     );
+    // Not only clicks: Enter in a search box that took them to the results may become "open the results".
+    const pressed = clone(long);
+    (pressed.steps[4] as Record<string, unknown>).action = "press";
+    (pressed.steps[4] as Record<string, unknown>).args = { key: "Enter" };
+    expect(designViolations(pressed, opened, form, [], { pages: [sheet], opens: { c1: sheet } })).toEqual([]);
+    // A step that submitted a form never gets a page to open: its page is a result.
+    const steps = [{ navigatesTo: sheet, submits: true }, { navigatesTo: sheet }] as NormalisedStep[];
+    expect(recordedOpens(steps, [["s4"], ["s5"]])).toEqual({ s5: sheet });
   });
 
   it("lets a second item's repeat go once the loop does it, but no removal in disguise, and runs still open a page", async () => {
