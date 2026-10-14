@@ -347,6 +347,86 @@ describe("the design agent", () => {
   });
 });
 
+describe("one AI reads the recording: it labels the plain list first", () => {
+  // The plain step list as the daemon now hands it over: code only, no model call before the agent.
+  async function plain() {
+    const steps = normalise(trace());
+    const compiled = await compile(steps, { form });
+    return { steps, skill: compiled.skill, questions: compiled.questions, base: compiled.base };
+  }
+
+  it("labels every step in one move, before any other change or question", async () => {
+    const { steps, skill, questions, base } = await plain();
+    const llm = fakeLlm([
+      call("edit", { edits: [{ op: "set", step: "s2", field: "intent", value: "too soon" }] }),
+      call("ask_user", { question: "Always the newest invoice?" }),
+      call("label_steps", {
+        intent: "Upload this month's invoice",
+        steps: [
+          { id: "s2", intent: "Attach this month's invoice" },
+          { id: "s3", intent: "Send it", requires_approval: true },
+        ],
+      }),
+      call("label_steps", { steps: [{ id: "s2", intent: "again" }] }),
+      call("finish", { summary: "Labelled the steps" }),
+    ]);
+    const outcome = await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      base,
+      prompter: prompter().p,
+      protocol: "tools",
+    });
+    const [edit, ask, labelled, again] = results(outcome.episode);
+    expect(edit).toMatch(/label the steps first/);
+    expect(ask).toMatch(/label the steps first/);
+    expect(labelled).toContain('"ok":true');
+    expect(again).toMatch(/labelled already/);
+    const s2 = [...walkSteps(outcome.skill.steps)].find(({ step }) => step.id === "s2")?.step;
+    expect(s2?.intent).toBe("Attach this month's invoice");
+    // The labelling rules travel with the agent: they are in its instructions.
+    const system = ((llm.requests[0]?.messages ?? []) as { content: string }[])[0]?.content ?? "";
+    expect(system).toMatch(/# Your first move: label_steps/);
+    expect(system).toMatch(/Never output targets, selectors, channels or actions/);
+  });
+
+  it("when it stops early, keeps what it reached; when it changed nothing, the plain list", async () => {
+    const { steps, skill, questions, base } = await plain();
+    const reached = await designWorkflow({
+      llm: fakeLlm([
+        call("label_steps", { steps: [{ id: "s2", intent: "Attach this month's invoice" }] }),
+        call("edit", { edits: [{ op: "set", step: "s1", field: "intent", value: "Open the portal" }] }),
+      ]),
+      skill,
+      questions,
+      steps,
+      form,
+      base,
+      prompter: prompter().p,
+      protocol: "tools",
+      budget: { turns: 2 },
+    });
+    expect(reached.kind).toBe("kept");
+    const intents = reached.skill.steps.filter(isAction).map((s) => s.intent);
+    expect(intents.slice(0, 2)).toEqual(["Open the portal", "Attach this month's invoice"]);
+    const nothing = await designWorkflow({
+      llm: fakeLlm([call("workflow", {})]),
+      skill,
+      questions,
+      steps,
+      form,
+      base,
+      prompter: prompter().p,
+      protocol: "tools",
+      budget: { turns: 1 },
+    });
+    expect(nothing).toMatchObject({ kind: "kept", skill });
+  });
+});
+
 describe("the rules and the recording view", () => {
   it("lets the user's own fields and approvals through unchanged, and nothing else", async () => {
     const { skill } = await draft();

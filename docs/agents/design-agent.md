@@ -10,6 +10,8 @@ The agent asks the user only what it can't tell.
 
 It runs once per recording, right after **Stop**, in the daemon. It's Nemotron 3 Super in the shared loop ([README](README.md) §2) with 13 tools of its own and a set of rules (`designViolations`) checked inside its edit tools.
 
+> **Since 15 Oct (evening): one AI reads the recording.** The separate first-draft call is gone from the daemon. Code builds the plain step list; the design agent labels it as its first move (`label_steps`, the same labels and merge rules as §2, see `labelRules`, `labelDraft` in `compile.ts`), then restructures, and is the only AI that writes questions. Before labelling, every other edit and `ask_user` is refused with "label the steps first". `compile()` still has its one-call path for tests, unused by the daemon.
+
 > **Updated 15 Oct 2026** after the first real recording (`reports/first-real-recording-yc-to-sheets.md`): the narration reaches both model calls whole; questions the form or narration answer are closed, never asked; answers about new inputs create them; recorded writes can't be removed and at most half the recorded steps can; a click may become "open this page"; every page the recording reached counts as visited; edits take up to 100 operations; `design.json` keeps the prompt. §15 marks what is fixed.
 
 Code: `packages/recorder/src/design/design.ts` (prompt, entry point), `packages/recorder/src/design/tools.ts` (tools, rules, views), called from `apps/daemon/src/record.ts` (`finishRecording`).
@@ -25,9 +27,9 @@ Code: `packages/recorder/src/design/design.ts` (prompt, entry point), `packages/
 | 1 | Read the trace | — | `recordings/<session>/trace.jsonl`. Picked or dropped files are located on disk (`locateFiles`) |
 | 2 | **Normalise** | — | `normalise(trace)` → `NormalisedStep[]`: events by meaning (click, type, copy, paste, navigate, upload, app_press, …) with targets, values, URLs, "led to", copied sheet context |
 | 3 | Read the form | — | `description.json` → `form = { description: { goal, changes, constants, never }, when }`. Recordings before Oct 13 have none |
-| 4 | **Compile** (first draft) | 1 call, `smart`, JSON | §2. Code builds a skeleton; the model adds intents, inputs, checks, approvals, questions. Up to 3 attempts; fallback: skeleton only |
+| 4 | **The plain step list** | — | `compile(steps, { form })` with **no model** (since 15 Oct): the skeleton by code, plus the questions code knows it can't decide (where files arrive, a pasted value, which sheet row). §2 now describes the labelling the agent does as its first move |
 | 5 | Pick the id | — | New: `newSkillId` (name + random tag). **Record again** (`form.again`): the existing workflow's id and name |
-| 6 | **The design agent** | the agent | §3–§9. Only when a model is configured |
+| 6 | **The design agent** | the agent | §3–§9. Only when a model is configured. **The one AI that reads the recording**: its first move, `label_steps`, labels the plain list (what the one-call compile used to do); then it restructures and is the only AI that asks |
 | 7 | Remember answers | — | Answers to questions that carry `remember` go to memory (§11) |
 | 8 | Keep the transcript | — | `recordings/<session>/design.json` (§12) |
 | 9 | **Drill** what's left | — | The questions the agent didn't ask (`pending`), asked one by one in the inbox and applied with `applyAnswer` (§10) |
@@ -35,7 +37,7 @@ Code: `packages/recorder/src/design/design.ts` (prompt, entry point), `packages/
 | 11 | **Approvals** | — | `requireApprovals`: every outward step and every step matching Never gets `requires_approval: true`, whatever came before |
 | 12 | History note and save | — | `skills/<id>/v<N>.json`, history `{ by: "record", summary: "Recorded; <agent summary>" }` (or "Recorded again; …" as the next version) |
 
-If the agent doesn't finish (no model, an error, out of budget), the compiled draft is saved, with the answers the user already gave re-applied.
+If the agent doesn't finish (out of turns or money, an error), **its last valid draft** is saved: every change it made passed the schema and the rules, and the answers already given are in it. If it changed nothing (or there is no model), the plain step list is saved.
 
 ---
 

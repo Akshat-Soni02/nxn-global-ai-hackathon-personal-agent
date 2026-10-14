@@ -266,9 +266,9 @@ describe("keeping a recording for a day", () => {
 });
 
 describe("after Stop, with a model", () => {
-  // A recording of typing the week into a timesheet, on a weekly Frequency. The first draft (one model call) declares
-  // the week as an input without a default (a value typed into a step would have been kept as its default); a run
-  // started by the schedule would have nobody to ask.
+  // A recording of typing the week into a timesheet, on a weekly Frequency. The design agent's first move labels the
+  // steps and declares the week as an input without a default (a value typed into a step would have been kept as its
+  // default); a run started by the schedule would have nobody to ask.
   async function recorded(home: string) {
     const sessionId = "w1";
     writeForm(home, sessionId, {
@@ -282,20 +282,20 @@ describe("after Stop, with a model", () => {
     const field = { ...button("Week", "week"), tag: "input", role: "textbox", name: "Week" };
     appendTrace(home, { id: "e1", sessionId, at: 1000, event: "type", url: PAGE, target: field, value: "2026-W41" });
     appendTrace(home, { id: "e2", sessionId, at: 3000, event: "click", url: PAGE, target: button("Save", "save") });
-    const compileReply = JSON.stringify({
+    const labels = call("label_steps", {
       id: "log-hours",
       intent: "Log the week's hours",
       inputs: { week: { type: { type: "text" }, description: "the ISO week" } },
     });
-    return { sessionId, compileReply };
+    return { sessionId, labels };
   }
   const call = (name: string, args: unknown) => ({ toolCalls: [{ name, arguments: args }] });
 
   it("the design agent fills what a scheduled run needs, asks on the step, and its work is kept with the recording", async () => {
     const home = temp();
-    const { sessionId, compileReply } = await recorded(home);
+    const { sessionId, labels } = await recorded(home);
     const llm = fakeLlm([
-      compileReply,
+      labels,
       call("finish", { summary: "too early" }),
       call("ask_user", { question: "Which week should a scheduled run log?", default: "the current week", step: "s2" }),
       call("edit", {
@@ -328,16 +328,19 @@ describe("after Stop, with a model", () => {
     expect(triggerOf(skill).inputs.week?.default).toBe("{{today}}");
     expect(skill.history[0]?.summary).toBe("Recorded; A scheduled run logs the current week");
     const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
-    expect(kept).toMatchObject({ summary: "A scheduled run logs the current week", turns: 4, closed: [] });
+    expect(kept).toMatchObject({ summary: "A scheduled run logs the current week", turns: 5, closed: [] });
+    // One AI read the recording: every model call was the agent's (no separate first-draft call).
+    expect(llm.requests.every((r) => Array.isArray((r as { tools?: unknown }).tools))).toBe(true);
     // What the agent was told is kept, so a poor result can be explained (Oct 14: it couldn't be).
     expect(kept.prompt.system).toMatch(/^You are Shadow's design agent/);
     expect(kept.prompt.task).toMatch(/# What they said while doing it/);
   });
 
-  it("when the agent can't finish, the first draft is kept and the missing default is asked for", async () => {
+  it("when the agent can't finish, what it reached is kept and the missing default is asked for", async () => {
     const home = temp();
-    const { sessionId, compileReply } = await recorded(home);
-    const llm = fakeLlm([compileReply, call("workflow", {})]);
+    const { sessionId, labels } = await recorded(home);
+    // It labels the steps (declaring the week), then runs out of turns: the labelled draft is kept, not thrown away.
+    const llm = fakeLlm([labels]);
     const asked: string[] = [];
     const saved = await finishRecording(sessionId, {
       dataDir: home,

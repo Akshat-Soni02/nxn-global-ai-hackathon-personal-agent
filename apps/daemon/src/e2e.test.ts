@@ -85,12 +85,8 @@ describe("the whole loop on a scratch daemon", () => {
     const socketPath = join(temp(), "d.sock");
     daemon = await startDaemon({ socketPath, dataDir: home, watchDirs: [], drainMs: 50 });
 
-    // The model, scripted: compile gets its annotations as JSON; the design agent (native tools) finishes at once.
-    const llm = fakeLlm((body) =>
-      Array.isArray(body.tools)
-        ? { toolCalls: [{ name: "finish", arguments: { summary: "Kept as recorded" } }] }
-        : JSON.stringify({ intent: "Upload this week's invoice to the portal", steps: [], questions: [] }),
-    );
+    // The model, scripted: the design agent (native tools), the one AI that reads the recording, finishes at once.
+    const llm = fakeLlm(() => ({ toolCalls: [{ name: "finish", arguments: { summary: "Kept as recorded" } }] }));
     const log = () => {};
     let saved: { skill: { id: string } } | undefined;
     const control = createRecordControl({
@@ -158,7 +154,7 @@ describe("the whole loop on a scratch daemon", () => {
     expect(v1?.history.map((h) => h.by)).toEqual(["record"]);
     expect(v1?.steps.filter(isAction).map((s) => s.action)).toEqual(["navigate", "click", "upload", "click"]);
     expect(triggerOf(v1 as NonNullable<typeof v1>).when).toEqual(form.when);
-    expect(llm.requests.length).toBeGreaterThanOrEqual(2); // compile, then the design agent
+    expect(llm.requests.length).toBeGreaterThanOrEqual(1); // the design agent, the only AI call
     expect(readState(home, id).state).toBe("draft");
 
     // The service: the real interpreter with recovery (the cheap ladder; no model, so no repair agent), stand-in

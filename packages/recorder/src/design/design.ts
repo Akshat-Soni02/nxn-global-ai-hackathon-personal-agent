@@ -1,17 +1,19 @@
-// The design agent (docs/design.md, "3. Understand" and "Agents"): after Stop, it turns the compiled first draft (a
-// flat list of steps) into the workflow the user meant, using the description form, the recording, what was said and
-// seen, and memory: values that change become inputs, repeated work a loop, "only if" a branch, reading and
-// summarising an llm step. Unclear parts are asked (the drill). It changes the draft only through the edit operations,
-// within designViolations' rules, and ends with `finish`.
+// The design agent (docs/design.md, "3. Understand" and "Agents"): after Stop, the one AI that reads the recording.
+// It gets the plain step list code built (every action, with what was said and seen next to the step it happened
+// over, and the narration on its own), the description, and memory. Its first move labels every step (label_steps:
+// what it is for, values that change as inputs, checks, approvals); then it makes the list do what the user meant:
+// repeated work a loop, "only if" a branch, reading and picking an llm step. It is the only AI that asks the user
+// anything. It changes the draft only through the edit operations, within designViolations' rules, and ends with
+// `finish`.
 //
-// If it can't finish (no model, an error, its budget runs out), the compiled draft is kept, with the answers the user
-// already gave applied to it: a recording is never lost, and nothing is asked twice.
+// If it stops early (out of turns or money, an error, no model), its last valid draft is kept, with the answers the
+// user already gave in it; if it changed nothing, that is the plain step list. A recording is never lost.
 import { type AgentEvent, type Budget, type Episode, type Protocol, runAgent } from "@shadow/agent";
 import { briefing, type EditInput, type Skill, triggerOf, walkSteps } from "@shadow/core";
 import type { Llm, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
-import type { Form, Question } from "../compile.ts";
-import { applyAnswer, type Prompter } from "../drill.ts";
+import { type Base, type Form, labelRules, type Question } from "../compile.ts";
+import type { Prompter } from "../drill.ts";
 import { narrationOf } from "../narration.ts";
 import type { NormalisedStep } from "../normalise.ts";
 import { skeletonOf } from "../skeleton.ts";
@@ -34,9 +36,12 @@ export const MAX_QUESTIONS = 5;
 
 export interface DesignOptions {
   llm: Llm;
-  // The compiled first draft, and its questions (none asked yet).
+  // The workflow it starts from (the plain step list), and the questions code knows it can't decide (none asked yet).
   skill: Skill;
   questions: Question[];
+  // The plain step list as code built it, to label first (label_steps). The daemon always passes it; without it the
+  // agent starts from `skill` as it is (tests, older callers).
+  base?: Base;
   // The recording by meaning (normalise), what the draft was compiled from.
   steps: NormalisedStep[];
   form?: Form;
@@ -81,6 +86,8 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     pending: [...options.questions],
     answered: [],
     closed: [],
+    base: options.base,
+    labelled: !options.base,
     asked: 0,
     maxQuestions: options.maxQuestions ?? MAX_QUESTIONS,
     edits: [],
@@ -89,7 +96,10 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     checks: options.checks,
     describe: options.describeScreen,
   };
-  const prompt = { system: `${ROLE}\n\n${briefing({ edits: true })}`, task: taskOf(session) };
+  const labelling = options.base
+    ? `\n\n# Your first move: label_steps\nBefore any other change or question, label every step of the plain list in one label_steps call, by these rules (the same JSON fields as a step: id, intent, args, check, wait, requires_approval, save_as, timeout_ms, ai; and for the whole task: id, intent, inputs, success):\n${labelRules().join("\n")}`
+    : "";
+  const prompt = { system: `${ROLE}${labelling}\n\n${briefing({ edits: true })}`, task: taskOf(session) };
   const episode = await runAgent<DesignFinish>({
     llm: options.llm,
     profile: "smart",
@@ -116,13 +126,10 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
       episode,
     };
   }
-  // Back to the compiled draft, keeping what the user already answered.
-  let kept = options.skill;
-  for (const { question, answer } of session.answered) {
-    if (!answer || !question.appliesTo) continue;
-    const applied = applyAnswer(kept, question, answer);
-    if (applied.ok) kept = applied.skill;
-  }
+  // It stopped early (out of turns or money, an error, stopped): whatever it reached is kept. Every change it made
+  // passed the schema and the rules, so its last draft is a valid workflow, with the answers already given written
+  // in; if it changed nothing, that is the plain step list. Nothing is thrown away, and nothing is asked twice.
+  const kept = session.draft;
   const reason =
     outcome.kind === "out_of_budget"
       ? `it ran out of ${outcome.budget}`
@@ -133,7 +140,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     kind: "kept",
     reason,
     skill: kept,
-    pending: session.pending,
+    pending: session.pending.filter((q) => stillOpen(kept, q)),
     answered: session.answered,
     closed: session.closed,
     prompt,

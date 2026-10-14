@@ -201,8 +201,9 @@ cover most of what the agents need, and the picture is there, blacked out, for t
   Never is still there, folded, because its words are masked from the screen text and the narration while you record;
   asked later it would be too late.
 - **After Stop, one asker: the design agent.** The order:
-  1. the first-draft call (one model call) writes candidate questions. Since 15 Oct it hears the narration too, and is
-     told never to ask what the description or the narration says;
+  1. code (no model) builds the plain step list and lists only the questions code knows it can't decide (where files
+     arrive, what a pasted value should be). Since 15 Oct evening there is no separate first-draft AI call: the agent
+     labels the steps itself as its first move;
   2. the design agent **closes** the candidates your words already answer, by quoting them (`close_question`; code
      checks the quote is really in what you wrote or said), asks at most 5 of the rest (`ask_user`), each shown next to
      its step, and gets each answer back in its own loop to build into the workflow;

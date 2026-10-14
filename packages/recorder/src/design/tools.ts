@@ -19,7 +19,7 @@ import {
 } from "@shadow/core";
 import type { MemoryStore } from "@shadow/memory";
 import { z } from "zod";
-import { type Form, type Question, stepsForModel } from "../compile.ts";
+import { type Base, type Form, Labels, labelDraft, type Question, stepsForModel } from "../compile.ts";
 import { applyAnswer, type Prompter } from "../drill.ts";
 import { type Note, notesByStep } from "../narration.ts";
 import type { NormalisedStep } from "../normalise.ts";
@@ -46,6 +46,9 @@ export interface DesignSession {
   answered: { question: Question; answer: string }[];
   // Open questions the description or the narration already answered, with the words that answer them.
   closed: { question: Question; quote: string }[];
+  // The plain step list, to label first (label_steps), and whether that happened. Without one there is nothing to label.
+  base?: Base;
+  labelled: boolean;
   asked: number;
   maxQuestions: number;
   edits: EditInput[];
@@ -462,6 +465,9 @@ const BRIEF_SCREEN = 300;
 
 // ---- The tools ------------------------------------------------------------------------------------------------
 
+// The steps are labelled before anything else changes, so the labels go onto the plain list as recorded.
+const LABEL_FIRST = "label the steps first: label_steps, once, before any other change or question";
+
 const StepIds = z.array(z.string()).min(1);
 const OutputSpec = z.object({ name: z.string(), type: z.record(z.string(), z.unknown()) });
 
@@ -471,6 +477,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
   // kept edit comes back with what still stops the workflow (validate, inside the loop): the agent fixes its own
   // draft as it goes, instead of finding out at finish.
   const change = (edits: EditInput[]) => {
+    if (!session.labelled) return { output: { ok: false, problems: [LABEL_FIRST] } };
     const result = applyEdits(session.draft, edits);
     if (!result.ok) return { output: { ok: false, problems: result.problems } };
     const broken = designViolations(session.original, result.skill, session.form, session.folders, {
@@ -496,6 +503,48 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
     while (used.has(`${prefix}${n}`)) n++;
     return `${prefix}${n}`;
   };
+
+  // The first move when there is a plain list to label: label_steps (only then is it offered).
+  const labelSteps: AnyTool<DesignFinish>[] = session.base
+    ? [
+        tool<Labels, DesignFinish>({
+          name: "label_steps",
+          kind: "edit",
+          description:
+            "Your first move, once: label every step of the plain list (what it is for, values that change as inputs, checks, approvals, save_as), by the labelling rules. Steps by id; no targets, channels or actions",
+          input: Labels,
+          run: (labels) => {
+            if (session.labelled || !session.base) {
+              return {
+                output: { ok: false, problems: ["the steps are labelled already: change single steps with edit"] },
+              };
+            }
+            const labelled = labelDraft(session.base, labels);
+            if (!labelled.ok) return { output: { ok: false, problems: labelled.problems } };
+            const broken = designViolations(session.original, labelled.skill, session.form, session.folders, {
+              pages: session.pages,
+              opens: session.opens,
+            });
+            if (broken.length > 0) return { output: { ok: false, refused: broken } };
+            // The labelled list is what the rules compare against from now on: an approval the labels added is protected.
+            session.draft = labelled.skill;
+            session.original = labelled.skill;
+            session.labelled = true;
+            session.pending.push(...labelled.questions);
+            return {
+              output: {
+                ok: true,
+                workflow: outlineOf(session.draft),
+                still_to_fix: problems(),
+                ...(session.pending.length > 0
+                  ? { open_questions: session.pending.map((q) => `${q.id}: ${q.text}`) }
+                  : {}),
+              },
+            };
+          },
+        }),
+      ]
+    : [];
 
   return [
     // ---- Look ----
@@ -559,6 +608,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
     }),
 
     // ---- Edit the draft ----
+    ...labelSteps,
     tool({
       name: "edit",
       kind: "edit",
@@ -663,6 +713,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
         step: z.string().optional(),
       }),
       run: async ({ id, question, options, default: fallback, step }) => {
+        if (!session.labelled) return { output: LABEL_FIRST };
         if (session.asked >= session.maxQuestions) {
           return { output: `You have asked ${session.maxQuestions} questions: decide the rest yourself, or finish.` };
         }

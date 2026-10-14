@@ -1,9 +1,10 @@
 // Record, daemon side. While recording: every event goes to the session's trace file, web events from the extension
-// and file events from the folder watcher alike. After stop: trace -> normalise -> compile (one Nemotron call, with
-// the description form) -> the design agent (loops, branches, llm steps; it asks what is unclear) -> the questions
-// left -> what an unattended Frequency needs -> approvals (code) -> skills/<id>/vN.json. Without a model, or if the
-// agent can't finish, the compiled draft is saved. The recording's folder is kept for a day (recording-store.ts), so
-// a failed or poor result can be redone with `compile <session>` until then.
+// and file events from the folder watcher alike. After stop: trace -> normalise -> the plain step list (code, no
+// model) -> the design agent, the one AI that reads the recording: it labels the steps, makes loops, branches and
+// llm steps, and asks what is unclear -> the questions code still has -> what an unattended Frequency needs ->
+// approvals (code) -> skills/<id>/vN.json. Without a model the plain step list is saved; if the agent stops early,
+// its last valid draft is. The recording's folder is kept for a day (recording-store.ts), so a failed or poor result
+// can be redone with `compile <session>` until then.
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, sep } from "node:path";
@@ -11,7 +12,6 @@ import { type Skill, type TraceEvent, triggerOf } from "@shadow/core";
 import type { Llm, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import {
-  type Chat,
   compile,
   type DesignOptions,
   designWorkflow,
@@ -126,21 +126,17 @@ export async function finishRecording(
     },
     when: recorded.when,
   };
-  log(llm ? "compiling with Nemotron..." : "compiling with code only (no model configured)...");
+  // Code only, no model: every action becomes a step that replays what you did (the plain step list), plus the
+  // questions code knows it can't decide. The design agent is the one AI that reads it, labels it and asks.
+  log("building the step list...");
   // What was seen (masked screenshot words) and said (the narration) while recording, on the recording's clock.
   const notes = readNotes(dataDir, sessionId);
-  // Per-run AI steps run on the fast profile: its input price is what the drill shows them costing.
+  // Per-run AI steps run on the fast profile: its input price is what a question about one shows it costing.
   const fast = llm?.config.catalog[llm.config.profiles.fast.model];
-  const compiled = await compile(steps, {
-    chat: llm ? compileChat(llm) : undefined,
-    memory: options.memory,
-    pricePerMTok: fast?.priceIn,
-    form,
-    // The narration too, so the first draft's questions don't ask what was already said.
-    notes,
-  });
-  for (const warning of compiled.warnings) log(warning);
-  if (compiled.model === "nemotron") log(`model answer accepted after ${compiled.attempts} attempt(s)`);
+  const compiled = await compile(steps, { pricePerMTok: fast?.priceIn, form });
+  // compile's own note about running without a model is about its old one-call path: the agent is what uses the model now.
+  for (const warning of compiled.warnings) if (!warning.startsWith("No model configured")) log(warning);
+  if (!llm) log("no model configured (a key in Settings or .env): saving the plain step list");
 
   // A recording is a new skill with its own id, so recordings never collide; unless the form said it is the task you
   // already have, recorded again: then it becomes that workflow's next version, keeping its id, name and state.
@@ -186,6 +182,8 @@ export async function finishRecording(
       llm,
       skill,
       questions,
+      // The plain step list to label first: the agent's first move.
+      base: compiled.base,
       steps,
       form,
       notes,
@@ -317,9 +315,4 @@ function keepEpisode(dataDir: string, sessionId: string, design: Awaited<ReturnT
       mode: 0o600,
     },
   );
-}
-
-// Compile asks the smart profile for a JSON object; compile checks the answer itself and asks again if it must.
-export function compileChat(llm: Llm): Chat {
-  return async (messages) => (await llm.generate({ profile: "smart", messages, json: true })).text;
 }
