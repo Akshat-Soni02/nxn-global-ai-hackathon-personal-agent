@@ -721,6 +721,121 @@ nav a.active .badge {
   width: 80px;
 }
 
+/* The goal box (screens/Record.tsx): one box like a chat composer, the Frequency and the consents in its bar. */
+.goalbox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 760px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px 12px 10px 14px;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.goalbox:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.goalbox-text {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.45;
+  padding: 2px 2px;
+}
+.goalbox-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.goalbox-space {
+  flex: 1;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.chip:hover,
+.chip.on {
+  color: var(--text);
+}
+.toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.toggle.on {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.chip:focus-visible,
+.toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.goalbox .button.primary {
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.goalbox .button.primary .dot.rec {
+  background: currentColor;
+}
+.goalbox-picker {
+  max-width: 760px;
+  box-sizing: border-box;
+  margin-top: 10px;
+}
+.goalbox-note {
+  max-width: 760px;
+  margin: 8px 4px 0;
+}
+.goalbox-more {
+  max-width: 760px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.goalbox-more summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.goalbox-more .input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+}
+
 /* The description form (screens/Record.tsx) */
 .record-form {
   display: flex;
