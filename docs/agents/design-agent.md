@@ -207,7 +207,7 @@ Args are clipped to 160 characters. Targets show `role "name|label|text|?"`.
 
 13 tools. None are `probe` or `try`: the agent never touches a live page.
 
-**`close_question`** (15 Oct) `{ id, quote }`: closes an open first-draft question the description or what was said already answers. The quote must appear in the form or the narration (case, punctuation and spacing ignored), else: *"… is not in the description or what they said: quote their exact words, or ask the question instead."* A closed question is never put to the user, by the agent or the drill.
+**`close_question`** (15 Oct) `{ id, quote }`: closes an open first-draft question the description or what was said already answers. The quote must be at least three words and appear in the form or the narration (case, punctuation and spacing ignored), else: *"… is not in the description or what they said: quote their exact words, or ask the question instead."* A closed question is never put to the user, by the agent or the drill.
 
 ### Look
 
@@ -266,9 +266,10 @@ Checked on every `change()` and every applied answer. Each rule and its exact me
 | With a form, the description can't change | the description is the user's (their own words on the form): it can't change |
 | A changed or new input's `resolve.dir`, or a default that looks like a path (`~…`, `/…`), must be inside a recorded folder | `<name>`: an input may only point at folders the recording touched (…), not X |
 | A **new** action must be read-only: `fs.find, fs.read, data.pick, web.extract, web.wait_for, web.navigate` | `<id>`: a new X step would do something the user didn't show. Only steps that read (…) can be added; ask the user to show the rest |
-| A **recorded** step keeps its `channel.action`, except a `web.click` may become a `web.navigate` (15 Oct; the navigate rule still checks the site) | `<id>`: a recorded step keeps its kind of action (it was X) |
-| A recorded **write** (`web.type, select, upload, drag`, `ax.set_value`, `fs.move, copy, rename, write`) is never removed (15 Oct) | `<id>`: it types what the user showed (…), which is the work itself: move it or wrap it in a loop or branch, never remove it |
-| At most half the recorded actions (at least 2) may be removed (15 Oct) | N of the M recorded steps would be gone (at most K): keep what the user showed, and ask them before dropping more |
+| A **recorded** step keeps its `channel.action` (replacing it under its id with an llm step or a loop counts as a change), except a `web.click` may become a `web.navigate` to **the page that click opened** (15 Oct), never a click that sends or needs approval | `<id>`: a recorded step keeps its kind of action (it was X) |
+| A recorded **write** (`web.type, select, upload, drag`, `ax.set_value`, `fs.move, copy, rename, write`) is never removed, unless it repeats a step kept inside a loop (same action on the same control: the second item shown) (15 Oct) | `<id>`: it types what the user showed (…), which is the work itself: move it or wrap it in a loop or branch, never remove it |
+| At most half the recorded actions (at least 2) may be removed; repeats kept in a loop don't count (15 Oct) | N of the M recorded steps would be gone (at most K): keep what the user showed, and ask them before dropping more |
+| A workflow whose first web step opened a page must still open one first (15 Oct: runs start on a blank window) | `<id>`: runs start on a blank window, so the workflow must still open a page first (…) |
 | A new or changed `fs` step's `dir`, `path`, `from`, `to` must be inside a recorded folder (a whole-string `{{reference}}` is allowed) | `<id>`: it may only look in folders the recording touched (…), not X |
 | A new or changed `fs` glob can't climb (absolute, `~`, `..`) | `<id>`: its glob (X) must stay inside its folder |
 | Every target must be one the recording had (by exact locator) | `<id>`: its target is not one you recorded… ask them |

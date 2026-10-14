@@ -391,9 +391,59 @@ describe("the rules and the recording view", () => {
       action: "navigate",
       args: { url: sheet },
     } as never;
-    expect(designViolations(long, opened, form, [], [sheet])).toEqual([]);
-    expect(designViolations(long, opened, form)).toEqual([
-      expect.stringMatching(/c1: it may only open a site the recording visited/),
+    expect(designViolations(long, opened, form, [], { pages: [sheet], opens: { c1: sheet } })).toEqual([]);
+    // Only the page that click opened, never another visited page; and never a click that needs approval (Submit).
+    const elsewhere = "https://docs.google.com/spreadsheets/d/other/edit";
+    expect(designViolations(long, opened, form, [], { pages: [sheet, elsewhere], opens: { c1: elsewhere } })).toEqual([
+      expect.stringMatching(/c1: a click may become "open this page" only for the page it opened/),
+    ]);
+    const submitted = clone(long);
+    submitted.steps[3] = { ...(opened.steps[4] as object), id: "s3", requires_approval: true } as never;
+    expect(designViolations(long, submitted, form, [], { pages: [sheet], opens: { s3: sheet } })).toEqual(
+      expect.arrayContaining([expect.stringMatching(/s3: a click may become "open this page" only/)]),
+    );
+  });
+
+  it("lets a second item's repeat go once the loop does it, but no removal in disguise, and runs still open a page", async () => {
+    const { skill } = await draft();
+    const clone = (s: Skill = skill) => JSON.parse(JSON.stringify(s)) as Skill;
+    // Shown for two invoices: the upload twice, on the same control.
+    const twice = clone();
+    twice.steps.splice(3, 0, { ...(twice.steps[2] as object), id: "s2b" } as never);
+    const looped = clone(twice);
+    const loop = {
+      id: "l1",
+      type: "control",
+      kind: "loop",
+      intent: "Each invoice",
+      over: "{{invoices}}",
+      item: { name: "invoice", type: { type: "file" } },
+      steps: [looped.steps[2]],
+    };
+    looped.steps = [looped.steps[0], looped.steps[1], loop, looped.steps[4]] as never;
+    expect(designViolations(twice, looped, form)).toEqual([]);
+    // Without the loop keeping it, removing the repeat is removing the work.
+    const dropped = { ...clone(twice), steps: clone(twice).steps.filter((s) => s.id !== "s2b" && s.id !== "s2") };
+    expect(designViolations(twice, dropped, form)).toEqual(
+      expect.arrayContaining([expect.stringMatching(/s2: it does what the user showed \(web.upload\)/)]),
+    );
+    // Replacing the upload under its own id with an llm step is a removal too.
+    const replaced = clone();
+    replaced.steps[2] = {
+      id: "s2",
+      type: "llm",
+      intent: "Think about it",
+      instruction: "x",
+      inputs: [],
+      output: { name: "x", type: { type: "text" } },
+    } as never;
+    expect(designViolations(skill, replaced, form)).toEqual([
+      expect.stringMatching(/s2: a recorded step keeps its kind of action \(it was web.upload\)/),
+    ]);
+    // s1 opened the page; without it a run starts on a blank window (Oct 14's first failure).
+    const blank = { ...clone(), steps: clone().steps.filter((s) => s.id !== "s1") };
+    expect(designViolations(skill, blank, form)).toEqual([
+      expect.stringMatching(/s2: runs start on a blank window, so the workflow must still open a page first/),
     ]);
   });
 
@@ -522,8 +572,9 @@ describe("questions left after the agent", () => {
     expect(open).toBeDefined();
     const { p, asked } = prompter();
     const llm = fakeLlm([
-      // Words nobody said can't close it: the agent can't answer for the user.
+      // Words nobody said can't close it: the agent can't answer for the user. Nor can a word or two that any form has.
       call("close_question", { id: open?.id, quote: "they are always in Desktop" }),
+      call("close_question", { id: open?.id, quote: "the invoices" }),
       call("close_question", { id: open?.id, quote: "Always arrive in my Downloads folder!" }),
       call("finish", { summary: "Uses the folder they named" }),
     ]);
@@ -537,8 +588,9 @@ describe("questions left after the agent", () => {
       prompter: p,
       protocol: "tools",
     });
-    const [refused, closed] = results(outcome.episode);
+    const [refused, short, closed] = results(outcome.episode);
     expect(refused).toMatch(/is not in the description or what they said/);
+    expect(short).toMatch(/quote at least three of their exact words/);
     expect(closed).toContain(`"closed":"${open?.id}"`);
     expect(outcome.closed).toEqual([{ question: open, quote: "Always arrive in my Downloads folder!" }]);
     // Neither the agent nor the drill after it puts it to the user.

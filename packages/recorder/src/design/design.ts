@@ -22,6 +22,7 @@ import {
   type Note,
   outlineOf,
   recordedFolders,
+  recordedOpens,
   recordedPages,
   recordingView,
 } from "./tools.ts";
@@ -71,6 +72,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     original: options.skill,
     folders: recordedFolders(options.steps, options.skill),
     pages: recordedPages(options.steps),
+    opens: recordedOpens(options.steps, skeletonOf(options.steps).idsByStep),
     draft: options.skill,
     form: options.form,
     steps: options.steps,
@@ -168,7 +170,8 @@ they did, once. Make the draft do what they meant, so it runs right next time, w
   recorded values.
 - Controls come only from the recording: you may move and wrap steps and change their intents, args, waits, checks
   and outputs, never invent a click on something the person didn't use. The steps that type, paste, select or upload
-  what they showed are the work itself: move or wrap them, never remove them. If the task needs a control they didn't
+  what they showed are the work itself: move or wrap them, never remove them, except a repeat of steps you keep in a
+  loop (the second item shown). Keep the step that opens the first page. If the task needs a control they didn't
   use, ask them.
 - Never change the description or the Frequency (the user's own), and never turn approval off.
 - Never ask what the description or what they said already answers: use it. An open question from the first draft

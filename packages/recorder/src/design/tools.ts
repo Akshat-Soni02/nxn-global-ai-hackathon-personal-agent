@@ -10,6 +10,7 @@ import {
   applyEdits,
   type EditInput,
   isAction,
+  isOutward,
   type Locator,
   type Skill,
   type Step,
@@ -33,6 +34,8 @@ export interface DesignSession {
   folders: string[];
   // Every page the recording was on or reached: the only sites a step may open.
   pages: string[];
+  // For each skill step a recorded click became, the page it opened.
+  opens: Record<string, string>;
   draft: Skill;
   form?: Form;
   steps: NormalisedStep[];
@@ -156,6 +159,32 @@ export function recordedPages(steps: NormalisedStep[]): string[] {
   return [...new Set(steps.flatMap((s) => [s.url, s.navigatesTo]).filter((u): u is string => !!u))];
 }
 
+// For each skill step a recorded click became, the page that click opened.
+export function recordedOpens(steps: NormalisedStep[], idsByStep: string[][]): Record<string, string> {
+  const opens: Record<string, string> = {};
+  steps.forEach((s, i) => {
+    if (!s.navigatesTo) return;
+    for (const id of idsByStep[i] ?? []) opens[id] = s.navigatesTo;
+  });
+  return opens;
+}
+
+// The same page, whatever the per-visit parts of its address (query, fragment).
+function samePage(a: unknown, b: unknown): boolean {
+  try {
+    if (typeof a !== "string" || typeof b !== "string") return false;
+    const x = new URL(a);
+    const y = new URL(b);
+    return x.origin === y.origin && x.pathname === y.pathname;
+  } catch {
+    return false;
+  }
+}
+
+// The same piece of work: the same action on the same control (values may differ: a loop puts the item's in).
+const sameWork = (step: { channel: string; action: string; target?: Locator }) =>
+  `${step.channel}.${step.action} ${keyOf(step.target)}`;
+
 // Every way the draft breaks the rules, as sentences the agent reads; empty when it may be kept.
 //   targets       only from the recording: no new control, and no control changed
 //   actions       a new step may only read (READ_ONLY), and files only in folders the recording touched; a recorded
@@ -163,14 +192,16 @@ export function recordedPages(steps: NormalisedStep[]): string[] {
 //   reach         no script steps, no navigating to a site the recording didn't visit
 //   the user's    the form's description and Frequency stay as written
 //   safety        approval is never turned off, and a step that needs it is never removed
-//   the work      a recorded step that writes is never removed, and at most half the recorded actions are
-// `visited`: every page the recording was on or reached (by a click, too), not only its navigate steps.
+//   the work      a recorded step that writes is never removed unless it repeats one kept in a loop, at most half
+//                 the recorded actions are, and a workflow that opened a page first still does
+// `recording`: every page the recording was on or reached (by a click, too), and for each recorded click the page it
+// opened (by skill step id), so a click may become "open that page" and nothing else.
 export function designViolations(
   original: Skill,
   draft: Skill,
   form?: Form,
   folders: string[] = [],
-  visitedPages: string[] = [],
+  recording: { pages?: string[]; opens?: Record<string, string> } = {},
 ): string[] {
   const problems: string[] = [];
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -185,7 +216,7 @@ export function designViolations(
   const recorded = new Set([...before.values()].filter(isAction).map((s) => keyOf(s.target)));
   const visited = [
     ...[...before.values()].filter(isAction).flatMap((s) => (s.action === "navigate" ? [s.args.url] : [])),
-    ...visitedPages,
+    ...(recording.pages ?? []),
   ];
   // A local file has no site (its origin is "null"): it counts only by its exact address.
   const sites = new Set(visited.map(originOf).filter((o): o is string => !!o && o !== "null"));
@@ -206,15 +237,33 @@ export function designViolations(
   }
 
   for (const step of after.values()) {
-    if (!isAction(step)) continue;
     const old = before.get(step.id);
+    if (!isAction(step)) {
+      // A recorded action replaced under its own id (by an llm step, a loop) is a removal in disguise.
+      if (old && isAction(old)) {
+        problems.push(`${step.id}: a recorded step keeps its kind of action (it was ${old.channel}.${old.action})`);
+      }
+      continue;
+    }
     const kind = `${step.channel}.${step.action}`;
-    // A click that only took them to a page may become "open that page" (the navigate rule below checks the site):
-    // Drive -> Recent -> the sheet becomes one step that opens the sheet.
-    const opened = !!old && isAction(old) && old.channel === "web" && old.action === "click" && kind === "web.navigate";
+    // A click that only took them to a page may become "open that page", that page and no other (Drive -> Recent ->
+    // the sheet becomes one step that opens the sheet). Never a click that sends or needs approval: its page is a
+    // result, and opening it would skip the sending.
+    const clickToPage =
+      !!old && isAction(old) && old.channel === "web" && old.action === "click" && kind === "web.navigate";
+    const opened =
+      clickToPage &&
+      isAction(old) &&
+      !old.requires_approval &&
+      !isOutward(old) &&
+      samePage(step.args.url, recording.opens?.[step.id]);
     if (!old && !READ_ONLY.has(kind)) {
       problems.push(
         `${step.id}: a new ${kind} step would do something the user didn't show. Only steps that read (${[...READ_ONLY].join(", ")}) can be added; ask the user to show the rest`,
+      );
+    } else if (clickToPage && !opened) {
+      problems.push(
+        `${step.id}: a click may become "open this page" only for the page it opened (${recording.opens?.[step.id] ?? "it opened none"}), and never a click that sends or needs approval`,
       );
     } else if (old && !opened && (!isAction(old) || `${old.channel}.${old.action}` !== kind)) {
       problems.push(
@@ -237,7 +286,7 @@ export function designViolations(
       problems.push(
         `${step.id}: its target is not one you recorded. Targets come only from the recording: if a step needs a control the user didn't use, ask them`,
       );
-    } else if (old && isAction(old) && old.target && !opened && keyOf(old.target) !== keyOf(step.target)) {
+    } else if (old && isAction(old) && old.target && !clickToPage && keyOf(old.target) !== keyOf(step.target)) {
       problems.push(`${step.id}: its target can't change (it is what the user clicked)`);
     }
     if (step.channel === "script" && !(old && isAction(old) && old.channel === "script")) {
@@ -255,21 +304,46 @@ export function designViolations(
       }
     }
   }
-  // What the user showed stays: no recorded write disappears, and no more than half of the recorded actions.
+  // What the user showed stays. A removed step is fine when it repeats one kept inside a loop (the same action on
+  // the same control: the second item shown, now done by the loop); otherwise no recorded write disappears, and no
+  // more than half of the recorded actions.
+  const loops = new Set([...after.values()].filter((s) => s.type === "control" && s.kind === "loop").map((s) => s.id));
+  const looped = new Set(
+    [...walkSteps(draft.steps)]
+      .filter(({ step, parents }) => isAction(step) && parents.some((p) => loops.has(p)))
+      .map(({ step }) => (isAction(step) ? sameWork(step) : "")),
+  );
   const actions = [...before.values()].filter(isAction);
-  const removed = actions.filter((s) => !after.has(s.id));
-  for (const step of removed) {
+  const lost = actions.filter((s) => !after.has(s.id) && !looped.has(sameWork(s)));
+  for (const step of lost) {
     const kind = `${step.channel}.${step.action}`;
     if (WRITES.has(kind)) {
       problems.push(
-        `${step.id}: it ${step.action === "type" ? "types" : "does"} what the user showed (${kind}), which is the work itself: move it or wrap it in a loop or branch, never remove it`,
+        `${step.id}: it ${step.action === "type" ? "types" : "does"} what the user showed (${kind}), which is the work itself: move it or wrap it in a loop or branch, never remove it (a repeat of a step kept in a loop may go)`,
       );
     }
   }
   const allowed = Math.max(2, Math.floor(actions.length * MAX_REMOVED));
-  if (removed.length > allowed) {
+  if (lost.length > allowed) {
     problems.push(
-      `${removed.length} of the ${actions.length} recorded steps would be gone (at most ${allowed}): keep what the user showed, and ask them before dropping more`,
+      `${lost.length} of the ${actions.length} recorded steps would be gone (at most ${allowed}): keep what the user showed, and ask them before dropping more`,
+    );
+  }
+  // Runs start on a blank window: a workflow whose first web step opened a page must still open one first.
+  const firstWeb = (skill: Skill) =>
+    [...walkSteps(skill.steps)].map(({ step }) => step).find((s) => isAction(s) && s.channel === "web");
+  const wasFirst = firstWeb(original);
+  const nowFirst = firstWeb(draft);
+  if (
+    wasFirst &&
+    isAction(wasFirst) &&
+    wasFirst.action === "navigate" &&
+    nowFirst &&
+    isAction(nowFirst) &&
+    nowFirst.action !== "navigate"
+  ) {
+    problems.push(
+      `${nowFirst.id}: runs start on a blank window, so the workflow must still open a page first (${wasFirst.id} did): keep it, or open a page the recording visited`,
     );
   }
   for (const [id, old] of before) {
@@ -394,7 +468,10 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
   const change = (edits: EditInput[]) => {
     const result = applyEdits(session.draft, edits);
     if (!result.ok) return { output: { ok: false, problems: result.problems } };
-    const broken = designViolations(session.original, result.skill, session.form, session.folders, session.pages);
+    const broken = designViolations(session.original, result.skill, session.form, session.folders, {
+      pages: session.pages,
+      opens: session.opens,
+    });
     if (broken.length > 0) return { output: { ok: false, refused: broken } };
     session.draft = result.skill;
     session.edits.push(...edits);
@@ -605,7 +682,10 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
         const yours = "the user answered this: put it into the workflow yourself with an edit";
         const applied = applyAnswer(session.draft, open, answer);
         if (!applied.ok) return { output: { answer, not_applied: applied.error, now: yours } };
-        const broken = designViolations(session.original, applied.skill, session.form, session.folders, session.pages);
+        const broken = designViolations(session.original, applied.skill, session.form, session.folders, {
+          pages: session.pages,
+          opens: session.opens,
+        });
         if (broken.length > 0) return { output: { answer, not_applied: broken, now: yours } };
         session.draft = applied.skill;
         return { output: { answer, applied: true, workflow: outlineOf(session.draft) } };
@@ -627,9 +707,10 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
           ...session.notes.filter((n) => n.kind === "said").map((n) => n.text),
         ].map((text) => plain(String(text)));
         const words = plain(quote);
-        if (words.length < 3 || !said.some((text) => text.includes(words))) {
+        // At least three words, so "the" or "5" can't close anything.
+        if (words.split(" ").length < 3 || !said.some((text) => text.includes(words))) {
           return {
-            output: `"${quote}" is not in the description or what they said: quote their exact words, or ask the question instead.`,
+            output: `"${quote}" is not in the description or what they said: quote at least three of their exact words, or ask the question instead.`,
           };
         }
         session.pending = session.pending.filter((q) => q !== open);
