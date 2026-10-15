@@ -48,7 +48,9 @@ function Root({ step }: { step: Step }) {
   );
 }
 
-function Node({ step, highlight }: { step: Body; highlight?: string }) {
+function Node({ step, highlight }: { step: Step; highlight?: string }) {
+  // The start is drawn once, as the root; inside loops and arms there is none.
+  if (step.type === "trigger") return null;
   const asked = step.id === highlight ? " asked" : "";
   if (step.type === "control" && step.kind === "branch") return <Fork step={step} highlight={highlight} />;
   if (step.type === "control") {
@@ -89,7 +91,7 @@ function Node({ step, highlight }: { step: Body; highlight?: string }) {
 
 // An "if" and its arms: the steps when it holds, any "else if" further down the chain, and "otherwise".
 function Fork({ step, highlight }: { step: Branch; highlight?: string }) {
-  const arms: { id: string; label: string; steps: Body[] }[] = [{ id: step.id, label: "yes", steps: step.steps }];
+  const arms: { id: string; label: string; steps: Step[] }[] = [{ id: step.id, label: "yes", steps: step.steps }];
   let rest = step.else;
   while (rest.length === 1 && rest[0]?.type === "control" && rest[0].kind === "branch") {
     const next: Branch = rest[0];

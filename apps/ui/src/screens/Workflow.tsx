@@ -1,5 +1,5 @@
 // One workflow: what it is for, its steps as a tree, its versions (who made each and why), and its runs.
-import type { Skill, Step } from "@shadow/core";
+import type { Skill } from "@shadow/core";
 import type { RunRow, WorkflowSummary } from "@shadow/daemon/src/types.ts";
 import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
