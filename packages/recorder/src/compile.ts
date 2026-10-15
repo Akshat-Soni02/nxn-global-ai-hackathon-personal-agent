@@ -67,10 +67,13 @@ export const Annotations = z.object({
 });
 export type Annotations = z.infer<typeof Annotations>;
 
-// The description form: the user's own words and Frequency, kept as they are.
+// The description form: the user's goal, as they wrote it. Only the goal is asked before recording; how often it runs,
+// what changes, what stays and Never are worked out after Stop. `whenFixed`: the Frequency is the user's own and stays
+// (a task recorded again keeps its workflow's).
 export interface Form {
   description: Description;
   when: Trigger[];
+  whenFixed?: boolean;
 }
 
 export interface CompileOptions {
@@ -342,10 +345,21 @@ function shortName(goal: string): string {
   return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 30)).trim()}…`;
 }
 
-// The form's description and Frequency, over whatever code or the model wrote there.
+// What the user gave on the form, over whatever code or the model wrote there: always the goal; the other fields of
+// the description when the user filled them (a task recorded again); the Frequency only when it is fixed. Otherwise
+// the labels may set them from what was said ("every morning" becomes a schedule).
 function withForm(draft: SkillDraft, form: Form | undefined): SkillDraft {
   if (!form) return draft;
-  return { ...draft, description: structuredClone(form.description), when: structuredClone(form.when) };
+  const given = form.description;
+  const description = {
+    ...draft.description,
+    goal: given.goal,
+    ...(given.changes.length > 0 ? { changes: [...given.changes] } : {}),
+    ...(given.constants.length > 0 ? { constants: [...given.constants] } : {}),
+    ...(given.never.length > 0 ? { never: [...given.never] } : {}),
+  };
+  const when = form.whenFixed || !draft.when?.length ? structuredClone(form.when) : draft.when;
+  return { ...draft, description, when };
 }
 
 function memoryQuery(steps: NormalisedStep[]): string {

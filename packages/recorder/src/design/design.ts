@@ -17,6 +17,7 @@ import type { Prompter } from "../drill.ts";
 import { narrationOf } from "../narration.ts";
 import type { NormalisedStep } from "../normalise.ts";
 import { skeletonOf } from "../skeleton.ts";
+import { describeChanges } from "./changes.ts";
 import {
   type DesignFinish,
   type DesignSession,
@@ -69,6 +70,9 @@ export type DesignOutcome = {
   answered: { question: Question; answer: string }[];
   // What the agent was told (its system prompt and first message), kept for debugging a poor result.
   prompt: { system: string; task: string };
+  // What really changed from the plain step list, worked out from the workflow itself (labels and answers included),
+  // never from the agent's summary: what the history note says.
+  changes: string[];
   episode?: Episode<DesignFinish>;
 } & ({ kind: "designed"; summary: string; edits: EditInput[] } | { kind: "kept"; reason: string });
 
@@ -90,6 +94,9 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     labelled: !options.base,
     asked: 0,
     maxQuestions: options.maxQuestions ?? MAX_QUESTIONS,
+    evidenceShown: new Set(),
+    modelQuestions: new Set(),
+    whenAsked: false,
     edits: [],
     prompter: options.prompter,
     memory: options.memory,
@@ -122,6 +129,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
       pending: session.pending.filter((q) => stillOpen(session, q)),
       answered: session.answered,
       prompt,
+      changes: describeChanges(options.skill, session.draft),
       episode,
     };
   }
@@ -142,6 +150,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     pending: session.pending.filter((q) => stillOpen(session, q)),
     answered: session.answered,
     prompt,
+    changes: describeChanges(options.skill, session.draft),
     episode,
   };
 }
@@ -172,23 +181,29 @@ they did, once. Make the draft do what they meant, so it runs right next time, w
 - A common shape: read a list (web.extract), pick the items wanted with an llm step (the top N, only new ones, a
   filter), then a loop whose body is the recorded steps for one item, with the item's fields in place of the
   recorded values.
-- Controls come only from the recording: you may move and wrap steps and change their intents, args, waits, checks
-  and outputs, never invent a click on something the person didn't use. The steps that type, paste, select or upload
-  what they showed are the work itself: move or wrap them, never remove them, except a repeat of steps you keep in a
-  loop (the second item shown). Keep the step that opens the first page. If the task needs a control they didn't
-  use, ask them.
-- Never change the description or the Frequency (the user's own), and never turn approval off.
-- Never ask what the description or what they said already answers: use it. An open question that their words
-  answer: put the answer into the workflow with an edit (then it isn't asked). Before asking, recall: they may have
-  told Shadow before. Ask (ask_user) only what the next run can't do without, with options and a default, at most
-  ${MAX_QUESTIONS} questions; each names the step its answer changes, and a lasting fact about them (where their files
-  land, which sheet they use) is marked remember. An open question whose answer you leave untouched is asked after
-  you finish. An answer that comes back not_applied is yours to put into the workflow with an edit.
-- describe_step_screenshot shows the screenshot taken at a recorded step, described (when the user allowed pictures): use it before asking, when the
-  words near a step don't say what the control was for.
-- Keep step ids. An edit is all or nothing: make a big change in a few calls, each one valid on its own. Every kept
-  edit says what still stops the workflow (still_to_fix): fix those before you finish. When nothing is left, finish
-  with one sentence on what you changed. If the draft is already right, finish at once.`;
+- Controls come only from the recording: you may move, wrap, replace and remove steps and change their intents, args,
+  waits, checks and outputs, never invent a click on something the person didn't use. Remove what is noise: clicks
+  that only selected text to copy, repeated page loads, detours (Drive → Recent → the file becomes "open the file").
+  Keep the work they showed (typing, pasting, choosing, uploading) unless a loop now does it. Keep a step that opens
+  the first page. If the task needs a control they didn't use, ask them. The user reviews what you changed.
+- Never change the goal (the user's own words), and never turn approval off.
+- How often it runs comes from what they said or wrote ("every morning", "daily", "on Mondays"): set it on step
+  "start" (field "when", a schedule with a cron in the Mac's time). If they didn't say a time, pick a sensible one or
+  ask (step "start"). Leave it by hand only when nothing says how often.
+- Never ask what the goal, what they said, the recorded pages and values or the screen already answer: use it.
+  ask_user looks in the recording first and shows you what it holds about your question; if that answers it, edit
+  instead of asking. Before asking, recall: they may have told Shadow before. Ask only what the next run can't do
+  without, with options and a default, at most ${MAX_QUESTIONS} questions; each names the step its answer changes, and
+  a lasting fact about them (where their files land, which sheet they use) is marked remember. An open question whose
+  answer you leave untouched is asked after you finish. An answer that comes back not_applied, and the answer to a
+  question of your own, are yours to put into the workflow with an edit.
+- describe_step_screenshot shows a recorded step's screenshot, described (when the user allowed pictures). Use it for
+  every step marked nameless (a click with no control name, a drawn sheet or canvas), to see which item of a list was
+  chosen or what a sheet held, and before asking anything about what was on screen.
+- Keep step ids. Edits that are valid on their own are kept even when others in the same call aren't, so small,
+  focused calls are fine. Every result says what still stops the workflow (still_to_fix): fix those before you
+  finish. When nothing is left, finish with one sentence on what you changed (the saved history lists the real
+  changes, from the workflow itself). If the draft is already right, finish at once.`;
 
 function taskOf(session: DesignSession): string {
   const form = session.form;
@@ -196,7 +211,11 @@ function taskOf(session: DesignSession): string {
   return [
     "# The description",
     form
-      ? JSON.stringify({ ...form.description, frequency: form.when })
+      ? JSON.stringify({
+          ...form.description,
+          // Only the goal was asked before recording; how often it runs is set from what they said, unless fixed.
+          frequency: form.whenFixed ? form.when : "not given before recording: set it from what they said, if anything",
+        })
       : "None was filled in: work out the goal from the recording.",
     "",
     // All of it, whatever the recording's length: what they said is what they mean.

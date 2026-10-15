@@ -1,12 +1,11 @@
 // Recording, from the user's side (docs/design.md, "1. Describe" and "2. Record"): the description form comes first,
 // then the recording, then Stop turns it into a workflow. Every Record button goes through here: the one in Chrome,
 // the desktop one, the menu bar, `record` in the terminal and the window's API, so no recording starts without its
-// form, and so without its Never list.
+// goal. Only the goal is asked before: the rest is worked out from what is said and shown, or set after Stop.
 //
 //   idle ──press──▶ the form in Shadow's window (or its questions in the inbox) ──start(form)──▶ recording
 //   recording ──stop──▶ compiling (the trace becomes a workflow, its questions wait in the inbox) ──▶ idle
 import { randomUUID } from "node:crypto";
-import type { Trigger } from "@shadow/core";
 import type { Daemon } from "./daemon.ts";
 import {
   deleteRecording,
@@ -57,16 +56,6 @@ export interface RecordControl {
   compile(sessionId: string): Promise<void>;
   subscribe(listener: (event: RecordEvent) => void): () => void;
 }
-
-// The Frequency choices the terminal offers (the window has the full picker, with any time and a folder).
-export const TERMINAL_FREQUENCIES: { label: string; when: Trigger[] }[] = [
-  { label: "only when I start it", when: [{ type: "manual" }] },
-  { label: "every hour", when: [{ type: "schedule", cron: "0 * * * *", missed: "run_once" }] },
-  { label: "every day at 9:00", when: [{ type: "schedule", cron: "0 9 * * *", missed: "run_once" }] },
-  { label: "weekdays at 9:00", when: [{ type: "schedule", cron: "0 9 * * 1-5", missed: "run_once" }] },
-  { label: "every Monday at 9:00", when: [{ type: "schedule", cron: "0 9 * * 1", missed: "run_once" }] },
-  { label: "on the 1st of every month at 9:00", when: [{ type: "schedule", cron: "0 9 1 * *", missed: "run_once" }] },
-];
 
 export function createRecordControl(options: RecordControlOptions): RecordControl {
   const { daemon, dataDir, log } = options;
@@ -162,29 +151,10 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
           status("empty", "Not recording: the goal is required");
           return;
         }
-        const labels = TERMINAL_FREQUENCIES.map((f) => f.label);
-        const frequency = pick(
-          await options.ask({ title: "How often should it run?", options: labels, default: labels[0] }),
-          labels,
-        );
-        const changes = await options.ask({
-          title: "What changes each run? (comma-separated, e.g. the email, the amount; Enter for nothing)",
-        });
-        const constants = await options.ask({
-          title: "What stays the same? (comma-separated, e.g. the KPI 2026 sheet; Enter for nothing)",
-        });
-        const never = await options.ask({
-          title: "What must it never do without asking? (comma-separated, e.g. send, delete; Enter for nothing)",
-        });
+        // Only the goal before recording: how often it runs, what changes, what stays and what it must never do are
+        // worked out from what is said and shown, or set after Stop (the design agent, the editor).
         phase = "idle";
-        control.start({
-          goal,
-          when: TERMINAL_FREQUENCIES[frequency]?.when,
-          changes: split(changes),
-          constants: split(constants),
-          never: split(never),
-          consent: readConsent(dataDir),
-        });
+        control.start({ goal, consent: readConsent(dataDir) });
       } finally {
         if (phase === "describing") {
           phase = "idle";
@@ -265,21 +235,4 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
     },
   };
   return control;
-}
-
-const split = (text: string): string[] =>
-  text
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-// An answer by number ("2") or by label; anything else is the first choice.
-function pick(answer: string, labels: string[]): number {
-  const text = answer.trim().toLowerCase();
-  if (/^\d+$/.test(text)) {
-    const n = Number(text) - 1;
-    return n >= 0 && n < labels.length ? n : 0;
-  }
-  const found = labels.findIndex((l) => l.toLowerCase() === text);
-  return found >= 0 ? found : 0;
 }

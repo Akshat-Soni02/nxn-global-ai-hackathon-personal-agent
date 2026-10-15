@@ -1,15 +1,13 @@
 // Record a task (docs/design.md, "1. Describe" and "2. Record"): one goal box first, then the recording, then Stop
 // turns it into a workflow, and its questions are answered here. Every Record button (Chrome, the desktop, the menu
-// bar) opens this screen; recording starts only when the goal is sent. Only the goal and the Frequency are asked
-// before: what changes, what stays and how many come from what you say while recording, and anything still unclear
-// is asked after Stop. Never stays here because its words are masked while you record.
+// bar) opens this screen; recording starts only when the goal is sent. Only the goal is asked before: how often it
+// runs, what changes, what stays and what it must never do come from what you say and show while recording, and
+// anything still unclear is asked after Stop.
 import type { Skill, Trigger } from "@shadow/core";
 import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
-import { FrequencyFields, type Missed } from "../FrequencyPicker.tsx";
-import { type Choice, describe, toChoice, toTrigger } from "../frequency.ts";
 import { Question } from "./Inbox.tsx";
 
 // `again`: a workflow's id, to record that task again: the box starts filled in from it, and the recording becomes
@@ -149,24 +147,23 @@ function GoalBox({
 }) {
   const session = useSession();
   const [goal, setGoal] = useState(initial?.goal ?? "");
-  const [choice, setChoice] = useState<Choice>(initial?.when ? toChoice(initial.when) : { kind: "manual" });
-  const [missed, setMissed] = useState<Missed>(
-    initial?.when && initial.when.type !== "manual" ? initial.when.missed : "run_once",
-  );
-  const [picking, setPicking] = useState(false);
-  const [never, setNever] = useState(initial?.never.join(", ") ?? "");
   const [screen, setScreen] = useState(consent.screen);
   const [microphone, setMicrophone] = useState(consent.microphone);
   const [pictures, setPictures] = useState(consent.pictures);
-  const when = toTrigger(choice, missed);
+  // Only the goal before recording. How often it runs, what changes, what stays and what it must never do come from
+  // what is said and shown, and are set after Stop (the design agent, the editor). Recorded again: what the workflow
+  // already says stays as it is.
   const start = () =>
     session.call("recordStart", {
       goal,
-      when: [when],
-      // Recorded again: what the workflow already says stays. A new task: they come from what is said and shown.
-      changes: initial?.changes ?? [],
-      constants: initial?.constants ?? [],
-      never: split(never),
+      ...(initial
+        ? {
+            when: initial.when ? [initial.when] : undefined,
+            changes: initial.changes,
+            constants: initial.constants,
+            never: initial.never,
+          }
+        : {}),
       consent: { screen, microphone, pictures: screen && pictures },
       ...(again ? { again } : {}),
     });
@@ -195,15 +192,6 @@ function GoalBox({
           onChange={(e) => setGoal(e.target.value)}
         />
         <div className="goalbox-bar">
-          <button
-            type="button"
-            className={`chip${picking ? " on" : ""}`}
-            aria-expanded={picking}
-            title="How often it runs"
-            onClick={() => setPicking(!picking)}
-          >
-            <Icon name="clock" /> {capital(describe(when))}
-          </button>
           <span className="goalbox-space" />
           <Toggle on={screen} onChange={setScreen} label="Read the words on my screen" icon="screen" />
           <Toggle on={microphone} onChange={setMicrophone} label="Hear my voice" icon="mic" />
@@ -220,29 +208,11 @@ function GoalBox({
         </div>
       </form>
 
-      {picking ? (
-        <div className="picker goalbox-picker">
-          <FrequencyFields choice={choice} missed={missed} onChoice={setChoice} onMissed={setMissed} />
-          <p className="muted small">How often it runs: {describe(when)}. Times are your Mac's.</p>
-        </div>
-      ) : null}
-
       <p className="muted small goalbox-note">{consentNote(screen, microphone, screen && pictures)}</p>
-
-      <details className="goalbox-more" open={never.length > 0}>
-        <summary>Never do without asking (optional)</summary>
-        <input
-          className="input"
-          value={never}
-          aria-label="Never do without asking"
-          placeholder="e.g. send anything, delete files"
-          onChange={(e) => setNever(e.target.value)}
-        />
-        <p className="muted small">
-          Asked now because these words are also hidden from what Shadow reads and hears while you record. Everything
-          else is asked after you stop, and only what your words and the recording don't already say.
-        </p>
-      </details>
+      <p className="muted small">
+        Say how often it runs and the rules you follow while you record ("every morning", "skip the ones already in the
+        sheet"). Anything still unclear is asked after you stop.
+      </p>
     </>
   );
 }
@@ -331,11 +301,3 @@ function Icon({ name }: { name: IconName }) {
     </svg>
   );
 }
-
-const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
-
-const split = (text: string): string[] =>
-  text
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);

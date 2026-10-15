@@ -12,8 +12,10 @@ import { type Skill, type TraceEvent, triggerOf } from "@shadow/core";
 import type { Llm, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import {
+  changesSummary,
   compile,
   type DesignOptions,
+  describeChanges,
   designWorkflow,
   drill,
   type NormalisedStep,
@@ -125,6 +127,9 @@ export async function finishRecording(
       never: recorded.never,
     },
     when: recorded.when,
+    // Only the goal is asked before recording, so how often it runs is set from what was said; unless it was given:
+    // a task recorded again keeps its workflow's, and a schedule or folder named up front (the API) stands.
+    whenFixed: Boolean(recorded.again) || recorded.when.some((w) => w.type !== "manual"),
   };
   // Code only, no model: every action becomes a step that replays what you did (the plain step list), plus the
   // questions code knows it can't decide. The design agent is the one AI that reads it, labels it and asks.
@@ -146,7 +151,8 @@ export async function finishRecording(
     ? { ...compiled.skill, id: existing.id, name: existing.name }
     : { ...compiled.skill, id: newSkillId(dataDir, compiled.skill.id) };
   let questions = compiled.questions;
-  let designed: string | undefined;
+  // The plain step list, before anything was decided: the history note says what changed from it.
+  const plain = skill;
 
   // The design agent: the flat first draft -> the workflow meant. It asks its own questions (the drill).
   if (llm) {
@@ -196,10 +202,9 @@ export async function finishRecording(
       ...options.design,
     });
     const cost = design.episode ? `, $${design.episode.usage.costUsd.toFixed(4)}` : "";
-    if (design.kind === "designed") {
-      designed = design.summary;
-      log(`design agent: ${design.summary} (${design.episode?.turns ?? 0} turns${cost})`);
-    } else log(`design agent: ${design.reason}${cost}; keeping the first draft`);
+    if (design.kind === "designed") log(`design agent: ${design.summary} (${design.episode?.turns ?? 0} turns${cost})`);
+    else log(`design agent: ${design.reason}${cost}; keeping what it reached`);
+    log(`what changed: ${changesSummary(design.changes)}`);
     skill = design.skill;
     questions = design.pending;
     await remember(options.memory, skill.id, design.answered);
@@ -215,6 +220,9 @@ export async function finishRecording(
   const approved = requireApprovals(filled);
   if (approved.added.length > 0) log(`approval needed before: ${approved.added.join(", ")}`);
   const at = (options.now ?? (() => new Date()))().toISOString();
+  // What really changed from the recorded steps (the agent's work, the answers, the approvals): from the workflow
+  // itself, never from the agent's own summary.
+  const changed = changesSummary(describeChanges(plain, approved.skill));
   const noted = existing
     ? {
         ...approved.skill,
@@ -223,7 +231,7 @@ export async function finishRecording(
           {
             version: existing.version + 1,
             by: "record" as const,
-            summary: designed ? `Recorded again; ${designed}` : "Recorded again",
+            summary: `Recorded again; ${changed}`,
             at,
           },
         ],
@@ -236,7 +244,7 @@ export async function finishRecording(
             {
               version: approved.skill.version,
               by: "record" as const,
-              summary: designed ? `Recorded; ${designed}` : "Recorded",
+              summary: `Recorded; ${changed}`,
               at,
             },
           ],
@@ -300,8 +308,11 @@ function keepEpisode(dataDir: string, sessionId: string, design: Awaited<ReturnT
   const dir = recordingDir(dataDir, sessionId);
   if (!existsSync(dir) || !design.episode) return;
   const { transcript, usage, turns } = design.episode;
+  // `claimed`: what the agent said it did; `changes`: what it really changed (the two can differ).
   const result =
-    design.kind === "designed" ? { summary: design.summary, edits: design.edits } : { kept: design.reason };
+    design.kind === "designed"
+      ? { claimed: design.summary, changes: design.changes, edits: design.edits }
+      : { kept: design.reason, changes: design.changes };
   // What it was told, so a poor result can be explained.
   writeFileSync(
     join(dir, "design.json"),

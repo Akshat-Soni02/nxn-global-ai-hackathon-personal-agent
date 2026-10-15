@@ -333,7 +333,10 @@ describe("record end to end", () => {
     appendTrace(home, { id: "e3", sessionId, at: 9000, event: "click", url: PAGE, target: submit });
     const saved = await finishRecording(sessionId, { dataDir: home, log: () => {}, prompter: { ask: async () => "" } });
     expect(saved?.skill).toMatchObject({ id: first.skill.id, name: "Upload the invoice", version: 2 });
-    expect(saved?.skill.history.map((h) => h.summary)).toEqual(["Recorded", "Recorded again"]);
+    expect(saved?.skill.history.map((h) => h.summary)).toEqual([
+      "Recorded",
+      expect.stringMatching(/^Recorded again; /),
+    ]);
     expect(saved?.skill.description.goal).toBe("The invoice is in the portal");
     expect(triggerOf(saved?.skill as Skill).when).toEqual([
       { type: "schedule", cron: "0 9 * * 1", missed: "run_once" },

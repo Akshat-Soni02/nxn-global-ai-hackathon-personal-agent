@@ -804,7 +804,18 @@ describe("the description form", () => {
       never: ["archive anything"],
     },
     when: [{ type: "schedule" as const, cron: "0 9 1 * *", missed: "run_once" as const }],
+    // A task recorded again: its Frequency is the user's and stays.
+    whenFixed: true,
   };
+
+  it("sets how often it runs from the model when the form didn't fix it; keeps the goal", async () => {
+    const chat: Chat = async () =>
+      JSON.stringify({ when: [{ type: "schedule", cron: "0 9 * * *", missed: "run_once" }] });
+    const fresh = { description: { ...form.description, never: [] }, when: [{ type: "manual" as const }] };
+    const result = await compile(normalise(uploadTrace()), { chat, form: fresh });
+    expect(triggerOf(result.skill).when).toEqual([{ type: "schedule", cron: "0 9 * * *", missed: "run_once" }]);
+    expect(result.skill.description.goal).toBe(form.description.goal);
+  });
 
   it("is read by the model and kept as written: no answer changes the goal or the Frequency", async () => {
     const seen: string[] = [];
