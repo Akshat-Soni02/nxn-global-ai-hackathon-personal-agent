@@ -72,14 +72,14 @@ export default function Overview() {
                       </div>
                     </div>
                   </Window>
-                  <Pill state="idle" label="Record" />
+                  <Pill state="rec" label="Stop · 0:42" />
                 </div>
               </Scaled>
             </div>
           </div>
           <p className="sr-only">
             Shadow's window: the inbox with an approval waiting, a repair saved as version 2 and a question, beside the
-            workflow it learned. In front of it floats the round Record button.
+            workflow it learned. In front of it floats the red button of a recording under way.
           </p>
         </HeroMotion>
       </Band>
@@ -136,8 +136,9 @@ export default function Overview() {
               <li className="story-step">
                 <h3>Record</h3>
                 <p>
-                  Press the round Record button and do the task. Shadow notes each click and keystroke in Chrome, in Mac
-                  apps and in Finder, and, only if you allow it, the words on screen and what you say.
+                  Press Record and do the task. A red button with a clock floats on your screen while Shadow notes each
+                  click and keystroke in Chrome, in Mac apps and in Finder, and, only if you allow it, the words on
+                  screen and what you say.
                 </p>
               </li>
               <li className="story-step">

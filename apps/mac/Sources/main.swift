@@ -141,7 +141,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
     if up {
       everConnected = true
       link.send(["id": UUID().uuidString, "type": "hello", "from": "mac", "version": "0.0.0", "trusted": trusted])
-      panel.show()
+      panel.refresh()
       log("connected to the daemon")
       if statusMenu != nil {
         // Runs, steps and inbox changes from now on; what waits already, and how things are.

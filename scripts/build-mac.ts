@@ -60,5 +60,5 @@ execFileSync("codesign", ["--force", "--sign", "-", "--identifier", "com.shadow.
 writeFileSync(stamp, digest);
 
 console.log(`built ${app}`);
-console.log("The daemon starts it (pnpm daemon). The first time, right-click its floating button > Allow Mac apps.");
+console.log("The daemon starts it (pnpm daemon). While recording, right-click its red button > Allow Mac apps.");
 console.log("After a rebuild, macOS asks again: turn Shadow off and on in Privacy & Security > Accessibility.");

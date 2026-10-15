@@ -77,7 +77,7 @@ export default function HowItWorks() {
             n={2}
             flip
             title="Do it once, your way."
-            label="The floating Record button, recording for 42 seconds, and a sentence the user said while recording."
+            label="The red recording button, 42 seconds in, and a sentence the user said while recording."
             visual={
               <div className="still center-items">
                 <Pill state="rec" label="Stop · 0:42" />

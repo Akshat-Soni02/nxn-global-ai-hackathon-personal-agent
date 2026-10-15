@@ -87,9 +87,10 @@ turns slides and springs into 150 ms opacity cross-fades.
 - **Tree.** Steps as an outline: the kind in small caps, what the step is for, its id in mono, flags for approval
   and questions. Loops and branches indent their steps behind a hairline. The step a question is about is outlined
   in the accent.
-- **Pill.** The floating button (`Pill.swift`): 40 pt tall, a capsule; the record dot alone when idle; red with the
-  stop square, the clock, mic and camera marks and the trash while recording; dark with an icon and one line
-  otherwise. Dragged anywhere, its place remembered.
+- **Pill.** The floating button (`Pill.swift`): 40 pt tall, a capsule; red with the stop square, the clock, mic and
+  camera marks and the trash while recording; dark with an icon and one line while the recording is compiled, asks
+  and is saved. It shows only for a recording: it fades in, already recording, when one starts, and fades out once
+  the saved note is over (Reduce Motion: at once). Dragged anywhere, its place remembered.
 - **Form field.** Label above, placeholder that says why the field matters ("e.g. the email, the numbers"), full
   width on the record form.
 - **Consent switch.** A checkbox with the whole promise in plain words next to it. Never a one-word label.
