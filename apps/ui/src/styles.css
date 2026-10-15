@@ -148,13 +148,24 @@ h2 {
   border-radius: var(--r-chip);
 }
 
-/* Layout: a translucent sidebar over the page, the content column beside it. */
+/* Layout: a translucent sidebar over the page, the content column beside it. The sidebar folds to a strip of icons
+   (.rail, main.tsx), its width easing between the two so the content slides rather than jumps. */
 .shell {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 220px minmax(0, 1fr);
   height: 100%;
+  transition: grid-template-columns var(--t-enter) var(--ease);
+}
+.shell.rail {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell {
+    transition: none;
+  }
 }
 .sidebar {
+  overflow: hidden;
   background: var(--sidebar);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
@@ -177,7 +188,44 @@ h2 {
   font-weight: 600;
   font-size: 15px;
   letter-spacing: -0.02em;
-  padding: 0 10px 14px;
+  padding: 0 4px 14px;
+  white-space: nowrap;
+}
+.shell.rail .brand {
+  justify-content: center;
+  padding-inline: 0;
+}
+.brand-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Folded, the toggle alone stays, in the same spot; a narrow window has no toggle and shows the mark. */
+.shell.rail .fold + .brand-name {
+  display: none;
+}
+.fold {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    background var(--t-hover) var(--ease),
+    color var(--t-hover) var(--ease),
+    transform var(--t-press) var(--ease);
+}
+.fold:hover {
+  background: var(--quiet-bg);
+  color: var(--text);
+}
+.fold:active {
+  transform: scale(0.94);
 }
 .brand svg {
   width: 20px;
@@ -190,9 +238,11 @@ nav {
   gap: 2px;
 }
 nav a {
+  position: relative;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 10px;
+  white-space: nowrap;
   padding: 6px 10px;
   border-radius: var(--r-control);
   color: var(--text);
@@ -205,6 +255,19 @@ nav a:hover {
 nav a.active {
   background: var(--accent);
   color: var(--accent-text);
+}
+.nav-icon {
+  flex: none;
+}
+.nav-label {
+  flex: 1;
+  transition: opacity var(--t-hover) var(--ease);
+}
+.shell.rail .nav-label {
+  opacity: 0;
+}
+.shell.rail .brand .nav-label {
+  display: none;
 }
 .badge {
   background: var(--wait);
@@ -219,11 +282,26 @@ nav a.active .badge {
   background: var(--accent-text);
   color: var(--accent);
 }
+/* Folded, the Inbox count rides on its icon. */
+.shell.rail nav a .badge {
+  position: absolute;
+  top: 0;
+  left: 20px;
+  min-width: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
 .content {
   overflow-y: auto;
   padding: 28px 36px 48px;
   max-width: 980px;
   animation: enter var(--t-enter) var(--ease);
+}
+/* Editing takes the whole width (the panel sits on the right); the padding keeps space around it. */
+.content:has(.editor) {
+  max-width: none;
 }
 @keyframes enter {
   from {
@@ -261,6 +339,21 @@ nav a.active .badge {
 }
 .health-text {
   color: var(--muted);
+}
+/* Folded, only the dots show; their words stay for screen readers and in each row's tooltip. */
+.shell.rail .health {
+  align-items: center;
+  padding-inline: 0;
+}
+.shell.rail .health-label,
+.shell.rail .health-text,
+.shell.rail .health-usage {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .dot {
   width: 8px;
@@ -542,23 +635,6 @@ nav a.active .badge {
   border-radius: 8px;
   padding: 0 6px;
 }
-.flag.toggle {
-  cursor: pointer;
-  user-select: none;
-}
-.flag.toggle input {
-  margin: 0 2px 0 0;
-  vertical-align: -1px;
-}
-
-.fields {
-  padding: 10px 12px;
-  background: var(--quiet-bg);
-  border-radius: var(--r-control);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 
 /* Versions */
 .versions {
@@ -822,6 +898,132 @@ nav a.active .badge {
   gap: 8px;
 }
 
+/* The editor (screens/Editor.tsx): the tree, and on the right the panel for the picked step, which stays put (sticky)
+   while the tree scrolls. Where the two don't both fit, the panel goes under the tree, held at the bottom. */
+.editor {
+  container-type: inline-size;
+}
+.edit-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+  margin-top: 14px;
+}
+.inspector {
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 10px 30px rgba(0, 0, 0, 0.07);
+}
+.inspector-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px 20px;
+  animation: inspector-in 180ms var(--ease);
+}
+@keyframes inspector-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+}
+.inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.inspector-close {
+  margin-left: auto;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--quiet-bg);
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.inspector-close:hover {
+  color: var(--text);
+}
+.inspector-does {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.check-row input {
+  margin: 2px 0 0;
+}
+.check-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.inspector-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.inspector-foot .danger {
+  margin-left: auto;
+}
+.inspector-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 28px 22px;
+  text-align: center;
+}
+.inspector-empty-title {
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) {
+  .inspector-body {
+    animation: none;
+  }
+}
+@container (max-width: 860px) {
+  .edit-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* A sheet held at the bottom, at most half the window; the picked step scrolls to just above it. */
+  .inspector {
+    top: auto;
+    bottom: 12px;
+    max-height: 45vh;
+  }
+  .inspector:has(.inspector-empty) {
+    position: static;
+  }
+  /* The sheet's height, its 12px, the page's 48px bottom padding, and a little air. */
+  .wf-node.picked {
+    scroll-margin-bottom: calc(45vh + 76px);
+  }
+}
+
 /* A drill question beside the draft it is about (screens/Inbox.tsx, Question) */
 .drill {
   display: grid;
@@ -839,12 +1041,6 @@ nav a.active .badge {
   .drill {
     grid-template-columns: 1fr;
   }
-  .shell {
-    grid-template-columns: 1fr;
-  }
-  .sidebar {
-    display: none;
-  }
   .content {
     padding: 16px;
   }
@@ -857,6 +1053,34 @@ nav a.active .badge {
   padding: 6px 4px 14px;
   --wire: color-mix(in srgb, var(--muted) 45%, transparent);
   --gap: 22px;
+  --fade: 28px;
+}
+/* The stage has the tree's scaled size (WorkflowTree.tsx, useFit), centred; a tree still too wide starts at the left
+   edge and scrolls, the side with more of it fading out. */
+.wf-stage {
+  margin: 0 auto;
+}
+.wf-fit {
+  min-width: 0;
+  transform-origin: 0 0;
+}
+.wf-canvas.more-right {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent);
+}
+.wf-canvas.more-left {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - var(--fade)), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - var(--fade)), transparent);
+}
+.wf-canvas.more-left.more-right {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--fade),
+    #000 calc(100% - var(--fade)),
+    transparent
+  );
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
 }
 .wf-seq {
   display: flex;
@@ -879,7 +1103,7 @@ nav a.active .badge {
 }
 .wf-node {
   box-sizing: border-box;
-  width: 280px;
+  width: 260px;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--r-control);
@@ -940,7 +1164,7 @@ nav a.active .badge {
 }
 .wf-loop {
   width: auto;
-  min-width: 280px;
+  min-width: 260px;
   border-radius: var(--r-card);
   border-color: var(--wire);
 }
@@ -994,7 +1218,7 @@ nav a.active .badge {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 18px 14px 0;
+  padding: 18px 10px 0;
 }
 /* The bar the arms hang from, and the drop to each arm's label. */
 .wf-arm::before {
@@ -1027,17 +1251,15 @@ nav a.active .badge {
   background: var(--wait-bg);
   border-radius: 999px;
   padding: 2px 10px;
-  max-width: 260px;
+  max-width: 240px;
   overflow-wrap: anywhere;
   text-align: center;
 }
-.wf-arm > .wf-seq,
-.wf-arm > .wf-node {
+.wf-arm > .wf-seq {
   position: relative;
   margin-top: 14px;
 }
-.wf-arm > .wf-seq::before,
-.wf-arm > .wf-node::before {
+.wf-arm > .wf-seq::before {
   content: "";
   position: absolute;
   top: -14px;
@@ -1054,7 +1276,7 @@ nav a.active .badge {
 .wf-arm-foot {
   position: relative;
   align-self: stretch;
-  margin: 0 -14px;
+  margin: 0 -10px;
   height: 0;
 }
 .wf-arm-foot::before {
@@ -1078,23 +1300,9 @@ nav a.active .badge {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
-/* In the editor a step's face, and an "else if" label, is a button that picks it; the picked step opens in place,
-   wider, with its fields under its face (screens/Editor.tsx, EditStep). */
-.wf-node.picked:not(.wf-loop) {
-  width: 360px;
-}
-.wf-edit {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.wf-pick + .wf-edit {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
-.wf-edit .flag.toggle {
-  align-self: flex-start;
+/* In the editor a step's face, and an "else if" label, is a button that picks it (screens/Editor.tsx). */
+.wf-node.picked {
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
 }
 .wf-pick {
   box-sizing: border-box;

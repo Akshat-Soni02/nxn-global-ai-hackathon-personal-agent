@@ -70,7 +70,7 @@ Type: the system font (`-apple-system`, SF Pro). Sizes by role, with tracking th
 
 Spacing on a 4 pt grid: 4, 8, 12, 16, 24, 32, 48. Radii: 6 (chips), 10 (buttons, inputs), 14 (cards), 18
 (panels), full (the pill). Shadows: cards `0 1px 2px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.06)`; the pill
-`0 8px 24px rgba(0,0,0,.35)`. Materials: the sidebar is `--bg` at 72% over a 20 px blur with 180% saturation.
+`0 8px 24px rgba(0,0,0,.35)`. Materials: the sidebar is `--bg` at 72% over a 20 px blur with 180% saturation. It folds to a 56 px strip of icons (the toggle stays at the top-left; remembered on the Mac; always the strip below 760 px), the Inbox count on its icon and the health dots kept, their words in tooltips.
 
 Motion: `--ease: cubic-bezier(.2,.8,.2,1)` (eases out: fast start, soft landing). Press 120 ms, hover 200 ms,
 enter 320 ms. The pill's shape change is a critically damped spring (response 0.35, damping 1.0). Reduced motion
@@ -101,7 +101,7 @@ turns slides and springs into 150 ms opacity cross-fades.
 | Inbox | Cards with a left border | The same cards on the token system: kind colour on the edge, one next action in the accent, a walk-through card with Do it / Next, Skip, Stop |
 | Workflows | A table | A table with the state chip first, Frequency and next run in one cell, Run now on the row |
 | Workflow | Steps, versions, runs | Plus Walk through, Edit (the draft editor inline), Record again |
-| Editor | None | The workflow as the same tree as on its page; click a step and it opens in place: what it is for, approval, its fields, move up or down, remove; undo, redo, discard, Save as v(n+1); the daemon's reason when a change is refused |
+| Editor | "No step picked" in the panel | The workflow as the same tree as on its page, scaled down to fit (to 75%, then it scrolls); the picked step is changed in a panel on the right that stays put while the tree scrolls (a sheet at the bottom when the window is narrow): what it is for, approval, its fields, move up or down, remove; Esc puts it down; undo, redo, discard, Save as v(n+1); the daemon's reason when a change is refused |
 | Record | The form | The form with the three consents in plain words, Record again prefilled, Discard while recording |
 | Settings | None | The key (write-only), a connection check, the consents, Chrome, memory, where things are |
 | Menu bar | Counts and health | Plus "Shadow is not running · Start" |

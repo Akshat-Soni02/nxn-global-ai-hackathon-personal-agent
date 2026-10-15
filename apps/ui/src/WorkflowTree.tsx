@@ -2,31 +2,97 @@
 // node joined to the next by a line. A loop is a node whose own steps are drawn inside it, as a smaller tree. An "if"
 // is a fork: its arms sit side by side and join again below; a chain of "else if" shows as one fork with three or more
 // arms. Actions and AI steps are the leaves. Used on a workflow's page and next to a question about a draft (`highlight`
-// marks the step the question is about), and in the editor, where a click on a step opens it in place (`panel`).
+// marks the step the question is about), and in the editor, where a click on a step picks it for the panel beside the
+// tree. A tree wider than its space is scaled down to fit, to no less than FLOOR; past that it scrolls sideways.
 import type { Step } from "@shadow/core";
-import type { ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { describe } from "./frequency.ts";
 
 type Body = Exclude<Step, { type: "trigger" }>;
 type Branch = Extract<Step, { type: "control"; kind: "branch" }>;
 
 // How nodes are marked: the step a question is about (`highlight`) and, in the editor, the step being changed
-// (`selected`), opened in place to show `panel`; with `onSelect`, a click on a step picks it.
-type Marks = { highlight?: string; selected?: string; panel?: ReactNode; onSelect?(id: string): void };
+// (`selected`); with `onSelect`, a click on a step picks it.
+type Marks = { highlight?: string; selected?: string; onSelect?(id: string): void };
+
+// The smallest scale a tree is drawn at: below it the words get too small to read, so the tree scrolls instead.
+const FLOOR = 0.75;
 
 export function WorkflowTree({ steps, ...marks }: { steps: Step[] } & Marks) {
   const start = steps.find((s) => s.type === "trigger");
   const body = steps.filter((s): s is Body => s.type !== "trigger");
+  const { canvas, tree, fit, edges } = useFit();
+  // A picked step is brought into view, in case it sits past an edge.
+  useEffect(() => {
+    if (!marks.selected) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    canvas.current
+      ?.querySelector(".picked")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: reduce ? "auto" : "smooth" });
+  }, [marks.selected, canvas]);
   return (
-    <div className="wf-canvas">
-      <div className="wf-seq">
-        {start ? <Root step={start} /> : null}
-        {body.map((s) => (
-          <Node key={s.id} step={s} marks={marks} />
-        ))}
+    <div ref={canvas} className={`wf-canvas${edges.left ? " more-left" : ""}${edges.right ? " more-right" : ""}`}>
+      {/* The stage takes the tree's scaled size, so nothing is left empty below a tree drawn smaller. */}
+      <div
+        className="wf-stage"
+        style={fit ? { width: fit.width * fit.scale, height: fit.height * fit.scale } : undefined}
+      >
+        <div
+          ref={tree}
+          className="wf-seq wf-fit"
+          style={fit && fit.scale < 1 ? { transform: `scale(${fit.scale})` } : undefined}
+        >
+          {start ? <Root step={start} /> : null}
+          {body.map((s) => (
+            <Node key={s.id} step={s} marks={marks} />
+          ))}
+        </div>
       </div>
     </div>
   );
+}
+
+// The tree's own size (a transform doesn't change offsetWidth), measured again whenever the space or the tree changes,
+// and the scale that fits it in the space. `edges` says on which side more of a scrolling tree is hidden.
+function useFit() {
+  const canvas = useRef<HTMLDivElement>(null);
+  const tree = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState<{ scale: number; width: number; height: number }>();
+  const [edges, setEdges] = useState({ left: false, right: false });
+  useLayoutEffect(() => {
+    const space = canvas.current;
+    const content = tree.current;
+    if (!space || !content) return;
+    const look = () => {
+      const left = space.scrollLeft > 1;
+      const right = space.scrollLeft + space.clientWidth < space.scrollWidth - 1;
+      setEdges((e) => (e.left === left && e.right === right ? e : { left, right }));
+    };
+    const measure = () => {
+      const style = getComputedStyle(space);
+      const room = space.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+      const width = content.offsetWidth;
+      const height = content.offsetHeight;
+      const scale = Math.max(FLOOR, Math.min(1, room / width));
+      // Less than a pixel of difference on screen is not worth drawing again (and could swing back and forth).
+      setFit((f) =>
+        f && Math.abs(f.width - width) < 1 && Math.abs(f.height - height) < 1 && Math.abs(f.scale - scale) * width < 1
+          ? f
+          : { scale, width, height },
+      );
+      look();
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(space);
+    observer.observe(content);
+    space.addEventListener("scroll", look, { passive: true });
+    return () => {
+      observer.disconnect();
+      space.removeEventListener("scroll", look);
+    };
+  }, []);
+  return { canvas, tree, fit, edges };
 }
 
 function Root({ step }: { step: Step }) {
@@ -61,7 +127,6 @@ function Node({ step, marks }: { step: Step; marks: Marks }) {
     return (
       <div className={`wf-node wf-loop${state(step.id, marks)}`}>
         <Face kind="for each" step={step} sub={`${step.item.name} in ${step.over}`} marks={marks} />
-        {step.id === marks.selected ? marks.panel : null}
         <div className="wf-inside">
           {step.steps.length > 0 ? (
             <div className="wf-seq">
@@ -86,7 +151,6 @@ function Node({ step, marks }: { step: Step; marks: Marks }) {
   return (
     <div className={`wf-node wf-leaf${step.type === "llm" ? " wf-ai" : ""}${state(step.id, marks)}`}>
       <Face kind={kind} step={step} sub={detail} marks={marks} />
-      {step.id === marks.selected ? marks.panel : null}
     </div>
   );
 }
@@ -108,15 +172,11 @@ function Fork({ step, marks }: { step: Branch; marks: Marks }) {
     <div className="wf-fork">
       <div className={`wf-node wf-if${state(step.id, marks)}`}>
         <Face kind="if" step={step} sub={conditionText(step.if)} marks={marks} />
-        {step.id === marks.selected ? marks.panel : null}
       </div>
       <div className="wf-arms">
         {arms.map((arm) => (
           <div key={arm.key} className="wf-arm">
             <ArmLabel arm={arm} marks={marks} />
-            {arm.branch && arm.branch.id === marks.selected ? (
-              <div className="wf-node picked">{marks.panel}</div>
-            ) : null}
             <div className="wf-seq">
               {arm.steps.length > 0 ? (
                 arm.steps.map((s) => <Node key={s.id} step={s} marks={marks} />)
