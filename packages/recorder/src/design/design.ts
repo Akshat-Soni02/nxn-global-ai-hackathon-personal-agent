@@ -179,9 +179,11 @@ they did, once. Make the draft do what they meant, so it runs right next time, w
   use, ask them.
 - Never change the description or the Frequency (the user's own), and never turn approval off.
 - Never ask what the description or what they said already answers: use it. An open question that their words
-  answer: put the answer into the workflow with an edit (then it isn't asked). Ask (ask_user) only what is left, with
-  options and a default, at most ${MAX_QUESTIONS} questions; an open question whose answer you leave untouched is
-  asked after you finish. An answer that comes back not_applied is yours to put into the workflow with an edit.
+  answer: put the answer into the workflow with an edit (then it isn't asked). Before asking, recall: they may have
+  told Shadow before. Ask (ask_user) only what the next run can't do without, with options and a default, at most
+  ${MAX_QUESTIONS} questions; each names the step its answer changes, and a lasting fact about them (where their files
+  land, which sheet they use) is marked remember. An open question whose answer you leave untouched is asked after
+  you finish. An answer that comes back not_applied is yours to put into the workflow with an edit.
 - describe_step_screenshot shows the screenshot taken at a recorded step, described (when the user allowed pictures): use it before asking, when the
   words near a step don't say what the control was for.
 - Keep step ids. An edit is all or nothing: make a big change in a few calls, each one valid on its own. Every kept

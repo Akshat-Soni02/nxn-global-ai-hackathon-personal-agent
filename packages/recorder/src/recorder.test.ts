@@ -1,7 +1,7 @@
 import { type ActionStep, type ElementDescriptor, Skill, type TraceEvent, triggerOf } from "@shadow/core";
 import { describe, expect, it, vi } from "vitest";
 import { requireApprovals } from "./approvals.ts";
-import { type Chat, compile, extractJson, type Question } from "./compile.ts";
+import { type Chat, compile, extractJson, labelDraft, type Question } from "./compile.ts";
 import { applyAnswer, drill } from "./drill.ts";
 import { normalise } from "./normalise.ts";
 
@@ -408,6 +408,32 @@ describe("copy, paste and drawn apps", () => {
     });
     // The rule's own question still edits the rule, for when it is kept.
     expect(result.questions[1]?.appliesTo).toBe("steps.s3.args.where");
+  });
+
+  it("keeps a cheap AI step without asking, and asks only when a run would cost more than a cent", async () => {
+    const labels = {
+      steps: [
+        {
+          id: "s3",
+          ai: { instruction: "Amount of today's row", output: "number" as const, reason: "dates are free text" },
+        },
+      ],
+    };
+    const { base } = await compile(normalise(sheetTrace()), { pricePerMTok: 2 });
+    // About a hundred tokens at $2 a million: a fraction of a cent, so it's kept and the agent is told what it costs.
+    const cheap = labelDraft(base, labels);
+    expect(cheap.ok && cheap.questions).toEqual([]);
+    expect(cheap.ok && acts(cheap.skill)[2]).toMatchObject({ type: "llm", instruction: "Amount of today's row" });
+    expect(cheap.ok && cheap.kept[0]).toMatch(
+      /s3: an AI step on every run, about \$\S+ a run \(under \$0.01: kept without asking\)/,
+    );
+    // The same step at a price that makes a run cost more than a cent: asked, and the rule stays until answered.
+    const dear = labelDraft({ ...base, pricePerMTok: 1_000_000 }, labels);
+    expect(dear.ok && dear.questions.map((q) => q.id)).toEqual(["ai-s3"]);
+    expect(dear.ok && acts(dear.skill)[2]).toMatchObject({ channel: "data", action: "pick" });
+    // With no price known it can't judge, so it asks.
+    const unknown = labelDraft({ ...base, pricePerMTok: undefined }, labels);
+    expect(unknown.ok && unknown.questions.map((q) => q.id)).toEqual(["ai-s3"]);
   });
 
   it("folds the click that selected text into the copy", () => {

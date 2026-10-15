@@ -710,6 +710,32 @@ describe("the rules and the recording view", () => {
 });
 
 describe("questions left after the agent", () => {
+  it("asks only questions that change something, and keeps a lasting answer for next time", async () => {
+    const { steps, skill, questions } = await draft();
+    const { p, asked } = prompter({ "design-1": "Downloads" });
+    const llm = fakeLlm([
+      call("ask_user", { question: "Should I continue?" }),
+      call("ask_user", { question: "Where do the invoices arrive?", step: "s9" }),
+      call("ask_user", {
+        question: "Where do the invoices arrive?",
+        options: ["Downloads", "Desktop"],
+        default: "Downloads",
+        step: "s2",
+        remember: "fact",
+      }),
+      call("finish", { summary: "Asked where invoices arrive" }),
+    ]);
+    const outcome = await designWorkflow({ llm, skill, questions, steps, form, prompter: p, protocol: "tools" });
+    const [vague, unknown] = results(outcome.episode);
+    expect(vague).toMatch(/Say which step the answer changes/);
+    expect(unknown).toMatch(/there is no step s9/);
+    // Only the question tied to a step reached the user, and its answer is marked to be remembered.
+    expect(asked.map((a) => a.question.text)).toEqual(["Where do the invoices arrive?"]);
+    expect(outcome.answered).toEqual([
+      { question: expect.objectContaining({ id: "design-1", remember: "fact" }), answer: "Downloads" },
+    ]);
+  });
+
   it("asks after it only what it left untouched: an answer it put in from what was said isn't asked again", async () => {
     const { steps, skill } = await draft();
     // Two questions code might have: where the answer goes is a step's timeout.

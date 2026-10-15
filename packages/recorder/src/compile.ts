@@ -8,6 +8,7 @@ import { ACTIONS, Check, type Description, Input, type LlmStep, Skill, Trigger, 
 import type { ChatMessage } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import { z } from "zod";
+import { applyAnswer } from "./drill.ts";
 import { type Note, narrationOf } from "./narration.ts";
 import type { NormalisedStep } from "./normalise.ts";
 import { type ActionDraft, type SkillDraft, skeletonOf, skillInput, TRIGGER_ID } from "./skeleton.ts";
@@ -157,7 +158,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
     try {
       notes = Annotations.parse(extractJson(raw));
       merged = withForm(merge(draft, notes), form);
-      costQuestions = aiQuestions(merged, notes, steps, idsByStep, options.pricePerMTok);
+      costQuestions = aiQuestions(merged, notes, steps, idsByStep, options.pricePerMTok).map((c) => c.question);
       const parsed = Skill.safeParse(skillInput(merged));
       issues = [
         ...(parsed.success
@@ -249,13 +250,17 @@ export interface Base {
   pricePerMTok?: number;
 }
 
+// An AI step that costs less than this per run is kept without asking; its cost is told to the agent instead. Above
+// it (or when the price isn't known), you are asked whether a model call on every run is worth it.
+export const ASK_ABOVE_USD_PER_RUN = 0.01;
+
 // Merges labels into the plain step list by the same rules as the one-call compile (targets, Mac apps, sites and
 // secrets stay as recorded; approvals only added), then checks the result with the Skill schema. A data.pick step
-// labelled as needing AI becomes a question about its cost.
+// labelled as needing AI becomes an AI step: without asking when it is cheap (kept: what it costs), else a question.
 export function labelDraft(
   base: Base,
   labels: Labels,
-): { ok: true; skill: Skill; questions: Question[] } | { ok: false; problems: string[] } {
+): { ok: true; skill: Skill; questions: Question[]; kept: string[] } | { ok: false; problems: string[] } {
   const notes: Annotations = { ...labels, questions: [] };
   const merged = withForm(merge(base.draft, notes), base.form);
   const parsed = Skill.safeParse(skillInput(merged));
@@ -265,11 +270,23 @@ export function labelDraft(
       problems: parsed.error.issues.map((i) => `${i.path.join(".")}${i.path.length ? ": " : ""}${i.message}`),
     };
   }
-  return {
-    ok: true,
-    skill: parsed.data,
-    questions: aiQuestions(merged, notes, base.steps, base.idsByStep, base.pricePerMTok),
-  };
+  let skill = parsed.data;
+  const questions: Question[] = [];
+  const kept: string[] = [];
+  for (const { question, step, dollars } of aiQuestions(merged, notes, base.steps, base.idsByStep, base.pricePerMTok)) {
+    if (dollars !== undefined && dollars < ASK_ABOVE_USD_PER_RUN) {
+      const applied = applyAnswer(skill, question, "1");
+      if (applied.ok) {
+        skill = applied.skill;
+        kept.push(
+          `${step}: an AI step on every run, about $${dollars.toPrecision(2)} a run (under $${ASK_ABOVE_USD_PER_RUN}: kept without asking)`,
+        );
+        continue;
+      }
+    }
+    questions.push(question);
+  }
+  return { ok: true, skill, questions, kept };
 }
 
 // The model sees what you did, by meaning: no selectors, never a secret's value. Also the design agent's view of the
@@ -415,7 +432,7 @@ function aiQuestions(
   steps: NormalisedStep[],
   idsByStep: string[][],
   pricePerMTok: number | undefined,
-): Question[] {
+): { question: Question; step: string; dollars?: number }[] {
   return notes.steps.flatMap((note) => {
     const step = draft.steps.find((s) => s.id === note.id);
     if (!note.ai || !step || step.channel !== "data" || step.action !== "pick") return [];
@@ -442,14 +459,18 @@ function aiQuestions(
     };
     return [
       {
-        id: `ai-${step.id}`,
-        text: `${step.id} asks the model on every run, about ${tokens} tokens${cost}. Why: ${note.ai.reason}. Keep it?`,
-        appliesTo: `steps.${step.id}`,
-        options: [
-          { label: "keep the AI step", value: llm },
-          { label: "use the recorded rule instead (no model call)", value: step },
-        ],
-        default: "keep the AI step",
+        step: step.id,
+        dollars,
+        question: {
+          id: `ai-${step.id}`,
+          text: `${step.id} asks the model on every run, about ${tokens} tokens${cost}. Why: ${note.ai.reason}. Keep it?`,
+          appliesTo: `steps.${step.id}`,
+          options: [
+            { label: "keep the AI step", value: llm },
+            { label: "use the recorded rule instead (no model call)", value: step },
+          ],
+          default: "keep the AI step",
+        },
       },
     ];
   });

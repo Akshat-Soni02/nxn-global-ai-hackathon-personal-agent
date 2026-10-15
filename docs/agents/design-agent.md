@@ -86,7 +86,7 @@ If the agent doesn't finish (out of turns or money, an error), **its last valid 
 The result is checked with the `Skill` schema; problems go back to the model (`That JSON was rejected: … Return the corrected JSON object only.`), up to 3 attempts. After that, the skeleton is kept.
 
 ### 2.5 Where the first draft's questions come from
-1. **Cost questions**: a `data.pick` step the model marked `ai` becomes "keep the AI step (about N tokens, $X a run) or use the recorded rule?". `appliesTo: steps.<id>`; each option carries a whole step.
+1. **Cost questions**: a `data.pick` step labelled `ai` becomes "keep the AI step (about N tokens, $X a run) or use the recorded rule?". `appliesTo: steps.<id>`; each option carries a whole step. Since 15 Oct (`labelDraft`), a step under `ASK_ABOVE_USD_PER_RUN` ($0.01 a run) is kept as an AI step without asking, and the agent is told its cost (`ai_steps_kept`); with no price known it still asks.
 2. **The model's own** `questions`, minus those whose `appliesTo` starts with `steps.start.when` or `description` (the form decides those).
 3. **Code questions** not already asked: "Where do files like X arrive?" for file inputs (`remember: "fact"`).
 4. Without a form: "Describe this task in one sentence".
@@ -225,7 +225,7 @@ Results:
 
 ### Ask (the drill)
 
-`ask_user` `{ id?, question?, options?: string[] (≤6), default?, step? }`:
+`ask_user` `{ id?, question?, options?: string[] (≤6), default?, step?, remember?: "fact" | "preference" }`. Since 15 Oct an own question must name the `step` its answer changes (an id in the draft; the run's settings are on `start`), or it is refused with "Say which step the answer changes"; `remember` keeps a lasting answer in memory for the next recordings:
 1. If 5 questions were already asked: *"You have asked 5 questions: decide the rest yourself, or finish."*
 2. With an `id`: it must be in `pending`, else *"No open question X. Open: …"*. Without one, a new question `design-<n>` is built from `question`, `options` and `default`.
 3. Empty text: *"Give the question, or the id of an open question."*
@@ -334,7 +334,7 @@ All three go to the inbox as `question` items with options and default. The desi
 | | |
 |---|---|
 | Reads | `recall(query)` → `memory.search(query, { limit: 8 })` across **all** workflows. The first-draft compile also puts up to 8 matching entries in its prompt |
-| Writes | After the agent: `remember()` stores `"<question text> <answer>"` as `fact` / `preference` for each answered question that has `remember` set (only first-draft questions can; the agent's own never do). After the drill: the same for drill answers |
+| Writes | After the agent: `remember()` stores `"<question text> <answer>"` as `fact` / `preference` for each answered question that has `remember` set: code's questions, and since 15 Oct the agent's own when it marks them. After the drill: the same for drill answers |
 | Never written | What the agent learned, the narration, the screen words, the final design |
 
 ---

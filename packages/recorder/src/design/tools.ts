@@ -558,6 +558,8 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
                 ok: true,
                 workflow: outlineOf(session.draft),
                 still_to_fix: problems(),
+                // Cheap AI steps kept without asking the user: what each costs a run.
+                ...(labelled.kept.length > 0 ? { ai_steps_kept: labelled.kept } : {}),
                 ...(session.pending.length > 0
                   ? { open_questions: session.pending.map((q) => `${q.id}: ${q.text}`) }
                   : {}),
@@ -726,15 +728,16 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
       name: "ask_user",
       kind: "look",
       description:
-        "Ask the user one question, shown on the draft next to `step`. Either an open question by its id, whose answer goes into the workflow by itself, or your own question with options and a default; you get the answer and change the workflow yourself",
+        'Ask the user one question, shown on the draft next to `step`. Either an open question by its id, whose answer goes into the workflow by itself, or your own question with options and a default: then `step` is required (the id of the step its answer changes; the run\'s settings are on "start"), and you change the workflow yourself with the answer. remember: the answer is a lasting fact about them (where their files land, which sheet they use), kept for their next recordings',
       input: z.object({
         id: z.string().optional(),
         question: z.string().optional(),
         options: z.array(z.string()).max(6).optional(),
         default: z.string().optional(),
         step: z.string().optional(),
+        remember: z.enum(["fact", "preference"]).optional(),
       }),
-      run: async ({ id, question, options, default: fallback, step }) => {
+      run: async ({ id, question, options, default: fallback, step, remember }) => {
         if (!session.labelled) return { output: LABEL_FIRST };
         if (session.asked >= session.maxQuestions) {
           return { output: `You have asked ${session.maxQuestions} questions: decide the rest yourself, or finish.` };
@@ -742,11 +745,19 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
         const open = id ? session.pending.find((q) => q.id === id) : undefined;
         if (id && !open)
           return { output: `No open question ${id}. Open: ${session.pending.map((q) => q.id).join(", ")}` };
+        // A question of its own must say what its answer changes: one that changes nothing in the workflow (\"Should I
+        // continue?\") is not worth the user's time.
+        if (!open && !(step && [...walkSteps(session.draft.steps)].some(({ step: s }) => s.id === step))) {
+          return {
+            output: `Say which step the answer changes: step = the id of a step in the workflow (the run's settings are on "start")${step ? `; there is no step ${step}` : ""}. A question whose answer changes nothing isn't asked.`,
+          };
+        }
         const asking: Question = open ?? {
           id: `design-${session.asked + 1}`,
           text: question ?? "",
           options: options?.map((label) => ({ label })),
           default: fallback,
+          ...(remember ? { remember } : {}),
         };
         if (!asking.text) return { output: "Give the question, or the id of an open question." };
         session.asked++;
