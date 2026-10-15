@@ -906,3 +906,227 @@ nav a.active .badge {
     padding: 16px;
   }
 }
+
+/* The workflow as a tree (WorkflowTree.tsx): the start at the root, steps joined by lines, a loop's steps drawn inside
+   it, an "if" forking into arms side by side that join again below. */
+.wf-canvas {
+  overflow-x: auto;
+  padding: 6px 4px 14px;
+  --wire: color-mix(in srgb, var(--muted) 45%, transparent);
+  --gap: 22px;
+}
+.wf-seq {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+}
+.wf-seq > * + * {
+  position: relative;
+  margin-top: var(--gap);
+}
+.wf-seq > * + *::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--gap));
+  left: 50%;
+  height: var(--gap);
+  border-left: 2px solid var(--wire);
+}
+.wf-node {
+  box-sizing: border-box;
+  width: 280px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  padding: 9px 12px;
+  text-align: left;
+}
+.wf-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.wf-kind {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.wf-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.wf-id {
+  font-size: 11px;
+  color: var(--muted);
+}
+.wf-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.wf-root {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--r-card);
+}
+.wf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.wf-chip {
+  font-size: 11.5px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.wf-ai {
+  border-color: var(--busy);
+}
+.wf-loop {
+  width: auto;
+  min-width: 280px;
+  border-radius: var(--r-card);
+  border-color: var(--wire);
+}
+.wf-inside {
+  margin-top: 10px;
+  padding: 14px 16px;
+  border: 1.5px dashed var(--wire);
+  border-radius: var(--r-control);
+  background: var(--quiet-bg);
+}
+.wf-repeat {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-align: right;
+}
+.wf-repeat::before {
+  content: "↻ ";
+}
+.wf-empty {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  padding: 4px 10px;
+}
+.wf-fork {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.wf-if {
+  border-color: var(--wait);
+  border-radius: var(--r-card);
+}
+.wf-arms {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  margin-top: var(--gap);
+}
+.wf-arms::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--gap));
+  left: 50%;
+  height: var(--gap);
+  border-left: 2px solid var(--wire);
+}
+.wf-arm {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 14px 0;
+}
+/* The bar the arms hang from, and the drop to each arm's label. */
+.wf-arm::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  border-top: 2px solid var(--wire);
+}
+.wf-arm:first-child::before {
+  left: 50%;
+}
+.wf-arm:last-child::before {
+  right: 50%;
+}
+.wf-arm::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 18px;
+  border-left: 2px solid var(--wire);
+}
+.wf-arm-label {
+  position: relative;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--wait);
+  background: var(--wait-bg);
+  border-radius: 999px;
+  padding: 2px 10px;
+  max-width: 260px;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.wf-arm-label + .wf-seq {
+  position: relative;
+  margin-top: 14px;
+}
+.wf-arm-label + .wf-seq::before {
+  content: "";
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  height: 14px;
+  border-left: 2px solid var(--wire);
+}
+/* Each arm runs down to the bar where the arms join again. */
+.wf-arm-end {
+  flex: 1;
+  min-height: 14px;
+  border-left: 2px solid var(--wire);
+}
+.wf-arm-foot {
+  position: relative;
+  align-self: stretch;
+  margin: 0 -14px;
+  height: 0;
+}
+.wf-arm-foot::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  border-top: 2px solid var(--wire);
+}
+.wf-arm:first-child > .wf-arm-foot::before {
+  left: 50%;
+}
+.wf-arm:last-child > .wf-arm-foot::before {
+  right: 50%;
+}
+.wf-node.asked,
+.wf-arm-label.asked {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}

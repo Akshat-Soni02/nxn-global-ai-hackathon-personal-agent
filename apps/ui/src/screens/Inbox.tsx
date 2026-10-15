@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Empty, Loading } from "../components.tsx";
 import { ago, KIND, when } from "../format.ts";
-import { StepTree } from "./Workflow.tsx";
+import { WorkflowTree } from "../WorkflowTree.tsx";
 
 export function Inbox() {
   const { data, error } = useQuery<InboxItem[]>("inbox", { open: true });
@@ -43,7 +43,7 @@ export function Question({ item }: { item: InboxItem }) {
         <div className="muted small">
           The workflow so far{item.detail.step ? `: the question is about ${item.detail.step}` : ""}
         </div>
-        <StepTree steps={draft.steps} highlight={item.detail.step as string | undefined} />
+        <WorkflowTree steps={draft.steps} highlight={item.detail.step as string | undefined} />
       </div>
       <Card item={item} />
     </div>
