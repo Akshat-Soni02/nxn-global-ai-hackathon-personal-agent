@@ -1,8 +1,9 @@
-// Every page: the bar at the top, the page, the footer. Before first paint, a two-line script marks the page as having
-// scripts (html.js), so content that will be revealed can start hidden; if the reveals haven't started within 4
-// seconds (html.gsap), it shows everything instead. Without scripts, nothing is ever hidden.
+// Every page: the bar at the top, the page, the footer. Before first paint, a one-line script in <head> marks the page
+// as having scripts (html.js), so content that will be revealed can start hidden; if the reveals haven't started
+// within 2 seconds (html.gsap), it shows everything instead. Without scripts, nothing is ever hidden. It is a plain
+// inline script, not next/script: App Router queues a beforeInteractive script until its own code has loaded, which
+// is after first paint, so the page would show, hide, then fade back in.
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import type { ReactNode } from "react";
 import { Footer } from "../components/Footer";
 import { MotionRoot } from "../components/motion/MotionRoot";
@@ -26,15 +27,16 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#0b0c1a", colorScheme: "light" };
 
 const BOOT =
-  "document.documentElement.classList.add('js');setTimeout(function(){var d=document.documentElement;if(!d.classList.contains('gsap'))d.classList.remove('js')},4000)";
+  "document.documentElement.classList.add('js');setTimeout(function(){var d=document.documentElement;if(!d.classList.contains('gsap'))d.classList.remove('js')},2000)";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: a fixed one-line string written here, never user input */}
+        <script dangerouslySetInnerHTML={{ __html: BOOT }} />
+      </head>
       <body>
-        <Script id="boot" strategy="beforeInteractive">
-          {BOOT}
-        </Script>
         <a className="skip" href="#main">
           Skip to content
         </a>
