@@ -2,14 +2,19 @@
 // node joined to the next by a line. A loop is a node whose own steps are drawn inside it, as a smaller tree. An "if"
 // is a fork: its arms sit side by side and join again below; a chain of "else if" shows as one fork with three or more
 // arms. Actions and AI steps are the leaves. Used on a workflow's page and next to a question about a draft (`highlight`
-// marks the step the question is about).
+// marks the step the question is about), and in the editor, where a click on a step opens it in place (`panel`).
 import type { Step } from "@shadow/core";
+import type { ReactNode } from "react";
 import { describe } from "./frequency.ts";
 
 type Body = Exclude<Step, { type: "trigger" }>;
 type Branch = Extract<Step, { type: "control"; kind: "branch" }>;
 
-export function WorkflowTree({ steps, highlight }: { steps: Step[]; highlight?: string }) {
+// How nodes are marked: the step a question is about (`highlight`) and, in the editor, the step being changed
+// (`selected`), opened in place to show `panel`; with `onSelect`, a click on a step picks it.
+type Marks = { highlight?: string; selected?: string; panel?: ReactNode; onSelect?(id: string): void };
+
+export function WorkflowTree({ steps, ...marks }: { steps: Step[] } & Marks) {
   const start = steps.find((s) => s.type === "trigger");
   const body = steps.filter((s): s is Body => s.type !== "trigger");
   return (
@@ -17,7 +22,7 @@ export function WorkflowTree({ steps, highlight }: { steps: Step[]; highlight?: 
       <div className="wf-seq">
         {start ? <Root step={start} /> : null}
         {body.map((s) => (
-          <Node key={s.id} step={s} highlight={highlight} />
+          <Node key={s.id} step={s} marks={marks} />
         ))}
       </div>
     </div>
@@ -48,23 +53,20 @@ function Root({ step }: { step: Step }) {
   );
 }
 
-function Node({ step, highlight }: { step: Step; highlight?: string }) {
+function Node({ step, marks }: { step: Step; marks: Marks }) {
   // The start is drawn once, as the root; inside loops and arms there is none.
   if (step.type === "trigger") return null;
-  const asked = step.id === highlight ? " asked" : "";
-  if (step.type === "control" && step.kind === "branch") return <Fork step={step} highlight={highlight} />;
+  if (step.type === "control" && step.kind === "branch") return <Fork step={step} marks={marks} />;
   if (step.type === "control") {
     return (
-      <div className={`wf-node wf-loop${asked}`}>
-        <Head kind="for each" title={step.intent} step={step} />
-        <div className="wf-sub">
-          {step.item.name} in {step.over}
-        </div>
+      <div className={`wf-node wf-loop${state(step.id, marks)}`}>
+        <Face kind="for each" step={step} sub={`${step.item.name} in ${step.over}`} marks={marks} />
+        {step.id === marks.selected ? marks.panel : null}
         <div className="wf-inside">
           {step.steps.length > 0 ? (
             <div className="wf-seq">
               {step.steps.map((s) => (
-                <Node key={s.id} step={s} highlight={highlight} />
+                <Node key={s.id} step={s} marks={marks} />
               ))}
             </div>
           ) : (
@@ -82,36 +84,42 @@ function Node({ step, highlight }: { step: Step; highlight?: string }) {
       ? `reads ${step.inputs.join(", ") || "nothing"} → ${step.output.name}`
       : `${step.action}${step.target?.name ? ` "${step.target.name}"` : ""}${step.output ? ` → ${step.output.name}` : ""}`;
   return (
-    <div className={`wf-node wf-leaf${step.type === "llm" ? " wf-ai" : ""}${asked}`}>
-      <Head kind={kind} title={step.intent} step={step} />
-      <div className="wf-sub">{detail}</div>
+    <div className={`wf-node wf-leaf${step.type === "llm" ? " wf-ai" : ""}${state(step.id, marks)}`}>
+      <Face kind={kind} step={step} sub={detail} marks={marks} />
+      {step.id === marks.selected ? marks.panel : null}
     </div>
   );
 }
 
-// An "if" and its arms: the steps when it holds, any "else if" further down the chain, and "otherwise".
-function Fork({ step, highlight }: { step: Branch; highlight?: string }) {
-  const arms: { id: string; label: string; steps: Step[] }[] = [{ id: step.id, label: "yes", steps: step.steps }];
+// An "if" and its arms: the steps when it holds, any "else if" further down the chain, and "otherwise". An "else if"
+// is a step of its own (the only step of the "otherwise" before it), so its label can be picked like a node.
+function Fork({ step, marks }: { step: Branch; marks: Marks }) {
+  const arms: { key: string; label: string; branch?: Branch; steps: Step[] }[] = [
+    { key: step.id, label: "yes", steps: step.steps },
+  ];
   let rest = step.else;
   while (rest.length === 1 && rest[0]?.type === "control" && rest[0].kind === "branch") {
     const next: Branch = rest[0];
-    arms.push({ id: next.id, label: `else if ${conditionText(next.if)}`, steps: next.steps });
+    arms.push({ key: next.id, label: `else if ${conditionText(next.if)}`, branch: next, steps: next.steps });
     rest = next.else;
   }
-  arms.push({ id: `${step.id}-otherwise`, label: "otherwise", steps: rest });
+  arms.push({ key: `${step.id}-otherwise`, label: "otherwise", steps: rest });
   return (
     <div className="wf-fork">
-      <div className={`wf-node wf-if${step.id === highlight ? " asked" : ""}`}>
-        <Head kind="if" title={step.intent} step={step} />
-        <div className="wf-sub">{conditionText(step.if)}</div>
+      <div className={`wf-node wf-if${state(step.id, marks)}`}>
+        <Face kind="if" step={step} sub={conditionText(step.if)} marks={marks} />
+        {step.id === marks.selected ? marks.panel : null}
       </div>
       <div className="wf-arms">
         {arms.map((arm) => (
-          <div key={arm.id} className="wf-arm">
-            <span className={`wf-arm-label${arm.id === highlight ? " asked" : ""}`}>{arm.label}</span>
+          <div key={arm.key} className="wf-arm">
+            <ArmLabel arm={arm} marks={marks} />
+            {arm.branch && arm.branch.id === marks.selected ? (
+              <div className="wf-node picked">{marks.panel}</div>
+            ) : null}
             <div className="wf-seq">
               {arm.steps.length > 0 ? (
-                arm.steps.map((s) => <Node key={s.id} step={s} highlight={highlight} />)
+                arm.steps.map((s) => <Node key={s.id} step={s} marks={marks} />)
               ) : (
                 <div className="wf-empty">nothing</div>
               )}
@@ -125,15 +133,42 @@ function Fork({ step, highlight }: { step: Branch; highlight?: string }) {
   );
 }
 
-function Head({ kind, title, step }: { kind: string; title: string; step: Body }) {
+function ArmLabel({ arm, marks }: { arm: { label: string; branch?: Branch }; marks: Marks }) {
+  const id = arm.branch?.id;
+  const className = `wf-arm-label${id ? state(id, marks) : ""}`;
+  if (!id || !marks.onSelect) return <span className={className}>{arm.label}</span>;
+  const pick = marks.onSelect;
   return (
-    <div className="wf-head">
-      <span className="wf-kind">{kind}</span>
-      <span className="wf-title">{title}</span>
-      <code className="wf-id">{step.id}</code>
-      {step.requires_approval ? <span className="flag">approval</span> : null}
-      {step.ask ? <span className="flag">asks</span> : null}
-    </div>
+    <button type="button" className={className} aria-pressed={id === marks.selected} onClick={() => pick(id)}>
+      {arm.label}
+    </button>
+  );
+}
+
+const state = (id: string, marks: Marks) =>
+  `${id === marks.highlight ? " asked" : ""}${id === marks.selected ? " picked" : ""}`;
+
+// A node's face: the kind of step, what it is for, its id and flags, and one line of detail. With `onSelect` it is a
+// button that picks the step (spans, not divs: a button holds only inline content).
+function Face({ kind, step, sub, marks }: { kind: string; step: Body; sub: string; marks: Marks }) {
+  const face = (
+    <>
+      <span className="wf-head">
+        <span className="wf-kind">{kind}</span>
+        <span className="wf-title">{step.intent}</span>
+        <code className="wf-id">{step.id}</code>
+        {step.requires_approval ? <span className="flag">approval</span> : null}
+        {step.ask ? <span className="flag">asks</span> : null}
+      </span>
+      <span className="wf-sub">{sub}</span>
+    </>
+  );
+  if (!marks.onSelect) return face;
+  const pick = marks.onSelect;
+  return (
+    <button type="button" className="wf-pick" aria-pressed={step.id === marks.selected} onClick={() => pick(step.id)}>
+      {face}
+    </button>
   );
 }
 

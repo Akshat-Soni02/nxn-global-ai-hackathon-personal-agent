@@ -101,7 +101,7 @@ turns slides and springs into 150 ms opacity cross-fades.
 | Inbox | Cards with a left border | The same cards on the token system: kind colour on the edge, one next action in the accent, a walk-through card with Do it / Next, Skip, Stop |
 | Workflows | A table | A table with the state chip first, Frequency and next run in one cell, Run now on the row |
 | Workflow | Steps, versions, runs | Plus Walk through, Edit (the draft editor inline), Record again |
-| Editor | None | Every step editable in place: what it is for, approval, more fields; undo, redo, discard, Save as v(n+1); the daemon's reason when a change is refused |
+| Editor | None | The workflow as the same tree as on its page; click a step and it opens in place: what it is for, approval, its fields, move up or down, remove; undo, redo, discard, Save as v(n+1); the daemon's reason when a change is refused |
 | Record | The form | The form with the three consents in plain words, Record again prefilled, Discard while recording |
 | Settings | None | The key (write-only), a connection check, the consents, Chrome, memory, where things are |
 | Menu bar | Counts and health | Plus "Shadow is not running · Start" |

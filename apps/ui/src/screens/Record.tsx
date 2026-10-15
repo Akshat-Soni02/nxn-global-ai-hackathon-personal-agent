@@ -274,7 +274,7 @@ function Toggle({
   return (
     <button
       type="button"
-      className={`toggle${on ? " on" : ""}`}
+      className={`icon-toggle${on ? " on" : ""}`}
       aria-pressed={on}
       aria-label={label}
       title={label}

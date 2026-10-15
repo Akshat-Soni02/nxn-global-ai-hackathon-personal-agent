@@ -1,5 +1,6 @@
 // The editor (docs/design.md, "6. Edit"): change any step of a workflow, toggle human approval, remove or reorder
-// steps. Every change is one of the edit operations the agents use, applied by the daemon to a draft beside the
+// steps. The workflow is drawn as the same tree as on its page (WorkflowTree.tsx); a click on a step opens it in place,
+// with its fields; a second click (or Done) closes it. Every change is one of the edit operations the agents use, applied by the daemon to a draft beside the
 // workflow and saved at once; the live version keeps running unchanged until the draft is saved as the next version.
 // A refused change (the workflow could not take it: a reference that doesn't exist, a step that can't move there)
 // is shown with the daemon's reason.
@@ -8,11 +9,15 @@ import type { DraftView } from "@shadow/daemon/src/types.ts";
 import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
+import { WorkflowTree } from "../WorkflowTree.tsx";
+
+type Body = Exclude<Step, { type: "trigger" }>;
 
 export function Editor({ id, onDone }: { id: string; onDone(): void }) {
   const session = useSession();
   const draft = useQuery<DraftView>("draft", { id });
   const [error, setError] = useState<string>();
+  const [picked, setPicked] = useState<string>();
   const call = async (method: string, params: object = {}) => {
     setError(undefined);
     try {
@@ -25,7 +30,8 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
   const edit = (edits: EditInput[]) => call("editDraft", { edits });
   if (!draft.data) return <Loading error={draft.error} />;
   const d = draft.data;
-  const steps = d.skill.steps.filter((s) => s.type !== "trigger");
+  // Gone after a remove or an undo: the panel goes back to its hint.
+  const spot = picked ? locate(d.skill.steps, picked) : undefined;
 
   return (
     <section className="section editor">
@@ -61,133 +67,119 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
         </p>
       ) : (
         <p className="muted small">
-          Change any step below. Each change is kept as a draft at once; the workflow keeps running as it is until you
-          save.
+          Click a step to change it. Each change is kept as a draft at once; the workflow keeps running as it is until
+          you save.
         </p>
       )}
       {d.problems.length > 0 ? <p className="error">Before it can start on its own: {d.problems.join("; ")}</p> : null}
       {error ? <p className="error">{error}</p> : null}
-      <ol className="tree">
-        {steps.map((s, i) => (
-          <EditRow key={s.id} step={s} siblings={steps} index={i} edit={edit} />
-        ))}
-      </ol>
+      <WorkflowTree
+        steps={d.skill.steps}
+        selected={spot?.step.id}
+        onSelect={(step) => setPicked(step === picked ? undefined : step)}
+        panel={
+          // Keyed on the step itself: after any change (or undo) the panel starts again from what was saved.
+          spot ? (
+            <EditStep key={JSON.stringify(spot.step)} {...spot} edit={edit} done={() => setPicked(undefined)} />
+          ) : null
+        }
+      />
     </section>
   );
 }
 
-function EditRow({
+// Where a step sits: the list it is in (the workflow, a loop's steps, either side of an "if") and its place there.
+function locate(steps: Step[], id: string): { step: Body; siblings: Body[]; index: number } | undefined {
+  const siblings = steps.filter((s): s is Body => s.type !== "trigger");
+  for (const [index, step] of siblings.entries()) {
+    if (step.id === id) return { step, siblings, index };
+    if (step.type === "control") {
+      const inside = locate(step.steps, id) ?? (step.kind === "branch" ? locate(step.else, id) : undefined);
+      if (inside) return inside;
+    }
+  }
+  return undefined;
+}
+
+// The picked step: what it is for, whether it waits for your approval, its fields, and its place among its neighbours.
+function EditStep({
   step,
   siblings,
   index,
   edit,
+  done,
 }: {
-  step: Step;
-  siblings: Step[];
+  step: Body;
+  siblings: Body[];
   index: number;
   edit(edits: EditInput[]): Promise<void>;
+  done(): void;
 }) {
   const [intent, setIntent] = useState(step.intent);
-  const [more, setMore] = useState(false);
-  if (step.type === "trigger") return null;
   const set = (field: string, value: unknown) => edit([{ op: "set", step: step.id, field, value } as EditInput]);
   const before = siblings[index - 1];
   const after = siblings[index + 1];
-  const kind =
-    step.type === "control"
-      ? step.kind === "loop"
-        ? "for each"
-        : "if"
-      : step.type === "llm"
-        ? "model"
-        : step.channel === "ax"
-          ? "mac"
-          : step.channel;
-
   return (
-    <li className={`step edit${step.type === "control" ? " control" : ""}`}>
-      <div className="step-line">
-        <span className="step-kind">{kind}</span>
+    <div className="wf-edit">
+      <label className="field wide">
+        <span>What it is for</span>
         <input
-          className="input step-intent-input"
+          className="input"
           value={intent}
-          aria-label={`What ${step.id} is for`}
           onChange={(e) => setIntent(e.target.value)}
           onBlur={() => intent.trim() && intent !== step.intent && set("intent", intent.trim())}
         />
-        <code className="step-id">{step.id}</code>
-        <label className="flag toggle" title="Wait for your approval before this step runs">
-          <input
-            type="checkbox"
-            checked={step.requires_approval}
-            onChange={(e) => set("requires_approval", e.target.checked)}
-          />{" "}
-          approval
-        </label>
-        <span className="row-tools">
-          <button
-            type="button"
-            className="button small"
-            disabled={!before}
-            title="Move up"
-            onClick={() => before && edit([{ op: "move", step: step.id, to: { before: before.id } }])}
-          >
-            ↑
-          </button>
-          <button
-            type="button"
-            className="button small"
-            disabled={!after}
-            title="Move down"
-            onClick={() => after && edit([{ op: "move", step: step.id, to: { after: after.id } }])}
-          >
-            ↓
-          </button>
-          <button type="button" className="button small" onClick={() => setMore(!more)}>
-            {more ? "Less" : "More"}
-          </button>
-          <button
-            type="button"
-            className="button small danger"
-            title="Remove this step"
-            onClick={() => edit([{ op: "remove", step: step.id }])}
-          >
-            Remove
-          </button>
-        </span>
-      </div>
+      </label>
       {step.type === "action" ? (
         <div className="muted small">
           {step.action}
           {step.target?.name ? ` · "${step.target.name}"` : ""}
         </div>
       ) : null}
-      {more ? <Fields step={step} set={set} /> : null}
-      {step.type === "control" ? (
-        <>
-          <ol className="tree">
-            {step.steps.map((s, i) => (
-              <EditRow key={s.id} step={s} siblings={step.steps} index={i} edit={edit} />
-            ))}
-          </ol>
-          {step.kind === "branch" && step.else.length > 0 ? (
-            <>
-              <div className="step-kind else">otherwise</div>
-              <ol className="tree">
-                {step.else.map((s, i) => (
-                  <EditRow key={s.id} step={s} siblings={step.else} index={i} edit={edit} />
-                ))}
-              </ol>
-            </>
-          ) : null}
-        </>
-      ) : null}
-    </li>
+      <label className="flag toggle" title="Wait for your approval before this step runs">
+        <input
+          type="checkbox"
+          checked={step.requires_approval}
+          onChange={(e) => set("requires_approval", e.target.checked)}
+        />{" "}
+        wait for my approval
+      </label>
+      <Fields step={step} set={set} />
+      <div className="answers">
+        <button
+          type="button"
+          className="button small"
+          disabled={!before}
+          onClick={() => before && edit([{ op: "move", step: step.id, to: { before: before.id } }])}
+        >
+          ↑ Move up
+        </button>
+        <button
+          type="button"
+          className="button small"
+          disabled={!after}
+          onClick={() => after && edit([{ op: "move", step: step.id, to: { after: after.id } }])}
+        >
+          ↓ Move down
+        </button>
+        <button
+          type="button"
+          className="button small danger"
+          title={step.type === "control" ? "Remove this step and the steps inside it" : "Remove this step"}
+          onClick={() => edit([{ op: "remove", step: step.id }])}
+        >
+          Remove
+        </button>
+        <button type="button" className="button small primary" onClick={done}>
+          Done
+        </button>
+      </div>
+    </div>
   );
 }
 
 // The step's own fields, as JSON where they are structured (args, a condition), as text where they are text.
-function Fields({ step, set }: { step: Exclude<Step, { type: "trigger" }>; set(field: string, value: unknown): void }) {
+function Fields({ step, set }: { step: Body; set(field: string, value: unknown): void }) {
   const field = step.type === "action" ? "args" : step.type === "llm" ? "inputs" : step.kind === "loop" ? "over" : "if";
   const [json, setJson] = useState(() =>
     JSON.stringify(
