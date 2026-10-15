@@ -15,7 +15,7 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 | [`docs/questions.md`](docs/questions.md) | The questions people ask, answered by mechanism: what runs when, which file does it, and why not the other way |
 | [`docs/design-ui.md`](docs/design-ui.md) | The look, the mark and the name |
 | [`docs/guide/`](docs/guide/00-start-here.md) | The whole picture (diagram 13) and record, replay and AI end to end (diagram 14) |
-| [`apps/website`](apps/website) | The one-page site (`pnpm --filter @shadow/website dev`) |
+| [`apps/website`](apps/website) | The product site: Overview, How it works, Use cases, Privacy, Download (`pnpm --filter @shadow/website dev`) |
 
 ## What works today
 
@@ -201,7 +201,7 @@ pnpm daemon:dev             # the daemon in watch mode (it also reads Enter, so 
 pnpm fixtures               # serves fixtures/pages on http://localhost:5173
 pnpm seed:sandbox           # creates ~/ShadowTest with sample files for skills/real (--reset to start over)
 pnpm snapshot:pages         # re-downloads the real pages into fixtures/snapshots
-pnpm --filter @shadow/website dev   # the one-page site
+pnpm --filter @shadow/website dev   # the product site on http://localhost:3000 (Next.js)
 ```
 
 **Replay without the daemon**: `pnpm replay` runs a workflow in its own debug-port Chrome (profile in `~/Library/Application Support/Shadow/dev-chrome`), no extension needed. Both paths share the player code.
@@ -235,7 +235,7 @@ TypeScript monorepo (pnpm workspaces), plus the Swift app. One language for the 
 │   ├── mac/           # Shadow.app (Swift): menu bar, window, notifications, the record pill, first run, login items, Mac-app capture and replay
 │   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
 │   ├── native-host/   # the shim Chrome starts: pipes native messaging <-> the daemon's Unix socket
-│   └── website/       # the one-page site (Vite, GSAP)
+│   └── website/       # the product site (Next.js static export, GSAP)
 ├── skills/real/       # replay test workflows against real sites (see skills/real/README.md)
 ├── fixtures/
 │   ├── pages/         # local test pages, including drifted redesigns for repair
@@ -253,11 +253,11 @@ TypeScript monorepo (pnpm workspaces), plus the Swift app. One language for the 
 | `packages/recorder`, recording code in `apps/extension/src/content.ts` | Record | |
 | `packages/player`, replay code in `apps/extension/src/background.ts`, `apps/daemon`, `apps/native-host` | Replay | |
 
-Workspace packages are used as TypeScript source (no build step); the extension, the native host, the window and the website are bundled with esbuild or Vite, and Shadow.app is compiled with `swiftc`. `pnpm package` bundles the daemon and the shim into one file each and puts them inside the app.
+Workspace packages are used as TypeScript source (no build step); the extension, the native host and the window are bundled with esbuild, the website is a static Next.js export (`apps/website/out`), and Shadow.app is compiled with `swiftc`. `pnpm package` bundles the daemon and the shim into one file each and puts them inside the app.
 
 ## Deployed Link
 
-Test build: a GitHub Release with `Shadow-<version>.dmg` (Shadow.app with the daemon inside) and `shadow-extension.zip`. The link is added here when the first release is published with `pnpm release`. The website is `apps/website`, not hosted yet.
+Test build: a GitHub Release with `Shadow-<version>.dmg` (Shadow.app with the daemon inside) and `shadow-extension.zip`. The link is added here when the first release is published with `pnpm release`. The website is `apps/website`, not hosted yet: `pnpm --filter @shadow/website build` writes static pages to `apps/website/out` for any file host (set `SITE_BASE_PATH=/<folder>` to serve it from a folder, such as a GitHub project page).
 
 ## Deployment Guide
 

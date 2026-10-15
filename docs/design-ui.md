@@ -2,7 +2,7 @@
 
 > Written 13 Oct 2026. How Shadow looks and moves, and why. The rules come from Apple's Human Interface Guidelines
 > and the WWDC talks on fluid interfaces; the tokens below are what the code uses (`apps/ui/src/styles.css`,
-> `apps/mac/Sources/Pill.swift`, `apps/website/src/styles.css`).
+> `apps/mac/Sources/Pill.swift`, `apps/website/app/globals.css`).
 
 ## What premium means here, in five rules
 
@@ -117,8 +117,25 @@ turns slides and springs into 150 ms opacity cross-fades.
 
 ## The website
 
-One page, `apps/website`: a hero with the window and the pill shown half cut, the three parts (Record, Understand,
-Run) each with one still of the product and one sentence, a privacy section that repeats the consent promises word
-for word, the download (the latest GitHub Release .dmg and the extension zip), and the Nemotron / Token Factory
-note. Animations are GSAP with ScrollTrigger on a static prototype: the pill starts recording, steps appear in the
-tree, an approval card gets its Approve, a repair lands as v2. They respect reduced motion.
+Five pages in `apps/website` (Next.js, App Router, a static export to `out/`; no server, no web fonts, no images): the
+product is drawn in HTML so it stays sharp and can move.
+
+| Page | What it holds |
+| --- | --- |
+| Overview `/` | Night hero ("Show it once. It does the rest."), the window with its inbox and a workflow, the Record pill in front; three promises; the scroll story; privacy in four lines; four use cases; the models; the closing download |
+| How it works | Eight moments, each beside the part of the app where it happens: goal box, Record pill, workflow tree, question card, editor panel, walk-through, approval, repair |
+| Use cases | KPI email → sheet, Downloads filed, YC jobs picked, a Hacker News digest: what you do once, what Shadow does every time, the steps; then good at / not yet |
+| Privacy | The four promises, masking shown on a line of screen text, what stays on the Mac and for how long, what leaves (text only) and what never does, the controls |
+| Download | The .dmg (`releases/latest`, so it works once `pnpm release` has run), what you need, the three setup steps, quick fixes, the questions, building from source |
+
+- **Bands, not boxes.** Each page opens and closes on night (`#0B0C1A`, the dot and its blue shadow); the middle
+  alternates light (`#F5F5F7`) and white. The bar at the top is a translucent material that takes the tone of the
+  band under it. One accent, Shadow blue, for the next action only.
+- **Type** (Apple's product pages): hero 48 → 96 px / 1.04, −0.015 em; headline 32 → 56 / 1.07; eyebrow 17 → 21
+  semibold; lead 19 → 24 / 1.33; body 17 / 1.47, −0.022 em; footer 12. The system font.
+- **Motion** (GSAP + ScrollTrigger through `@gsap/react`): reveals rise 24 px and fade in once; the hero's shadow
+  slides out from under the dot and the window settles flat as the page scrolls (scrubbed); on wide screens the
+  Overview pins a story the scroll plays: the pill records, the workflow builds, an approval is approved, a repair
+  lands as v2. Phones get the finished story without pinning; Reduce Motion shows everything at once; without
+  scripts nothing is hidden (`html.js`, set before first paint, gates the hidden start).
+- TypeScript 6 for this app only: Next 16.3 needs TypeScript's JS API, which TypeScript 7 (the repo's) no longer has.

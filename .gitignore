@@ -8,3 +8,9 @@ coverage/
 !.env.example
 *.log
 .claude/worktrees/
+
+# The website (Next.js): its build folders and the types it generates
+apps/website/.next/
+apps/website/out/
+apps/website/next-env.d.ts
+apps/website/*.tsbuildinfo
