@@ -30,11 +30,12 @@ export function WorkflowTree({ steps, ...marks }: { steps: Step[] } & Marks) {
       ?.querySelector(".picked")
       ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: reduce ? "auto" : "smooth" });
   }, [marks.selected, canvas]);
-  // The step a question is about is brought to the middle, sideways only: the page itself must not jump on load.
+  // The step a question is about is brought to the middle, sideways only: the page itself must not jump on load. Once
+  // the tree has its scale (`fit`), and again whenever that changes.
   useEffect(() => {
     const space = canvas.current;
     const node = marks.highlight ? space?.querySelector(".asked") : undefined;
-    if (!space || !node || space.scrollWidth <= space.clientWidth) return;
+    if (!fit || !space || !node || space.scrollWidth <= space.clientWidth) return;
     const box = space.getBoundingClientRect();
     const at = node.getBoundingClientRect();
     space.scrollLeft += at.left + at.width / 2 - (box.left + box.width / 2);
