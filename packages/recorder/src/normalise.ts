@@ -316,7 +316,9 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
         if (e.menu && e.menu.length > 0) pushApp(e, { kind: "app_menu", menu: e.menu });
         break;
       default:
-        break; // tab_open, tab_close: context only. app_activate: an "open" step is added before the app's first step.
+        // tab_open, tab_close, tab_switch: context (followTabs reopens a page you switched back to before acting on
+        // it). app_activate: an "open" step is added before the app's first step.
+        break;
     }
   }
 
@@ -331,6 +333,7 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
     }
   }
   addStartingPage(kept);
+  followTabs(kept);
   const produced = events.flatMap((e) =>
     e.path && (e.event === "download" || e.event === "fs_create") ? [e.path] : [],
   );
@@ -365,6 +368,46 @@ function addStartingPage(steps: Draft[]) {
   const url = first.frameId ? undefined : (first.url ?? first.target?.url);
   if (!url || !opensOnReplay(url)) return;
   steps.unshift({ kind: "navigate", at: first.at - 1, tabId: first.tabId, url, events: [] });
+}
+
+// Steps that act on a web page, where the page they happened on is the one replay must be on.
+const PAGE_ACTIONS = new Set(["click", "type", "select", "press", "upload", "drag", "copy"]);
+
+// Replay runs in one tab. When the next action happened in another tab, on another page than the one replay is on,
+// you had switched tabs (or come back to one): replay opens that page again first. Sheet, then the company page, then
+// back to the sheet to paste (Oct 15: the paste ran on the company page, which the sheet's tab had been swapped for).
+// Within one tab a page may change its own address (a map, a single-page app): that is not a switch.
+function followTabs(steps: Draft[]) {
+  let here: string | undefined;
+  let tab: number | undefined;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i] as Draft;
+    if (step.kind === "navigate") {
+      here = step.navigatesTo ?? step.url;
+      tab = step.tabId ?? tab;
+      continue;
+    }
+    const page = step.frameId ? undefined : step.url;
+    if (!PAGE_ACTIONS.has(step.kind) || !page || !opensOnReplay(page)) continue;
+    const switched = tab !== undefined && step.tabId !== undefined && step.tabId !== tab;
+    if (switched && here && !samePage(here, page)) {
+      steps.splice(i, 0, { kind: "navigate", at: step.at - 1, tabId: step.tabId, url: page, events: [] });
+      i++;
+    }
+    here = step.navigatesTo ?? page;
+    tab = step.tabId ?? tab;
+  }
+}
+
+// The same page, whatever its per-visit parts (query, fragment): a sheet's ?gid=0 or #range is still the sheet.
+function samePage(a: string, b: string): boolean {
+  try {
+    const x = new URL(a);
+    const y = new URL(b);
+    return x.origin === y.origin && x.pathname === y.pathname;
+  } catch {
+    return a === b;
+  }
 }
 
 function candidateFor(step: Draft, produced: string[]): ParamCandidate | undefined {

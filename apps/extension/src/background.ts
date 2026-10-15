@@ -243,6 +243,14 @@ chrome.tabs.onCreated.addListener((tab) => {
   record({ event: "tab_open", tabId: tab.id, url: tab.pendingUrl ?? tab.url, openerTabId: tab.openerTabId });
 });
 chrome.tabs.onRemoved.addListener((tabId) => record({ event: "tab_close", tabId }));
+// Switching tabs: replay runs in one tab, so the order of pages you worked on is rebuilt from these.
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  if (!recordingSession) return;
+  chrome.tabs.get(tabId).then(
+    (tab) => record({ event: "tab_switch", tabId, url: tab.url ?? tab.pendingUrl }),
+    () => record({ event: "tab_switch", tabId }),
+  );
+});
 // A finished download links the web and the Mac: its path is where a later file step will find it.
 chrome.downloads.onChanged.addListener((delta) => {
   if (delta.state?.current !== "complete") return;
