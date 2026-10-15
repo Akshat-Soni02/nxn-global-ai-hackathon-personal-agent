@@ -1,5 +1,5 @@
 // One workflow: what it is for, its steps as a tree, its versions (who made each and why), and its runs.
-import type { Skill, Step } from "@shadow/core";
+import type { Skill } from "@shadow/core";
 import type { RunRow, WorkflowSummary } from "@shadow/daemon/src/types.ts";
 import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
@@ -7,6 +7,7 @@ import { Action, Loading, StateChip, StatusChip } from "../components.tsx";
 import { FrequencyPicker } from "../FrequencyPicker.tsx";
 import { ago, duration, money, when } from "../format.ts";
 import { describe } from "../frequency.ts";
+import { WorkflowTree } from "../WorkflowTree.tsx";
 import { Editor } from "./Editor.tsx";
 
 const BY = { record: "Recorded", user: "Changed by you", debug: "Repaired during a run" } as const;
@@ -127,7 +128,7 @@ export function Workflow({ id }: { id: string }) {
       ) : (
         <section className="section">
           <h2>Steps</h2>
-          <StepTree steps={latest.steps} />
+          <WorkflowTree steps={latest.steps} />
         </section>
       )}
 
@@ -186,90 +187,4 @@ export function Workflow({ id }: { id: string }) {
       </section>
     </>
   );
-}
-
-// The steps as a tree; `highlight` marks the step a question is about (the Record screen's drill).
-export function StepTree({ steps, highlight }: { steps: Step[]; highlight?: string }) {
-  return (
-    <ol className="tree">
-      {steps
-        .filter((s) => s.type !== "trigger")
-        .map((s) => (
-          <StepRow key={s.id} step={s} highlight={highlight} />
-        ))}
-    </ol>
-  );
-}
-
-function StepRow({ step, highlight }: { step: Step; highlight?: string }) {
-  if (step.type === "trigger") return null;
-  const asked = step.id === highlight ? " asked" : "";
-  const flags = (
-    <>
-      {step.requires_approval ? <span className="flag">approval</span> : null}
-      {step.ask ? <span className="flag">asks</span> : null}
-    </>
-  );
-  if (step.type === "control") {
-    return (
-      <li className={`step control${asked}`}>
-        <div className="step-line">
-          <span className="step-kind">{step.kind === "loop" ? "for each" : "if"}</span>
-          <span className="step-intent">{step.intent}</span>
-          <code className="step-id">{step.id}</code>
-          {flags}
-        </div>
-        <div className="muted small">
-          {step.kind === "loop" ? `over ${step.over}, as {{${step.item.name}}}` : conditionText(step.if)}
-        </div>
-        <ol className="tree">
-          {step.steps.map((s) => (
-            <StepRow key={s.id} step={s} highlight={highlight} />
-          ))}
-        </ol>
-        {step.kind === "branch" && step.else.length > 0 ? (
-          <>
-            <div className="step-kind else">otherwise</div>
-            <ol className="tree">
-              {step.else.map((s) => (
-                <StepRow key={s.id} step={s} highlight={highlight} />
-              ))}
-            </ol>
-          </>
-        ) : null}
-      </li>
-    );
-  }
-  const kind = step.type === "llm" ? "model" : step.channel === "ax" ? "mac" : step.channel;
-  return (
-    <li className={`step${asked}`}>
-      <div className="step-line">
-        <span className="step-kind">{kind}</span>
-        <span className="step-intent">{step.intent}</span>
-        <code className="step-id">{step.id}</code>
-        {flags}
-      </div>
-      {step.type === "action" ? (
-        <div className="muted small">
-          {step.action}
-          {step.target?.name ? ` · "${step.target.name}"` : ""}
-        </div>
-      ) : null}
-    </li>
-  );
-}
-
-function conditionText(condition: unknown): string {
-  const c = condition as {
-    left?: string;
-    op?: string;
-    right?: unknown;
-    all?: unknown[];
-    any?: unknown[];
-    not?: unknown;
-  };
-  if (c.all) return c.all.map(conditionText).join(" and ");
-  if (c.any) return c.any.map(conditionText).join(" or ");
-  if (c.not) return `not (${conditionText(c.not)})`;
-  return `${c.left} ${(c.op ?? "").replace(/_/g, " ")}${c.right === undefined ? "" : ` ${JSON.stringify(c.right)}`}`;
 }

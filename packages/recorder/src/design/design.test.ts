@@ -3,9 +3,10 @@ import { type FakeReply, fakeLlm } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
 import { compile, type Form, type Question } from "../compile.ts";
 import type { Prompter } from "../drill.ts";
+import { narrationOf } from "../narration.ts";
 import { type NormalisedStep, normalise } from "../normalise.ts";
 import { designWorkflow } from "./design.ts";
-import { designViolations, notesByStep, recordedFolders } from "./tools.ts";
+import { designViolations, notesByStep, recordedFolders, recordedOpens } from "./tools.ts";
 
 const PAGE = "http://localhost:5173/upload.html";
 const control = (name: string, extra: Partial<ElementDescriptor> = {}): ElementDescriptor => ({
@@ -287,8 +288,8 @@ describe("the design agent", () => {
     const { steps, skill, questions } = await draft();
     const described: number[] = [];
     const llm = fakeLlm([
-      call("describe_screen", { step: 2 }),
-      call("describe_screen", { step: 9 }),
+      call("describe_step_screenshot", { step: 2 }),
+      call("describe_step_screenshot", { step: 9 }),
       call("finish", { summary: "done" }),
     ]);
     const outcome = await designWorkflow({
@@ -312,7 +313,7 @@ describe("the design agent", () => {
 
   it("says there are no pictures when the user did not allow them", async () => {
     const { steps, skill, questions } = await draft();
-    const llm = fakeLlm([call("describe_screen", { step: 1 }), call("finish", { summary: "done" })]);
+    const llm = fakeLlm([call("describe_step_screenshot", { step: 1 }), call("finish", { summary: "done" })]);
     const outcome = await designWorkflow({
       llm,
       skill,
@@ -347,6 +348,86 @@ describe("the design agent", () => {
   });
 });
 
+describe("one AI reads the recording: it labels the plain list first", () => {
+  // The plain step list as the daemon now hands it over: code only, no model call before the agent.
+  async function plain() {
+    const steps = normalise(trace());
+    const compiled = await compile(steps, { form });
+    return { steps, skill: compiled.skill, questions: compiled.questions, base: compiled.base };
+  }
+
+  it("labels every step in one move, before any other change or question", async () => {
+    const { steps, skill, questions, base } = await plain();
+    const llm = fakeLlm([
+      call("edit", { edits: [{ op: "set", step: "s2", field: "intent", value: "too soon" }] }),
+      call("ask_user", { question: "Always the newest invoice?" }),
+      call("label_steps", {
+        intent: "Upload this month's invoice",
+        steps: [
+          { id: "s2", intent: "Attach this month's invoice" },
+          { id: "s3", intent: "Send it", requires_approval: true },
+        ],
+      }),
+      call("label_steps", { steps: [{ id: "s2", intent: "again" }] }),
+      call("finish", { summary: "Labelled the steps" }),
+    ]);
+    const outcome = await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      base,
+      prompter: prompter().p,
+      protocol: "tools",
+    });
+    const [edit, ask, labelled, again] = results(outcome.episode);
+    expect(edit).toMatch(/label the steps first/);
+    expect(ask).toMatch(/label the steps first/);
+    expect(labelled).toContain('"ok":true');
+    expect(again).toMatch(/labelled already/);
+    const s2 = [...walkSteps(outcome.skill.steps)].find(({ step }) => step.id === "s2")?.step;
+    expect(s2?.intent).toBe("Attach this month's invoice");
+    // The labelling rules travel with the agent: they are in its instructions.
+    const system = ((llm.requests[0]?.messages ?? []) as { content: string }[])[0]?.content ?? "";
+    expect(system).toMatch(/# Your first move: label_steps/);
+    expect(system).toMatch(/Never output targets, selectors, channels or actions/);
+  });
+
+  it("when it stops early, keeps what it reached; when it changed nothing, the plain list", async () => {
+    const { steps, skill, questions, base } = await plain();
+    const reached = await designWorkflow({
+      llm: fakeLlm([
+        call("label_steps", { steps: [{ id: "s2", intent: "Attach this month's invoice" }] }),
+        call("edit", { edits: [{ op: "set", step: "s1", field: "intent", value: "Open the portal" }] }),
+      ]),
+      skill,
+      questions,
+      steps,
+      form,
+      base,
+      prompter: prompter().p,
+      protocol: "tools",
+      budget: { turns: 2 },
+    });
+    expect(reached.kind).toBe("kept");
+    const intents = reached.skill.steps.filter(isAction).map((s) => s.intent);
+    expect(intents.slice(0, 2)).toEqual(["Open the portal", "Attach this month's invoice"]);
+    const nothing = await designWorkflow({
+      llm: fakeLlm([call("workflow", {})]),
+      skill,
+      questions,
+      steps,
+      form,
+      base,
+      prompter: prompter().p,
+      protocol: "tools",
+      budget: { turns: 1 },
+    });
+    expect(nothing).toMatchObject({ kind: "kept", skill });
+  });
+});
+
 describe("the rules and the recording view", () => {
   it("lets the user's own fields and approvals through unchanged, and nothing else", async () => {
     const { skill } = await draft();
@@ -355,6 +436,104 @@ describe("the rules and the recording view", () => {
     expect(designViolations(skill, renamed, form)).toEqual([expect.stringMatching(/description is the user's/)]);
     // Without a form (a recording from before Oct 13), the agent may write the goal.
     expect(designViolations(skill, renamed)).toEqual([]);
+  });
+
+  it("keeps what the user showed: no recorded write removed, at most half the steps; a click may open its page", async () => {
+    const { skill } = await draft();
+    const clone = (s: Skill = skill) => JSON.parse(JSON.stringify(s)) as Skill;
+    const without = (s: Skill, ...ids: string[]) => ({ ...s, steps: s.steps.filter((x) => !ids.includes(x.id)) });
+    // The upload is the work itself (Oct 14: the agent removed s1-s30, typing and pasting included).
+    expect(designViolations(skill, without(clone(), "s2"), form)).toEqual([
+      expect.stringMatching(/s2: it does what the user showed \(web.upload\).*never remove it/),
+    ]);
+    // Ten recorded actions: four clicks may go as noise, five may not.
+    const long = clone();
+    const submit = long.steps[3] as Record<string, unknown>;
+    for (let i = 1; i <= 6; i++) {
+      long.steps.push({
+        ...submit,
+        id: `c${i}`,
+        requires_approval: false,
+        target: { role: "button", name: `Next ${i}`, fallbacks: [] },
+      } as never);
+    }
+    expect(designViolations(long, without(clone(long), "c1", "c2", "c3", "c4"), form)).toEqual([]);
+    expect(designViolations(long, without(clone(long), "c1", "c2", "c3", "c4", "c5"), form)).toEqual([
+      expect.stringMatching(/5 of the 9 recorded steps would be gone \(at most 4\)/),
+    ]);
+    // A click that took them to a sheet may become "open the sheet", if the recording reached that page.
+    const sheet = "https://docs.google.com/spreadsheets/d/abc/edit";
+    const opened = clone(long);
+    opened.steps[4] = {
+      id: "c1",
+      type: "action",
+      intent: "Open the sheet",
+      channel: "web",
+      action: "navigate",
+      args: { url: sheet },
+    } as never;
+    expect(designViolations(long, opened, form, [], { pages: [sheet], opens: { c1: sheet } })).toEqual([]);
+    // Only the page that click opened, never another visited page; and never a click that needs approval (Submit).
+    const elsewhere = "https://docs.google.com/spreadsheets/d/other/edit";
+    expect(designViolations(long, opened, form, [], { pages: [sheet, elsewhere], opens: { c1: elsewhere } })).toEqual([
+      expect.stringMatching(/c1: a step may become "open this page" only for the page it opened/),
+    ]);
+    const submitted = clone(long);
+    submitted.steps[3] = { ...(opened.steps[4] as object), id: "s3", requires_approval: true } as never;
+    expect(designViolations(long, submitted, form, [], { pages: [sheet], opens: { s3: sheet } })).toEqual(
+      expect.arrayContaining([expect.stringMatching(/s3: a step may become "open this page" only/)]),
+    );
+    // Not only clicks: Enter in a search box that took them to the results may become "open the results".
+    const pressed = clone(long);
+    (pressed.steps[4] as Record<string, unknown>).action = "press";
+    (pressed.steps[4] as Record<string, unknown>).args = { key: "Enter" };
+    expect(designViolations(pressed, opened, form, [], { pages: [sheet], opens: { c1: sheet } })).toEqual([]);
+    // A step that submitted a form never gets a page to open: its page is a result.
+    const steps = [{ navigatesTo: sheet, submits: true }, { navigatesTo: sheet }] as NormalisedStep[];
+    expect(recordedOpens(steps, [["s4"], ["s5"]])).toEqual({ s5: sheet });
+  });
+
+  it("lets a second item's repeat go once the loop does it, but no removal in disguise, and runs still open a page", async () => {
+    const { skill } = await draft();
+    const clone = (s: Skill = skill) => JSON.parse(JSON.stringify(s)) as Skill;
+    // Shown for two invoices: the upload twice, on the same control.
+    const twice = clone();
+    twice.steps.splice(3, 0, { ...(twice.steps[2] as object), id: "s2b" } as never);
+    const looped = clone(twice);
+    const loop = {
+      id: "l1",
+      type: "control",
+      kind: "loop",
+      intent: "Each invoice",
+      over: "{{invoices}}",
+      item: { name: "invoice", type: { type: "file" } },
+      steps: [looped.steps[2]],
+    };
+    looped.steps = [looped.steps[0], looped.steps[1], loop, looped.steps[4]] as never;
+    expect(designViolations(twice, looped, form)).toEqual([]);
+    // Without the loop keeping it, removing the repeat is removing the work.
+    const dropped = { ...clone(twice), steps: clone(twice).steps.filter((s) => s.id !== "s2b" && s.id !== "s2") };
+    expect(designViolations(twice, dropped, form)).toEqual(
+      expect.arrayContaining([expect.stringMatching(/s2: it does what the user showed \(web.upload\)/)]),
+    );
+    // Replacing the upload under its own id with an llm step is a removal too.
+    const replaced = clone();
+    replaced.steps[2] = {
+      id: "s2",
+      type: "llm",
+      intent: "Think about it",
+      instruction: "x",
+      inputs: [],
+      output: { name: "x", type: { type: "text" } },
+    } as never;
+    expect(designViolations(skill, replaced, form)).toEqual([
+      expect.stringMatching(/s2: a recorded step keeps its kind of action \(it was web.upload\)/),
+    ]);
+    // s1 opened the page; without it a run starts on a blank window (Oct 14's first failure).
+    const blank = { ...clone(), steps: clone().steps.filter((s) => s.id !== "s1") };
+    expect(designViolations(skill, blank, form)).toEqual([
+      expect.stringMatching(/s2: runs start on a blank window, so the workflow must still open a page first/),
+    ]);
   });
 
   it("keeps file steps, inputs and local pages inside what the recording touched, however the path is written", async () => {
@@ -416,19 +595,165 @@ describe("the rules and the recording view", () => {
     ]);
   });
 
-  it("puts what was said next to the step it was said over", () => {
+  it("gives the narration whole, before the recording, with the steps each piece spans", async () => {
+    const { steps, skill, questions } = await draft();
+    const upload = steps.findIndex((s) => s.kind === "upload") + 1;
+    const said = [
+      { at: -3_000, kind: "said" as const, text: "every day I take the top 5 new ones" },
+      { at: 5_200, until: 9_000, kind: "said" as const, text: "skip the ones already in my sheet" },
+    ];
+    // The same page read twice, and a long one: said once, and cut short, in the first message.
+    const screen = [
+      { at: 5_100, kind: "screen" as const, text: `Invoices ${"x".repeat(400)}` },
+      { at: 8_100, kind: "screen" as const, text: `Invoices ${"x".repeat(400)}` },
+    ];
+    const llm = fakeLlm([call("finish", { summary: "done" })]);
+    await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      notes: [...said, ...screen],
+      prompter: prompter().p,
+      protocol: "tools",
+    });
+    const task = ((llm.requests[0]?.messages ?? []) as { content: string }[])[1]?.content ?? "";
+    expect(task).toContain("- [before step 1] every day I take the top 5 new ones");
+    expect(task).toContain(`- [steps ${upload}-${steps.length}] skip the ones already in my sheet`);
+    expect(task.indexOf("# What they said")).toBeLessThan(task.indexOf("# The recording"));
+    expect(task).toContain("on screen: (as before)");
+    expect(task).not.toContain("x".repeat(301));
+    // Said once, in the list: never again as a note on a step.
+    expect(task).not.toContain("said: ");
+  });
+
+  it("sends the screen lines around what a step clicked, not the top of the page", async () => {
+    const steps = normalise([
+      ev("click", 0, { target: control("Jobs") }),
+      ev("click", 3_000, { target: control("Numeral", { role: "link", tag: "a" }) }),
+    ]);
+    const { skill, questions } = await compile(steps, { form });
+    // A long page: menus first, the clicked company far down.
+    const page = [
+      ...Array.from({ length: 30 }, (_, i) => `Menu item ${i + 1}`),
+      "Numeral (W23) · Data Analyst · Remote (US) · $55K - $65K",
+      ...Array.from({ length: 10 }, (_, i) => `Footer ${i + 1}`),
+    ].join("\n");
+    const llm = fakeLlm([call("finish", { summary: "done" })]);
+    await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      notes: [{ at: 3_400, kind: "screen", text: page }],
+      prompter: prompter().p,
+      protocol: "tools",
+    });
+    const task = ((llm.requests[0]?.messages ?? []) as { content: string }[])[1]?.content ?? "";
+    expect(task).toContain('on screen, around \\"Numeral\\"');
+    expect(task).toContain("$55K - $65K");
+    expect(task).toContain("Menu item 27");
+    expect(task).not.toContain("Menu item 1 ");
+    expect(task).not.toContain("Footer 6");
+  });
+
+  it("lets the first draft hear the narration too", async () => {
+    const steps = normalise(trace());
+    const seen: string[] = [];
+    await compile(steps, {
+      form,
+      notes: [{ at: 5_200, kind: "said", text: "always the newest invoice" }],
+      chat: async (messages) => {
+        seen.push(String(messages[1]?.content));
+        return "{}";
+      },
+    });
+    expect(JSON.parse(seen[0] ?? "{}").narration).toEqual([
+      { during: `step ${steps.findIndex((s) => s.kind === "upload") + 1}`, said: "always the newest invoice" },
+    ]);
+  });
+
+  it("puts what was seen next to its step, and what was said only in its own list", () => {
     const steps = normalise(trace());
     const notes = notesByStep(steps, [
       { at: 5_500, kind: "said", text: "always the newest one" },
       { at: -2_000, kind: "screen", text: "Invoices · ███@███" },
     ]);
-    const said = notes.findIndex((n) => n.some((t) => t.includes("newest")));
-    expect(steps[said]?.kind).toBe("upload");
     expect(notes[0]).toEqual(["on screen: Invoices · ███@███"]);
+    expect(notes.flat().some((t) => t.includes("newest"))).toBe(false);
+    const upload = steps.findIndex((s) => s.kind === "upload") + 1;
+    expect(narrationOf(steps, [{ at: 5_500, kind: "said", text: "always the newest one" }])).toEqual([
+      { during: `step ${upload}`, said: "always the newest one" },
+    ]);
+  });
+
+  it("marks a sentence against what the person did, never a page they switched back to", () => {
+    const jobs = "https://www.ycombinator.com/jobs";
+    const sheet = "https://docs.google.com/spreadsheets/d/abc/edit";
+    // 1 open the jobs, 2 click Numeral, 3 open the sheet, 4 back to the jobs tab (it reloads), 5 click the next job.
+    const steps = [
+      { kind: "navigate", at: 0, url: jobs },
+      { kind: "click", at: 2_000, url: jobs },
+      { kind: "navigate", at: 5_000, url: sheet },
+      { kind: "navigate", at: 9_000, url: `${jobs}?ref=tab` },
+      { kind: "click", at: 15_000, url: jobs },
+    ] as NormalisedStep[];
+    const said = (at: number) => narrationOf(steps, [{ at, kind: "said", text: "I take the top 5" }])[0]?.during;
+    // Said just after switching back to the jobs tab: not "step 4" (the reload), but the sheet step before it.
+    expect(said(10_000)).toBe("step 3");
+    expect(said(16_000)).toBe("step 5");
+    // The first time a page is opened counts.
+    expect(said(5_500)).toBe("step 3");
   });
 });
 
 describe("questions left after the agent", () => {
+  it("asks only questions that change something, and keeps a lasting answer for next time", async () => {
+    const { steps, skill, questions } = await draft();
+    const { p, asked } = prompter({ "design-1": "Downloads" });
+    const llm = fakeLlm([
+      call("ask_user", { question: "Should I continue?" }),
+      call("ask_user", { question: "Where do the invoices arrive?", step: "s9" }),
+      call("ask_user", {
+        question: "Where do the invoices arrive?",
+        options: ["Downloads", "Desktop"],
+        default: "Downloads",
+        step: "s2",
+        remember: "fact",
+      }),
+      call("finish", { summary: "Asked where invoices arrive" }),
+    ]);
+    const outcome = await designWorkflow({ llm, skill, questions, steps, form, prompter: p, protocol: "tools" });
+    const [vague, unknown] = results(outcome.episode);
+    expect(vague).toMatch(/Say which step the answer changes/);
+    expect(unknown).toMatch(/there is no step s9/);
+    // Only the question tied to a step reached the user, and its answer is marked to be remembered.
+    expect(asked.map((a) => a.question.text)).toEqual(["Where do the invoices arrive?"]);
+    expect(outcome.answered).toEqual([
+      { question: expect.objectContaining({ id: "design-1", remember: "fact" }), answer: "Downloads" },
+    ]);
+  });
+
+  it("asks after it only what it left untouched: an answer it put in from what was said isn't asked again", async () => {
+    const { steps, skill } = await draft();
+    // Two questions code might have: where the answer goes is a step's timeout.
+    const questions: Question[] = [
+      { id: "slow-upload", text: "How long can the upload take?", appliesTo: "steps.s2.timeout_ms" },
+      { id: "slow-page", text: "How long can the page take to open?", appliesTo: "steps.s1.timeout_ms" },
+    ];
+    const { p, asked } = prompter();
+    const llm = fakeLlm([
+      // They said "the upload takes about a minute": the agent writes that in.
+      call("edit", { edits: [{ op: "set", step: "s2", field: "timeout_ms", value: 60_000 }] }),
+      call("finish", { summary: "Gave the upload a minute" }),
+    ]);
+    const outcome = await designWorkflow({ llm, skill, questions, steps, form, prompter: p, protocol: "tools" });
+    expect(outcome.pending.map((q) => q.id)).toEqual(["slow-page"]);
+    expect(asked).toEqual([]);
+  });
+
   it("drops a first-draft question about an input the agent removed", async () => {
     const { steps, skill, questions } = await draft();
     const aboutInput = questions.filter((q) => q.appliesTo?.startsWith("steps.start.inputs."));

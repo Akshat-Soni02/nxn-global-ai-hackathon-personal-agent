@@ -181,7 +181,7 @@ A tool returns `{ output, untrusted?, finish?, liveActions? }`. `untrusted: true
 |---|---|---|---|---|---|---|---|
 | `fast` | `nvidia/Nemotron-3_5-Lightning` | 0.06 / 0.24 | off | 2,048 | 0 | 60 s | llm steps in runs; Settings check |
 | `smart` | `nvidia/nemotron-3-super-120b-a12b` | 0.30 / 0.90 | **on** | 8,192 | 0 | 180 s | **both agents**, and the first-draft compile |
-| `vision` | `zai-org/GLM-5.3-Flash` | 0.15 / 0.50 | n/a | 400 for descriptions | 0 | 90 s | `describe_screen` in both agents |
+| `vision` | `zai-org/GLM-5.3-Flash` | 0.15 / 0.50 | n/a | 400 for descriptions | 0 | 90 s | `describe_step_screenshot` (design agent) and `describe_screen` (repair agent) |
 
 `.env` can swap any profile's model (`SHADOW_MODEL_SMART=…`). **A model missing from `CATALOG` costs $0 to the meter**, which turns off every dollar budget (§3.4).
 
@@ -202,7 +202,7 @@ Network errors, 408, 429 and 5xx are retried **3 times** with backoff from 500 m
 `costOf(model, in, out) = (in × priceIn + out × priceOut) / 1e6` from the catalog. A call adds to the meter passed in `request.meter`, which is the episode's child meter for agent turns.
 
 **Calls that aren't metered** (no `meter` passed):
-- `describeImage` (`vision.ts`), so **`describe_screen` costs count against no budget** in either agent.
+- `describeImage` (`vision.ts`), so **picture descriptions (`describe_step_screenshot`, `describe_screen`) count against no budget** in either agent.
 - The first-draft compile (`compileChat` in `apps/daemon/src/record.ts`).
 
 ---
@@ -328,9 +328,9 @@ Nothing is written automatically from a successful run, a commit, or the design 
 
 ---
 
-## 8. Pictures (`describe_screen`)
+## 8. Pictures (`describe_step_screenshot` and `describe_screen`)
 
-Both agents may get a `describe_screen` tool. It exists only when the user allowed **Pictures** (the third consent), a model is configured, and Shadow.app can mask pictures.
+Both agents may get a picture tool: the design agent's is `describe_step_screenshot` (a screenshot from the recording), the repair agent's `describe_screen` (the live screen). It exists only when the user allowed **Pictures** (the third consent), a model is configured, and Shadow.app can mask pictures.
 
 ```
 picture → Shadow --ocr (Apple Vision, on the Mac) → maskLines (emails, phones, cards, IBANs, keys, Never words)

@@ -1,5 +1,8 @@
 // The floating Record / Stop button, on the desktop above every app (and every Space). It is a remote control: a
 // press asks the daemon to start or stop, and it shows what the daemon reports back, like the extension's button.
+// - It shows only for a recording: it fades in, already red and recording, when one starts (Start recording in the
+//   window, Record in the menu bar or in Chrome), stays while what follows plays out (compiling, its questions, the
+//   saved note), and fades out once that is over. Runs and approvals reach you through the inbox and notifications.
 // - A non-activating panel: pressing it does not take focus from the app you are recording.
 // - Its own clicks are never recorded: macOS does not show an app's own events to its global monitors.
 // - Drag it anywhere (its place is remembered); right-click it for Accessibility (Mac apps), Open and Quit.
@@ -32,6 +35,9 @@ final class Panel {
   private var local: (text: String, at: Date)?
   private var dismissed = Date.distantPast
   private var ticker: Timer?
+  // A recording started and what follows it is still on the button; and whether the button is on screen.
+  private var following = false
+  private var visible = false
 
   private let window: NSPanel
   private let model = PillModel()
@@ -58,8 +64,9 @@ final class Panel {
     placeAtSavedPosition()
   }
 
-  func show() {
-    window.orderFrontRegardless()
+  // Connected to the daemon: show the button if a recording is under way (the daemon tells a late-joining
+  // connection with record.start again).
+  func refresh() {
     render()
   }
 
@@ -67,6 +74,7 @@ final class Panel {
 
   func recording(since: Date, mic: Bool = false, screen: Bool = false) {
     recordingSince = since
+    following = true
     consent = (mic, screen)
     status = nil
     if !trusted { local = ("Recording Chrome and files. Mac apps need Accessibility: right-click me", Date()) }
@@ -122,6 +130,8 @@ final class Panel {
         : "Record a task. Mac apps are not recorded until you allow Accessibility: right-click.")
       : l.text
     resize(to: hosting.fittingSize.width)
+    if !isRecording && l.kind == .idle { following = false }
+    setVisible(isRecording || (following && l.kind != .idle))
     // A clock while recording, and a timer to let notes expire.
     let ticking = l.kind != .idle
     if ticking && ticker == nil {
@@ -130,6 +140,25 @@ final class Panel {
       t.invalidate()
       ticker = nil
     }
+  }
+
+  // Fades in or out (at once with Reduce Motion); hidden, it is ordered out, so it can't be clicked.
+  private func setVisible(_ on: Bool) {
+    guard on != visible else { return }
+    visible = on
+    if on {
+      window.alphaValue = 0
+      window.orderFrontRegardless()
+    }
+    NSAnimationContext.runAnimationGroup(
+      { context in
+        context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.2
+        window.animator().alphaValue = on ? 1 : 0
+      },
+      completionHandler: { [weak self] in
+        guard let self, !self.visible else { return }
+        self.window.orderOut(nil)
+      })
   }
 
   private func press() {

@@ -194,6 +194,8 @@ const prompter: Prompter = {
     service.ask({
       title: question.text,
       options: question.options?.map((o) => o.label),
+      // Your own words are always welcome, unless an option is a whole step or a schedule that words can't stand for.
+      freeText: !(question.options ?? []).some((o) => typeof o.value === "object" && o.value !== null),
       default: question.default,
       // A design-agent question is shown on the draft, next to its step.
       step: about?.step,
@@ -211,7 +213,7 @@ screen = createScreenReader({
 });
 const screenReader = screen;
 const transcribe = transcriberFrom(macBinary);
-// Masked pictures described by the vision model, for the design agent and the repair agent (describe_screen): only
+// Masked pictures described by the vision model, for the design agent (describe_step_screenshot) and the repair agent (describe_screen): only
 // with the "pictures" consent, and masked by the same tools as the recording's screenshots.
 const describer = createScreenDescriber({
   dataDir: home,

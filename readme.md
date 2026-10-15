@@ -15,7 +15,7 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 | [`docs/questions.md`](docs/questions.md) | The questions people ask, answered by mechanism: what runs when, which file does it, and why not the other way |
 | [`docs/design-ui.md`](docs/design-ui.md) | The look, the mark and the name |
 | [`docs/guide/`](docs/guide/00-start-here.md) | The whole picture (diagram 13) and record, replay and AI end to end (diagram 14) |
-| [`apps/website`](apps/website) | The one-page site (`pnpm --filter @shadow/website dev`) |
+| [`apps/website`](apps/website) | The product site: Overview, How it works, Use cases, Privacy, Download (`pnpm --filter @shadow/website dev`) |
 
 ## What works today
 
@@ -115,7 +115,7 @@ The packaged app needs no Node, no pnpm and no repository on your Mac. The same 
 1. Create a Nebius Token Factory API key and turn on **Zero Data Retention** for the organization.
 2. Download `Shadow-<version>.dmg` from the latest GitHub Release ([Deployed Link](#deployed-link)) and open it. Drag **Shadow** to Applications and open it; the first time, right-click → Open (it is signed by us, not by Apple).
 3. The setup window has three steps. **Your key:** paste the key and press Save and check; it goes into your Keychain and you should see "Connected to Nemotron". **Chrome:** press Connect Chrome, then in `chrome://extensions` turn on Developer mode, Load unpacked, pick the folder the Finder window shows, and in the extension's Details turn on "Allow access to file URLs". **Permissions:** Accessibility if you want Mac apps recorded; Screen Recording and Microphone only if you want screenshots and narration.
-4. Press Open Shadow. From now on Shadow and its daemon start when you log in, and a round Record button floats on your screen.
+4. Press Open Shadow. From now on Shadow and its daemon start when you log in. Record from the window or the menu bar; while you record, a red button with a clock floats on your screen.
 
 ## Running from the repository
 
@@ -136,7 +136,7 @@ pnpm build                  # the extension, the native host, the window and the
 
 1. **Shadow.app**: `pnpm setup:mac` builds `apps/mac/build/Shadow.app` (rebuilt only when its sources change). The daemon starts it.
 2. **Chrome**: `pnpm setup:native-host` registers the shim with Chrome (`--uninstall` to remove). Then open `chrome://extensions`, enable Developer mode, **Load unpacked** and pick `apps/extension/dist`. Open the extension's Details and turn on **Allow access to file URLs** (without it, upload steps fail with "Not allowed"). The manifest's `key` pins the extension ID to `eloljjdiofhdlhoankjbhfeihjankikk`, the only one the host allows.
-3. **Mac apps** (optional): right-click the floating Record button → **Allow Mac apps**, then turn on Shadow in System Settings → Privacy & Security → Accessibility. The permission goes to Shadow only, never to your terminal. After a rebuild, turn it off and on again (the app is signed ad hoc, so the permission is tied to that build; if that doesn't take, run `tccutil reset Accessibility com.shadow.mac`). Without it, web pages and files are still recorded; Mac apps are not.
+3. **Mac apps** (optional): turn on Shadow in System Settings → Privacy & Security → Accessibility (while recording, right-click the red button → **Allow Mac apps** takes you there). The permission goes to Shadow only, never to your terminal. After a rebuild, turn it off and on again (the app is signed ad hoc, so the permission is tied to that build; if that doesn't take, run `tccutil reset Accessibility com.shadow.mac`). Without it, web pages and files are still recorded; Mac apps are not.
 4. **Notifications**: allow them when Shadow asks.
 
 ### 3. Run it
@@ -145,7 +145,7 @@ pnpm build                  # the extension, the native host, the window and the
 pnpm daemon                 # in a terminal you can see
 ```
 
-Shadow appears in the menu bar (how many things wait for you, Record, health, the next run, and a warning when the daemon is down), with the floating Record button at the bottom right. **Open Shadow** from the menu bar opens the window; the terminal also prints a link to open it in a browser. The extension connects within a minute (or reload it).
+Shadow appears in the menu bar (how many things wait for you, Record, health, the next run, and a warning when the daemon is down), and, while you record, the red Record button at the bottom right (it shows only for a recording: from the moment one starts until it is saved). **Open Shadow** from the menu bar opens the window; the terminal also prints a link to open it in a browser. The extension connects within a minute (or reload it).
 
 **Keep it running without a terminal** (optional): `pnpm setup:daemon` starts the daemon at login and again if it stops; it opens Shadow.app. `pnpm setup:daemon --uninstall` stops it; do that before running `pnpm daemon` in a terminal, since only one daemon runs at a time. Logs are in `~/Library/Logs/Shadow` (Console.app shows them).
 
@@ -201,7 +201,7 @@ pnpm daemon:dev             # the daemon in watch mode (it also reads Enter, so 
 pnpm fixtures               # serves fixtures/pages on http://localhost:5173
 pnpm seed:sandbox           # creates ~/ShadowTest with sample files for skills/real (--reset to start over)
 pnpm snapshot:pages         # re-downloads the real pages into fixtures/snapshots
-pnpm --filter @shadow/website dev   # the one-page site
+pnpm --filter @shadow/website dev   # the product site on http://localhost:3000 (Next.js)
 ```
 
 **Replay without the daemon**: `pnpm replay` runs a workflow in its own debug-port Chrome (profile in `~/Library/Application Support/Shadow/dev-chrome`), no extension needed. Both paths share the player code.
@@ -235,7 +235,7 @@ TypeScript monorepo (pnpm workspaces), plus the Swift app. One language for the 
 │   ├── mac/           # Shadow.app (Swift): menu bar, window, notifications, the record pill, first run, login items, Mac-app capture and replay
 │   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
 │   ├── native-host/   # the shim Chrome starts: pipes native messaging <-> the daemon's Unix socket
-│   └── website/       # the one-page site (Vite, GSAP)
+│   └── website/       # the product site (Next.js static export, GSAP)
 ├── skills/real/       # replay test workflows against real sites (see skills/real/README.md)
 ├── fixtures/
 │   ├── pages/         # local test pages, including drifted redesigns for repair
@@ -253,11 +253,11 @@ TypeScript monorepo (pnpm workspaces), plus the Swift app. One language for the 
 | `packages/recorder`, recording code in `apps/extension/src/content.ts` | Record | |
 | `packages/player`, replay code in `apps/extension/src/background.ts`, `apps/daemon`, `apps/native-host` | Replay | |
 
-Workspace packages are used as TypeScript source (no build step); the extension, the native host, the window and the website are bundled with esbuild or Vite, and Shadow.app is compiled with `swiftc`. `pnpm package` bundles the daemon and the shim into one file each and puts them inside the app.
+Workspace packages are used as TypeScript source (no build step); the extension, the native host and the window are bundled with esbuild, the website is a static Next.js export (`apps/website/out`), and Shadow.app is compiled with `swiftc`. `pnpm package` bundles the daemon and the shim into one file each and puts them inside the app.
 
 ## Deployed Link
 
-Test build: a GitHub Release with `Shadow-<version>.dmg` (Shadow.app with the daemon inside) and `shadow-extension.zip`. The link is added here when the first release is published with `pnpm release`. The website is `apps/website`, not hosted yet.
+Test build: a GitHub Release with `Shadow-<version>.dmg` (Shadow.app with the daemon inside) and `shadow-extension.zip`. The link is added here when the first release is published with `pnpm release`. The website is `apps/website`, not hosted yet: `pnpm --filter @shadow/website build` writes static pages to `apps/website/out` for any file host (set `SITE_BASE_PATH=/<folder>` to serve it from a folder, such as a GitHub project page).
 
 ## Deployment Guide
 

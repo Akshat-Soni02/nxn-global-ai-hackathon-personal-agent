@@ -10,6 +10,7 @@ import {
   applyEdits,
   type EditInput,
   isAction,
+  isOutward,
   type Locator,
   type Skill,
   type Step,
@@ -18,23 +19,23 @@ import {
 } from "@shadow/core";
 import type { MemoryStore } from "@shadow/memory";
 import { z } from "zod";
-import { type Form, type Question, stepsForModel } from "../compile.ts";
+import { type Base, type Form, Labels, labelDraft, type Question, stepsForModel } from "../compile.ts";
 import { applyAnswer, type Prompter } from "../drill.ts";
+import { type Note, notesByStep } from "../narration.ts";
 import type { NormalisedStep } from "../normalise.ts";
 
-// Something said or seen while recording, on the recording's clock: the narration's text, or the masked words read
-// from a screenshot.
-export interface Note {
-  at: number;
-  kind: "said" | "screen";
-  text: string;
-}
+export type { Note } from "../narration.ts";
+export { notesByStep } from "../narration.ts";
 
 export interface DesignSession {
   // Where every target and site comes from: the workflow as compiled from the recording.
   original: Skill;
   // The folders the recording touched: the only places a new step may read from.
   folders: string[];
+  // Every page the recording was on or reached: the only sites a step may open.
+  pages: string[];
+  // For each skill step a recorded click became, the page it opened.
+  opens: Record<string, string>;
   draft: Skill;
   form?: Form;
   steps: NormalisedStep[];
@@ -43,6 +44,12 @@ export interface DesignSession {
   // The first draft's questions not asked yet, and the answers given so far (to them and to the agent's own).
   pending: Question[];
   answered: { question: Question; answer: string }[];
+  // For each open question, what sat where its answer goes when the question appeared (slotOf): if the agent changes
+  // that place, it decided from what was said, and the question isn't asked after it.
+  baseline: Map<string, string | null>;
+  // The plain step list, to label first (label_steps), and whether that happened. Without one there is nothing to label.
+  base?: Base;
+  labelled: boolean;
   asked: number;
   maxQuestions: number;
   edits: EditInput[];
@@ -80,6 +87,22 @@ const originOf = (url: unknown): string | undefined => {
 
 // Steps the agent may add: they only read or open a page the recording visited; they change nothing.
 const READ_ONLY = new Set(["fs.find", "fs.read", "data.pick", "web.extract", "web.wait_for", "web.navigate"]);
+// Recorded steps that are the work itself (typing, pasting, choosing, uploading, moving files): they can be moved into
+// a loop or a branch, never removed. Without this, an agent could delete everything the user showed (Oct 14: 30 of 35).
+const WRITES = new Set([
+  "web.type",
+  "web.select",
+  "web.upload",
+  "web.drag",
+  "ax.set_value",
+  "fs.move",
+  "fs.copy",
+  "fs.rename",
+  "fs.write",
+]);
+// At most this share of the recorded actions may be removed (noise: double clicks, repeated page loads). Beyond it,
+// the agent asks the user.
+const MAX_REMOVED = 0.5;
 
 // A path as the player will open it: ~ expanded, made absolute, and symlinks followed as far as the path exists, so
 // a link inside an allowed folder can't reach outside it.
@@ -135,6 +158,38 @@ export function recordedFolders(steps: NormalisedStep[], original: Skill): strin
   return [...new Set(folders)];
 }
 
+// Every page the recording was on, or a click took it to (a sheet opened from Drive is a page it visited).
+export function recordedPages(steps: NormalisedStep[]): string[] {
+  return [...new Set(steps.flatMap((s) => [s.url, s.navigatesTo]).filter((u): u is string => !!u))];
+}
+
+// For each skill step a recorded click or key press became, the page it opened. A step that submitted a form is left
+// out: its page is a result, and opening it directly would skip the submitting.
+export function recordedOpens(steps: NormalisedStep[], idsByStep: string[][]): Record<string, string> {
+  const opens: Record<string, string> = {};
+  steps.forEach((s, i) => {
+    if (!s.navigatesTo || s.submits) return;
+    for (const id of idsByStep[i] ?? []) opens[id] = s.navigatesTo;
+  });
+  return opens;
+}
+
+// The same page, whatever the per-visit parts of its address (query, fragment).
+function samePage(a: unknown, b: unknown): boolean {
+  try {
+    if (typeof a !== "string" || typeof b !== "string") return false;
+    const x = new URL(a);
+    const y = new URL(b);
+    return x.origin === y.origin && x.pathname === y.pathname;
+  } catch {
+    return false;
+  }
+}
+
+// The same piece of work: the same action on the same control (values may differ: a loop puts the item's in).
+const sameWork = (step: { channel: string; action: string; target?: Locator }) =>
+  `${step.channel}.${step.action} ${keyOf(step.target)}`;
+
 // Every way the draft breaks the rules, as sentences the agent reads; empty when it may be kept.
 //   targets       only from the recording: no new control, and no control changed
 //   actions       a new step may only read (READ_ONLY), and files only in folders the recording touched; a recorded
@@ -142,7 +197,17 @@ export function recordedFolders(steps: NormalisedStep[], original: Skill): strin
 //   reach         no script steps, no navigating to a site the recording didn't visit
 //   the user's    the form's description and Frequency stay as written
 //   safety        approval is never turned off, and a step that needs it is never removed
-export function designViolations(original: Skill, draft: Skill, form?: Form, folders: string[] = []): string[] {
+//   the work      a recorded step that writes is never removed unless it repeats one kept in a loop, at most half
+//                 the recorded actions are, and a workflow that opened a page first still does
+// `recording`: every page the recording was on or reached (by a click, too), and for each recorded click the page it
+// opened (by skill step id), so a click may become "open that page" and nothing else.
+export function designViolations(
+  original: Skill,
+  draft: Skill,
+  form?: Form,
+  folders: string[] = [],
+  recording: { pages?: string[]; opens?: Record<string, string> } = {},
+): string[] {
   const problems: string[] = [];
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
   if (form && !same(triggerOf(draft).when, triggerOf(original).when)) {
@@ -154,7 +219,10 @@ export function designViolations(original: Skill, draft: Skill, form?: Form, fol
 
   const before = new Map<string, Step>([...walkSteps(original.steps)].map(({ step }) => [step.id, step]));
   const recorded = new Set([...before.values()].filter(isAction).map((s) => keyOf(s.target)));
-  const visited = [...before.values()].filter(isAction).flatMap((s) => (s.action === "navigate" ? [s.args.url] : []));
+  const visited = [
+    ...[...before.values()].filter(isAction).flatMap((s) => (s.action === "navigate" ? [s.args.url] : [])),
+    ...(recording.pages ?? []),
+  ];
   // A local file has no site (its origin is "null"): it counts only by its exact address.
   const sites = new Set(visited.map(originOf).filter((o): o is string => !!o && o !== "null"));
   const pages = new Set(visited.filter((u): u is string => typeof u === "string" && /^file:/i.test(u)));
@@ -174,14 +242,39 @@ export function designViolations(original: Skill, draft: Skill, form?: Form, fol
   }
 
   for (const step of after.values()) {
-    if (!isAction(step)) continue;
     const old = before.get(step.id);
+    if (!isAction(step)) {
+      // A recorded action replaced under its own id (by an llm step, a loop) is a removal in disguise.
+      if (old && isAction(old)) {
+        problems.push(`${step.id}: a recorded step keeps its kind of action (it was ${old.channel}.${old.action})`);
+      }
+      continue;
+    }
     const kind = `${step.channel}.${step.action}`;
+    // A recorded step that only took them to a page (a click, a key press such as Enter in a search box) may become
+    // "open that page", that page and no other (Drive -> Recent -> the sheet becomes one step that opens the sheet).
+    // Never a step that submitted, sends or needs approval: its page is a result, and opening it would skip the work.
+    const clickToPage =
+      !!old &&
+      isAction(old) &&
+      old.channel === "web" &&
+      (old.action === "click" || old.action === "press") &&
+      kind === "web.navigate";
+    const opened =
+      clickToPage &&
+      isAction(old) &&
+      !old.requires_approval &&
+      !isOutward(old) &&
+      samePage(step.args.url, recording.opens?.[step.id]);
     if (!old && !READ_ONLY.has(kind)) {
       problems.push(
         `${step.id}: a new ${kind} step would do something the user didn't show. Only steps that read (${[...READ_ONLY].join(", ")}) can be added; ask the user to show the rest`,
       );
-    } else if (old && (!isAction(old) || `${old.channel}.${old.action}` !== kind)) {
+    } else if (clickToPage && !opened) {
+      problems.push(
+        `${step.id}: a step may become "open this page" only for the page it opened (${recording.opens?.[step.id] ?? "it opened none"}), and never one that submits, sends or needs approval`,
+      );
+    } else if (old && !opened && (!isAction(old) || `${old.channel}.${old.action}` !== kind)) {
       problems.push(
         `${step.id}: a recorded step keeps its kind of action (it was ${isAction(old) ? `${old.channel}.${old.action}` : old.type})`,
       );
@@ -202,7 +295,7 @@ export function designViolations(original: Skill, draft: Skill, form?: Form, fol
       problems.push(
         `${step.id}: its target is not one you recorded. Targets come only from the recording: if a step needs a control the user didn't use, ask them`,
       );
-    } else if (old && isAction(old) && old.target && keyOf(old.target) !== keyOf(step.target)) {
+    } else if (old && isAction(old) && old.target && !clickToPage && keyOf(old.target) !== keyOf(step.target)) {
       problems.push(`${step.id}: its target can't change (it is what the user clicked)`);
     }
     if (step.channel === "script" && !(old && isAction(old) && old.channel === "script")) {
@@ -219,6 +312,48 @@ export function designViolations(original: Skill, draft: Skill, form?: Form, fol
         problems.push(`${step.id}: it may only open a site the recording visited (${[...sites].join(", ") || "none"})`);
       }
     }
+  }
+  // What the user showed stays. A removed step is fine when it repeats one kept inside a loop (the same action on
+  // the same control: the second item shown, now done by the loop); otherwise no recorded write disappears, and no
+  // more than half of the recorded actions.
+  const loops = new Set([...after.values()].filter((s) => s.type === "control" && s.kind === "loop").map((s) => s.id));
+  const looped = new Set(
+    [...walkSteps(draft.steps)]
+      .filter(({ step, parents }) => isAction(step) && parents.some((p) => loops.has(p)))
+      .map(({ step }) => (isAction(step) ? sameWork(step) : "")),
+  );
+  const actions = [...before.values()].filter(isAction);
+  const lost = actions.filter((s) => !after.has(s.id) && !looped.has(sameWork(s)));
+  for (const step of lost) {
+    const kind = `${step.channel}.${step.action}`;
+    if (WRITES.has(kind)) {
+      problems.push(
+        `${step.id}: it ${step.action === "type" ? "types" : "does"} what the user showed (${kind}), which is the work itself: move it or wrap it in a loop or branch, never remove it (a repeat of a step kept in a loop may go)`,
+      );
+    }
+  }
+  const allowed = Math.max(2, Math.floor(actions.length * MAX_REMOVED));
+  if (lost.length > allowed) {
+    problems.push(
+      `${lost.length} of the ${actions.length} recorded steps would be gone (at most ${allowed}): keep what the user showed, and ask them before dropping more`,
+    );
+  }
+  // Runs start on a blank window: a workflow whose first web step opened a page must still open one first.
+  const firstWeb = (skill: Skill) =>
+    [...walkSteps(skill.steps)].map(({ step }) => step).find((s) => isAction(s) && s.channel === "web");
+  const wasFirst = firstWeb(original);
+  const nowFirst = firstWeb(draft);
+  if (
+    wasFirst &&
+    isAction(wasFirst) &&
+    wasFirst.action === "navigate" &&
+    nowFirst &&
+    isAction(nowFirst) &&
+    nowFirst.action !== "navigate"
+  ) {
+    problems.push(
+      `${nowFirst.id}: runs start on a blank window, so the workflow must still open a page first (${wasFirst.id} did): keep it, or open a page the recording visited`,
+    );
   }
   for (const [id, old] of before) {
     if (!("requires_approval" in old) || !old.requires_approval) continue;
@@ -292,29 +427,68 @@ function typeText(type: { type: string; items?: { type: string } }): string {
 }
 const clip = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max)}…`);
 
-// The recording by meaning (what compile's model saw), each step with the skill steps it became and what was said
-// or seen around it.
-export function recordingView(session: DesignSession, from = 1, to = session.steps.length): unknown[] {
+// The recording by meaning (what compile's model saw), each step with the skill steps it became and the screen words
+// seen at it. `brief` (the agent's first message): of each picture's words, only the lines around what the step
+// acted on (the line holding the clicked control's name, a typed or copied value, and a few lines either side), or the
+// top of the page when no line holds them; a stretch like the one before is said once. A page's full text is mostly
+// menus and headers, and 29 of them buried the 14 sentences the person said. read_recording shows them whole.
+export function recordingView(
+  session: DesignSession,
+  from = 1,
+  to = session.steps.length,
+  { brief = false } = {},
+): unknown[] {
   const view = stepsForModel(session.steps, session.idsByStep);
-  const near = notesByStep(session.steps, session.notes);
+  let near = notesByStep(session.steps, session.notes);
+  if (brief) {
+    let last = "";
+    near = near.map((notes, i) =>
+      notes.map((note) => {
+        if (!note.startsWith("on screen: ")) return note;
+        const { words, around } = focusOn(note.slice("on screen: ".length), anchorsOf(view[i]));
+        if (words === last) return "on screen: (as before)";
+        last = words;
+        return around ? `on screen, around "${around}": ${words}` : `on screen, top of page: ${words}`;
+      }),
+    );
+  }
   return view
     .map((step, i) => ({ n: i + 1, ...step, ...(near[i]?.length ? { notes: near[i] } : {}) }))
     .slice(Math.max(0, from - 1), Math.max(from, to));
 }
+// Lines either side of the one that holds what the step acted on, and the most characters of either kind of excerpt.
+const AROUND_LINES = 4;
+const AROUND_CHARS = 600;
+const TOP_CHARS = 300;
 
-// Each note goes with the last step that started before it (a second's grace: people talk as they click), or the
-// first step when it came before any.
-export function notesByStep(steps: NormalisedStep[], notes: Note[]): string[][] {
-  const out: string[][] = steps.map(() => []);
-  for (const note of [...notes].sort((a, b) => a.at - b.at)) {
-    let index = 0;
-    for (let i = 0; i < steps.length; i++) if ((steps[i]?.at ?? 0) <= note.at + 1000) index = i;
-    out[index]?.push(`${note.kind === "said" ? "said" : "on screen"}: ${note.text}`);
+// The words a step acted on, as they'd appear on screen: the control's name or label, a typed or copied value.
+function anchorsOf(step: ReturnType<typeof stepsForModel>[number] | undefined): string[] {
+  const element = step?.element as { name?: unknown; label?: unknown } | undefined;
+  return [element?.name, element?.label, step?.value, step?.copied]
+    .filter((w): w is string => typeof w === "string" && w.trim().length >= 2 && !w.startsWith("(secret"))
+    .map((w) => w.trim().slice(0, 40));
+}
+
+// The lines of a picture's words around the first one holding an anchor, or its top when none does.
+function focusOn(text: string, anchors: string[]): { words: string; around?: string } {
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  for (const anchor of anchors) {
+    const at = lines.findIndex((l) => l.toLowerCase().includes(anchor.toLowerCase()));
+    if (at < 0) continue;
+    const words = lines.slice(Math.max(0, at - AROUND_LINES), at + AROUND_LINES + 1).join(" · ");
+    return { words: words.length > AROUND_CHARS ? `${words.slice(0, AROUND_CHARS)}…` : words, around: anchor };
   }
-  return out;
+  const top = lines.join(" · ");
+  return { words: top.length > TOP_CHARS ? `${top.slice(0, TOP_CHARS)}…` : top };
 }
 
 // ---- The tools ------------------------------------------------------------------------------------------------
+
+// The steps are labelled before anything else changes, so the labels go onto the plain list as recorded.
+const LABEL_FIRST = "label the steps first: label_steps, once, before any other change or question";
 
 const StepIds = z.array(z.string()).min(1);
 const OutputSpec = z.object({ name: z.string(), type: z.record(z.string(), z.unknown()) });
@@ -325,13 +499,25 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
   // kept edit comes back with what still stops the workflow (validate, inside the loop): the agent fixes its own
   // draft as it goes, instead of finding out at finish.
   const change = (edits: EditInput[]) => {
+    if (!session.labelled) return { output: { ok: false, problems: [LABEL_FIRST] } };
     const result = applyEdits(session.draft, edits);
     if (!result.ok) return { output: { ok: false, problems: result.problems } };
-    const broken = designViolations(session.original, result.skill, session.form, session.folders);
+    const broken = designViolations(session.original, result.skill, session.form, session.folders, {
+      pages: session.pages,
+      opens: session.opens,
+    });
     if (broken.length > 0) return { output: { ok: false, refused: broken } };
     session.draft = result.skill;
     session.edits.push(...edits);
-    return { output: { ok: true, workflow: outlineOf(session.draft), still_to_fix: problems() } };
+    return {
+      output: {
+        ok: true,
+        workflow: outlineOf(session.draft),
+        still_to_fix: problems(),
+        // A reminder, not a block: each one is answered with an edit, asked, or asked after the agent finishes.
+        ...(session.pending.length > 0 ? { open_questions: session.pending.map((q) => `${q.id}: ${q.text}`) } : {}),
+      },
+    };
   };
   const nextId = (prefix: string) => {
     const used = new Set([...walkSteps(session.draft.steps)].map(({ step }) => step.id));
@@ -339,6 +525,50 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
     while (used.has(`${prefix}${n}`)) n++;
     return `${prefix}${n}`;
   };
+
+  // The first move when there is a plain list to label: label_steps (only then is it offered).
+  const labelSteps: AnyTool<DesignFinish>[] = session.base
+    ? [
+        tool<Labels, DesignFinish>({
+          name: "label_steps",
+          kind: "edit",
+          description:
+            "Your first move, once: label every step of the plain list (what it is for, values that change as inputs, checks, approvals, save_as), by the labelling rules. Steps by id; no targets, channels or actions",
+          input: Labels,
+          run: (labels) => {
+            if (session.labelled || !session.base) {
+              return {
+                output: { ok: false, problems: ["the steps are labelled already: change single steps with edit"] },
+              };
+            }
+            const labelled = labelDraft(session.base, labels);
+            if (!labelled.ok) return { output: { ok: false, problems: labelled.problems } };
+            const broken = designViolations(session.original, labelled.skill, session.form, session.folders, {
+              pages: session.pages,
+              opens: session.opens,
+            });
+            if (broken.length > 0) return { output: { ok: false, refused: broken } };
+            // The labelled list is what the rules compare against from now on: an approval the labels added is protected.
+            session.draft = labelled.skill;
+            session.original = labelled.skill;
+            session.labelled = true;
+            session.pending.push(...labelled.questions);
+            return {
+              output: {
+                ok: true,
+                workflow: outlineOf(session.draft),
+                still_to_fix: problems(),
+                // Cheap AI steps kept without asking the user: what each costs a run.
+                ...(labelled.kept.length > 0 ? { ai_steps_kept: labelled.kept } : {}),
+                ...(session.pending.length > 0
+                  ? { open_questions: session.pending.map((q) => `${q.id}: ${q.text}`) }
+                  : {}),
+              },
+            };
+          },
+        }),
+      ]
+    : [];
 
   return [
     // ---- Look ----
@@ -357,7 +587,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
       name: "read_recording",
       kind: "look",
       description:
-        "What the user did, in order and by meaning (n = step number), with the workflow steps each became (ids) and what was said or seen near it. from/to: step numbers",
+        "What the user did, in order and by meaning (n = step number), with the workflow steps each became (ids) and the screen words seen near it (what was said is the list in your first message). from/to: step numbers",
       input: z.object({ from: z.number().int().min(1).optional(), to: z.number().int().min(1).optional() }),
       run: ({ from, to }) => ({ output: recordingView(session, from, to), untrusted: true }),
     }),
@@ -373,7 +603,7 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
       },
     }),
     tool({
-      name: "describe_screen",
+      name: "describe_step_screenshot",
       kind: "look",
       description:
         "What was on screen at recorded step n: its picture (private text blacked out) described by the vision model. Only with the user's consent, and only when the words near the step don't say what the control was for",
@@ -402,12 +632,13 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
     }),
 
     // ---- Edit the draft ----
+    ...labelSteps,
     tool({
       name: "edit",
       kind: "edit",
       description:
         "Apply edit operations to the draft, in order (see the briefing): set a field, insert, replace, remove or move a step. All or none are kept",
-      input: z.object({ edits: z.array(z.record(z.string(), z.unknown())).min(1).max(30) }),
+      input: z.object({ edits: z.array(z.record(z.string(), z.unknown())).min(1).max(100) }),
       run: ({ edits }) => change(edits as unknown as EditInput[]),
     }),
     tool({
@@ -497,26 +728,36 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
       name: "ask_user",
       kind: "look",
       description:
-        "Ask the user one question, shown on the draft next to `step`. Either an open question by its id, whose answer goes into the workflow by itself, or your own question with options and a default; you get the answer and change the workflow yourself",
+        'Ask the user one question, shown on the draft next to `step`. Either an open question by its id, whose answer goes into the workflow by itself, or your own question with options and a default: then `step` is required (the id of the step its answer changes; the run\'s settings are on "start"), and you change the workflow yourself with the answer. remember: the answer is a lasting fact about them (where their files land, which sheet they use), kept for their next recordings',
       input: z.object({
         id: z.string().optional(),
         question: z.string().optional(),
         options: z.array(z.string()).max(6).optional(),
         default: z.string().optional(),
         step: z.string().optional(),
+        remember: z.enum(["fact", "preference"]).optional(),
       }),
-      run: async ({ id, question, options, default: fallback, step }) => {
+      run: async ({ id, question, options, default: fallback, step, remember }) => {
+        if (!session.labelled) return { output: LABEL_FIRST };
         if (session.asked >= session.maxQuestions) {
           return { output: `You have asked ${session.maxQuestions} questions: decide the rest yourself, or finish.` };
         }
         const open = id ? session.pending.find((q) => q.id === id) : undefined;
         if (id && !open)
           return { output: `No open question ${id}. Open: ${session.pending.map((q) => q.id).join(", ")}` };
+        // A question of its own must say what its answer changes: one that changes nothing in the workflow (\"Should I
+        // continue?\") is not worth the user's time.
+        if (!open && !(step && [...walkSteps(session.draft.steps)].some(({ step: s }) => s.id === step))) {
+          return {
+            output: `Say which step the answer changes: step = the id of a step in the workflow (the run's settings are on "start")${step ? `; there is no step ${step}` : ""}. A question whose answer changes nothing isn't asked.`,
+          };
+        }
         const asking: Question = open ?? {
           id: `design-${session.asked + 1}`,
           text: question ?? "",
           options: options?.map((label) => ({ label })),
           default: fallback,
+          ...(remember ? { remember } : {}),
         };
         if (!asking.text) return { output: "Give the question, or the id of an open question." };
         session.asked++;
@@ -526,10 +767,15 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
         if (!open) return { output: { answer } };
         session.pending = session.pending.filter((q) => q !== open);
         if (!answer || !open.appliesTo) return { output: { answer } };
+        // An answer that couldn't go in by itself is still the user's answer: the agent puts it in, or it is lost.
+        const yours = "the user answered this: put it into the workflow yourself with an edit";
         const applied = applyAnswer(session.draft, open, answer);
-        if (!applied.ok) return { output: { answer, not_applied: applied.error } };
-        const broken = designViolations(session.original, applied.skill, session.form, session.folders);
-        if (broken.length > 0) return { output: { answer, not_applied: broken } };
+        if (!applied.ok) return { output: { answer, not_applied: applied.error, now: yours } };
+        const broken = designViolations(session.original, applied.skill, session.form, session.folders, {
+          pages: session.pages,
+          opens: session.opens,
+        });
+        if (broken.length > 0) return { output: { answer, not_applied: broken, now: yours } };
         session.draft = applied.skill;
         return { output: { answer, applied: true, workflow: outlineOf(session.draft) } };
       },
@@ -548,4 +794,25 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
       },
     }),
   ];
+}
+
+// What sits where a question's answer goes ("steps.start.inputs.invoice.resolve.dir"), as JSON, so the agent's
+// change to it can be noticed; null when the step or input the question is about is gone (nothing left to ask).
+export function slotOf(skill: Skill, appliesTo: string | undefined): string | null {
+  let keys = (appliesTo ?? "").split(".").filter(Boolean);
+  let node: unknown = skill;
+  if (keys[0] === "steps" && keys.length >= 2) {
+    const step =
+      keys[1] === "0" ? skill.steps[0] : [...walkSteps(skill.steps)].find(({ step }) => step.id === keys[1])?.step;
+    if (!step) return null;
+    if (step.type === "trigger" && keys[2] === "inputs" && keys[3] && !(keys[3] in triggerOf(skill).inputs))
+      return null;
+    node = step;
+    keys = keys.slice(2);
+  }
+  for (const key of keys) {
+    if (node === null || typeof node !== "object") return "-";
+    node = (node as Record<string, unknown>)[key];
+  }
+  return JSON.stringify(node) ?? "-";
 }

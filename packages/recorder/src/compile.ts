@@ -8,6 +8,8 @@ import { ACTIONS, Check, type Description, Input, type LlmStep, Skill, Trigger, 
 import type { ChatMessage } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import { z } from "zod";
+import { applyAnswer } from "./drill.ts";
+import { type Note, narrationOf } from "./narration.ts";
 import type { NormalisedStep } from "./normalise.ts";
 import { type ActionDraft, type SkillDraft, skeletonOf, skillInput, TRIGGER_ID } from "./skeleton.ts";
 
@@ -74,6 +76,8 @@ export interface Form {
 export interface CompileOptions {
   chat?: Chat;
   form?: Form;
+  // What was said while recording (the narration); the masked screen words aren't needed here.
+  notes?: Note[];
   memory?: Pick<MemoryStore, "search">;
   maxAttempts?: number;
   // US dollars per million input tokens, to show what a per-run AI step costs (the fast profile's model price).
@@ -83,6 +87,8 @@ export interface CompileOptions {
 export interface Compiled {
   skill: Skill;
   questions: Question[];
+  // The plain step list before any model, for the design agent to label (label_steps).
+  base: Base;
   model: "nemotron" | "none";
   attempts: number;
   warnings: string[];
@@ -94,6 +100,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
   const { draft: recorded, idsByStep, questions: skeletonQuestions } = skeletonOf(steps);
   // Named after the goal until the model names it.
   const draft = form ? { ...withForm(recorded, form), name: shortName(form.description.goal) } : recorded;
+  const base: Base = { draft, steps, idsByStep, form, pricePerMTok: options.pricePerMTok };
   // What the form decided is not asked again.
   const open = (q: Question) => !(form && q.appliesTo && FORM_PATHS.some((p) => q.appliesTo?.startsWith(p)));
   const ownQuestions = [...skeletonQuestions, ...codeQuestions(draft, steps)].filter(open);
@@ -108,6 +115,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
   const skeletonOnly = (attempts: number): Compiled => ({
     skill: Skill.parse(skillInput(draft)),
     questions: form ? ownQuestions : [...ownQuestions, describeQuestion(draft)],
+    base,
     model: "none",
     attempts,
     warnings,
@@ -119,12 +127,14 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
   }
 
   const memory = options.memory ? await options.memory.search(memoryQuery(steps), { limit: 8 }) : [];
+  const narration = narrationOf(steps, options.notes ?? []);
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt() },
     {
       role: "user",
       content: JSON.stringify({
         ...(form ? { description: form.description, frequency: form.when } : {}),
+        ...(narration.length > 0 ? { narration } : {}),
         steps: stepsForModel(steps, idsByStep),
         skeleton: skeletonForModel(draft),
         memory: memory.map((m) => m.text),
@@ -148,7 +158,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
     try {
       notes = Annotations.parse(extractJson(raw));
       merged = withForm(merge(draft, notes), form);
-      costQuestions = aiQuestions(merged, notes, steps, idsByStep, options.pricePerMTok);
+      costQuestions = aiQuestions(merged, notes, steps, idsByStep, options.pricePerMTok).map((c) => c.question);
       const parsed = Skill.safeParse(skillInput(merged));
       issues = [
         ...(parsed.success
@@ -171,6 +181,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
           ...notes.questions.filter(open),
           ...ownQuestions.filter((q) => !asked.has(q.appliesTo)),
         ],
+        base,
         model: "nemotron",
         attempts: attempt,
         warnings,
@@ -193,9 +204,23 @@ export function systemPrompt(): string {
     "You turn one recorded demonstration of a computer task into a reusable skill for an automation player.",
     "You get JSON with: steps (what the person did, in order), skeleton (a valid draft skill that code built from those steps), memory (things the person told us before), and when the person filled in the form before recording, description and frequency.",
     "description is the person's own words: goal (what is done when the task is done), changes (values that are different each run: make them inputs, never fixed values), constants (things that stay the same: they may stay fixed), never (things it must never do without asking: steps like that need approval). frequency is when it runs. Both are final: use them, never change or ask about them.",
+    'narration, when present, is what the person said while doing it, in order, with the recorded steps each piece was said over ("steps 4-7"). It says what they mean: how many ("the top 5"), which ones ("only remote ones", "skip those already in my sheet"), what to do when there are fewer, which value goes where. The recording is one example of that; the narration and the description are the rule.',
     "Reply with ONE JSON object and nothing else. Every field is optional:",
     '{"id": string, "intent": string, "inputs": {...}, "when": [...], "success": [...], "steps": [{"id": "s1", "intent": string, "args": {...}, "check": {...}, "wait": {...}, "requires_approval": boolean, "save_as": string, "on_fail": {"retries": number, "fallback": "agent" | "ask"}}], "questions": [...]}',
     "Rules:",
+    ...labelRules(),
+    '- Ask, don\'t guess: anything you are unsure about becomes a question {"id", "text", "appliesTo", "options": [{"label", "value"}], "default", "remember": "fact" | "preference"}. appliesTo is where the answer goes in the skill, whose first step (id "start") holds when and inputs: such as "steps.start.inputs.invoice.resolve.dir", "steps.s3.requires_approval", "steps.start.when" or "description.goal"; value is the JSON stored there; default is the label of the default option. Set remember when the answer is a lasting fact about the person. At most 5 questions, and none that memory, the description or the narration already answers: what they state ("always 5", "skip the ones I already took") becomes an input with that value as its default, or stays fixed.',
+    "Examples of when to ask and when not to:",
+    '- Ask: the file you uploaded (this exact file, or the newest of its kind?); a value typed once that may change ("38 hours every week?"); which sheet row (today\'s, or always this one?); approval for a step that pays, sends, deletes or posts; what a click on a drawn area was for.',
+    "- Don't ask: anything the description or the narration says (how many, which ones to skip, which value goes in which column); anything the recording already shows (which page, which button, the order of steps); anything memory answers; selectors or layout; wording, colours or style; the same thing twice.",
+    '- A good question has options and a default: {"text": "Run it when a new invoice lands in Downloads?", "appliesTo": "steps.start.when", "options": [{"label": "yes", "value": [{"type": "folder_watch", "dir": "~/Downloads", "glob": "invoice-*.pdf"}]}, {"label": "only when I press Run", "value": [{"type": "manual"}]}], "default": "yes"}.',
+  ].join("\n");
+}
+
+// How to label the plain step list: names, inputs, checks, approvals, args. Shared by the old one-call compile and the
+// design agent's first move (label_steps), so both label by the same rules.
+export function labelRules(): string[] {
+  return [
     "- Never output targets, selectors, channels or actions. Code copies those from the recording.",
     "- id: a short lowercase kebab-case name for the task, such as upload-invoice. intent: one plain sentence.",
     '- Give every step an intent that says what it achieves ("Attach the invoice"), not how ("click the button").',
@@ -205,15 +230,63 @@ export function systemPrompt(): string {
     "- Step args are read by the player exactly as: navigate {url}; click {}; type {text, clear}; select {option} (the visible label); press {key}; upload {file}; drag {to} (code fills it); extract {all?, limit?, each?, join?}; fs.find {dir, glob, pick, since_run_start?}; fs.move and fs.copy {from, to} (a `to` ending in / is a folder); fs.rename {from, to}. Keep the skeleton's arg names.",
     '- save_as: "name" makes a step\'s result (extracted text, found files) a variable for later steps, used as {{name}}. Only use it after the step that produces it; names are unique. timeout_ms: raise it for slow steps (big uploads, downloads).',
     '- when: [{"type": "manual"}] unless the task clearly runs on a schedule ({"type": "schedule", "cron"}) or when a file appears ({"type": "folder_watch", "dir", "glob"}). If unsure, ask.',
-    '- Ask, don\'t guess: anything you are unsure about becomes a question {"id", "text", "appliesTo", "options": [{"label", "value"}], "default", "remember": "fact" | "preference"}. appliesTo is where the answer goes in the skill, whose first step (id "start") holds when and inputs: such as "steps.start.inputs.invoice.resolve.dir", "steps.s3.requires_approval", "steps.start.when" or "description.goal"; value is the JSON stored there; default is the label of the default option. Set remember when the answer is a lasting fact about the person. At most 5 questions, and none that memory already answers.',
     '- A copy from a sheet or table becomes read rows -> data.pick {from, where, column}. Write the rule the person meant: if the copied row\'s date was the day they recorded, they almost always mean today\'s row: where {"Date": "{{today}}"}. A rule is free on every run.',
     '- Only when no rule can say which value ("the invoice that looks overdue", "the row about the client in this email") add "ai": {"instruction", "output": "text" | "number" | "date" | "json", "reason"} to that data.pick step. It calls the model on every run, so the person is asked to approve the cost. Never use ai for what where/column can express. Write dates in the instruction as {{today}}, never as a fixed date.',
-    "Examples of when to ask and when not to:",
-    '- Ask: the file you uploaded (this exact file, or the newest of its kind?); a value typed once that may change ("38 hours every week?"); which sheet row (today\'s, or always this one?); approval for a step that pays, sends, deletes or posts; what a click on a drawn area was for.',
-    "- Don't ask: anything the recording already shows (which page, which button, the order of steps); anything memory answers; selectors or layout; wording, colours or style; the same thing twice.",
-    '- A good question has options and a default: {"text": "Run it when a new invoice lands in Downloads?", "appliesTo": "steps.start.when", "options": [{"label": "yes", "value": [{"type": "folder_watch", "dir": "~/Downloads", "glob": "invoice-*.pdf"}]}, {"label": "only when I press Run", "value": [{"type": "manual"}]}], "default": "yes"}.',
     `- For reference, the actions the player supports per channel: ${JSON.stringify(ACTIONS)}.`,
-  ].join("\n");
+  ];
+}
+
+// What the design agent's first move (label_steps) may say: the labels the one-call compile used to write, without
+// questions (the agent asks its own, and is the only one that does).
+export const Labels = Annotations.omit({ questions: true });
+export type Labels = z.infer<typeof Labels>;
+
+// The plain step list code built from the recording (no model), kept so it can be labelled.
+export interface Base {
+  draft: SkillDraft;
+  steps: NormalisedStep[];
+  idsByStep: string[][];
+  form?: Form;
+  pricePerMTok?: number;
+}
+
+// An AI step that costs less than this per run is kept without asking; its cost is told to the agent instead. Above
+// it (or when the price isn't known), you are asked whether a model call on every run is worth it.
+export const ASK_ABOVE_USD_PER_RUN = 0.01;
+
+// Merges labels into the plain step list by the same rules as the one-call compile (targets, Mac apps, sites and
+// secrets stay as recorded; approvals only added), then checks the result with the Skill schema. A data.pick step
+// labelled as needing AI becomes an AI step: without asking when it is cheap (kept: what it costs), else a question.
+export function labelDraft(
+  base: Base,
+  labels: Labels,
+): { ok: true; skill: Skill; questions: Question[]; kept: string[] } | { ok: false; problems: string[] } {
+  const notes: Annotations = { ...labels, questions: [] };
+  const merged = withForm(merge(base.draft, notes), base.form);
+  const parsed = Skill.safeParse(skillInput(merged));
+  if (!parsed.success) {
+    return {
+      ok: false,
+      problems: parsed.error.issues.map((i) => `${i.path.join(".")}${i.path.length ? ": " : ""}${i.message}`),
+    };
+  }
+  let skill = parsed.data;
+  const questions: Question[] = [];
+  const kept: string[] = [];
+  for (const { question, step, dollars } of aiQuestions(merged, notes, base.steps, base.idsByStep, base.pricePerMTok)) {
+    if (dollars !== undefined && dollars < ASK_ABOVE_USD_PER_RUN) {
+      const applied = applyAnswer(skill, question, "1");
+      if (applied.ok) {
+        skill = applied.skill;
+        kept.push(
+          `${step}: an AI step on every run, about $${dollars.toPrecision(2)} a run (under $${ASK_ABOVE_USD_PER_RUN}: kept without asking)`,
+        );
+        continue;
+      }
+    }
+    questions.push(question);
+  }
+  return { ok: true, skill, questions, kept };
 }
 
 // The model sees what you did, by meaning: no selectors, never a secret's value. Also the design agent's view of the
@@ -359,7 +432,7 @@ function aiQuestions(
   steps: NormalisedStep[],
   idsByStep: string[][],
   pricePerMTok: number | undefined,
-): Question[] {
+): { question: Question; step: string; dollars?: number }[] {
   return notes.steps.flatMap((note) => {
     const step = draft.steps.find((s) => s.id === note.id);
     if (!note.ai || !step || step.channel !== "data" || step.action !== "pick") return [];
@@ -386,14 +459,18 @@ function aiQuestions(
     };
     return [
       {
-        id: `ai-${step.id}`,
-        text: `${step.id} asks the model on every run, about ${tokens} tokens${cost}. Why: ${note.ai.reason}. Keep it?`,
-        appliesTo: `steps.${step.id}`,
-        options: [
-          { label: "keep the AI step", value: llm },
-          { label: "use the recorded rule instead (no model call)", value: step },
-        ],
-        default: "keep the AI step",
+        step: step.id,
+        dollars,
+        question: {
+          id: `ai-${step.id}`,
+          text: `${step.id} asks the model on every run, about ${tokens} tokens${cost}. Why: ${note.ai.reason}. Keep it?`,
+          appliesTo: `steps.${step.id}`,
+          options: [
+            { label: "keep the AI step", value: llm },
+            { label: "use the recorded rule instead (no model call)", value: step },
+          ],
+          default: "keep the AI step",
+        },
       },
     ];
   });

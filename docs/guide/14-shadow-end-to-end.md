@@ -42,7 +42,7 @@ Every plain recording becomes a **new** workflow with its own id (`upload-invoic
 | After Stop | Nemotron 3 Super (`smart`): one call (`compile`), then the design agent | Turning behaviour into intent |
 | A normal run | None, except LLM steps: Nemotron 3.5 Lightning (`fast`) | Runs stay predictable and cheap |
 | A step failed on a changed site | Nemotron 3 Super: the repair agent, after the cheap fixes | Fixing the workflow |
-| An agent asks to see the screen (`describe_screen`) | GLM-5.3-Flash (`vision`): one masked picture, only with the Pictures consent | A question the words alone can't answer |
+| An agent asks to see the screen (`describe_step_screenshot` in the design agent, `describe_screen` in the repair agent) | GLM-5.3-Flash (`vision`): one masked picture, only with the Pictures consent | A question the words alone can't answer |
 | Settings → Save and check | One small call on the `smart` profile | "Connected to Nemotron" |
 
 All calls go through `packages/llm` to Nebius Token Factory with your own key, read from the Keychain (`.env` wins in development).
@@ -109,6 +109,6 @@ All calls go through `packages/llm` to Nebius Token Factory with your own key, r
 - **Messages** (`packages/core/src/messages.ts`): `ax.highlight` and `ax.highlight_result`; `mac.screenshot` and `mac.screenshot_result`; `system.sleep` and `system.wake`; `discard` on `record.command`; `pictures` on `consent`.
 - **Player** (`packages/player`): `RunDeps.walk` and `RunDeps.highlight`; the `walk` kind of `Waiting` and `Answer`; the `step.walk` log event; `RepairEnv.describeScreen` and `Recovery.describeScreen`; `repair/verify.ts` (changed: a waiting approval is not an approval); `repair/ladder.ts` and `repair/classify.ts` (changed: `ax` steps get the first rung and are classified).
 - **Daemon types** (`apps/daemon/src/types.ts`): `walk` in `InboxKind`; `Checkpoint.skill` (the exact tree being walked, for a draft).
-- **Design agent** (`packages/recorder/src/design`): validate after every edit; `describe_screen`.
+- **Design agent** (`packages/recorder/src/design`): validate after every edit; `describe_step_screenshot`.
 - **Git:** everything is on `feat/taskplayer-record`, 25+ commits ahead of `main`, to go in as one PR.
 - **Leftovers:** items 2–4 above, and the table in [`questions.md`](../questions.md), section P.

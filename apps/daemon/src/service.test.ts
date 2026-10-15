@@ -158,8 +158,12 @@ describe("the daemon as a service", () => {
     const { service } = open();
     const answer = service.ask({ title: "Is this always the newest email?", options: ["yes", "no"] });
     const [item] = service.inbox({ open: true });
-    service.answer(item?.id as string, "yes");
-    await expect(answer).resolves.toBe("yes");
+    // Options don't fence the person in: they may write their own answer, unless the question says it can't take one.
+    expect(item?.detail).toMatchObject({ options: ["yes", "no"], freeText: true });
+    service.answer(item?.id as string, "only on Mondays");
+    await expect(answer).resolves.toBe("only on Mondays");
+    void service.ask({ title: "Keep the AI step?", options: ["keep", "use the rule"], freeText: false });
+    expect(service.inbox({ open: true })[0]?.detail).toMatchObject({ freeText: false });
   });
 
   it("keeps a drill question's step and draft with it, so the window can show it on the draft", () => {

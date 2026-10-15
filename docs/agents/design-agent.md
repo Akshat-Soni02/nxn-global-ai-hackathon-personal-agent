@@ -8,7 +8,11 @@
 
 The agent asks the user only what it can't tell.
 
-It runs once per recording, right after **Stop**, in the daemon. It's Nemotron 3 Super in the shared loop ([README](README.md) §2) with 12 tools of its own and a set of rules (`designViolations`) checked inside its edit tools.
+It runs once per recording, right after **Stop**, in the daemon. It's Nemotron 3 Super in the shared loop ([README](README.md) §2) with 13 tools of its own and a set of rules (`designViolations`) checked inside its edit tools.
+
+> **Since 15 Oct (evening): one AI reads the recording.** The separate first-draft call is gone from the daemon. Code builds the plain step list; the design agent labels it as its first move (`label_steps`, the same labels and merge rules as §2, see `labelRules`, `labelDraft` in `compile.ts`), then restructures, and is the only AI that writes questions. Before labelling, every other edit and `ask_user` is refused with "label the steps first". `compile()` still has its one-call path for tests, unused by the daemon.
+
+> **Updated 15 Oct 2026** after the first real recording (`reports/first-real-recording-yc-to-sheets.md`): the narration reaches both model calls whole; questions the form or narration answer are closed, never asked; answers about new inputs create them; recorded writes can't be removed and at most half the recorded steps can; a click may become "open this page"; every page the recording reached counts as visited; edits take up to 100 operations; `design.json` keeps the prompt. §15 marks what is fixed.
 
 Code: `packages/recorder/src/design/design.ts` (prompt, entry point), `packages/recorder/src/design/tools.ts` (tools, rules, views), called from `apps/daemon/src/record.ts` (`finishRecording`).
 
@@ -23,9 +27,9 @@ Code: `packages/recorder/src/design/design.ts` (prompt, entry point), `packages/
 | 1 | Read the trace | — | `recordings/<session>/trace.jsonl`. Picked or dropped files are located on disk (`locateFiles`) |
 | 2 | **Normalise** | — | `normalise(trace)` → `NormalisedStep[]`: events by meaning (click, type, copy, paste, navigate, upload, app_press, …) with targets, values, URLs, "led to", copied sheet context |
 | 3 | Read the form | — | `description.json` → `form = { description: { goal, changes, constants, never }, when }`. Recordings before Oct 13 have none |
-| 4 | **Compile** (first draft) | 1 call, `smart`, JSON | §2. Code builds a skeleton; the model adds intents, inputs, checks, approvals, questions. Up to 3 attempts; fallback: skeleton only |
+| 4 | **The plain step list** | — | `compile(steps, { form })` with **no model** (since 15 Oct): the skeleton by code, plus the questions code knows it can't decide (where files arrive, a pasted value, which sheet row). §2 now describes the labelling the agent does as its first move |
 | 5 | Pick the id | — | New: `newSkillId` (name + random tag). **Record again** (`form.again`): the existing workflow's id and name |
-| 6 | **The design agent** | the agent | §3–§9. Only when a model is configured |
+| 6 | **The design agent** | the agent | §3–§9. Only when a model is configured. **The one AI that reads the recording**: its first move, `label_steps`, labels the plain list (what the one-call compile used to do); then it restructures and is the only AI that asks |
 | 7 | Remember answers | — | Answers to questions that carry `remember` go to memory (§11) |
 | 8 | Keep the transcript | — | `recordings/<session>/design.json` (§12) |
 | 9 | **Drill** what's left | — | The questions the agent didn't ask (`pending`), asked one by one in the inbox and applied with `applyAnswer` (§10) |
@@ -33,7 +37,7 @@ Code: `packages/recorder/src/design/design.ts` (prompt, entry point), `packages/
 | 11 | **Approvals** | — | `requireApprovals`: every outward step and every step matching Never gets `requires_approval: true`, whatever came before |
 | 12 | History note and save | — | `skills/<id>/v<N>.json`, history `{ by: "record", summary: "Recorded; <agent summary>" }` (or "Recorded again; …" as the next version) |
 
-If the agent doesn't finish (no model, an error, out of budget), the compiled draft is saved, with the answers the user already gave re-applied.
+If the agent doesn't finish (out of turns or money, an error), **its last valid draft** is saved: every change it made passed the schema and the rules, and the answers already given are in it. If it changed nothing (or there is no model), the plain step list is saved.
 
 ---
 
@@ -56,6 +60,7 @@ If the agent doesn't finish (no model, an error, out of budget), the compiled dr
   - examples of when to ask and when not to.
 - **User**: JSON with:
   - `description`, `frequency` (when there's a form)
+  - `narration` (since 15 Oct, when there was any): `[{ during: "before step 1" | "step 4" | "steps 4-7", said }]`, all of it, in order (`narrationOf`, `packages/recorder/src/narration.ts`). The system prompt says it is the rule and the recording one example
   - `steps`: `stepsForModel`, i.e. per recorded step `{ ids, did, page, element {role,name,label,near}, app, menu, keys, dropped_on, value (≤200 chars, secrets hidden), checked, file, path, to, led_to, produced, likely_changes, copied, sheet {header,row,column}, pasted_from_copy }`
   - `skeleton`: the draft **without targets**
   - `memory`: up to 8 memory entries matching the recording's names, files, hosts, apps
@@ -81,12 +86,12 @@ If the agent doesn't finish (no model, an error, out of budget), the compiled dr
 The result is checked with the `Skill` schema; problems go back to the model (`That JSON was rejected: … Return the corrected JSON object only.`), up to 3 attempts. After that, the skeleton is kept.
 
 ### 2.5 Where the first draft's questions come from
-1. **Cost questions**: a `data.pick` step the model marked `ai` becomes "keep the AI step (about N tokens, $X a run) or use the recorded rule?". `appliesTo: steps.<id>`; each option carries a whole step.
+1. **Cost questions**: a `data.pick` step labelled `ai` becomes "keep the AI step (about N tokens, $X a run) or use the recorded rule?". `appliesTo: steps.<id>`; each option carries a whole step. Since 15 Oct (`labelDraft`), a step under `ASK_ABOVE_USD_PER_RUN` ($0.01 a run) is kept as an AI step without asking, and the agent is told its cost (`ai_steps_kept`); with no price known it still asks.
 2. **The model's own** `questions`, minus those whose `appliesTo` starts with `steps.start.when` or `description` (the form decides those).
 3. **Code questions** not already asked: "Where do files like X arrive?" for file inputs (`remember: "fact"`).
 4. Without a form: "Describe this task in one sentence".
 
-Duplicates are filtered **only by `appliesTo` path**. A question whose *meaning* the form or narration already answers ("how many companies?" when the form says "always 5") passes through.
+Since 15 Oct (evening) there is no separate first-draft AI, so only code writes these questions. After the agent, one is asked only if the agent left the place its answer goes (`appliesTo`) as it was when the question appeared (`slotOf`, `stillOpen`): if the agent filled it from what was said, it isn't asked again.
 
 ### 2.6 Cost
 One call on `smart` with `json: true`. **It isn't metered** (`compileChat` passes no meter), so it shows in neither the design budget nor the daemon's spend.
@@ -123,19 +128,18 @@ One call on `smart` with `json: true`. **It isn't metered** (`compileChat` passe
 
 ### 5.1 System = ROLE + briefing + loop rules
 
-`ROLE` (verbatim):
+`ROLE` (`packages/recorder/src/design/design.ts`; rewritten 15 Oct), in short:
 
-> You are Shadow's design agent. A person described a task and showed it once. Code and one model call turned the recording into a first draft: a flat list of steps that replays what they did. Make the draft do what they meant, so it runs right next time, with next time's data.
-> - Start with read_description, read_recording and workflow.
-> - Values that will be different next time (what the description says changes: an email, a file, a date, numbers) must not stay as fixed text: make them inputs, or take them from an earlier step's output.
-> - The same actions done for several items become one loop (wrap_in_loop) over a list an earlier step produces.
-> - "Only if" (in the description or what was said) becomes a branch (wrap_in_branch).
-> - Reading, summarising, classifying or working something out from text becomes an llm step (add_llm_step). llm steps never click or type.
-> - Controls come only from the recording: you may move and wrap steps and change their intents, args, waits, checks and outputs, never invent a click on something the person didn't use. If the task needs one, ask them.
-> - Never change the description or the Frequency (the user's own), and never turn approval off.
-> - Ask (ask_user) only what the recording and the description can't tell you, with options and a default, at most 5 questions. The open questions from the first draft are listed: ask the ones that matter by id; the rest are asked after you finish.
-> - describe_screen shows a step's picture described (when the user allowed pictures): use it before asking, when the words near a step don't say what the control was for.
-> - Keep step ids. Every kept edit says what still stops the workflow (still_to_fix): fix those before you finish. When nothing is left, finish with one sentence on what you changed. If the draft is already right, finish at once.
+> - The first message has the description, what they said, the recording and the draft.
+> - **The description and what they said are the rule; the recording is one example of it.** "The top 5", "skip the ones already in my sheet", "only remote ones", "if there are fewer, take what there is" are rules.
+> - Values that change become inputs or earlier outputs; a typed date is usually `{{today}}`.
+> - Repeated work, or work shown once but said to be done for several, becomes a loop; "only if" a branch; reading, picking, classifying an llm step.
+> - A common shape: read a list (`web.extract`) → pick the items with an llm step → a loop whose body is the recorded steps for one item.
+> - Controls come only from the recording. **Steps that type, paste, select or upload what they showed are the work itself: move or wrap them, never remove them.**
+> - Never change the description or the Frequency; never turn approval off.
+> - **Never ask what the description or what they said already answers**: put the answer into the workflow with an edit; a code question whose answer it fills in this way is not asked afterwards. Ask only what is left (≤ 5); an answer that comes back `not_applied` is the agent's to put in.
+> - `describe_step_screenshot` before asking, when the words near a step don't say what a control was for.
+> - Keep step ids; an edit is all or nothing, so a big change goes in a few calls, each valid on its own; fix `still_to_fix` before `finish`.
 
 Then `briefing({ edits: true })` ([README](README.md) §4; **without** "Available now"), then the loop's "How you work".
 
@@ -144,9 +148,15 @@ Then `briefing({ edits: true })` ([README](README.md) §4; **without** "Availabl
 # The description
 {"goal": …, "changes": […], "constants": […], "never": […], "frequency": [...]}     (or: "None was filled in: …")
 
-# The recording (by meaning; read_recording shows any part again)
+# What they said while doing it (in order, with the recorded steps it was said over)   (since 15 Oct: all of it)
 <untrusted_data>
-[ { n, ids, did, page, element, …, notes: ["said: …", "on screen: …"] }, … ]        steps 1–40 only
+- [before step 1] I take like top 5 latest ones
+- [steps 4-7] I try to avoid taking those which are already in my sheet
+</untrusted_data>
+
+# The recording (by meaning; screen words shortened here, read_recording shows any part in full)
+<untrusted_data>
+[ { n, ids, did, page, element, …, notes: ["on screen, around \"Numeral\": <the lines around it, ≤600 chars> | on screen, top of page: <≤300 chars> | (as before)"] }, … ]   steps 1–40
 … and N more steps                                                                   (when > 40)
 </untrusted_data>
 
@@ -157,24 +167,11 @@ Then `briefing({ edits: true })` ([README](README.md) §4; **without** "Availabl
 - <id>: <text> (options: a / b) [default: x]                                         (or: "None.")
 ```
 
-The ROLE says "Start with read_description, read_recording and workflow", but the task message already contains all three (for the first 40 steps). In practice the agent skips the reads. That's fine for short recordings; anything past step 40 is only reachable with `read_recording`.
+Steps past 40 are only reachable with `read_recording`, but since 15 Oct the narration section is never cut, so what was said about them is in the first message.
 
-### 5.3 How notes attach to steps (`notesByStep`)
-Each note goes with the **last step that started at or before the note's time + 1 s** (people talk as they click), or with step 1 when it came before any step. A screenshot's words are attached to the step after which it was taken; a narration piece goes to whatever step was last before it **started**. A sentence spanning several steps is attached once.
-
-### 5.4 The outline format (`outlineOf`)
-```
-start  trigger  when: manual  inputs: count (number) = 5; sheet_url (text) from {"…"}
-  s1  web.navigate  "Open www.ycombinator.com/jobs"  args {"url":"…"}
-  l1  loop "Each new job"  for each job in {{jobs}} (max 50, stop on a failing item)
-    s5  web.click  "Open the company"  on link "Numeral"
-  ai1  llm  "Pick 5 new jobs"  reads {{jobs}}, {{existing}}  → picked (list of object)
-  b1  if {"left":…}  "Only remote"
-  s9  web.type  "Paste the name"  on combobox "A2"  args {"text":"{{copied_1}}"}  [approval]
-```
-Args are clipped to 160 characters. Targets show `role "name|label|text|?"`.
-
----
+### 5.3 How notes attach to steps (`packages/recorder/src/narration.ts`)
+- What was **seen** (`notesByStep`): each screenshot's words go with the **last step that started at or before the note's time + 1 s**, or with step 1 when they came before any step.
+- What was **said** (`narrationOf`, since 15 Oct): only in the "What they said" list, never as a note on a step. Each piece is marked with the span of steps from where it started to where it ended (`until`), or `before step 1`. Pages opened again that the recording had already been on (switching back to a tab) are skipped when marking, so a mark always points at something the person did.
 
 ## 6. Session state (`DesignSession`)
 
@@ -182,6 +179,8 @@ Args are clipped to 160 characters. Targets show `role "name|label|text|?"`.
 |---|---|
 | `original` | The compiled draft. Every target, site and approval rule is relative to it |
 | `folders` | `recordedFolders`: folders of files picked, dropped, moved, downloaded, produced; input `resolve.dir`s; folder-trigger dirs; `fs` steps' `dir`s. All expanded (`~`, absolute, symlinks followed) |
+| `pages` | `recordedPages` (15 Oct): every page the recording was on or a click led to: the sites a step may open |
+| `baseline` | For each open question, what sat where its answer goes when the question appeared: changed by the end means the agent settled it |
 | `draft` | The current draft. Changes only through `change()` and `ask_user`'s applied answers |
 | `form`, `steps`, `idsByStep`, `notes` | As given |
 | `pending` | First-draft questions not asked yet |
@@ -194,7 +193,9 @@ Args are clipped to 160 characters. Targets show `role "name|label|text|?"`.
 
 ## 7. Tools
 
-12 tools. None are `probe` or `try`: the agent never touches a live page.
+13 tools. None are `probe` or `try`: the agent never touches a live page.
+
+**`label_steps`** (15 Oct, evening) `Labels` (the one-call compile's annotations without questions): the agent's first move, once, on the plain step list (`labelDraft`: the same merge rules). Every other edit and `ask_user` is refused until it has run ("label the steps first"). The `close_question` tool from earlier on 15 Oct was removed: an answer the agent writes in is enough.
 
 ### Look
 
@@ -203,7 +204,7 @@ Args are clipped to 160 characters. Targets show `role "name|label|text|?"`.
 | `read_description` | `{}` | the form's description + `frequency`, or "No form was filled in…" | |
 | `read_recording` | `{ from?: int ≥1, to?: int ≥1 }` | `recordingView(from, to)`: `[{ n, ids, did, page, element, …, notes? }]` | **untrusted**. Defaults to all steps. Clipped at 12,000 characters by the loop |
 | `workflow` | `{ step?: string }` | the outline, or one step as JSON, or `No step X` | |
-| `describe_screen` | `{ step: int ≥1 }` (the **recorded** step number `n`, not a skill id) | the vision model's description | **untrusted**. "No pictures: the user did not allow pictures to be sent." without consent; "Couldn't describe it: …" when the step has no kept picture |
+| `describe_step_screenshot` (named `describe_screen` until 15 Oct) | `{ step: int ≥1 }` (the **recorded** step number `n`, not a skill id) | the vision model's description | **untrusted**. "No pictures: the user did not allow pictures to be sent." without consent; "Couldn't describe it: …" when the step has no kept picture |
 | `recall` | `{ query: string }` | up to 8 memory texts, any workflow | "No memory." / "Nothing remembered about that." |
 | `validate` | `{}` | `{ ok, problems: checks(draft), open_questions: [{id,text}] }` | `problems` are only `unattendedGaps` (§8.3) |
 
@@ -212,7 +213,7 @@ All edits go through `change(edits)`: `applyEdits` (README §5), then `designVio
 
 | Tool | Input | What it does |
 |---|---|---|
-| `edit` | `{ edits: object[] }` (**1–30**) | Raw edit operations |
+| `edit` | `{ edits: object[] }` (**1–100**, was 30 until 15 Oct) | Raw edit operations |
 | `wrap_in_loop` | `{ steps: id[] (≥1), over: "{{list}}", item: { name, type }, intent, on_item_fail?: stop\|skip }` | Inserts `l<N>` before the first step, then moves each listed step into it. `max_items` comes from the schema default |
 | `wrap_in_branch` | `{ steps: id[], if: Condition, intent, otherwise?: id[] }` | Inserts `b<N>` before the first step, moves `steps` into it and `otherwise` into its `else` |
 | `add_llm_step` | `{ after: id, intent, instruction, inputs: string[] (≥1), output: { name, type } }` | Inserts `ai<N>` (llm step, `requires_approval: false`) after `after` |
@@ -224,7 +225,7 @@ Results:
 
 ### Ask (the drill)
 
-`ask_user` `{ id?, question?, options?: string[] (≤6), default?, step? }`:
+`ask_user` `{ id?, question?, options?: string[] (≤6), default?, step?, remember?: "fact" | "preference" }`. Since 15 Oct an own question must name the `step` its answer changes (an id in the draft; the run's settings are on `start`), or it is refused with "Say which step the answer changes"; `remember` keeps a lasting answer in memory for the next recordings:
 1. If 5 questions were already asked: *"You have asked 5 questions: decide the rest yourself, or finish."*
 2. With an `id`: it must be in `pending`, else *"No open question X. Open: …"*. Without one, a new question `design-<n>` is built from `question`, `options` and `default`.
 3. Empty text: *"Give the question, or the id of an open question."*
@@ -234,7 +235,7 @@ Results:
    - no `appliesTo`, or an empty answer → `{ answer }`;
    - otherwise `applyAnswer` (§10.2), then `designViolations`. Failure → `{ answer, not_applied: <reason> }`; success → `{ answer, applied: true, workflow }`.
 
-A `not_applied` answer is lost: the agent isn't told it must fix it, and the drill won't ask again (the question is no longer pending).
+Since 15 Oct a `not_applied` result also says *"the user answered this: put it into the workflow yourself with an edit"*, and answers about a new input no longer fail (§10.2). Kept edits also list the `open_questions` still pending, as a reminder.
 
 ### Finish
 `finish` `{ summary: string (1–300) }`: refuses with `{ refused: "not finished yet", problems }` while `checks(draft)` isn't empty; otherwise ends the episode with `{ summary }`. **The summary isn't compared with what was actually done.**
@@ -253,30 +254,32 @@ Checked on every `change()` and every applied answer. Each rule and its exact me
 | With a form, the description can't change | the description is the user's (their own words on the form): it can't change |
 | A changed or new input's `resolve.dir`, or a default that looks like a path (`~…`, `/…`), must be inside a recorded folder | `<name>`: an input may only point at folders the recording touched (…), not X |
 | A **new** action must be read-only: `fs.find, fs.read, data.pick, web.extract, web.wait_for, web.navigate` | `<id>`: a new X step would do something the user didn't show. Only steps that read (…) can be added; ask the user to show the rest |
-| A **recorded** step keeps its `channel.action` | `<id>`: a recorded step keeps its kind of action (it was X) |
+| A **recorded** step keeps its `channel.action` (replacing it under its id with an llm step or a loop counts as a change), except a recorded `web.click` or `web.press` may become a `web.navigate` to **the page that step opened** (15 Oct), never one that submitted a form, sends or needs approval | `<id>`: a recorded step keeps its kind of action (it was X) |
+| A recorded **write** (`web.type, select, upload, drag`, `ax.set_value`, `fs.move, copy, rename, write`) is never removed, unless it repeats a step kept inside a loop (same action on the same control: the second item shown) (15 Oct) | `<id>`: it types what the user showed (…), which is the work itself: move it or wrap it in a loop or branch, never remove it |
+| At most half the recorded actions (at least 2) may be removed; repeats kept in a loop don't count (15 Oct) | N of the M recorded steps would be gone (at most K): keep what the user showed, and ask them before dropping more |
+| A workflow whose first web step opened a page must still open one first (15 Oct: runs start on a blank window) | `<id>`: runs start on a blank window, so the workflow must still open a page first (…) |
 | A new or changed `fs` step's `dir`, `path`, `from`, `to` must be inside a recorded folder (a whole-string `{{reference}}` is allowed) | `<id>`: it may only look in folders the recording touched (…), not X |
 | A new or changed `fs` glob can't climb (absolute, `~`, `..`) | `<id>`: its glob (X) must stay inside its folder |
 | Every target must be one the recording had (by exact locator) | `<id>`: its target is not one you recorded… ask them |
 | A recorded step's target can't change | `<id>`: its target can't change (it is what the user clicked) |
 | No new `script` step | `<id>`: script steps can't be added |
-| A new or changed `navigate` URL must be on an **origin of a navigate step in the first draft** (a `file://` page must match exactly) | `<id>`: it may only open a site the recording visited (…) |
+| A new or changed `navigate` URL must be on an origin the recording visited: a navigate step in the first draft, or (15 Oct) **any page the recording was on or a click led to** (a `file://` page must match exactly) | `<id>`: it may only open a site the recording visited (…) |
 | A step that needed approval can't be removed | `<id>`: a step that needs approval can't be removed |
 | Approval can't be turned off | `<id>`: approval can't be turned off |
 
 ### 8.2 What is **not** checked
-- **Removing recorded steps** is free (except approval steps). The agent can delete every action the user showed.
+- **Removing recorded clicks and page loads**, up to half the recorded actions (writes and approval steps never). Fixed 15 Oct: before, the agent could delete every action the user showed.
 - **Args** of recorded steps can change freely (e.g. typed text), except fs paths.
 - **llm steps, loops and branches** have no rules: any instruction, any inputs, any condition.
 - A llm step's output used later as a **file path** or **URL** isn't checked (a run-time path is invisible here; see `docs/guide/14-shadow-end-to-end.md` §7 item 5).
-- **Sites the user reached by clicking** don't count as visited. Only navigate steps of the first draft do, so a page opened from a link or a Drive item can't be opened directly.
-- **Changing a click into a navigate** is refused (kind of action), even when the click only opened a document.
+- ~~Sites the user reached by clicking don't count as visited~~ and ~~changing a click into a navigate is refused~~: both fixed 15 Oct (§8.1). The repair agent's own allowed sites are still only navigate steps (repair-agent.md §16, item 1: Akshat's).
 - **The summary** passed to `finish`.
 
 ### 8.3 The `checks` (`unattendedGaps`)
 `goLiveProblems(draft)` filtered to `input "<name>" has no default and no way to be found…`, excluding secret inputs. It applies only when the trigger is a **schedule or folder_watch**. **For a manual workflow it's always empty**, so `validate.ok` is always `true`, `still_to_fix` is always `[]`, and `finish` is never refused.
 
 ### 8.4 Size limits
-- `edit`: 1–30 operations. A bigger call is refused as invalid input, and the model often re-sends only the first 30 (see `reports/first-real-recording-yc-to-sheets.md`, issue 1).
+- `edit`: 1–100 operations (30 until 15 Oct: a bigger call was refused, and the model re-sent only the first 30, which were all removals; see `reports/first-real-recording-yc-to-sheets.md`, issue 1).
 - `wrap_in_loop` / `wrap_in_branch` build their own operations (1 insert + 1 move per step), so wrapping 30+ steps hits no cap.
 - `ask_user`: 5 questions, ≤ 6 options each.
 - `finish` summary: ≤ 300 characters.
@@ -319,7 +322,7 @@ All three go to the inbox as `question` items with options and default. The desi
   - else the text.
 - The skill is re-parsed. Errors come back as `path: message`.
 
-**Known failure:** a question that points at a **new** input (`steps.0.inputs.count`) writes the raw answer (`"5"`) where an `Input` object (`{ type, default }`) is required, so it always fails (*"expected object, received string"*). The first draft's model often writes questions like that.
+**Fixed 15 Oct:** a question that points at an input (`steps.0.inputs.count`, `steps.start.inputs.count`, with or without `.default`) now sets that input's `default`, typed as the input is; an input that doesn't exist yet is **created**, typed from the answer (`"5"` → `{ type: number, default: 5 }`, `"Yes"` → boolean, else text). Before, the raw answer was written where an `Input` object is required and always failed (*"expected object, received string"*).
 
 ### 10.3 Waiting
 `service.ask` creates an inbox item and waits on a promise with **no timeout**. If the daemon restarts, open questions are marked `{ expired: "the daemon restarted" }`, and that design run is gone with the process (the recording folder is still there for 24 h; `compile <session>` can redo it).
@@ -331,7 +334,7 @@ All three go to the inbox as `question` items with options and default. The desi
 | | |
 |---|---|
 | Reads | `recall(query)` → `memory.search(query, { limit: 8 })` across **all** workflows. The first-draft compile also puts up to 8 matching entries in its prompt |
-| Writes | After the agent: `remember()` stores `"<question text> <answer>"` as `fact` / `preference` for each answered question that has `remember` set (only first-draft questions can; the agent's own never do). After the drill: the same for drill answers |
+| Writes | After the agent: `remember()` stores `"<question text> <answer>"` as `fact` / `preference` for each answered question that has `remember` set: code's questions, and since 15 Oct the agent's own when it marks them. After the drill: the same for drill answers |
 | Never written | What the agent learned, the narration, the screen words, the final design |
 
 ---
@@ -346,13 +349,14 @@ All three go to the inbox as `question` items with options and default. The desi
   "edits": [ … ],           // session.edits (answers applied by ask_user are not here)
   "turns": 8,
   "usage": { "calls", "input", "output", "costUsd" },
+  "prompt": { "system", "task" },          // since 15 Oct: what it was told (the loop's own rules not included)
   "transcript": [ AgentEvent, … ]
 }
 ```
 
 The daemon log gets `design agent: <summary> (<turns> turns, $<cost>)` or `design agent: <reason>; keeping the first draft`. The saved workflow's history gets `Recorded; <summary>`.
 
-**Not kept:** the system prompt, the task message (so which notes the agent saw can't be checked), the model's reasoning, the input of a refused (`invalid`) edit, and the first-draft compile's prompt and reply.
+**Not kept:** the model's reasoning, the input of a refused (`invalid`) edit (shared `packages/agent` code), and the first-draft compile's prompt and reply.
 
 ---
 
@@ -384,10 +388,15 @@ With a scripted model:
 - keeps file steps, inputs and local pages inside what the recording touched, however the path is written
 - puts what was said next to the step it was said over
 - drops a first-draft question about an input the agent removed
+- (15 Oct) gives the narration whole, before the recording, with the steps each piece spans; lets the first draft hear it too
+- (15 Oct) asks after it only what it left untouched: an answer it wrote in from what was said isn't asked again
+- (15 Oct) labels the plain list first, refusing any other change or question before it; when it stops early keeps what it reached, or the plain list
+- (15 Oct) keeps what the user showed: no recorded write removed, at most half the steps; a click may open a page the recording reached
+- (15 Oct, `recorder.test.ts`) creates the input an answer is about, typed from the answer (the three answers lost in the YC run)
 
 Plus `apps/daemon/src/e2e.test.ts` (form → events → compile → design agent on a scripted model).
 
-**Not tested:** a real model; removing most of the recorded steps; an answer to a question about a new input; a recording longer than 40 steps; a manual workflow's `finish` with nothing designed.
+**Not tested:** a real model (every prompt change above is proven only by a real re-recording); a recording longer than 40 steps; a manual workflow's `finish` with nothing designed.
 
 ---
 
@@ -396,7 +405,7 @@ Plus `apps/daemon/src/e2e.test.ts` (form → events → compile → design agent
 From the code above and the first real recording (`reports/first-real-recording-yc-to-sheets.md`).
 
 ### Rules that let bad results through
-1. **No limit on removing recorded steps** (§8.2). Fix: refuse removing steps that write (type, paste, upload, outward) unless replaced, or cap removals and ask beyond.
+1. *(Fixed 15 Oct: writes never removed, at most half the steps.)* **No limit on removing recorded steps** (§8.2). Fix: refuse removing steps that write (type, paste, upload, outward) unless replaced, or cap removals and ask beyond.
 2. **The `checks` are empty for manual workflows** (§8.3), so nothing structural is checked before `finish`. Add design-time checks:
    - the workflow starts by opening a page (or a file step);
    - every recorded write still happens;
@@ -404,24 +413,24 @@ From the code above and the first real recording (`reports/first-real-recording-
 3. **`finish` summary unchecked.** Build the history note from `session.edits`, and keep the model's sentence as a comment.
 
 ### Rules that block good results
-4. **Visited sites** = only first-draft navigate steps. Use every URL the trace navigated to (including pages reached by a click), so "open the sheet directly" is possible.
-5. **Kind of action is fixed.** Allow `web.click` → `web.navigate` when the click led to a stable URL (the trace has it).
-6. **30 operations per edit.** Raise it, or add `replace_range` / `rebuild` operations so a restructure isn't 30+ single ops that get cut in half.
+4. *(Fixed 15 Oct, design side.)* **Visited sites** = only first-draft navigate steps. Use every URL the trace navigated to (including pages reached by a click), so "open the sheet directly" is possible.
+5. *(Fixed 15 Oct.)* **Kind of action is fixed.** Allow `web.click` → `web.navigate` when the click led to a stable URL (the trace has it).
+6. *(Fixed 15 Oct: 100.)* **30 operations per edit.** Raise it, or add `replace_range` / `rebuild` operations so a restructure isn't 30+ single ops that get cut in half.
 
 ### Questions
-7. **Answers to new-input questions never apply** (§10.2). Create the input (`{ type: <from the answer>, default }`) when the path names one that doesn't exist, and return `not_applied` as an error the agent must resolve before `finish`.
-8. **Duplicate questions** (§2.5). Tell both prompts not to ask what the form or narration says, and filter by meaning: the agent quotes the line that leaves it open, or doesn't ask.
+7. *(Fixed 15 Oct.)* **Answers to new-input questions never apply** (§10.2). Create the input (`{ type: <from the answer>, default }`) when the path names one that doesn't exist, and return `not_applied` as an error the agent must resolve before `finish`.
+8. *(Fixed 15 Oct: one AI writes questions, and code's questions the agent already settled aren't asked again.)* **Duplicate questions** (§2.5). Tell both prompts not to ask what the form or narration says, and filter by meaning: the agent quotes the line that leaves it open, or doesn't ask.
 9. **No timeout on questions** (§10.3). Fall back to the default after N minutes, and survive a daemon restart.
 
 ### What the agent sees
-10. **Only steps 1–40 are in the first message.** Always include every note (said and seen), even when steps are shortened.
-11. **The briefing has no "Available now"** and no worked examples of the common shapes ("list → pick N new → loop → write a row"). A few examples would make better use of the existing tools.
-12. **Notes attach to one step** (§5.3). A sentence about the whole task ("do this for 5 a day") lands on whatever step was last; consider a separate "what was said overall" section.
+10. *(Narration fixed 15 Oct; screen words past step 40 still only via read_recording.)* **Only steps 1–40 are in the first message.** Always include every note (said and seen), even when steps are shortened.
+11. *(Partly 15 Oct: the list → pick → loop shape is in the ROLE.)* **The briefing has no "Available now"** and no worked examples of the common shapes ("list → pick N new → loop → write a row"). A few examples would make better use of the existing tools.
+12. *(Fixed 15 Oct: the narration section with step spans.)* **Notes attach to one step** (§5.3). A sentence about the whole task ("do this for 5 a day") lands on whatever step was last; consider a separate "what was said overall" section.
 
 ### Capabilities
 13. **No "append a row" action.** Writes go to fixed cells (`A2`), so a daily run overwrites the same row. `web.extract { source: "google_sheet" }` can read rows, but nothing writes the next empty one.
 14. **Typing into another site's document isn't outward** ([README](README.md) §6), so a sheet write never needs approval by default.
 
 ### Observability and cost
-15. Keep the system and task messages, the reasoning, and the input of refused calls in `design.json` (README §10).
+15. *(System and task kept since 15 Oct; reasoning and refused inputs still not.)* Keep the system and task messages, the reasoning, and the input of refused calls in `design.json` (README §10).
 16. Meter the compile call and vision calls (README §3.4).

@@ -117,6 +117,9 @@ export interface WorkflowSummary {
 export interface Question {
   title: string;
   options?: string[];
+  // The person may write their own answer besides the options (an "Other" box). False when an option stands for
+  // something typed text can't be (a whole step, a schedule).
+  freeText?: boolean;
   default?: string;
   step?: string;
   draft?: unknown;

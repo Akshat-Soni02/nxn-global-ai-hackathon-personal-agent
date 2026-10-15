@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Empty, Loading } from "../components.tsx";
 import { ago, KIND, when } from "../format.ts";
-import { StepTree } from "./Workflow.tsx";
+import { WorkflowTree } from "../WorkflowTree.tsx";
 
 export function Inbox() {
   const { data, error } = useQuery<InboxItem[]>("inbox", { open: true });
@@ -43,7 +43,7 @@ export function Question({ item }: { item: InboxItem }) {
         <div className="muted small">
           The workflow so far{item.detail.step ? `: the question is about ${item.detail.step}` : ""}
         </div>
-        <StepTree steps={draft.steps} highlight={item.detail.step as string | undefined} />
+        <WorkflowTree steps={draft.steps} highlight={item.detail.step as string | undefined} />
       </div>
       <Card item={item} />
     </div>
@@ -170,23 +170,55 @@ function Answer({ item }: { item: InboxItem }) {
       </>
     );
   }
-  // A step's question or a question outside a run.
+  // A step's question or a question outside a run: its options, and your own words when none of them fits.
   if (options.length > 0) {
     return (
-      <div className="answers">
-        {options.map((o, i) => (
-          <Action key={o} kind={i === 0 ? "primary" : "secondary"} run={() => answer(o)}>
-            {o}
-          </Action>
-        ))}
-      </div>
+      <>
+        <div className="answers">
+          {options.map((o, i) => (
+            <Action key={o} kind={i === 0 ? "primary" : "secondary"} run={() => answer(o)}>
+              {o}
+            </Action>
+          ))}
+        </div>
+        {item.detail.freeText ? <TextAnswer label="Or write your own answer" onSend={answer} required /> : null}
+      </>
     );
   }
   return <TextAnswer placeholder={item.detail.default as string | undefined} onSend={answer} />;
 }
 
-function TextAnswer({ placeholder, onSend }: { placeholder?: string; onSend: (text: string) => Promise<unknown> }) {
+function TextAnswer({
+  placeholder,
+  label,
+  required,
+  onSend,
+}: {
+  placeholder?: string;
+  label?: string;
+  // With options beside it, an empty answer would mean nothing: Send waits for words.
+  required?: boolean;
+  onSend: (text: string) => Promise<unknown>;
+}) {
   const [text, setText] = useState("");
+  if (required) {
+    return (
+      <form className="answers other" onSubmit={(e) => e.preventDefault()}>
+        <input
+          className="input"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={label}
+          aria-label={label}
+        />
+        {text.trim() ? (
+          <Action kind="secondary" run={() => onSend(text.trim())}>
+            Send
+          </Action>
+        ) : null}
+      </form>
+    );
+  }
   return (
     <form
       className="answers"
