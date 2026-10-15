@@ -156,6 +156,29 @@ The sheet's URL is in the trace (events 20–24). The question blocked the whole
 #### D4 (P2): an extract that's never used
 `s4` extracts `company_name` ("Eventual") and nothing reads it; it only exists because the first job was looked at and skipped. With a "skip if already in the sheet" branch it would have a use; without one it's a dead step that can fail.
 
+#### D5 (P1): pictures were available, and neither agent looked at one
+Pictures consent was on (the form and `config.json`: `pictures: true`), and both agents had a picture tool:
+- design: `describe_step_screenshot`, always in its tools; it describes a recorded step's already-masked `shots/<event>.jpg` with GLM-5.3-Flash;
+- repair: `describe_screen`, added because Pictures was on and a model was set.
+
+Neither was called. Design called `label_steps → ask_user → finish`; repair called only `find, inspect, page_outline, click_safe, retarget, edit, try_steps`.
+
+**Why:**
+- **The design tool's description discourages it**: *"only when the words near the step don't say what the control was for"*. The masked screen words were already in its first message, so it treated pictures as unnecessary.
+- **The design prompt says to look before asking** ("use it before asking"). The agent asked for the sheet URL without looking.
+- **The repair ROLE never mentions pictures** ("look at the page, probe it…"). Its page tools (`find`, `inspect`, `page_outline`) give structured data, which suits picking a target better. Pictures wouldn't have saved this repair: the tries hung (X1).
+
+**Where pictures would have helped design**: exactly the steps the recording can't name.
+- The nameless click on the top job (R2, event 3): a picture shows a list of job cards with the first one clicked. That's the evidence for "take the top job" instead of a fixed URL.
+- The clicks on the sheet grid (R3, events 25 and 33, a canvas): a picture shows the existing rows, with Numeral already in row 2. That's the evidence for "skip it if it's already in the sheet" and "add below the last row".
+
+**Fix: code describes them, not the model.**
+1. During design, before the agent's first turn, describe the screenshot of every recorded step whose target has **no name and no role** (nameless links, canvas clicks, drawn areas), when Pictures is on.
+2. Put each description in the first message next to its step (`seen: …`), like the narration.
+3. Keep `describe_step_screenshot` for anything else, but drop the "only when…" wording.
+
+This recording had about 5 such steps, at roughly $0.0005 each on GLM-5.3-Flash, so well under a cent per recording. It also takes the decision away from a model that, on both runs so far, skipped evidence it needed. Meter these calls on the design budget (today vision calls aren't metered: `docs/agents/README.md` §3.4).
+
 ### Replay
 
 #### P1 (P0): `s3`'s target can't be found
@@ -211,6 +234,7 @@ Even with R1–R4 unfixed, the agent kept trying to make `s3` click something. A
 | 8 | Click-chain to a document → one `navigate` | R5 | normalise or design | Hours |
 | 9 | DevTools timeouts; window forward before every step | X1 | `packages/player/src/web/`, extension `replay.ts` | Hours |
 | 10 | Tie-break by `near` and `href` | P2 | `match.ts` | Hours |
+| 11 | Describe the screenshots of nameless and canvas steps automatically, into the first message; meter them | D5, R2, R3 | `apps/daemon/src/record.ts`, `design/design.ts` (`taskOf`) | Hours |
 
 Then record the task again (the same narration), and compare `design.json` and the first run.
 
