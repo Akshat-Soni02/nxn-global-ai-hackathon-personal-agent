@@ -75,6 +75,8 @@ export async function runWithRecovery(
     if (outcome.status !== "paused" || outcome.pausedBy !== "failure" || !outcome.failure || !outcome.resume) {
       return outcome;
     }
+    // Stopped by the user: nothing is repaired or retried.
+    if (options.signal?.aborted) return { ...outcome, status: "cancelled", error: "you stopped it" };
     const failure = outcome.failure;
     const skillId = current.id;
     const env: RepairEnv = {
@@ -130,6 +132,7 @@ export async function runWithRecovery(
       if (repaired.class === "data") return { ...outcome, status: "failed" };
       if (repaired.class === "transient" && transient < retryAfter.length) {
         await sleep(retryAfter[transient++] as number);
+        if (options.signal?.aborted) return { ...outcome, status: "cancelled", error: "you stopped it" };
         resume = outcome.resume;
         continue;
       }

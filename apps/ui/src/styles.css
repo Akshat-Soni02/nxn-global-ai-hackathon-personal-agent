@@ -699,6 +699,27 @@ nav a.active .badge {
   overflow: auto;
   font-size: 11.5px;
 }
+/* What repair did, one line per tool call */
+.repair-steps {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+.repair-steps li {
+  margin: 4px 0;
+}
+.repair-steps li.good > .small {
+  color: var(--ok);
+}
+.repair-steps li.warn,
+.repair-steps li.warn > .small {
+  color: var(--bad);
+}
+.repair-steps li.end {
+  font-weight: 600;
+}
+.episode-raw {
+  margin-top: 4px;
+}
 
 /* The Frequency picker */
 .picker {

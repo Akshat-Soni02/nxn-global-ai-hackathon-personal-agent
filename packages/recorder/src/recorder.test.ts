@@ -92,8 +92,8 @@ describe("normalise", () => {
     n = 0;
     const SHEET = "https://docs.google.com/spreadsheets/d/abc/edit";
     const COMPANY = "https://www.ycombinator.com/companies/noloco";
-    const name: ElementDescriptor = { role: "heading", name: "Noloco", tag: "h1", selectors: { css: "h1" } };
-    const cell: ElementDescriptor = { role: "combobox", name: "B3", tag: "div", selectors: { css: "#editor" } };
+    const name = { role: "heading", name: "Noloco", tag: "h1", url: COMPANY, fallbacks: [], selectors: { css: "h1" } };
+    const cell = { role: "combobox", name: "B3", tag: "div", url: SHEET, fallbacks: [], selectors: { css: "#editor" } };
     const steps = normalise([
       ev("navigate", 0, { tabId: 1, url: SHEET, transition: "typed" }),
       ev("navigate", 5_000, { tabId: 2, url: COMPANY, transition: "typed" }),

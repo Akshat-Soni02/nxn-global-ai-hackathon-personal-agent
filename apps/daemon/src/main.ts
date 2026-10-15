@@ -148,7 +148,7 @@ const execute: Execute = (skill, leg) =>
   runSkillOn(
     daemon,
     skill,
-    { runId: leg.runId, provided: leg.provided, resume: leg.resume },
+    { runId: leg.runId, provided: leg.provided, resume: leg.resume, signal: leg.signal },
     {
       log: leg.log,
       data,
@@ -163,7 +163,7 @@ const execute: Execute = (skill, leg) =>
       recovery: leg.walk
         ? undefined
         : {
-            repairer: createRepairer({ llm: model, meter: usage }),
+            repairer: createRepairer({ llm: model, meter: usage, signal: leg.signal }),
             memory,
             saveVersion: (repaired) => saveSkill(home, repaired).skill,
             waitForUser: leg.hooks.waitForUser,

@@ -59,6 +59,9 @@ export interface RunOptions {
   resume?: Resume;
   // Pause before the action or llm step after this many have run (used to try a few steps of a draft).
   maxSteps?: number;
+  // Stops the run: checked before every step and every attempt, so it ends as cancelled at the next one. A step in
+  // progress is ended by its channel (the daemon stops waiting for it).
+  signal?: AbortSignal;
 }
 
 // Why the run stopped early, and where.
@@ -95,6 +98,7 @@ interface Env {
   resume?: ResumeState;
   // Action and llm steps still allowed (maxSteps), shared by the whole run.
   stepsLeft?: { n: number };
+  signal?: AbortSignal;
 }
 
 type Vars = Record<string, unknown>;
@@ -115,6 +119,7 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
     log,
     at: "",
     stepsLeft: options.maxSteps === undefined ? undefined : { n: options.maxSteps },
+    signal: options.signal,
   };
   // One namespace at the top: the trigger's inputs, then every output as steps produce it. A resumed run starts
   // with the variables it had when it paused.
@@ -189,6 +194,7 @@ async function runSteps(steps: Step[], vars: Vars, env: Env): Promise<Halt | und
 async function runStep(step: Exclude<Step, { type: "trigger" }>, vars: Vars, env: Env): Promise<Halt | undefined> {
   const path = `${env.at}${step.id}`;
   const fail = (error: string, status: Halt["status"] = "failed"): Halt => ({ status, failedStep: path, error });
+  if (env.signal?.aborted) return fail("you stopped it", "cancelled");
 
   // Resuming into a loop or branch that holds the position: no question or approval again, straight in.
   const resume = env.resume;
@@ -346,6 +352,7 @@ async function runLeaf(
   const attempts = 1 + (isAction(resolved) ? (resolved.on_fail?.retries ?? 0) : 0);
   let result: StepResult = { ok: false, error: "not run" };
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (env.signal?.aborted) return fail("you stopped it", "cancelled");
     const [channel, action] = isAction(resolved) ? [resolved.channel, resolved.action] : ["llm", "transform"];
     env.log({ type: "step.start", stepId: step.id, path, channel, action, attempt });
     const t0 = Date.now();
@@ -357,6 +364,8 @@ async function runLeaf(
     env.log({ type: "step.result", stepId: step.id, path, attempt, result, ms: Date.now() - t0 });
     if (result.ok) break;
   }
+  // A step that ended because the run was stopped is not a failure to repair.
+  if (env.signal?.aborted) return fail("you stopped it", "cancelled");
   if (!result.ok) {
     const failure: Failure = { stepId: step.id, path, step: resolved, result, attempts, vars: { ...vars } };
     if ((await env.deps.onFailure?.(failure)) === "pause") {
