@@ -18,11 +18,14 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
   const draft = useQuery<DraftView>("draft", { id });
   const [error, setError] = useState<string>();
   const [picked, setPicked] = useState<string>();
-  // Escape puts the step down, as it closes a panel anywhere else on the Mac.
+  // Escape puts the step down, as it closes a panel anywhere else on the Mac. The field being typed in loses focus
+  // first, so what was typed is saved (on blur) before the panel goes.
   useEffect(() => {
     if (!picked) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPicked(undefined);
+      if (e.key !== "Escape") return;
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      setPicked(undefined);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

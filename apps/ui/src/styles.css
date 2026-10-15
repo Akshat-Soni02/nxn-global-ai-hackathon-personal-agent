@@ -1025,9 +1025,10 @@ nav a.active .badge {
 }
 
 /* A drill question beside the draft it is about (screens/Inbox.tsx, Question) */
+/* The draft gets the room (it is the wide one); the question card keeps a readable width beside it. */
 .drill {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
   gap: 16px;
   align-items: start;
 }
