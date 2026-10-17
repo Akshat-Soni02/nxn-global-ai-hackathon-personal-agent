@@ -1,9 +1,12 @@
-# Ten real-world tests
+# Real-world tests
 
 > Written 17 Oct 2026, on `main` at `eae9d40` (PR #11 merged). These are tasks a real person would hand to Shadow, run
 > end to end on the **real model**: record → questions → workflow → edit → walk through → run → approvals → schedule
 > → repair. Each test says what to type, do and say, and **what should happen at every stage**. You fill in what
 > actually happened.
+>
+> Tests 1–10 are new. Test 11 is the YC task that was already recorded twice, re-run to see what has been fixed
+> since.
 >
 > What comes next: the flaws found here go into [flaws.md](flaws.md), next to this one, sorted by the section codes below,
 > then they get fixed, then ten more tests are run.
@@ -15,8 +18,11 @@
 
 **Once**
 
-1. `pnpm setup:mac`, then System Settings → Privacy & Security → Accessibility: turn Shadow **off and on**. This
-   gives you the new pill (it shows only while recording) and lets Shadow record and drive Mac apps.
+1. `pnpm setup:mac`, for the new pill (it shows only while recording). Then System Settings → Privacy & Security →
+   Accessibility: turn Shadow **off and on**. That second part matters only for tests **2, 5, 7 and 10**, the ones that
+   use Mac apps (Notes, Reminders, Preview). Tests 1, 3, 4, 6, 8, 9 and 11 don't use Accessibility: Chrome is recorded
+   by the extension, and Finder by a file watcher (test 4 asks once for access to Desktop, Documents and Downloads
+   instead).
 2. Allow **Screen Recording** and **Microphone** for Shadow (needed for the screen-words and voice switches).
 3. Shadow → Settings shows **Connected to Nemotron**, and Chrome shows as connected.
 4. The daemon is the launchd one. This branch has the same code as `main`, so it needs no restart.
@@ -34,7 +40,7 @@
   Free text is fine; the row numbers are what matter.
 
 **What it costs** (your Token Factory key): the design agent stops at $0.10 a recording (a real one cost $0.02);
-repair stops at $0.25 a run; AI steps make at most 3 calls a run. All ten tests: about $1–3.
+repair stops at $0.25 a run; AI steps make at most 3 calls a run. All eleven tests: about $1–3.
 
 ## How to read a test
 
@@ -69,31 +75,31 @@ repair stops at $0.25 a run; AI steps make at most 3 calls a run. All ten tests:
 
 ## Coverage
 
-| Thing tested | 1★ | 2★ | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
-|---|---|---|---|---|---|---|---|---|---|---|
-| Chrome | ✓ | | ✓ | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Mac apps (Notes, Reminders, Preview) | | ✓ | | | ✓ | | ✓ | | | ✓ |
-| Files (Finder) | | ✓ | | ✓ | | | | | | |
-| Voice while doing | ✓ | ✓ | ✓ | | ✓ | | ✓ | | ✓ | |
-| Said only (rule or step never shown) | ✓ | | ✓ | | ✓ | ✓ | | ✓ | | |
-| Silent | | | | ✓ | | | | | | ✓ |
-| Vision while designing (`describe_step_screenshot`) | | | | | | ✓ | | | ✓ | |
-| Vision while repairing (`describe_screen`) | ✓ | | | | | | | | | |
-| Masking | ✓ | | ✓ | | | | | | | |
-| Loop ("for each") | ✓ | | ✓ | ✓ | ✓ | | | | ✓ | |
-| Branch ("if") | ✓ | ✓ | ✓ | | ✓ | ✓ | | | ✓ | ✓ |
-| AI step | ✓ | ✓ | ✓ | | ✓ | | ✓ | ✓ | | |
-| Questions, your own answer | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Approval in the inbox | ✓ | | ✓ | ✓ | | ✓ | | ✓ | | |
-| Edit → Save as v2 | ✓ | | ✓ | ✓ | ✓ | ✓ | | | ✓ | |
-| Walk through | ✓ | ✓ | | | ✓ | | | | | |
-| Schedule / Go live | ✓ | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | ✓ |
-| Folder trigger | | ✓ | | | | | | | | |
-| Auto-pause after 3 failures | | | | | | ✓ | | | | |
-| Repair (a page or app changed) | ✓ | ✓ | ✓ | | | | | | | |
-| "I did it by hand: go on" | | ✓ | | | | | | | | ✓ |
-| Record again | | | | ✓ | | ✓ | | | | |
-| Memory (no question asked twice) | | | | ✓ | | | | | | |
+| Thing tested | 1★ | 2★ | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Chrome | ✓ | | ✓ | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Mac apps (Notes, Reminders, Preview) | | ✓ | | | ✓ | | ✓ | | | ✓ | |
+| Files (Finder) | | ✓ | | ✓ | | | | | | | |
+| Voice while doing | ✓ | ✓ | ✓ | | ✓ | | ✓ | | ✓ | | ✓ |
+| Said only (rule or step never shown) | ✓ | | ✓ | | ✓ | ✓ | | ✓ | | | |
+| Silent | | | | ✓ | | | | | | ✓ | |
+| Vision while designing (`describe_step_screenshot`) | | | | | | ✓ | | | ✓ | | ✓ |
+| Vision while repairing (`describe_screen`) | ✓ | | | | | | | | | | |
+| Masking | ✓ | | ✓ | | | | | | | | |
+| Loop ("for each") | ✓ | | ✓ | ✓ | ✓ | | | | ✓ | | |
+| Branch ("if") | ✓ | ✓ | ✓ | | ✓ | ✓ | | | ✓ | ✓ | ✓ |
+| AI step | ✓ | ✓ | ✓ | | ✓ | | ✓ | ✓ | | | ✓ |
+| Questions, your own answer | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Approval in the inbox | ✓ | | ✓ | ✓ | | ✓ | | ✓ | | | |
+| Edit → Save as v2 | ✓ | | ✓ | ✓ | ✓ | ✓ | | | ✓ | | ✓ |
+| Walk through | ✓ | ✓ | | | ✓ | | | | | | ✓ |
+| Schedule / Go live | ✓ | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | ✓ | ✓ |
+| Folder trigger | | ✓ | | | | | | | | | |
+| Auto-pause after 3 failures | | | | | | ✓ | | | | | |
+| Repair (a page or app changed) | ✓ | ✓ | ✓ | | | | | | | | ✓ |
+| "Shadow needs you" card: by hand / try again | | ✓ | | | | | | | | ✓ | |
+| Record again | | | | ✓ | | ✓ | | | | | |
+| Memory (no question asked twice) | | | | ✓ | | | | | | | |
 
 ---
 
@@ -610,6 +616,70 @@ repair stops at $0.25 a run; AI steps make at most 3 calls a run. All ten tests:
 | 10.8 | I / X | **Sign-in wall:** sign out of GitHub in Chrome, then Run now. The run stops on the login page, with a notification "Shadow needs you" and an Inbox card **Try the step again** / **I did it by hand: go on** / **Stop the run**. Sign in inside the automation window, then press **Try the step again**: the count is read and the run finishes. (Not "I did it by hand: go on": that skips the reading step, so the count would be empty) | |
 | 10.9 | P | Unassign 2 issues (count 2), then Run now: a Notes line, **no** Reminder | |
 | 10.10 | P | **Runs page:** the run cost (about $0 if there's no AI step) | |
+
+---
+
+## 11 Top YC job → my Ycomb jobs sheet (the task recorded twice before)
+
+> Someone tracking startup jobs, one a day. Recorded twice already, on 14 and 15 Oct. Both failed at every stage:
+> see [the first report](../reports/first-real-recording-yc-to-sheets.md) and Akshat's second report
+> (`reports/second-recording-yc-to-sheet.md` on his branch `fix/quick-fixes-before-recording`). The bracketed IDs
+> below (R1, D1, …) are that report's.
+>
+> This re-run shows what `main` fixes now. Akshat's branch, with tab switches and an honest "what changed" summary,
+> isn't merged, so those rows are still expected to fail. Chrome only: no Accessibility needed.
+
+**Prepare (3 min)**
+
+- A Google Sheet **"Ycomb jobs"**: row 1 is `Date | Company | Compensation | Role`. Row 2 holds the job that is at
+  the **top** of ycombinator.com/jobs right now (yesterday's entry), so the rule "already there → take the next one"
+  is tested.
+- Keep the sheet open in a tab, or bookmarked. Don't open it through Drive's Recent list: that detour became 4
+  useless steps last time (R5).
+
+**Goal box**
+
+| Field | Value |
+|---|---|
+| What should Shadow learn? | Every day, add the top job from YC's job board to my Ycomb jobs sheet (date, company, compensation, role); if it's already there, take the next one |
+| Frequency | Every day at… 10:00 |
+| Read the words on my screen | On |
+| Hear my voice | On |
+| Let the model see masked pictures | On |
+| Never do without asking | (empty) |
+
+**Do and say**
+
+1. Open ycombinator.com/jobs. Say: *"Every day I add the top job here to my sheet."*
+2. Go to the sheet tab and look at row 2. Say: *"The top one is already in my sheet from yesterday, so I take the next
+   one instead."*
+3. Back on YC, click the **2nd** job → its company page → **Jobs**. Copy the company name → sheet B3 → paste. Copy the
+   compensation → C3. Copy the role → D3.
+4. Type today's date in A3. Say: *"And today's date."*
+5. Stop.
+
+**Should happen**
+
+| # | Code | Should happen | What happened |
+|---|---|---|---|
+| 11.1 | R | The pill appears already red, and hides after saving | |
+| 11.2 | R | Clicks you made only to select text before copying are part of the copy, not separate clicks on big page areas. ⚠ Not fixed on `main` (R1): last time this was the step the run failed on | |
+| 11.3 | R | The job link keeps its place ("the 2nd job in the list"), not just that company's fixed address. ⚠ Not fixed on `main` (R2) | |
+| 11.4 | R | Switching between the YC tab and the sheet tab is recorded. ⚠ Not on `main` (R4; built on Akshat's unmerged branch) | |
+| 11.5 | Q | **Must NOT** ask for the sheet's address: it's in the recording (D2). Any question has **Or write your own answer**, and its answer is actually used | |
+| 11.6 | D | **Inputs:** none without a default | |
+| 11.7 | D | **Tree:** Every day 10:00 → open YC jobs → read the list of jobs → read the sheet's rows (its CSV export) → **AI step** or **branch**: the first job whose company isn't in the sheet yet → open it → read company, compensation, role → add a row: Date `{{today}}`, Company, Compensation, Role | |
+| 11.8 | D | The date is `{{today}}`, not "15 Oct" or today's literal date (R6) | |
+| 11.9 | D | `design.json`: the summary describes only changes that are in the edits. **Must NOT** claim "made the date dynamic" or "added a skip branch" when it didn't (D1: happened both times) | |
+| 11.10 | D | Checks use only text that really appeared on screen: no `text_visible: ""`, no checks on sheet cells (they're a canvas), and no workflow success text that never shows (D3) | |
+| 11.11 | D | No read step whose result nothing uses (D4) | |
+| 11.12 | D | **Vision:** the sheet is a canvas, so `design.json` may show `describe_step_screenshot`. Tell me the `grep -c` count | |
+| 11.13 | E | **Edit:** remove any leftover click that only led to the sheet, keeping one "open the sheet" step → **Save as v2** | |
+| 11.14 | W | **Walk through:** the YC job link is outlined on the right element. There are two links with the company's name (logo and title), so watch for "ambiguous" (P2) | |
+| 11.15 | P | **Run now:** ⚠ writing into the sheet is expected to fail ([K1](flaws.md#k1-shadow-cant-write-into-a-google-sheet)). Tell me the step it stops at and its error | |
+| 11.16 | X | If a step breaks, repair's tries **don't** hang for 35–50 s with "extension did not answer" (X1). If the workflow itself is wrong (not the page), repair should say quickly that it needs re-recording or editing, not use up its turns (X2) | |
+| 11.17 | T | Set Every day 10:00 and **Go live**: the next day, a run "by schedule" | |
+| 11.18 | P | **Runs page:** the design and repair cost. Last time: design $0.017 (3 calls), repair $0.043 | |
 
 ---
 

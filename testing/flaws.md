@@ -2,7 +2,7 @@
 
 > Everything that is wrong with Shadow, sorted by product section, so each section can be fixed on its own and
 > then tested again. Started 17 Oct 2026, on `main` at `eae9d40`. Results from the
-> [ten real-world tests](real-world-tests.md) get added here, each with the test row that found it (e.g. "test 3, row
+> [real-world tests](real-world-tests.md) get added here, each with the test row that found it (e.g. "test 3, row
 > 3.6").
 
 **How an entry reads:** what goes wrong · the mechanism, in the code · an example · the fix · which tests run into it.
@@ -31,7 +31,7 @@ asking for values. Each of those has its own small fix, below.
 
 ### K1 Shadow can't write into a Google Sheet
 
-- **Sections:** R (record), P (run) · **Severity:** P0 · **Tests:** 9 (row 9.8), and any task that ends in a sheet.
+- **Sections:** R (record), P (run) · **Severity:** P0 · **Tests:** 9 (row 9.8), 11 (row 11.15), and any task that ends in a sheet.
 - **What goes wrong:** a recorded "type into a cell" replays into whichever cell happens to be selected, or nowhere.
 - **Mechanism:**
   - Sheets draws its cells on a canvas, so a click on B3 has no element. The extension marks it `drawn`
