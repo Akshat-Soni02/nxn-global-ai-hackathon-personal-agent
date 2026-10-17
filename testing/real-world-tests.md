@@ -5,7 +5,7 @@
 > → repair. Each test says what to type, do and say, and **what should happen at every stage**. You fill in what
 > actually happened.
 >
-> What comes next: the flaws found here go into a flaws file next to this one, sorted by the section codes below,
+> What comes next: the flaws found here go into [flaws.md](flaws.md), next to this one, sorted by the section codes below,
 > then they get fixed, then ten more tests are run.
 >
 > The earlier lists are kept as they are: [docs/examples.md](../docs/examples.md) (15 workflows from the design
