@@ -631,17 +631,21 @@ repair stops at $0.25 a run; AI steps make at most 3 calls a run. All eleven tes
 
 **Prepare (3 min)**
 
-- A Google Sheet **"Ycomb jobs"**: row 1 is `Date | Company | Compensation | Role`. Row 2 holds the job that is at
-  the **top** of ycombinator.com/jobs right now (yesterday's entry), so the rule "already there → take the next one"
-  is tested.
+- A Google Sheet **"Ycomb jobs"** with only the headers in row 1: `Date | Company | Compensation | Role`. Nothing
+  else in it.
 - Keep the sheet open in a tab, or bookmarked. Don't open it through Drive's Recent list: that detour became 4
   useless steps last time (R5).
+
+**The rule being taught:** add one job a day, one you don't have yet. That's the top job, unless it's already in the
+sheet; then it's the next one down. You record the normal case (the sheet is empty, so the top job). Then you press
+Run now straight away: the top job is now in the sheet, so the run has to take the next one. That tests "the next
+day" without waiting a day.
 
 **Goal box**
 
 | Field | Value |
 |---|---|
-| What should Shadow learn? | Every day, add the top job from YC's job board to my Ycomb jobs sheet (date, company, compensation, role); if it's already there, take the next one |
+| What should Shadow learn? | Every day, add one job from YC's job board to my Ycomb jobs sheet (date, company, compensation, role): the top one, or if that's already in my sheet, the next one down that isn't |
 | Frequency | Every day at… 10:00 |
 | Read the words on my screen | On |
 | Hear my voice | On |
@@ -650,13 +654,12 @@ repair stops at $0.25 a run; AI steps make at most 3 calls a run. All eleven tes
 
 **Do and say**
 
-1. Open ycombinator.com/jobs. Say: *"Every day I add the top job here to my sheet."*
-2. Go to the sheet tab and look at row 2. Say: *"The top one is already in my sheet from yesterday, so I take the next
-   one instead."*
-3. Back on YC, click the **2nd** job → its company page → **Jobs**. Copy the company name → sheet B3 → paste. Copy the
-   compensation → C3. Copy the role → D3.
-4. Type today's date in A3. Say: *"And today's date."*
-5. Stop.
+1. Open ycombinator.com/jobs. Say: *"Every day I add one job I don't have yet. If the top one's already in my sheet, I
+   take the next one down."*
+2. Click the **top** job → its company page → **Jobs**. Copy the company name → sheet B2 → paste. Copy the
+   compensation → C2. Copy the role → D2.
+3. Type today's date in A2. Say: *"And today's date."*
+4. Stop.
 
 **Should happen**
 
@@ -664,7 +667,7 @@ repair stops at $0.25 a run; AI steps make at most 3 calls a run. All eleven tes
 |---|---|---|---|
 | 11.1 | R | The pill appears already red, and hides after saving | |
 | 11.2 | R | Clicks you made only to select text before copying are part of the copy, not separate clicks on big page areas. ⚠ Not fixed on `main` (R1): last time this was the step the run failed on | |
-| 11.3 | R | The job link keeps its place ("the 2nd job in the list"), not just that company's fixed address. ⚠ Not fixed on `main` (R2) | |
+| 11.3 | R | The job link keeps its place ("the 1st job in the list"), not just that company's fixed address. ⚠ Not fixed on `main` (R2) | |
 | 11.4 | R | Switching between the YC tab and the sheet tab is recorded. ⚠ Not on `main` (R4; built on Akshat's unmerged branch) | |
 | 11.5 | Q | **Must NOT** ask for the sheet's address: it's in the recording (D2). Any question has **Or write your own answer**, and its answer is actually used | |
 | 11.6 | D | **Inputs:** none without a default | |
@@ -676,10 +679,11 @@ repair stops at $0.25 a run; AI steps make at most 3 calls a run. All eleven tes
 | 11.12 | D | **Vision:** the sheet is a canvas, so `design.json` may show `describe_step_screenshot`. Tell me the `grep -c` count | |
 | 11.13 | E | **Edit:** remove any leftover click that only led to the sheet, keeping one "open the sheet" step → **Save as v2** | |
 | 11.14 | W | **Walk through:** the YC job link is outlined on the right element. There are two links with the company's name (logo and title), so watch for "ambiguous" (P2) | |
-| 11.15 | P | **Run now:** ⚠ writing into the sheet is expected to fail ([K1](flaws.md#k1-shadow-cant-write-into-a-google-sheet)). Tell me the step it stops at and its error | |
-| 11.16 | X | If a step breaks, repair's tries **don't** hang for 35–50 s with "extension did not answer" (X1). If the workflow itself is wrong (not the page), repair should say quickly that it needs re-recording or editing, not use up its turns (X2) | |
-| 11.17 | T | Set Every day 10:00 and **Go live**: the next day, a run "by schedule" | |
-| 11.18 | P | **Runs page:** the design and repair cost. Last time: design $0.017 (3 calls), repair $0.043 | |
+| 11.15 | P | **Run now, straight after saving:** the top job is already in row 2, so the run should pick the **2nd** job (the first one not in the sheet), not the top one again. On the Run page, tell me which company it picked: the reading and choosing part works even though writing doesn't | |
+| 11.16 | P | It writes that job into row 3. ⚠ Writing into the sheet is expected to fail ([K1](flaws.md#k1-shadow-cant-write-into-a-google-sheet)). Tell me the step it stops at and its error | |
+| 11.17 | X | If a step breaks, repair's tries **don't** hang for 35–50 s with "extension did not answer" (X1). If the workflow itself is wrong (not the page), repair should say quickly that it needs re-recording or editing, not use up its turns (X2) | |
+| 11.18 | T | Set Every day 10:00 and **Go live**: the next day, a run "by schedule" | |
+| 11.19 | P | **Runs page:** the design and repair cost. Last time: design $0.017 (3 calls), repair $0.043 | |
 
 ---
 
