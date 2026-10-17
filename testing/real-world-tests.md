@@ -21,8 +21,7 @@
 1. `pnpm setup:mac`, for the new pill (it shows only while recording). Then System Settings → Privacy & Security →
    Accessibility: turn Shadow **off and on**. That second part matters only for tests **2, 5, 7 and 10**, the ones that
    use Mac apps (Notes, Reminders, Preview). Tests 1, 3, 4, 6, 8, 9 and 11 don't use Accessibility: Chrome is recorded
-   by the extension, and Finder by a file watcher (test 4 asks once for access to Desktop, Documents and Downloads
-   instead).
+   by the extension, and Finder by a file watcher.
 2. Allow **Screen Recording** and **Microphone** for Shadow (needed for the screen-words and voice switches).
 3. Shadow → Settings shows **Connected to Nemotron**, and Chrome shows as connected.
 4. The daemon is the launchd one. This branch has the same code as `main`, so it needs no restart.
@@ -296,18 +295,37 @@ repair stops at $0.25 a run; AI steps make at most 3 calls a run. All eleven tes
 
 > Anyone whose Downloads gets messy. Tests file moves with no voice and no screen words, a question answered in
 > your own words, a Trash step, removing a step, and whether a second recording asks the same question again.
+>
+> It runs in a **test copy of the folders**, `~/Shadow Test/`, so your real Downloads (93 PDFs, 15 installers) is
+> never touched: a run moves *every* matching file in the folder it watches.
 
-**Prepare (3 min)**
+**Prepare (already done, 17 Oct)**
 
-- In `~/Downloads`: 3 screenshots (⌘⇧3 three times, then move them from the Desktop), 2 PDFs, and 1 `.dmg` (any old
-  installer).
-- Folders `~/Pictures/Screenshots` and `~/Documents/PDFs`.
+```
+~/Shadow Test/
+├── Downloads/                     ← the folder you tidy
+│   ├── Screenshot 2026-10-17 at 10.15.01.png
+│   ├── Screenshot 2026-10-17 at 10.16.22.png
+│   ├── Screenshot 2026-10-17 at 10.18.40.png
+│   ├── Invoice-Acme-88231.pdf
+│   ├── Boarding-pass-PNQ-BOM.pdf
+│   ├── OldInstaller-1.2.dmg        (dated 15 Aug: old)
+│   ├── NewInstaller-2.0.dmg        (dated 15 Oct: new, stays)
+│   └── meeting-notes.txt           (not part of the task, stays)
+├── Pictures/Screenshots/          (empty)
+├── Documents/PDFs/                (empty)
+└── later/
+    ├── run-now/                   for row 4.8: 2 screenshots, a PDF, an old .dmg
+    └── record-again/              for row 4.10: a screenshot, a PDF, an old .dmg
+```
+
+To start over, ask me to set it up again.
 
 **Goal box**
 
 | Field | Value |
 |---|---|
-| What should Shadow learn? | Every Friday evening, move screenshots to Pictures/Screenshots, PDFs to Documents/PDFs, and delete old installers |
+| What should Shadow learn? | Every Friday evening, tidy my Shadow Test Downloads folder: screenshots to Shadow Test/Pictures/Screenshots, PDFs to Shadow Test/Documents/PDFs, and delete old installers |
 | Frequency | Every week on… Friday at 17:00 |
 | Read the words on my screen | Off |
 | Hear my voice | Off |
@@ -316,26 +334,28 @@ repair stops at $0.25 a run; AI steps make at most 3 calls a run. All eleven tes
 
 **Do** (silent)
 
-1. Open Downloads in Finder and sort by Kind.
-2. Select the 3 screenshots and drag them into `Pictures/Screenshots`.
-3. Select the 2 PDFs and drag them into `Documents/PDFs`.
-4. Drag the `.dmg` to the Trash.
-5. Stop.
+1. Before Record: open two Finder windows (Go → Go to Folder…, ⇧⌘G): `~/Shadow Test/Downloads`, and
+   `~/Shadow Test` (to see Pictures and Documents). In Downloads, View → Sort By → Kind.
+2. Press **Record**.
+3. Select the 3 screenshots and drag them into `Shadow Test/Pictures/Screenshots`.
+4. Select the 2 PDFs and drag them into `Shadow Test/Documents/PDFs`.
+5. Drag **OldInstaller-1.2.dmg** to the Trash. Leave NewInstaller-2.0.dmg and meeting-notes.txt where they are.
+6. Stop.
 
 **Should happen**
 
 | # | Code | Should happen | What happened |
 |---|---|---|---|
 | 4.1 | R | The pill appears already red, and hides after saving | |
-| 4.2 | R | The 5 moves are recorded. ⚠ not built yet: the move to the Trash isn't recorded (deletes and the hidden Trash folder are skipped). Tell me whether any Trash step appears | |
-| 4.3 | Q | A question about **what counts as old**, with options and **Or write your own answer**. Write: `older than 30 days` | |
+| 4.2 | R | The 5 moves are recorded. ⚠ not built yet: the move to the Trash isn't recorded ([K3](flaws.md#k3-finder-deletes-move-to-trash-arent-recorded)). Tell me whether any Trash step appears | |
+| 4.3 | Q | A question about **what counts as old**, with options and **Or write your own answer**. Write: `older than 30 days`. (If no Trash step was recorded, there's nothing to ask: tell me) | |
 | 4.4 | D | **Inputs:** none without a default | |
-| 4.5 | D | **Tree:** Friday 17:00 → find `Screenshot*.png` in Downloads → **for each**: move to Pictures/Screenshots → find `*.pdf` → **for each**: move to Documents/PDFs → find `*.dmg` older than 30 days → **for each**: move to Trash (🔒 approval) | |
-| 4.6 | D | It finds files by pattern. It doesn't replay moves of the exact files you moved: those are gone next week | |
-| 4.7 | E | **Edit** → the PDF loop → **Remove** → **Save as v2** | |
-| 4.8 | P | Make 2 new screenshots and drop a PDF in Downloads, then **Run now**. The screenshots are moved; the PDF stays (v2 removed that step) | |
-| 4.9 | I | If there's a Trash step, it waits in the Inbox for approval | |
-| 4.10 | M | Put new screenshots, a PDF and a `.dmg` in Downloads (the first recording moved them out). Then **Record again** (from the workflow page): the goal, Frequency and Never are already filled in. Do the same thing. **Must NOT** ask "what counts as old?" again. ⚠ The answer is saved, but reusing it depends on the agent looking it up: tell me if it asked | |
+| 4.5 | D | **Tree:** Friday 17:00 → find `Screenshot*.png` in Shadow Test/Downloads → **for each**: move to Pictures/Screenshots → find `*.pdf` → **for each**: move to Documents/PDFs → find `*.dmg` older than 30 days → **for each**: move to Trash (🔒 approval) | |
+| 4.6 | D | It finds files by pattern. It doesn't replay moves of the exact files you moved: those are gone next week. meeting-notes.txt and NewInstaller-2.0.dmg are not part of any step | |
+| 4.7 | E | **Edit** → the PDF loop (or the PDF move) → **Remove** → **Save as v2** | |
+| 4.8 | P | Move everything from `Shadow Test/later/run-now` into `Shadow Test/Downloads`, then **Run now**. The 2 new screenshots move to Pictures/Screenshots; Receipt-Uber-1123.pdf stays (v2 removed that step); NewInstaller-2.0.dmg and meeting-notes.txt stay | |
+| 4.9 | I | If there's a Trash step, OldTool-0.9.dmg (90 days old) waits in the Inbox for approval. NewInstaller-2.0.dmg is never offered | |
+| 4.10 | M | Move everything from `Shadow Test/later/record-again` into `Shadow Test/Downloads`. Then **Record again** (from the workflow page): the goal, Frequency and Never are already filled in. Do the same thing. **Must NOT** ask "what counts as old?" again. ⚠ The answer is saved, but reusing it depends on the agent looking it up: tell me if it asked | |
 | 4.11 | T | **Go live**. The workflow page says when it runs next. To see it start now, set a custom cron 2 min ahead, as in 1.18 | |
 
 ---
