@@ -163,7 +163,7 @@ export const FAQ = [
 
 export const TROUBLE = [
   {
-    q: "The Record button is grey",
+    q: "Record does nothing",
     a: "Shadow's background service isn't running. The menu bar says so and offers Start.",
   },
   { q: "“No API key”", a: "Settings → paste the key → Save and check." },

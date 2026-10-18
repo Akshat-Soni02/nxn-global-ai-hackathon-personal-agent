@@ -21,18 +21,19 @@ Mac apps, with your files. When a website changes, it fixes the task itself and 
      Details and turn on "Allow access to file URLs".
    - **Permissions.** Allow Accessibility if you want Mac apps recorded; Screen Recording and Microphone only if you
      want screenshots and narration.
-4. Press Open Shadow. From now on Shadow starts when you log in, and a round Record button floats on your screen.
+4. Press Open Shadow. From now on Shadow starts when you log in. You start a recording from its window, or from
+   Shadow in the menu bar.
 
 ## Record your first task
 
-1. Press the round **Record** button (or Shadow in the menu bar → Record a task). The window opens on a short form.
+1. Open Shadow and go to **Record** (or Shadow in the menu bar → Record a task). The window opens on the Record screen.
 2. Fill in the **goal**: what is done when this task is done. Example: "This week's numbers are in the KPI sheet".
    Everything else is optional: how often it should run, what changes each time, what stays the same, what it must
    never do without asking. Leave them empty if you are not sure.
 3. Two switches: a picture of the window at each step (only the words on it leave your Mac, private ones masked),
    and your voice while you explain (turned into text on your Mac). Both off is fine.
-4. Press **Start recording**. The button turns red with a clock. Do the task the way you always do, in Chrome, in a
-   Mac app, in Finder. If you like, say out loud why you choose what you choose: "always the newest one".
+4. Press **Record**. A red button with a clock appears on your screen, above every app: that is the recording. Do
+   the task the way you always do, in Chrome, in a Mac app, in Finder. If you like, say out loud why you choose what you choose: "always the newest one".
 5. Press **Stop**. (The trash next to it throws the recording away.)
 6. Shadow turns the recording into a workflow. If it is unsure about something, a question appears next to the step
    it is about. Answer it. The workflow appears under **Workflows**.
@@ -86,7 +87,7 @@ connect Chrome again, see and forget what Shadow remembers, and where its files 
 
 ## If something is off
 
-- **The Record button is grey.** Shadow's daemon is not running. The menu bar says so and offers Start; it also
+- **Record does nothing.** Shadow's daemon is not running. The menu bar says so and offers Start; it also
   starts by itself within seconds.
 - **"No API key".** Settings → paste the key → Save and check.
 - **Chrome: "not connected".** Settings → Connect Chrome, then reload the extension in `chrome://extensions`.

@@ -1454,9 +1454,15 @@ button {
   border-radius: 50%;
   background: var(--rec);
 }
+.pill[data-state="rec"] {
+  background: #db2626;
+  box-shadow: 0 10px 30px rgba(219, 38, 38, 0.35);
+}
 .pill[data-state="rec"] .rec-dot {
-  border-radius: 3px;
-  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.25);
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #fff;
 }
 .pill[data-state="saved"] .rec-dot {
   background: var(--ok);

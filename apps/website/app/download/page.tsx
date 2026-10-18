@@ -74,8 +74,8 @@ export default function Download() {
             <p className="eyebrow">Set up</p>
             <h2 className="headline">Ready in three steps.</h2>
             <p className="lead">
-              Drag Shadow to Applications and open it. A setup window walks you through these; then press Open Shadow,
-              and the round Record button floats on your screen from then on.
+              Drag Shadow to Applications and open it. A setup window walks you through these; then press Open Shadow
+              and record your first task from its window.
             </p>
           </div>
           <ol className="setup">

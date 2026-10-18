@@ -1,7 +1,7 @@
 "use client";
 // The Overview's story, played by the scroll: the section holds still (pinned) while one timeline runs, tied to the
 // scroll position so it moves exactly as fast as the reader and can be reversed at any frame.
-//   Record      the pill is pressed, turns into Stop with a running clock, then shows the saved workflow
+//   Record      the pill appears, already recording, its clock running; then it shows the saved workflow
 //   Understand  the workflow builds, step by step: the start, the loop, the AI step, the fork, the approval step
 //   Run         an approval arrives and is approved; later a repair lands as v2
 // The page's own HTML is the finished state, so a phone, a reader with Reduce Motion, or no scripts at all see the
@@ -50,18 +50,16 @@ export function StoryScroll({ children }: { children: ReactNode }) {
           },
         });
 
-        // Where it starts: nothing recorded yet.
+        // Where it starts: nothing recorded yet, and no pill (it shows only for a recording, as on the Mac).
         tl.set(steps, { opacity: 0.32 }, 0)
           .set(steps[0] ?? [], { opacity: 1 }, 0)
-          .set(pill, { attr: { "data-state": "idle" } }, 0)
-          .set(label, { textContent: "Record" }, 0)
+          .set(pill, { attr: { "data-state": "rec" }, autoAlpha: 0, scale: 0.9 }, 0)
+          .set(label, { textContent: "Stop · 0:00" }, 0)
           .set(built, { autoAlpha: 0, y: 14 }, 0)
           .set([approval, repaired], { autoAlpha: 0, y: 16 }, 0);
 
-        // Record: pressed, recording, the clock runs to 0:42.
-        tl.to(pill, { scale: 0.93, duration: 0.15 }, 0.2)
-          .to(pill, { scale: 1, duration: 0.3 })
-          .set(pill, { attr: { "data-state": "rec" } })
+        // Record: the pill appears, already recording; the clock runs to 0:42.
+        tl.to(pill, { autoAlpha: 1, scale: 1, duration: 0.4 }, 0.2)
           .add(tick)
           .to(clock, { seconds: 42, duration: 1.8, ease: "none", onUpdate: tick });
 
