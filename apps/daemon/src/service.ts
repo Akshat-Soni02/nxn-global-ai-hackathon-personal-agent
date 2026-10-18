@@ -41,6 +41,8 @@ export type Execute = (
     walk: boolean;
     log(event: RunLogEvent): void;
     hooks: { approve(): Promise<Wait>; ask(): Promise<Wait>; waitForUser(): Promise<Wait>; walk(): Promise<Wait> };
+    // Fires when the user stops the run (cancel while it runs).
+    signal?: AbortSignal;
   },
 ) => Promise<RunOutcome>;
 
@@ -124,6 +126,8 @@ export function createService(options: ServiceOptions): Service {
   };
   const wait = async (): Promise<Wait> => WAIT;
   const hooks = { approve: wait, ask: wait, waitForUser: wait, walk: wait };
+  // Runs that are going (or queued to go), by id: cancel stops them through their signal.
+  const going = new Map<string, AbortController>();
 
   const updateRun = (id: string, patch: Partial<Omit<RunRow, "id">>) => {
     const run = store.updateRun(id, patch);
@@ -159,6 +163,14 @@ export function createService(options: ServiceOptions): Service {
     let version = skill.version;
     let repaired = run.repaired;
     const before = spent();
+    // Stopped while it waited in the queue: it never starts.
+    const stop = going.get(run.id) ?? new AbortController();
+    going.set(run.id, stop);
+    if (stop.signal.aborted) {
+      going.delete(run.id);
+      updateRun(run.id, { status: "cancelled", endedAt: now(), error: "you stopped it", checkpoint: undefined });
+      return;
+    }
     let outcome: RunOutcome;
     try {
       outcome = await options.execute(skill, {
@@ -167,6 +179,7 @@ export function createService(options: ServiceOptions): Service {
         resume,
         walk: run.trigger === "walk",
         hooks,
+        signal: stop.signal,
         log: (event) => {
           if (event.type === "repair" && event.outcome === "commit" && event.version !== undefined) {
             version = event.version;
@@ -185,7 +198,11 @@ export function createService(options: ServiceOptions): Service {
       });
     } catch (error) {
       outcome = { status: "failed", vars: {}, error: (error as Error).message };
+    } finally {
+      going.delete(run.id);
     }
+    // Stopped by the user: whatever the step in progress said, the run was cancelled.
+    if (stop.signal.aborted) outcome = { ...outcome, status: "cancelled", error: "you stopped it" };
     const costUsd = run.costUsd + Math.max(0, spent() - before);
     if (outcome.status === "waiting" && outcome.waiting && outcome.resume) {
       const checkpoint: Checkpoint = { version, inputs: provided, resume: outcome.resume, waiting: outcome.waiting };
@@ -470,7 +487,13 @@ export function createService(options: ServiceOptions): Service {
     cancel(runId) {
       const run = store.getRun(runId);
       if (!run) throw new Error(`no run ${runId}`);
-      if (run.status === "running") throw new Error("can't stop a run in the middle of a step yet");
+      // Running (or queued to run): stop it. It ends as cancelled at its next step; the step in progress is let go.
+      if (run.status === "running") {
+        const stop = going.get(runId) ?? new AbortController();
+        going.set(runId, stop);
+        stop.abort();
+        return run;
+      }
       if (run.status !== "waiting") throw new Error(`the run already ended: ${run.status}`);
       for (const item of store.listItems({ open: true, runId })) {
         store.answerItem(item.id, { cancelled: true }, now());
@@ -638,7 +661,8 @@ function yes(raw: unknown): boolean {
 }
 
 function finalState(status: RunOutcome["status"]): RunState {
-  if (status === "succeeded" || status === "denied" || status === "nothing_to_do") return status;
+  if (status === "succeeded" || status === "denied" || status === "nothing_to_do" || status === "cancelled")
+    return status;
   return "failed"; // failed, a pause no one resumed, or a wait without a checkpoint
 }
 

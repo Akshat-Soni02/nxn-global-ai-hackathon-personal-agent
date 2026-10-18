@@ -99,10 +99,6 @@ describe("the design agent", () => {
         edits: [{ op: "retarget", step: "s3", target: { role: "button", name: "Delete", fallbacks: [] } }],
       }),
       call("edit", { edits: [{ op: "set", step: "s3", field: "requires_approval", value: false }] }),
-      call("edit", { edits: [{ op: "remove", step: "s3" }] }),
-      call("edit", {
-        edits: [{ op: "set", step: "start", field: "when", value: [{ type: "schedule", cron: "0 9 * * *" }] }],
-      }),
       call("edit", {
         edits: [
           {
@@ -175,12 +171,10 @@ describe("the design agent", () => {
     const said = results(outcome.episode);
     expect(said[0]).toMatch(/its target is not one you recorded/);
     expect(said[1]).toMatch(/approval can't be turned off/);
-    expect(said[2]).toMatch(/needs approval can't be removed/);
-    expect(said[3]).toMatch(/the Frequency is the user's/);
-    expect(said[4]).toMatch(/only open a site the recording visited/);
-    expect(said[5]).toMatch(/a new web.press step would do something the user didn't show/);
-    expect(said[6]).toMatch(/a recorded step keeps its kind of action \(it was web.navigate\)/);
-    expect(said[7]).toMatch(/may only look in folders the recording touched .* not ~\/\.ssh\/id_rsa/);
+    expect(said[2]).toMatch(/only open a site the recording visited/);
+    expect(said[3]).toMatch(/a new web.press step would do something the user didn't show/);
+    expect(said[4]).toMatch(/a recorded step keeps its kind of action \(it was web.navigate\)/);
+    expect(said[5]).toMatch(/may only look in folders the recording touched .* not ~\/\.ssh\/id_rsa/);
   });
 
   it("builds a loop over files and an llm step from the recorded steps", async () => {
@@ -326,6 +320,57 @@ describe("the design agent", () => {
     expect(results(outcome.episode)[0]).toMatch(/did not allow pictures/);
   });
 
+  it("looks in the recording before asking, keeps the valid half of an edit, sets how often from what was said, and reports what really changed", async () => {
+    const { steps, skill, questions } = await draft();
+    const { p, asked } = prompter();
+    const llm = fakeLlm([
+      // The page's address is in the recording: shown, not asked; asked only once the agent confirms.
+      call("ask_user", { question: "What is the URL of the portal page?", step: "s1" }),
+      call("ask_user", { question: "What is the URL of the portal page?", step: "s1", confirm: true }),
+      // One valid edit and one against the rules: the valid one is kept.
+      call("edit", {
+        edits: [
+          { op: "set", step: "s2", field: "intent", value: "Attach this month's invoice" },
+          { op: "retarget", step: "s3", target: { role: "button", name: "Delete", fallbacks: [] } },
+        ],
+      }),
+      // They said "every morning" and it only runs by hand: finish is refused until the schedule is set.
+      call("finish", { summary: "Made it run every morning" }),
+      call("edit", {
+        edits: [
+          {
+            op: "set",
+            step: "start",
+            field: "when",
+            value: [{ type: "schedule", cron: "0 9 * * *", missed: "run_once" }],
+          },
+        ],
+      }),
+      call("finish", { summary: "Made it run every morning" }),
+    ]);
+    const outcome = await designWorkflow({
+      llm,
+      skill,
+      questions,
+      steps,
+      form,
+      notes: [{ at: 1_000, kind: "said", text: "I upload the invoice every morning" }],
+      prompter: p,
+      protocol: "tools",
+    });
+    const said = results(outcome.episode);
+    expect(said[0]).toMatch(/not_asked/);
+    expect(said[0]).toContain(PAGE);
+    expect(asked).toHaveLength(1);
+    expect(said[2]).toMatch(/1 of 2 edits kept/);
+    expect(said[2]).toMatch(/its target is not one you recorded/);
+    expect(said[3]).toMatch(/they said \\"every morning\\"/);
+    expect(outcome.kind).toBe("designed");
+    expect(triggerOf(outcome.skill).when).toEqual([{ type: "schedule", cron: "0 9 * * *", missed: "run_once" }]);
+    // What changed comes from the workflow, not from the summary.
+    expect(outcome.changes).toEqual(expect.arrayContaining(["runs: manual → schedule 0 9 * * *", "1 step described"]));
+  });
+
   it("keeps the first draft, with the answers already given, when it runs out of turns", async () => {
     const { steps, skill, questions } = await draft();
     const open = questions[0];
@@ -429,24 +474,32 @@ describe("one AI reads the recording: it labels the plain list first", () => {
 });
 
 describe("the rules and the recording view", () => {
-  it("lets the user's own fields and approvals through unchanged, and nothing else", async () => {
+  it("keeps the goal as written; sets how often it runs unless that is fixed", async () => {
     const { skill } = await draft();
     expect(designViolations(skill, skill, form)).toEqual([]);
     const renamed = { ...skill, description: { ...skill.description, goal: "something else" } };
-    expect(designViolations(skill, renamed, form)).toEqual([expect.stringMatching(/description is the user's/)]);
+    expect(designViolations(skill, renamed, form)).toEqual([expect.stringMatching(/the goal is the user's/)]);
     // Without a form (a recording from before Oct 13), the agent may write the goal.
     expect(designViolations(skill, renamed)).toEqual([]);
+    // Only the goal is asked before recording: the rest of the description, and how often it runs, are the agent's
+    // to set from what was said; the Frequency stays only when it is fixed (a task recorded again).
+    const daily = JSON.parse(JSON.stringify(skill)) as Skill;
+    (daily.steps[0] as { when: unknown }).when = [{ type: "schedule", cron: "0 9 * * *", missed: "run_once" }];
+    daily.description.never = ["delete anything"];
+    expect(designViolations(skill, daily, form)).toEqual([]);
+    expect(designViolations(skill, daily, { ...form, whenFixed: true })).toEqual([
+      expect.stringMatching(/how often it runs is the user's/),
+    ]);
   });
 
-  it("keeps what the user showed: no recorded write removed, at most half the steps; a click may open its page", async () => {
+  it("may remove recorded steps (the user reviews the result); a click may open its page", async () => {
     const { skill } = await draft();
     const clone = (s: Skill = skill) => JSON.parse(JSON.stringify(s)) as Skill;
     const without = (s: Skill, ...ids: string[]) => ({ ...s, steps: s.steps.filter((x) => !ids.includes(x.id)) });
-    // The upload is the work itself (Oct 14: the agent removed s1-s30, typing and pasting included).
-    expect(designViolations(skill, without(clone(), "s2"), form)).toEqual([
-      expect.stringMatching(/s2: it does what the user showed \(web.upload\).*never remove it/),
-    ]);
-    // Ten recorded actions: four clicks may go as noise, five may not.
+    // Noise and work alike may go: the agent runs in front of the user, who sees what changed.
+    expect(designViolations(skill, without(clone(), "s2"), form)).toEqual([]);
+    // A step that needs approval may go too; while it stays, its approval stays on.
+    expect(designViolations(skill, without(clone(), "s3"), form)).toEqual([]);
     const long = clone();
     const submit = long.steps[3] as Record<string, unknown>;
     for (let i = 1; i <= 6; i++) {
@@ -457,10 +510,7 @@ describe("the rules and the recording view", () => {
         target: { role: "button", name: `Next ${i}`, fallbacks: [] },
       } as never);
     }
-    expect(designViolations(long, without(clone(long), "c1", "c2", "c3", "c4"), form)).toEqual([]);
-    expect(designViolations(long, without(clone(long), "c1", "c2", "c3", "c4", "c5"), form)).toEqual([
-      expect.stringMatching(/5 of the 9 recorded steps would be gone \(at most 4\)/),
-    ]);
+    expect(designViolations(long, without(clone(long), "c1", "c2", "c3", "c4", "c5"), form)).toEqual([]);
     // A click that took them to a sheet may become "open the sheet", if the recording reached that page.
     const sheet = "https://docs.google.com/spreadsheets/d/abc/edit";
     const opened = clone(long);
@@ -493,7 +543,7 @@ describe("the rules and the recording view", () => {
     expect(recordedOpens(steps, [["s4"], ["s5"]])).toEqual({ s5: sheet });
   });
 
-  it("lets a second item's repeat go once the loop does it, but no removal in disguise, and runs still open a page", async () => {
+  it("lets a loop take over repeats and a step be replaced, and runs still open a page", async () => {
     const { skill } = await draft();
     const clone = (s: Skill = skill) => JSON.parse(JSON.stringify(s)) as Skill;
     // Shown for two invoices: the upload twice, on the same control.
@@ -511,12 +561,10 @@ describe("the rules and the recording view", () => {
     };
     looped.steps = [looped.steps[0], looped.steps[1], loop, looped.steps[4]] as never;
     expect(designViolations(twice, looped, form)).toEqual([]);
-    // Without the loop keeping it, removing the repeat is removing the work.
+    // Without a loop, both uploads may still go: the user reviews it.
     const dropped = { ...clone(twice), steps: clone(twice).steps.filter((s) => s.id !== "s2b" && s.id !== "s2") };
-    expect(designViolations(twice, dropped, form)).toEqual(
-      expect.arrayContaining([expect.stringMatching(/s2: it does what the user showed \(web.upload\)/)]),
-    );
-    // Replacing the upload under its own id with an llm step is a removal too.
+    expect(designViolations(twice, dropped, form)).toEqual([]);
+    // A recorded step may be replaced under its own id (here by an llm step).
     const replaced = clone();
     replaced.steps[2] = {
       id: "s2",
@@ -526,9 +574,7 @@ describe("the rules and the recording view", () => {
       inputs: [],
       output: { name: "x", type: { type: "text" } },
     } as never;
-    expect(designViolations(skill, replaced, form)).toEqual([
-      expect.stringMatching(/s2: a recorded step keeps its kind of action \(it was web.upload\)/),
-    ]);
+    expect(designViolations(skill, replaced, form)).toEqual([]);
     // s1 opened the page; without it a run starts on a blank window (Oct 14's first failure).
     const blank = { ...clone(), steps: clone().steps.filter((s) => s.id !== "s1") };
     expect(designViolations(skill, blank, form)).toEqual([

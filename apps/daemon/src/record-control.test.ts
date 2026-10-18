@@ -73,10 +73,10 @@ describe("the Record buttons", () => {
     expect(control.view().phase).toBe("idle");
   });
 
-  it("ask the form's questions in the inbox when the app isn't running, then record with the answers", async () => {
+  it("ask only the goal in the inbox when the app isn't running, then record", async () => {
     const home = temp();
     const { daemon, sent } = fakeDaemon(false);
-    const answers = ["Invoices are filed", "3", "the invoice", "", "delete, send"];
+    const answers = ["Invoices are filed"];
     const asked: string[] = [];
     const control = createRecordControl({
       dataDir: home,
@@ -90,15 +90,16 @@ describe("the Record buttons", () => {
     });
     control.press();
     await new Promise((r) => setTimeout(r, 10));
-    expect(asked).toHaveLength(5);
+    // How often, what changes, what stays and Never are worked out after Stop, not asked before.
+    expect(asked).toHaveLength(1);
     expect(sent.some((m) => m.type === "record.start")).toBe(true);
     expect(control.view().phase).toBe("recording");
     expect(readForm(home, "s1")).toMatchObject({
       goal: "Invoices are filed",
-      when: [{ type: "schedule", cron: "0 9 * * *" }], // the third choice: every day at 9:00
-      changes: ["the invoice"],
+      when: [{ type: "manual" }],
+      changes: [],
       constants: [],
-      never: ["delete", "send"],
+      never: [],
     });
   });
 
@@ -297,7 +298,14 @@ describe("after Stop, with a model", () => {
     const llm = fakeLlm([
       labels,
       call("finish", { summary: "too early" }),
+      // The recording is looked at first (the goal shares "week" and "log"); seen, the agent asks anyway.
       call("ask_user", { question: "Which week should a scheduled run log?", default: "the current week", step: "s2" }),
+      call("ask_user", {
+        question: "Which week should a scheduled run log?",
+        default: "the current week",
+        step: "s2",
+        confirm: true,
+      }),
       call("edit", {
         edits: [
           {
@@ -326,9 +334,12 @@ describe("after Stop, with a model", () => {
     expect(asked).toEqual([{ id: "design-1", step: "s2" }]);
     const skill = saved?.skill as Skill;
     expect(triggerOf(skill).inputs.week?.default).toBe("{{today}}");
-    expect(skill.history[0]?.summary).toBe("Recorded; A scheduled run logs the current week");
+    // The history says what really changed, from the workflow, not the agent's own sentence.
+    expect(skill.history[0]?.summary).toMatch(/^Recorded; .*input week added/);
     const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
-    expect(kept).toMatchObject({ summary: "A scheduled run logs the current week", turns: 5 });
+    // What the agent said it did, next to what it really changed.
+    expect(kept).toMatchObject({ claimed: "A scheduled run logs the current week", turns: 6 });
+    expect(kept.changes).toContain("input week added");
     // One AI read the recording: every model call was the agent's (no separate first-draft call).
     expect(llm.requests.every((r) => Array.isArray((r as { tools?: unknown }).tools))).toBe(true);
     // What the agent was told is kept, so a poor result can be explained (Oct 14: it couldn't be).
@@ -356,7 +367,8 @@ describe("after Stop, with a model", () => {
     });
     expect(asked).toContain("default-week");
     expect(triggerOf(saved?.skill as Skill).inputs.week?.default).toBe("2026-W42");
-    expect(saved?.skill.history[0]?.summary).toBe("Recorded");
+    // What it reached is described by what changed (its labels added the week input).
+    expect(saved?.skill.history[0]?.summary).toBe("Recorded; input week added");
   });
 
   it("never asks for a password, and never gives one a default", () => {

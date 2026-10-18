@@ -46,6 +46,29 @@ func log(_ line: String) {
   }
 }
 
+// The Edit menu: ⌘X, ⌘C, ⌘V, ⌘A and ⌘Z reach the window's web view only through the app's main menu. Shadow has no
+// menu bar of its own (it lives in the status bar), so without this, pasting an answer into a question or copying
+// anything from the window did nothing. The menu is never shown; only its key equivalents are used.
+func editMenu() -> NSMenu {
+  let main = NSMenu()
+  let appItem = NSMenuItem()
+  appItem.submenu = NSMenu(title: "Shadow")
+  main.addItem(appItem)
+  let edit = NSMenu(title: "Edit")
+  edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+  let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+  redo.keyEquivalentModifierMask = [.command, .shift]
+  edit.addItem(.separator())
+  edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+  edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+  edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+  edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+  let editItem = NSMenuItem()
+  editItem.submenu = edit
+  main.addItem(editItem)
+  return main
+}
+
 final class AppMain: NSObject, NSApplicationDelegate {
   let link = Link(path: socketPath)
   let panel = Panel()
@@ -69,6 +92,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     // The menu bar item, the window and notifications: not in the fixture's test mode.
     if !arguments.contains("--fixture") {
+      NSApp.mainMenu = editMenu()
       let menu = StatusMenu()
       menu.onOpen = { [weak self] route in self?.window.show(route: route) }
       menu.onRecord = { [weak self] in self?.press() }

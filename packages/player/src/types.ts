@@ -153,7 +153,8 @@ export type RunLogEvent =
 // paused: stopped on purpose, with `resume` saying where to go on (after a failure, or after maxSteps).
 // waiting: stopped until the user answers (`waiting` says what), with `resume` to go on from.
 // nothing_to_do: recovery found there was nothing to do this time (the inbox is empty): not a failure.
-export type RunStatus = "succeeded" | "failed" | "denied" | "paused" | "waiting" | "nothing_to_do";
+// cancelled: stopped by the user while it ran (between steps; a step in progress is abandoned).
+export type RunStatus = "succeeded" | "failed" | "denied" | "paused" | "waiting" | "nothing_to_do" | "cancelled";
 
 export interface RunOutcome {
   status: RunStatus;

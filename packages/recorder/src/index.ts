@@ -21,6 +21,7 @@ export {
   systemPrompt,
   templateProblems,
 } from "./compile.ts";
+export { changesSummary, describeChanges } from "./design/changes.ts";
 export {
   DESIGN_BUDGET,
   type DesignOptions,

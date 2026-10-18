@@ -88,6 +88,30 @@ const replies =
     answers.shift() ?? "{}";
 
 describe("normalise", () => {
+  it("reopens a page you switched back to in another tab, but not when a page changes its own address", () => {
+    n = 0;
+    const SHEET = "https://docs.google.com/spreadsheets/d/abc/edit";
+    const COMPANY = "https://www.ycombinator.com/companies/noloco";
+    const name = { role: "heading", name: "Noloco", tag: "h1", url: COMPANY, fallbacks: [], selectors: { css: "h1" } };
+    const cell = { role: "combobox", name: "B3", tag: "div", url: SHEET, fallbacks: [], selectors: { css: "#editor" } };
+    const steps = normalise([
+      ev("navigate", 0, { tabId: 1, url: SHEET, transition: "typed" }),
+      ev("navigate", 5_000, { tabId: 2, url: COMPANY, transition: "typed" }),
+      ev("copy", 6_000, { tabId: 2, url: COMPANY, target: name, value: "Noloco" }),
+      ev("tab_switch", 7_000, { tabId: 1, url: SHEET }),
+      ev("type", 8_000, { tabId: 1, url: `${SHEET}?gid=0`, target: cell, value: "Noloco", pasted: true }),
+      // Back on the same tab, the sheet changes its own address: no page to reopen.
+      ev("type", 9_000, { tabId: 1, url: `${SHEET}#gid=0`, target: cell, value: "Hi" }),
+    ]);
+    expect(steps.map((s) => `${s.kind} ${s.url ?? ""}`)).toEqual([
+      `navigate ${SHEET}`,
+      `navigate ${COMPANY}`,
+      `copy ${COMPANY}`,
+      `navigate ${SHEET}?gid=0`,
+      `type ${SHEET}?gid=0`,
+    ]);
+  });
+
   it("turns the upload demonstration into the three steps of the example skill", () => {
     const steps = normalise(uploadTrace());
     expect(steps.map((s) => s.kind)).toEqual(["navigate", "upload", "click"]);
@@ -804,7 +828,18 @@ describe("the description form", () => {
       never: ["archive anything"],
     },
     when: [{ type: "schedule" as const, cron: "0 9 1 * *", missed: "run_once" as const }],
+    // A task recorded again: its Frequency is the user's and stays.
+    whenFixed: true,
   };
+
+  it("sets how often it runs from the model when the form didn't fix it; keeps the goal", async () => {
+    const chat: Chat = async () =>
+      JSON.stringify({ when: [{ type: "schedule", cron: "0 9 * * *", missed: "run_once" }] });
+    const fresh = { description: { ...form.description, never: [] }, when: [{ type: "manual" as const }] };
+    const result = await compile(normalise(uploadTrace()), { chat, form: fresh });
+    expect(triggerOf(result.skill).when).toEqual([{ type: "schedule", cron: "0 9 * * *", missed: "run_once" }]);
+    expect(result.skill.description.goal).toBe(form.description.goal);
+  });
 
   it("is read by the model and kept as written: no answer changes the goal or the Frequency", async () => {
     const seen: string[] = [];

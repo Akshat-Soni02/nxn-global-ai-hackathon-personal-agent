@@ -79,12 +79,27 @@ export const newRunId = (skillId: string, now = new Date()) =>
 export async function runSkillOn(
   daemon: Daemon,
   skill: Skill,
-  options: { runId?: string; provided?: Record<string, unknown>; resume?: Resume },
+  options: { runId?: string; provided?: Record<string, unknown>; resume?: Resume; signal?: AbortSignal },
   hooks: RunHooks,
   logDir = join(APP_SUPPORT_DIR, "runs"),
 ): Promise<RunOutcome> {
   const runId = options.runId ?? newRunId(skill.id);
   const provided = options.provided ?? {};
+  const { signal } = options;
+  // Stopped by the user: the extension lets go of the automation tab at once (a step in progress there fails), and
+  // nothing here waits for an answer any more.
+  const stopped = () => daemon.notify({ id: randomUUID(), type: "run.end", runId });
+  signal?.addEventListener("abort", stopped, { once: true });
+  const untilStopped = <T>(work: Promise<T>): Promise<T> =>
+    signal
+      ? Promise.race([
+          work,
+          new Promise<never>((_, reject) => {
+            if (signal.aborted) reject(new Error("you stopped it"));
+            signal.addEventListener("abort", () => reject(new Error("you stopped it")), { once: true });
+          }),
+        ])
+      : work;
   mkdirSync(logDir, { recursive: true });
   const logFile = join(logDir, `${runId}.jsonl`);
   const log = (event: RunLogEvent) => {
@@ -113,10 +128,12 @@ export async function runSkillOn(
 
   const web = async (step: ActionStep, ctx: { runId: string }): Promise<StepResult> => {
     await ensureExtension();
-    const reply = await unlessAsleep(() =>
-      daemon.request(
-        { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
-        (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 3 + EXTENSION_MARGIN_MS,
+    const reply = await untilStopped(
+      unlessAsleep(() =>
+        daemon.request(
+          { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
+          (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 3 + EXTENSION_MARGIN_MS,
+        ),
       ),
     );
     if (reply.type !== "run.step_result") throw new Error(`unexpected reply ${reply.type}`);
@@ -128,10 +145,12 @@ export async function runSkillOn(
   // when macOS hasn't allowed it yet (the step fails with how to allow it).
   const ax = async (step: ActionStep, ctx: { runId: string }): Promise<StepResult> => {
     if (!daemon.mac().connected) throw new Error("Shadow.app is not running: build it with pnpm setup:mac");
-    const reply = await unlessAsleep(() =>
-      daemon.requestMac(
-        { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
-        (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 2 + EXTENSION_MARGIN_MS,
+    const reply = await untilStopped(
+      unlessAsleep(() =>
+        daemon.requestMac(
+          { id: randomUUID(), type: "run.step", runId: ctx.runId, step },
+          (step.timeout_ms ?? DEFAULT_TIMEOUT_MS) * 2 + EXTENSION_MARGIN_MS,
+        ),
       ),
     );
     if (reply.type !== "run.step_result") throw new Error(`unexpected reply ${reply.type}`);
@@ -188,7 +207,7 @@ export async function runSkillOn(
     };
     const resume = options.resume;
     const inputs = resume ? provided : await resolveInputs(skill, provided);
-    if (!hooks.recovery) return await runSkill(skill, deps, { runId, inputs, resume });
+    if (!hooks.recovery) return await runSkill(skill, deps, { runId, inputs, resume, signal });
     const { memory, ...recovery } = hooks.recovery;
     // Episodes are numbered across the run's legs, so a leg after a wait doesn't overwrite an earlier transcript.
     const earlier = readdirSync(logDir).filter((f) => f.startsWith(`${runId}.repair-`)).length;
@@ -223,6 +242,7 @@ export async function runSkillOn(
       runId,
       inputs,
       resume,
+      signal,
       recovery: {
         ...recovery,
         page,
@@ -247,6 +267,7 @@ export async function runSkillOn(
       },
     });
   } finally {
+    signal?.removeEventListener("abort", stopped);
     daemon.notify({ id: randomUUID(), type: "run.end", runId });
   }
 }

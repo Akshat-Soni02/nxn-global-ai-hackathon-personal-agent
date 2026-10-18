@@ -87,6 +87,40 @@ describe("the daemon as a service", () => {
     expect(second.events.map((e) => (e.type === "run" ? e.run.status : e.type))).toContain("succeeded");
   });
 
+  it("stops a run in the middle: the step in progress is let go, and nothing after it runs", async () => {
+    const { open, ran } = setup([write("s1"), write("s2"), write("s3")]);
+    // s2 hangs until the run is stopped, as a page that never answers would.
+    const exec: Execute = (skill, leg) => {
+      const channel = async (step: ActionStep) => {
+        ran.push(step.id);
+        if (step.id === "s2") {
+          await new Promise<void>((resolve) => leg.signal?.addEventListener("abort", () => resolve(), { once: true }));
+          return { ok: false, error: "the page went away" };
+        }
+        return { ok: true };
+      };
+      const deps: RunDeps = {
+        web: channel,
+        fs: channel,
+        script: channel,
+        fileExists: async () => true,
+        webCheck: async () => true,
+        approve: leg.hooks.approve,
+        ask: leg.hooks.ask,
+        log: leg.log,
+      };
+      return runSkill(skill, deps, { runId: leg.runId, inputs: leg.provided, signal: leg.signal });
+    };
+    const { service } = open(exec);
+    const started = service.start("report");
+    while (!ran.includes("s2")) await new Promise((r) => setTimeout(r, 5));
+    expect(service.cancel(started.id).status).toBe("running");
+    await service.idle();
+    expect(service.runs()[0]).toMatchObject({ id: started.id, status: "cancelled", error: "you stopped it" });
+    expect(ran).toEqual(["s1", "s2"]);
+    expect(() => service.cancel(started.id)).toThrow(/already ended: cancelled/);
+  });
+
   it("ends the run as denied when the answer is no, and refuses a second answer", async () => {
     const { open, ran } = setup([write("s1", { requires_approval: true })]);
     const { service } = open();

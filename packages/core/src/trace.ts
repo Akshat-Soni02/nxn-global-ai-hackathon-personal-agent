@@ -21,6 +21,7 @@ export const TRACE_EVENTS = [
   "navigate",
   "tab_open",
   "tab_close",
+  "tab_switch", // you brought another tab to the front (its url: the page it shows)
   "download",
   // Mac, from the daemon's filesystem watcher (FSEvents)
   "fs_create",
