@@ -75,6 +75,9 @@ export type StructuredMode = "json_schema" | "json_object" | "prompt";
 
 export interface GenerateResult<T = unknown> {
   text: string;
+  // What the model thought before answering (the server's reasoning field, and any <think> block), kept apart from the
+  // answer. Agents store it in their transcript, so a poor result can be explained.
+  reasoning?: string;
   value?: T;
   toolCalls: ToolCall[];
   usage: { input: number; output: number };
@@ -236,7 +239,18 @@ export function createLlm(config: LlmConfig, deps: ClientDeps = {}): Llm {
 
       const choice = reply.choices?.[0];
       const message = choice?.message ?? {};
-      const text = stripThinking(typeof message.content === "string" ? message.content : "");
+      const raw = typeof message.content === "string" ? message.content : "";
+      const text = stripThinking(raw);
+      const thinking = [
+        ...[...raw.matchAll(/<think>([\s\S]*?)<\/think>/gi)].map((m) => m[1] ?? ""),
+        // A reply whose opening <think> was in the prompt template: everything before the closing tag.
+        ...(/<think>/i.test(raw) ? [] : [/^([\s\S]*?)<\/think>/i.exec(raw)?.[1] ?? ""]),
+      ];
+      const reasoning =
+        [message.reasoning_content, message.reasoning, ...thinking]
+          .filter((r): r is string => typeof r === "string" && r.trim() !== "")
+          .map((r) => r.trim())
+          .join("\n") || undefined;
       const toolCalls = (message.tool_calls ?? []).map(parseToolCall);
       if (!text && toolCalls.length === 0 && choice?.finish_reason === "length") {
         throw new LlmError(
@@ -245,6 +259,7 @@ export function createLlm(config: LlmConfig, deps: ClientDeps = {}): Llm {
       }
       const result: GenerateResult<T> = {
         text,
+        reasoning,
         toolCalls,
         usage,
         costUsd: cost,
@@ -284,6 +299,8 @@ interface CompletionBody {
     finish_reason?: string;
     message?: {
       content?: string | null;
+      reasoning_content?: string | null;
+      reasoning?: string | null;
       tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[];
     };
   }[];
