@@ -109,7 +109,7 @@ function expandedOf(el: Element): boolean | undefined {
   return details ? details.open : undefined;
 }
 
-function valueOf(el: Element): string {
+function fieldText(el: Element): string {
   if ("value" in el && typeof (el as HTMLInputElement).value === "string") return (el as HTMLInputElement).value;
   return el.closest("[contenteditable]:not([contenteditable=false])")?.textContent ?? "";
 }
