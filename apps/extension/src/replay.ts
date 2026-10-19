@@ -3,7 +3,15 @@
 // starts, so you can watch it. Your own windows and tabs are never used.
 // Chrome shows a "started debugging this browser" bar while attached; we attach only during a run.
 import type { Check, ActionStep as Step } from "@shadow/core";
-import { type Cdp, executeWebStep, type PageOp, type PageOpResult, pageOp, waitForCheck } from "@shadow/player/web";
+import {
+  type Cdp,
+  executeWebStep,
+  type PageOp,
+  type PageOpResult,
+  pageOp,
+  waitForCheck,
+  withTimeouts,
+} from "@shadow/player/web";
 
 const PROTOCOL_VERSION = "1.3";
 const STORE_KEY = "automationTab";
@@ -45,10 +53,17 @@ async function cdpFor(tabId: number): Promise<Cdp> {
       await chrome.debugger.sendCommand(target, `${domain}.enable`);
     }
   }
-  return {
+  const raw: Cdp = {
     send: <T>(method: string, params?: Record<string, unknown>) =>
       chrome.debugger.sendCommand(target, method, params) as Promise<T>,
   };
+  return withTimeouts(raw, {
+    // A page in a window behind another may stop answering accessibility queries: bring the window forward.
+    onSlow: async () => {
+      const { windowId } = await chrome.tabs.get(tabId);
+      await chrome.windows.update(windowId, { focused: true, state: "normal" }).catch(() => {});
+    },
+  });
 }
 
 // The user may cancel the debugging bar, or close the window; forget the session so the next step re-attaches.
