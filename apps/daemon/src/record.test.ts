@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { isAction, Skill, triggerOf } from "@shadow/core";
 import { createDecoder, encode } from "@shadow/ipc";
+import { fakeLlm } from "@shadow/llm";
 import { afterEach, describe, expect, it } from "vitest";
 import { chooseFiles, cleanPath, givenInputs, splitArgs } from "./choose-file.ts";
 import { type Daemon, startDaemon } from "./daemon.ts";
@@ -343,6 +344,72 @@ describe("record end to end", () => {
     ]);
     expect(readState(home, first.skill.id).state).toBe("live");
     expect(versions(home, first.skill.id)).toEqual([1, 2]);
+  });
+
+  it("keeps the id the daemon gave the recording, whatever id the design agent labels the task with", async () => {
+    const home = temp();
+    saveSkill(
+      home,
+      Skill.parse({
+        id: "someone-elses-workflow",
+        version: 1,
+        name: "other",
+        description: { goal: "other" },
+        steps: [
+          { id: "start", type: "trigger", intent: "by hand" },
+          { id: "s1", type: "action", intent: "Open it", channel: "web", action: "navigate", args: { url: PAGE } },
+        ],
+      }),
+    );
+    const sessionId = "s-label";
+    writeForm(home, sessionId, {
+      goal: "Upload this month's invoice",
+      changes: [],
+      constants: [],
+      never: [],
+      when: [{ type: "manual" }],
+      consent: { screen: false, microphone: false, pictures: false },
+    });
+    appendTrace(home, { id: "e1", sessionId, at: 1000, event: "click", tabId: 1, frameId: 0, url: PAGE, target: upload });
+    appendTrace(home, {
+      id: "e2",
+      sessionId,
+      at: 6000,
+      event: "file",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: upload,
+      file: { name: "invoice-0923.pdf", size: 10, type: "application/pdf" },
+    });
+    appendTrace(home, { id: "e3", sessionId, at: 9000, event: "click", tabId: 1, frameId: 0, url: PAGE, target: submit });
+    const llm = fakeLlm([
+      {
+        toolCalls: [
+          {
+            name: "label_steps",
+            // One real label, so the call is valid and the failing run proves the overwrite (not an invalid call).
+            arguments: {
+              id: "someone-elses-workflow",
+              intent: "Send the invoice",
+              steps: [{ id: "s2", intent: "Attach this month's invoice" }],
+            },
+          },
+        ],
+      },
+      { toolCalls: [{ name: "finish", arguments: { summary: "labelled" } }] },
+    ]);
+    const saved = await finishRecording(sessionId, {
+      dataDir: home,
+      llm,
+      log: () => {},
+      design: { protocol: "tools" },
+      prompter: { ask: async () => "" },
+    });
+    expect(saved?.skill.id).not.toBe("someone-elses-workflow");
+    expect(saved?.skill.id).toMatch(/-[a-z0-9]{6}$/);
+    expect(saved?.skill.name).toBe("Upload this month's invoice");
+    expect(versions(home, "someone-elses-workflow")).toEqual([1]);
   });
 });
 

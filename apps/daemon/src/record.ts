@@ -205,7 +205,10 @@ export async function finishRecording(
     if (design.kind === "designed") log(`design agent: ${design.summary} (${design.episode?.turns ?? 0} turns${cost})`);
     else log(`design agent: ${design.reason}${cost}; keeping what it reached`);
     log(`what changed: ${changesSummary(design.changes)}`);
-    skill = design.skill;
+    // The workflow's id and name are the daemon's (a new id per recording, or the workflow recorded again), never the
+    // model's: label_steps names the task, and a model-chosen id saved a recording as the next version of another
+    // workflow (tidy-downloads/v2 was a different recording).
+    skill = { ...design.skill, id: skill.id, name: skill.name };
     questions = design.pending;
     await remember(options.memory, skill.id, design.answered);
     keepEpisode(dataDir, sessionId, design);
