@@ -29,7 +29,11 @@ export async function drill(
   const answers: DrillResult["answers"] = [];
   const problems: string[] = [];
   for (const question of questions) {
-    const answer = (await options.prompter.ask(question)).trim() || question.default || "";
+    // The step the answer changes, shown on the draft next to the question (a question with no step is about the
+    // whole workflow).
+    const step = /^steps\.([^.]+)/.exec(question.appliesTo ?? "")?.[1];
+    const about = step && !/^\d+$/.test(step) ? { step, draft: current } : { draft: current };
+    const answer = (await options.prompter.ask(question, about)).trim() || question.default || "";
     if (!answer) continue;
     answers.push({ id: question.id, answer });
     if (question.appliesTo) {
@@ -79,21 +83,20 @@ export function applyAnswer(
   let node = copy;
   // "steps.s3" with an object answer replaces the whole step (keep an llm step, or the recorded rule instead).
   if (keys[0] === "steps" && keys.length === 2) {
-    const steps = copy.steps as { id: string }[];
-    const index = steps.findIndex((s) => s.id === keys[1]);
+    const found = locate(copy.steps as Record<string, unknown>[], keys[1] as string);
     const value = valueFor(question, answer, undefined);
-    if (index < 0) return { ok: false, error: `no step ${keys[1]}` };
+    if (!found) return { ok: false, error: `no step ${keys[1]}` };
     if (typeof value !== "object" || value === null) return { ok: false, error: `${question.appliesTo} needs a step` };
-    steps[index] = JSON.parse(JSON.stringify(value));
+    found.list[found.index] = JSON.parse(JSON.stringify(value));
     const parsed = Skill.safeParse(copy);
     if (parsed.success) return { ok: true, skill: parsed.data };
     return { ok: false, error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
   }
   // "steps.s3.requires_approval" addresses a step by its id; "steps.2.x" by its position.
   if (keys[0] === "steps" && keys.length > 2) {
-    const steps = copy.steps as { id: string }[];
-    const step =
-      steps.find((s) => s.id === keys[1]) ?? (/^\d+$/.test(keys[1] ?? "") ? steps[Number(keys[1])] : undefined);
+    const steps = copy.steps as Record<string, unknown>[];
+    const byId = locate(steps, keys[1] as string);
+    const step = byId ? byId.list[byId.index] : /^\d+$/.test(keys[1] ?? "") ? steps[Number(keys[1])] : undefined;
     if (!step) return { ok: false, error: `no step ${keys[1]}` };
     node = step as Record<string, unknown>;
     keys = keys.slice(2);
@@ -108,6 +111,26 @@ export function applyAnswer(
   const parsed = Skill.safeParse(copy);
   if (parsed.success) return { ok: true, skill: parsed.data };
   return { ok: false, error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+}
+
+// A step by id anywhere in the tree: inside a loop, or either arm of a branch. Answers address steps by id, and the
+// design agent moves recorded steps into loops, so a top-level search missed them ("no step s3").
+function locate(
+  steps: Record<string, unknown>[],
+  id: string,
+): { list: Record<string, unknown>[]; index: number } | undefined {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (step?.id === id) return { list: steps, index: i };
+    for (const key of ["steps", "else"]) {
+      const inner = step?.[key];
+      if (Array.isArray(inner)) {
+        const found = locate(inner as Record<string, unknown>[], id);
+        if (found) return found;
+      }
+    }
+  }
+  return undefined;
 }
 
 // A whole input as an option's value: { type: { type: "number" }, default: 5 }.
