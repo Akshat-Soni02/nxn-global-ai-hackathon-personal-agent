@@ -142,4 +142,58 @@ describe("capture", () => {
     stop();
     expect(events).toEqual([]);
   });
+
+  const select = (el: Element) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = document.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+  const pointer = (el: Element, type: string, x: number) =>
+    el.dispatchEvent(new MouseEvent(type, { bubbles: true, composed: true, clientX: x, clientY: 5 }));
+
+  it("records a drag-selection as the selected text in its own element, and not the click that follows", () => {
+    document.body.innerHTML = `<article><h3 id="co">Eventual</h3><p>Building the AI data engine</p></article>`;
+    const { events, stop } = record();
+    const heading = $("#co");
+    pointer(heading, "pointerdown", 0);
+    select(heading);
+    pointer(heading, "pointerup", 60);
+    heading.click(); // the click the browser fires on whatever holds both ends of the selection
+    stop();
+    expect(events.map((e) => [e.event, e.value, e.target?.tag])).toEqual([["select_text", "Eventual", "h3"]]);
+  });
+
+  it("records a copy from the element holding the selection, and how it was made", () => {
+    document.body.innerHTML = `<article><h3 id="co">Eventual</h3><p>Building it</p></article>`;
+    const { events, stop } = record();
+    select($("#co"));
+    const copy = (key: boolean) => {
+      if (key) document.dispatchEvent(new KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true }));
+      const e = new Event("copy", { bubbles: true, composed: true });
+      Object.defineProperty(e, "clipboardData", { value: { getData: () => "Eventual" } });
+      $("#co").dispatchEvent(e);
+    };
+    copy(true);
+    copy(false);
+    stop();
+    expect(events.filter((e) => e.event === "copy").map((e) => [e.target?.tag, e.via])).toEqual([
+      ["h3", "keyboard"],
+      ["h3", "menu"],
+    ]);
+  });
+
+  it("gives a click its own id, where it landed, and its place in a list", () => {
+    document.body.innerHTML = `<ul>${["a", "b", "c"].map((n) => `<li class="job"><a href="/${n}"><b>${n}</b></a></li>`).join("")}</ul>`;
+    const { events, stop } = record();
+    const third = document.querySelectorAll("a")[2] as HTMLElement;
+    pointer(third, "pointerdown", 5);
+    third.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, clientX: 5, clientY: 5, detail: 1 }));
+    stop();
+    const click = events.find((e) => e.event === "click");
+    expect(click?.cid).toEqual(expect.any(String));
+    expect(click?.point).toMatchObject({ x: 5, y: 5, dpr: 1 });
+    expect(click?.list).toMatchObject({ index: 2, count: 3 });
+  });
 });

@@ -3,7 +3,7 @@
 // Only `import type` from @shadow/core here: a runtime import would bundle zod into every frame of every page.
 import type { ElementDescriptor, TraceEvent } from "@shadow/core";
 import { rowsOf, sheetExportUrl } from "@shadow/player/csv";
-import { actionableTarget, describeElement, hasVerifiedSelector } from "./describe.ts";
+import { actionableTarget, describeElement, hasVerifiedSelector, listPosition } from "./describe.ts";
 
 export type PageEvent = Pick<
   TraceEvent,
@@ -19,6 +19,15 @@ export type PageEvent = Pick<
   | "drawn"
   | "pasted"
   | "context"
+  | "list"
+  | "point"
+  | "via"
+  | "cid"
+  | "newTab"
+  | "cell"
+  | "modifiers"
+  | "of"
+  | "effect"
 > & {
   at?: number; // set when the event is sent later than it happened (a copy waits for the sheet's context)
   target?: ElementDescriptor;
@@ -89,6 +98,31 @@ export function startCapture(
 
   const send = (event: PageEvent["event"], el: Element, extra: Partial<PageEvent> = {}, target = describeElement(el)) =>
     emit({ event, target, echo: hasVerifiedSelector(target), ...extra });
+  let lastCopyKey = Number.NEGATIVE_INFINITY; // when ⌘C / Ctrl+C was last pressed: a copy right after it was by keyboard
+  const listOf = (el: Element): Partial<PageEvent> => {
+    const list = listPosition(el);
+    return list ? { list } : {};
+  };
+  // Where a click landed, as evidence for the picture taken after it (top frame only: the picture is its viewport).
+  const pointOf = (e: MouseEvent, el: Element): Partial<PageEvent> => {
+    const win = doc.defaultView;
+    if (!win || win !== win.top) return {};
+    const r = el.getBoundingClientRect();
+    return {
+      point: {
+        x: Math.round(e.clientX),
+        y: Math.round(e.clientY),
+        dpr: win.devicePixelRatio || 1,
+        box: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
+      },
+    };
+  };
+  // Selecting text, to copy it or to read it, is the event; never what was selected in a password field.
+  const sendSelection = () => {
+    const selected = selectionOf(doc);
+    if (!selected || isSecret(selected.el)) return;
+    send("select_text", selected.el, { value: selected.text, ...listOf(selected.el) });
+  };
 
   // Many keystrokes become one "type" event with the field's final value.
   const flushTyping = (el: Element) => {
@@ -122,7 +156,13 @@ export function startCapture(
         if (!start) return;
         const m = e as MouseEvent;
         if (Math.hypot(m.clientX - start.x, m.clientY - start.y) < 10) return; // a click
-        if (doc.getSelection()?.toString()) return; // selecting text (to copy it), not dragging
+        if (doc.getSelection()?.toString().trim()) {
+          // Selecting text: the selection is the event, not a drag, and not the click the browser fires next on
+          // whatever holds both ends of it. That click became a step replay could never find (section-study §R1).
+          suppressClickUntil = e.timeStamp + 100;
+          sendSelection();
+          return;
+        }
         const from = start.el;
         if (editableField(from) || from.localName === "canvas" || (from as HTMLInputElement).type === "range") return;
         // What is under the pointer, skipping the dragged element (libraries often move it along with the pointer).
@@ -158,6 +198,11 @@ export function startCapture(
         // Keyboard "clicks" (Enter or Space on a button) have no pointerdown, so describe now.
         const el = fresh?.el ?? actionableTarget(e);
         if (!el || e.timeStamp <= suppressClickUntil) return;
+        // A double or triple click selects a word or a line: that selection is the event.
+        if ((e as MouseEvent).detail >= 2 && doc.getSelection()?.toString().trim()) {
+          sendSelection();
+          return;
+        }
         // Enter in a form field makes the browser click the form's submit button (implicit submission, measured in
         // Chrome on fixtures/pages/timesheet.html). The Enter is the step; replaying both would submit twice.
         const implicit = lastEnter && e.timeStamp - lastEnter.at < 100 && el.closest("form") === lastEnter.form;
@@ -172,7 +217,9 @@ export function startCapture(
         const drawn =
           el.localName === "canvas" ||
           (!target.role && !target.name && !target.text && box.width * box.height >= DRAWN_AREA);
-        send("click", el, drawn ? { drawn: true } : {}, target);
+        const cid = newId();
+        const extras = { ...(drawn ? { drawn: true } : {}), cid, ...pointOf(e as MouseEvent, el), ...listOf(el) };
+        send("click", el, extras, target);
       },
     ],
     [
@@ -230,6 +277,9 @@ export function startCapture(
       "keydown",
       (e) => {
         const key = (e as KeyboardEvent).key;
+        if (((e as KeyboardEvent).metaKey || (e as KeyboardEvent).ctrlKey) && key.toLowerCase() === "c") {
+          lastCopyKey = Date.now();
+        }
         if (key !== "Enter" && key !== "Escape" && key !== "Tab") return;
         const hit = e.composedPath()[0];
         const el = hit instanceof Element ? hit : doc.activeElement;
@@ -323,9 +373,10 @@ export function startCapture(
       .trim()
       .slice(0, COPY_LIMIT);
     if (!text) return;
-    const anchor = doc.getSelection()?.anchorNode;
-    const selected = anchor && (anchor.nodeType === 1 ? (anchor as Element) : anchor.parentElement);
-    const el = (selected && selected !== doc.body ? selected : undefined) ?? doc.activeElement ?? doc.body;
+    const selected = selectionOf(doc);
+    const el = selected?.el ?? doc.activeElement ?? doc.body;
+    const via: PageEvent["via"] = Date.now() - lastCopyKey < 1_000 ? "keyboard" : "menu";
+    lastCopyKey = Number.NEGATIVE_INFINITY; // one ⌘C, one copy
     // Copied out of a password or one-time-code field: recorded that it happened, never what was copied.
     if (isSecret(el)) {
       send("copy", el, { at, secret: true });
@@ -333,7 +384,7 @@ export function startCapture(
     }
     const sheet = sheetExportUrl(doc.location?.href ?? "");
     if (!sheet || !options.fetchSheet) {
-      send("copy", el, { at, value: text });
+      send("copy", el, { at, value: text, via, ...listOf(el) });
       return;
     }
     // Context for the compiler: the sheet's header and the row the copied cell is in, so it can write a rule such as
@@ -348,11 +399,12 @@ export function startCapture(
         send("copy", el, {
           at,
           value: text,
+          via,
           drawn: true,
           context: { sheet, header: Object.keys(rows[0] ?? {}), row, column, rowIndex: index, rows: rows.length },
         });
       })
-      .catch(() => send("copy", el, { at, value: text, drawn: true, context: { sheet } }));
+      .catch(() => send("copy", el, { at, value: text, via, drawn: true, context: { sheet } }));
   };
   const win = doc.defaultView;
   win?.addEventListener("copy", onCopy);
@@ -362,6 +414,19 @@ export function startCapture(
     for (const stop of stops) stop();
   };
 }
+
+// The selected text and the smallest element holding all of it: the heading you copied a company name from, not the
+// card around it, nor whatever element the selection happened to start in.
+function selectionOf(doc: Document): { text: string; el: Element } | undefined {
+  const sel = doc.getSelection();
+  const text = sel?.toString().trim().slice(0, COPY_LIMIT);
+  if (!sel || !text || sel.rangeCount === 0) return undefined;
+  const common = sel.getRangeAt(0).commonAncestorContainer;
+  const el = common.nodeType === 1 ? (common as Element) : common.parentElement;
+  return el && el !== doc.body && el !== doc.documentElement ? { text, el } : undefined;
+}
+
+const newId = (): string => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 const fileInfo = (f: File) => ({ name: f.name, size: f.size, type: f.type, lastModified: f.lastModified });
 
