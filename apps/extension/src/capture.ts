@@ -87,7 +87,7 @@ export function startCapture(
   options: CaptureOptions = {},
 ): () => void {
   // Described at pointerdown, sent at click: by click time the page may have re-rendered or removed the element.
-  let pending: { hit: EventTarget | undefined; el: Element; target: ElementDescriptor } | undefined;
+  let pending: { hit: EventTarget | undefined; el: Element; target: ElementDescriptor; pressedAt: number } | undefined;
   let lastClick: { el: Element; at: number } | undefined;
   let lastEnter: { form: Element | null; at: number } | undefined;
   // Drags. A pointer drag is a press on one element and a release elsewhere (most kanban boards); an HTML5 drag
@@ -157,10 +157,14 @@ export function startCapture(
   const effects = watchEffects(doc);
   // Sent as its own event 700 ms later: a click that navigates away is gone by then, and its effect is the navigation
   // the browser reports.
-  const watchAfter = (el: Element, cid: string) =>
-    effects.watch(el, (effect) => {
-      if (isRecording()) emit({ event: "effect", of: cid, effect });
-    });
+  const watchAfter = (el: Element, cid: string, since?: number) =>
+    effects.watch(
+      el,
+      (effect) => {
+        if (isRecording()) emit({ event: "effect", of: cid, effect });
+      },
+      since,
+    );
 
   // Single-key shortcuts (Gmail's e), held a second so a burst of typing is never recorded (keys.ts).
   const singles = new SingleKeys((key, at, el) => {
@@ -172,7 +176,10 @@ export function startCapture(
       "pointerdown",
       (e) => {
         const el = actionableTarget(e);
-        pending = el ? { hit: e.composedPath()[0], el, target: describeElement(el) } : undefined;
+        // When the pointer went down: a menu that opens on mousedown (Gmail's toolbar) is part of what the click did.
+        pending = el
+          ? { hit: e.composedPath()[0], el, target: describeElement(el), pressedAt: effects.clock() }
+          : undefined;
         const m = e as MouseEvent;
         pressed = el ? { el, x: m.clientX, y: m.clientY } : undefined;
       },
@@ -262,7 +269,7 @@ export function startCapture(
             if (isRecording()) send("click", el, { ...extras, at, ...cellNow() }, target);
           }, 150);
         } else send("click", el, extras, target);
-        watchAfter(el, cid);
+        watchAfter(el, cid, fresh?.pressedAt);
       },
     ],
     [
@@ -338,7 +345,8 @@ export function startCapture(
         if ((k.metaKey || k.ctrlKey) && key.toLowerCase() === "c") lastCopyKey = Date.now();
         if (shortcut(key, mods)) {
           if (field) flushTyping(field); // the value reaches the trace before the key that sends it
-          if (!el) return;
+          // Never a key pressed in a password or one-time-code field: its characters are the secret.
+          if (!el || isSecret(el) || (field && isSecret(field))) return;
           const cid = newId();
           send("key", el, { value: key.length === 1 ? key.toLowerCase() : key, modifiers: mods, cid });
           if (key === "Enter") watchAfter(field ?? el, cid);
@@ -526,6 +534,10 @@ function selectionOf(doc: Document): { text: string; el: Element } | undefined {
   const sel = doc.getSelection();
   const text = sel?.toString().trim().slice(0, COPY_LIMIT);
   if (!sel || !text || sel.rangeCount === 0) return undefined;
+  // Text selected in a field: the field holds it. A selection inside an <input> has the field's parent as its common
+  // ancestor, so a password or one-time-code field would not be recognised as secret.
+  const active = doc.activeElement;
+  if (active && (active.localName === "input" || active.localName === "textarea")) return { text, el: active };
   const common = sel.getRangeAt(0).commonAncestorContainer;
   const el = common.nodeType === 1 ? (common as Element) : common.parentElement;
   return el && el !== doc.body && el !== doc.documentElement ? { text, el } : undefined;

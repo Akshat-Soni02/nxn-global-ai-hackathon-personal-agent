@@ -1,7 +1,7 @@
 import { type ActionStep, type ElementDescriptor, isOutward, Skill, type TraceEvent, triggerOf } from "@shadow/core";
 import { describe, expect, it, vi } from "vitest";
 import { requireApprovals } from "./approvals.ts";
-import { type Chat, compile, extractJson, labelDraft, type Question } from "./compile.ts";
+import { type Chat, compile, extractJson, labelDraft, type Question, stepsForModel } from "./compile.ts";
 import { applyAnswer, drill } from "./drill.ts";
 import { normalise } from "./normalise.ts";
 
@@ -939,5 +939,23 @@ describe("Move to Trash in Finder", () => {
     expect(trash).toMatchObject({ action: "move", args: { to: "~/.Trash/" } });
     expect(isOutward(trash as ActionStep)).toBe(true); // approval is added by requireApprovals
     expect(trash?.intent).toMatch(/to the Trash/);
+  });
+});
+
+describe("the compile view", () => {
+  it("masks keys and private words in what was typed or copied before the model reads it", () => {
+    const steps = normalise([
+      ev("navigate", 0, { url: PAGE }),
+      ev("copy", 1_000, { value: "sk-proj-abcdefghijklmnopqrstuvwx12345678 for ACME-2231", target: submitButton }),
+    ]);
+    const view = JSON.stringify(
+      stepsForModel(
+        steps,
+        steps.map(() => []),
+        ["ACME-2231"],
+      ),
+    );
+    expect(view).not.toContain("ACME-2231");
+    expect(view).not.toContain("sk-proj-abcdefgh");
   });
 });

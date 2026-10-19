@@ -33,6 +33,34 @@ function deps(results: Record<string, StepResult[]>, overrides: Partial<RunDeps>
 }
 
 describe("runSkill", () => {
+  it("counts a workflow that reads and works out a result as having done something", async () => {
+    const s = skill([
+      {
+        id: "a",
+        type: "action",
+        intent: "read the list",
+        channel: "web",
+        action: "extract",
+        target: { role: "list", fallbacks: [] },
+        args: {},
+        output: { name: "jobs", type: { type: "text" } },
+      },
+      {
+        id: "b",
+        type: "llm",
+        intent: "pick the newest",
+        instruction: "Pick the newest job in {{jobs}}",
+        inputs: ["jobs"],
+        output: { name: "pick", type: { type: "text" } },
+      },
+    ]);
+    const { d } = deps(
+      { a: [{ ok: true, value: "Eventual" }] },
+      { llm: async () => ({ ok: true, value: "Eventual" }) },
+    );
+    expect((await runSkill(s, d, { inputs: {} })).status).toBe("succeeded");
+  });
+
   it("ends as nothing to do when no step acted and nothing checks the result", async () => {
     const s = skill([
       {

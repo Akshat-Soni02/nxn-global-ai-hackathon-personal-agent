@@ -28,7 +28,7 @@ import type { ScreenDescriber } from "./describe.ts";
 import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { goLiveProblems } from "./lifecycle.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
-import { readForm, readNotes, recordingDir } from "./recording-store.ts";
+import { maskTermsOf, readForm, readNotes, recordingDir } from "./recording-store.ts";
 import { loadSkill, newSkillId, saveSkill } from "./skill-store.ts";
 import { appendTrace, readTrace } from "./trace-store.ts";
 
@@ -194,6 +194,7 @@ export async function finishRecording(
       steps,
       form,
       notes,
+      maskTerms: maskTermsOf(recorded),
       memory: options.memory,
       prompter: options.prompter,
       // It may finish only once a run started by the Frequency could fill every input on its own.

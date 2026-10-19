@@ -9,6 +9,7 @@ import type { ChatMessage } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import { z } from "zod";
 import { applyAnswer } from "./drill.ts";
+import { maskText } from "./mask.ts";
 import { type Note, narrationOf } from "./narration.ts";
 import type { NormalisedStep } from "./normalise.ts";
 import { type ActionDraft, type SkillDraft, skeletonOf, skillInput, TRIGGER_ID } from "./skeleton.ts";
@@ -294,7 +295,14 @@ export function labelDraft(
 
 // The model sees what you did, by meaning: no selectors, never a secret's value. Also the design agent's view of the
 // recording (design/tools.ts).
-export function stepsForModel(steps: NormalisedStep[], idsByStep: string[][]) {
+// What the model reads of each step. Values typed or copied are masked like screen words (keys, tokens, cards, emails)
+// and by the recording's Never and private words: a page's "Copy API key" button put a key in a copy's value.
+export function stepsForModel(steps: NormalisedStep[], idsByStep: string[][], terms: string[] = []) {
+  const hide = (text: string | undefined) => (text === undefined ? undefined : maskText(text, terms).text);
+  const hideRow = (row: unknown) =>
+    row && typeof row === "object"
+      ? Object.fromEntries(Object.entries(row as Record<string, unknown>).map(([k, v]) => [k, hide(String(v))]))
+      : row;
   return steps.map((s, i) => ({
     ids: idsByStep[i],
     did: s.kind,
@@ -312,7 +320,7 @@ export function stepsForModel(steps: NormalisedStep[], idsByStep: string[][]) {
     menu: s.menu,
     keys: s.kind === "app_key" ? [...(s.modifiers ?? []), s.value].join("+") : undefined,
     dropped_on: s.to && { role: s.to.role, name: s.to.name, label: s.to.label, near: s.to.near },
-    value: s.secret ? "(secret, not recorded)" : s.value?.slice(0, 200),
+    value: s.secret ? "(secret, not recorded)" : hide(s.value?.slice(0, 200)),
     checked: s.checked,
     file: s.file?.name,
     path: s.path,
@@ -321,10 +329,10 @@ export function stepsForModel(steps: NormalisedStep[], idsByStep: string[][]) {
     produced: s.produces,
     likely_changes: s.candidate,
     // A copy: what was copied; from a sheet also its header and the one row it came from (no other rows).
-    copied: s.kind === "copy" ? s.value?.slice(0, 200) : undefined,
+    copied: s.kind === "copy" ? hide(s.value?.slice(0, 200)) : undefined,
     sheet:
       s.kind === "copy" && s.context?.header
-        ? { header: s.context.header, row: s.context.row, column: s.context.column }
+        ? { header: s.context.header, row: hideRow(s.context.row), column: s.context.column }
         : undefined,
     pasted_from_copy: s.pasted ? Boolean(s.fromCopy) : undefined,
   }));

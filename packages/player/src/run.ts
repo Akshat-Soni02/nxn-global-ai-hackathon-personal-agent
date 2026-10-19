@@ -394,7 +394,9 @@ async function runLeaf(
     return fail(result.error ?? "check failed");
   }
 
-  if (isAction(resolved) && walkActs(resolved)) env.acted.n++;
+  // A step acted, or an llm step produced a result (a summary, a pick): the run did something. Reading or finding on
+  // its own is preparation: one fs.find that "succeeded" in 3 ms had done nothing (reports/oct19-two-recordings.md).
+  if ((isAction(resolved) && walkActs(resolved)) || isLlm(resolved)) env.acted.n++;
   const output = resolved.output;
   if (output) {
     // The value must fit the declared type; text that means a number or date is converted ("1,234" → 1234).

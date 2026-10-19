@@ -41,6 +41,8 @@ export interface DesignSession {
   steps: NormalisedStep[];
   idsByStep: string[][];
   notes: Note[];
+  // Words masked wherever the recording's values reach the model: the Never list and the private words.
+  maskTerms?: string[];
   // The first draft's questions not asked yet, and the answers given so far (to them and to the agent's own).
   pending: Question[];
   answered: { question: Question; answer: string }[];
@@ -397,7 +399,7 @@ export function recordingView(
   to = session.steps.length,
   { brief = false } = {},
 ): unknown[] {
-  const view = stepsForModel(session.steps, session.idsByStep);
+  const view = stepsForModel(session.steps, session.idsByStep, session.maskTerms);
   let near = notesByStep(session.steps, session.notes);
   if (brief) {
     let last = "";

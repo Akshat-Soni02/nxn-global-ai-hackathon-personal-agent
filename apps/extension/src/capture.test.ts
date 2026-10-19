@@ -225,4 +225,33 @@ describe("capture", () => {
       ["https://share.test/abc", "button", "Copy link"],
     ]);
   });
+
+  it("never records text selected inside a secret field, even when the selection's container is its wrapper", () => {
+    document.body.innerHTML = `<div id="w"><input name="otp" value="483920"><span id="s">code</span></div>`;
+    const { events, stop } = record();
+    ($("input[name=otp]") as HTMLInputElement).focus();
+    const s = $("#s");
+    pointer(s, "pointerdown", 0);
+    select(s);
+    pointer(s, "pointerup", 60);
+    const copy = new Event("copy", { bubbles: true, composed: true });
+    Object.defineProperty(copy, "clipboardData", { value: { getData: () => "483920" } });
+    s.dispatchEvent(copy);
+    stop();
+    expect(events.find((e) => e.event === "select_text")).toBeUndefined();
+    expect(events.find((e) => e.event === "copy")?.secret).toBe(true);
+    expect(JSON.stringify(events)).not.toContain("483920");
+  });
+
+  it("never records characters typed with Option, nor any key in a secret field", () => {
+    document.body.innerHTML = `<input type="password" name="pw"><div id="doc">x</div>`;
+    const { events, stop } = record();
+    const key = (el: Element, init: KeyboardEventInit) =>
+      el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, composed: true, ...init }));
+    key($("input[name=pw]"), { key: "@", altKey: true });
+    key($("input[name=pw]"), { key: "Enter", metaKey: true });
+    key($("#doc"), { key: "@", altKey: true });
+    stop();
+    expect(events.filter((e) => e.event === "key")).toEqual([]);
+  });
 });

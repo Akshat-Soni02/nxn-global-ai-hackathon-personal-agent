@@ -65,4 +65,46 @@ describe("what a click did", () => {
     expect(seen[0]).toMatchObject({ expanded: true, opened: "menu" });
     expect(seen[1]).toMatchObject({ emptied: true });
   });
+
+  it("sees a menu that opened on pointerdown, before the click (Gmail's toolbar, Sheets' menus)", async () => {
+    document.body.innerHTML = `<main><button id="more">More</button></main>`;
+    const watcher = watchEffects(document, () => clock);
+    watcher.start();
+    const down = clock;
+    document.body.insertAdjacentHTML("beforeend", `<div role="menu"><div role="menuitem">Move to</div></div>`);
+    await Promise.resolve(); // the menu's change is seen now, at pointerdown time
+    await settle(80); // the click comes after the menu opened
+    let effect: Effect | undefined;
+    watcher.watch(
+      document.querySelector("#more") as Element,
+      (e) => {
+        effect = e;
+      },
+      down,
+    );
+    await settle(700);
+    watcher.stop();
+    expect(effect).toMatchObject({ opened: "menu" });
+  });
+
+  it("counts only what goes beyond the churn in the target's own region", async () => {
+    document.body.innerHTML = `<main><ul id="rows"></ul><button id="more">More</button></main>`;
+    const watcher = watchEffects(document, () => clock);
+    watcher.start();
+    const churn = async () => {
+      for (let i = 0; i < 10; i++) {
+        document.querySelector("#rows")?.insertAdjacentHTML("beforeend", "<li>row</li>");
+        await settle(60);
+      }
+    };
+    await churn();
+    let effect: Effect | undefined;
+    watcher.watch(document.querySelector("#more") as Element, (e) => {
+      effect = e;
+    });
+    await churn();
+    await settle(100);
+    watcher.stop();
+    expect(effect).toEqual({ changed: "none" });
+  });
 });

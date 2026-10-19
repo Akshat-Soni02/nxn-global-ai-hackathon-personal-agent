@@ -13,6 +13,10 @@ describe("shortcuts", () => {
     expect(shortcut("v", ["ctrl"])).toBe(false);
     expect(shortcut("A", ["shift"])).toBe(false);
     expect(shortcut("Meta", ["cmd"])).toBe(false);
+    // Characters typed with Option (or AltGr: Ctrl+Option) are typing: @ [ ] { } on many layouts, — and … on US.
+    expect(shortcut("@", ["option"])).toBe(false);
+    expect(shortcut("l", ["ctrl", "option"])).toBe(false);
+    expect(shortcut("…", ["option", "shift"])).toBe(false);
   });
 });
 

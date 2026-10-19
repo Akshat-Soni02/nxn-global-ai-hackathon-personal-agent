@@ -20,6 +20,9 @@ export function modifiersOf(e: { metaKey: boolean; ctrlKey: boolean; altKey: boo
 // undo, redo), which the copy and paste events already say.
 export function shortcut(key: string, mods: Modifier[]): boolean {
   if (MODIFIER_KEYS.has(key) || !mods.some((m) => m !== "shift")) return false;
+  // A character typed with Option (or AltGr, Ctrl+Option) is typing: @ [ ] { } on many layouts, — and … on US.
+  // A printable key is a shortcut only with ⌘, or with Ctrl alone.
+  if (key.length === 1 && !mods.includes("cmd") && !(mods.includes("ctrl") && !mods.includes("option"))) return false;
   const editing = mods.length === 1 && (mods[0] === "cmd" || mods[0] === "ctrl") && EDITING.has(key.toLowerCase());
   return !editing;
 }

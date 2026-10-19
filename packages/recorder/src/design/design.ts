@@ -48,6 +48,8 @@ export interface DesignOptions {
   steps: NormalisedStep[];
   form?: Form;
   notes?: Note[];
+  // The recording's Never and private words, masked in the values the model reads.
+  maskTerms?: string[];
   memory?: Pick<MemoryStore, "search">;
   prompter: Prompter;
   // What else must hold before it may finish (the daemon's go-live checks for an unattended Frequency).
@@ -87,6 +89,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     steps: options.steps,
     idsByStep: skeletonOf(options.steps).idsByStep,
     notes: options.notes ?? [],
+    maskTerms: options.maskTerms ?? [],
     pending: [...options.questions],
     answered: [],
     baseline: new Map(options.questions.map((q) => [q.id, slotOf(options.skill, q.appliesTo)])),

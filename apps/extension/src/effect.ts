@@ -28,9 +28,11 @@ export interface EffectWatcher {
   start(): void;
   // Stops watching and forgets what it saw (the recording ended).
   pause(): void;
-  // Watches what follows an action on `el`; `done` gets the effect after WATCH_MS, unless the page went away first
-  // (then the navigation the browser reports is the effect).
-  watch(el: Element, done: (effect: Effect) => void): void;
+  // Watches what follows an action on `el`, from `since` (when the pointer went down; else now); `done` gets the effect
+  // after WATCH_MS, unless the page went away first (then the navigation the browser reports is the effect).
+  watch(el: Element, done: (effect: Effect) => void, since?: number): void;
+  // The watcher's clock, to note when the pointer went down.
+  clock(): number;
   stop(): void;
 }
 
@@ -62,9 +64,10 @@ export function watchEffects(doc: Document, now: () => number = () => performanc
   return {
     start,
     pause,
-    watch(el, done) {
+    clock: now,
+    watch(el, done, since) {
       start();
-      const t0 = now();
+      const t0 = since ?? now();
       const scope = scopeOf(el);
       const near = (c: Change) => scope.contains(c.node) || Boolean(c.opened);
       const before = changes.filter((c) => c.t >= t0 - WATCH_MS && c.t < t0 && near(c)).length;
