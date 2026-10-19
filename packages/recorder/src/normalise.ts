@@ -64,6 +64,8 @@ export interface NormalisedStep {
   modifiers?: ("cmd" | "shift" | "option" | "ctrl")[];
   button?: "left" | "right";
   long?: boolean;
+  // fs_move: the file was moved to the Trash (Finder's Move to Trash).
+  trashed?: boolean;
   events: string[]; // ids of the trace events merged into this step
 }
 
@@ -77,6 +79,12 @@ const FOCUS_ONLY_ROLES = new Set(["textbox", "searchbox", "spinbutton"]);
 // Finder is recorded by what it did to files (fs_move, fs_rename from the watcher), never by its clicks: a click on
 // last month's row can't be replayed next month. Shadow.app leaves Finder out too; this also covers old traces.
 const FILE_APPS = new Set(["com.apple.finder"]);
+// Finder's Move to Trash (its menu item, or ⌘⌫), reported by Shadow.app: the file that vanishes right after it is a
+// trashed file, a step. Apps delete their own files all day, so a vanish without it is not.
+const TRASH_MS = 5_000;
+const finderTrash = (e: TraceEvent) =>
+  (e.event === "app_menu" && (e.menu ?? []).at(-1) === "Move to Trash") ||
+  (e.event === "app_key" && /^(delete|backspace)$/i.test(e.value ?? "") && (e.modifiers ?? []).includes("cmd"));
 // Mac-app elements that only hold others: a click on one is a click on nothing in particular.
 const AX_CONTAINERS = new Set([
   "AXWindow",
@@ -95,6 +103,7 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
   const steps: Draft[] = [];
   const last = () => steps.at(-1);
   let lastCopy: string | undefined;
+  let lastTrash: number | undefined;
   const base = (e: TraceEvent): Draft => ({
     kind: "click",
     at: e.at,
@@ -125,7 +134,10 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
 
   for (const e of events) {
     const prev = last();
-    if (e.event.startsWith("app_") && FILE_APPS.has(appOf(e)?.id ?? "")) continue;
+    if (e.event.startsWith("app_") && FILE_APPS.has(appOf(e)?.id ?? "")) {
+      if (finderTrash(e)) lastTrash = e.at;
+      continue;
+    }
     switch (e.event) {
       case "navigate": {
         // A page replay can't open (a new tab page, another extension's page, chrome://settings) is not a step: the
@@ -283,6 +295,14 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
       case "fs_rename":
         steps.push({ ...base(e), kind: e.event, target: undefined, path: e.path, toPath: e.toPath });
         break;
+      case "fs_remove": {
+        const home = /^(\/Users\/[^/]+)\//.exec(e.path ?? "")?.[1];
+        if (lastTrash === undefined || e.at - lastTrash > TRASH_MS || !e.path || !home) break;
+        const name = e.path.split("/").pop() ?? "";
+        const toPath = `${home}/.Trash/${name}`;
+        steps.push({ ...base(e), kind: "fs_move", target: undefined, path: e.path, toPath, trashed: true });
+        break;
+      }
       case "app_click": {
         const el = e.element;
         if (!el || (AX_CONTAINERS.has(el.role) && !el.title && !el.description && !el.identifier)) break;

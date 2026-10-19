@@ -1,4 +1,4 @@
-import { type ActionStep, type ElementDescriptor, Skill, type TraceEvent, triggerOf } from "@shadow/core";
+import { type ActionStep, type ElementDescriptor, isOutward, Skill, type TraceEvent, triggerOf } from "@shadow/core";
 import { describe, expect, it, vi } from "vitest";
 import { requireApprovals } from "./approvals.ts";
 import { type Chat, compile, extractJson, labelDraft, type Question } from "./compile.ts";
@@ -922,5 +922,22 @@ describe("links with ids in their address", () => {
       "navigate",
       "https://www.ycombinator.com/companies/eventual/jobs/7421",
     ]);
+  });
+});
+
+describe("Move to Trash in Finder", () => {
+  it("is a move to the Trash that waits for approval; other deletions are not steps", async () => {
+    const finder = { id: "com.apple.finder", name: "Finder" };
+    const steps = normalise([
+      ev("fs_remove", 500, { path: "/Users/me/Library/Caches/x.db" }), // an app deleting its own file
+      { id: "m1", sessionId: "s", at: T0 + 1_000, event: "app_menu", app: finder, menu: ["File", "Move to Trash"] },
+      ev("fs_remove", 1_400, { path: "/Users/me/Downloads/OldInstaller-1.2.dmg" }),
+    ]);
+    expect(steps.map((s) => [s.kind, s.trashed])).toEqual([["fs_move", true]]);
+    const { skill } = await compile(steps, {});
+    const trash = acts(skill).find((s) => s.channel === "fs");
+    expect(trash).toMatchObject({ action: "move", args: { to: "~/.Trash/" } });
+    expect(isOutward(trash as ActionStep)).toBe(true); // approval is added by requireApprovals
+    expect(trash?.intent).toMatch(/to the Trash/);
   });
 });

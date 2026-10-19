@@ -72,6 +72,16 @@ describe("skill store", () => {
 });
 
 describe("file changes", () => {
+  it("reports a file that vanished and appeared nowhere watched, and not a temporary one", () => {
+    expect(
+      classify([
+        { kind: "vanish", path: "/Users/me/Downloads/OldInstaller-1.2.dmg", at: 1, ino: 7 },
+        { kind: "appear", path: "/Users/me/Downloads/tmp.txt", at: 2 },
+        { kind: "vanish", path: "/Users/me/Downloads/tmp.txt", at: 3 },
+      ]),
+    ).toEqual([{ event: "fs_remove", path: "/Users/me/Downloads/OldInstaller-1.2.dmg", at: 1 }]);
+  });
+
   it("classifies FSEvents observations into create, move and rename, ignoring temporary files", () => {
     const at = 1;
     expect(

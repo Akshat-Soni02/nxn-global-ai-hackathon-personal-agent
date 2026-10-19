@@ -365,7 +365,7 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
         files.set(to, moved);
         return {
           id,
-          intent: `Move ${basename(from)} to ${folder}`,
+          intent: step.trashed ? `Move ${basename(from)} to the Trash` : `Move ${basename(from)} to ${folder}`,
           channel: "fs",
           action: "move",
           // The trailing "/" makes it a folder for fs.move (fs-channel.ts); without it the file would be renamed to it.
