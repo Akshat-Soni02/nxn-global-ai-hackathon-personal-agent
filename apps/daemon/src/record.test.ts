@@ -370,7 +370,16 @@ describe("record end to end", () => {
       when: [{ type: "manual" }],
       consent: { screen: false, microphone: false, pictures: false },
     });
-    appendTrace(home, { id: "e1", sessionId, at: 1000, event: "click", tabId: 1, frameId: 0, url: PAGE, target: upload });
+    appendTrace(home, {
+      id: "e1",
+      sessionId,
+      at: 1000,
+      event: "click",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: upload,
+    });
     appendTrace(home, {
       id: "e2",
       sessionId,
@@ -382,7 +391,16 @@ describe("record end to end", () => {
       target: upload,
       file: { name: "invoice-0923.pdf", size: 10, type: "application/pdf" },
     });
-    appendTrace(home, { id: "e3", sessionId, at: 9000, event: "click", tabId: 1, frameId: 0, url: PAGE, target: submit });
+    appendTrace(home, {
+      id: "e3",
+      sessionId,
+      at: 9000,
+      event: "click",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: submit,
+    });
     const llm = fakeLlm([
       {
         toolCalls: [
