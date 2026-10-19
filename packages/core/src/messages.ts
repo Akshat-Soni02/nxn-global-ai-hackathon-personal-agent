@@ -67,6 +67,9 @@ export const Message = z.discriminatedUnion("type", [
     eventId: z.string(),
     at: z.number(),
     image: z.string().max(20_000_000).optional(),
+    // The tab the picture is of, and when it was taken (a queued picture may be taken a moment after its event).
+    tabId: z.number().optional(),
+    takenAt: z.number().optional(),
     path: z.string().optional(),
     masks: z
       .array(z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }))
@@ -74,6 +77,16 @@ export const Message = z.discriminatedUnion("type", [
       .optional(),
   }),
 
+  // extension -> daemon: a picture that was not taken after an event, and why. Every event that should have a picture
+  // has a line in the recording's shots.jsonl, so a missing picture is never silent.
+  z.object({
+    ...base,
+    type: z.literal("record.shot_skip"),
+    sessionId: z.string(),
+    eventId: z.string(),
+    at: z.number(),
+    reason: z.enum(["private", "tab-hidden", "rate-limit", "error", "stopped"]),
+  }),
   // daemon -> extension: whether Shadow.app's floating button is on screen (Chrome then hides its own).
   z.object({ ...base, type: z.literal("desktop.button"), present: z.boolean() }),
   // mac -> daemon: Accessibility was allowed or taken away while the app was running.

@@ -887,3 +887,16 @@ describe("the description form", () => {
     expect(acts(approved).map((s) => s.requires_approval)).toEqual([false, true, true]);
   });
 });
+
+describe("old and new traces", () => {
+  it("normalise the same when the new events are added: they only add evidence", () => {
+    const old = [ev("navigate", 0, { url: PAGE }), ev("click", 1_000, { target: submitButton })];
+    const extra = [
+      ...old,
+      ev("effect", 1_700, { of: "c1", effect: { changed: "small" } }),
+      ev("window_focus", 2_000, { windowId: 2 }),
+      ev("select_text", 2_500, { value: "x", target: submitButton }),
+    ];
+    expect(normalise(extra).map((s) => s.kind)).toEqual(normalise(old).map((s) => s.kind));
+  });
+});
