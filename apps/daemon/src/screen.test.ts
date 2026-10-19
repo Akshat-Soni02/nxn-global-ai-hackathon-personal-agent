@@ -195,4 +195,34 @@ describe("screenshots over the socket", () => {
     ext.end();
     expect(shots).toEqual(["a", "big"]);
   });
+  it("keep a ledger line for every picture: taken, or why not", async () => {
+    const home = temp();
+    const sessionId = recording(home);
+    const { tools } = fakeTools(["Inbox"]);
+    const reader = createScreenReader({ dataDir: home, tools, never: () => [], log: () => {} });
+    reader.add({ sessionId, eventId: "e1", at: 1, image: JPEG });
+    reader.skip({ sessionId, eventId: "e2", at: 2, reason: "rate-limit" });
+    await reader.idle();
+    const ledger = readFileSync(join(home, "recordings", sessionId, "shots.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    expect(ledger).toEqual([
+      { eventId: "e2", at: 2, outcome: "skipped", reason: "rate-limit" },
+      { eventId: "e1", at: 1, outcome: "taken" },
+    ]);
+  });
+
+  it("say no-tools for every picture when Shadow.app can't read pictures, instead of losing them silently", async () => {
+    const home = temp();
+    const sessionId = recording(home);
+    const reader = createScreenReader({ dataDir: home, tools: undefined, never: () => [], log: () => {} });
+    reader.add({ sessionId, eventId: "e1", at: 1, image: JPEG });
+    reader.add({ sessionId, eventId: "e2", at: 2, image: JPEG });
+    await reader.idle();
+    const ledger = readFileSync(join(home, "recordings", sessionId, "shots.jsonl"), "utf8")
+      .trim()
+      .split("\n");
+    expect(ledger.map((l) => JSON.parse(l).outcome)).toEqual(["no-tools", "no-tools"]);
+  });
 });

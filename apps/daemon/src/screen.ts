@@ -24,6 +24,9 @@ export interface Shot {
   masks?: Box[];
   // From Shadow.app: the file it saved in the recording's folder.
   path?: string;
+  // The tab it is of, and when it was taken (a queued picture may be taken a moment after its event).
+  tabId?: number;
+  takenAt?: number;
 }
 
 // Reading words in a picture and blacking out boxes: Shadow.app's command-line modes, or a stand-in in tests.
@@ -59,8 +62,15 @@ export function screenToolsFrom(binary: string): ScreenTools | undefined {
 
 export interface ScreenReader {
   add(shot: Shot): void;
+  // A picture that was not taken, and why: written to the ledger at once.
+  skip(entry: { sessionId: string; eventId: string; at: number; reason: string }): void;
   // Resolves once every picture added so far is done (before a recording is turned into a workflow).
   idle(): Promise<void>;
+}
+
+// One line per event that should have a picture: taken, or why not. A missing picture is never silent (spec 1.15).
+function ledger(dir: string, line: Record<string, unknown>): void {
+  appendFileSync(join(dir, "shots.jsonl"), `${JSON.stringify(line)}\n`, { mode: 0o600 });
 }
 
 export function createScreenReader(options: {
@@ -94,6 +104,7 @@ export function createScreenReader(options: {
 
     if (!tools) {
       rmSync(file, { force: true });
+      ledger(dir, { eventId: shot.eventId, at: shot.at, outcome: "no-tools" });
       if (!warned) log("screenshots need Shadow.app to read and mask them (pnpm setup:mac): not kept");
       warned = true;
       return;
@@ -111,13 +122,25 @@ export function createScreenReader(options: {
           mode: 0o600,
         });
       }
+      ledger(dir, { eventId: shot.eventId, at: shot.at, outcome: "taken" });
     } catch (error) {
       rmSync(file, { force: true });
+      ledger(dir, {
+        eventId: shot.eventId,
+        at: shot.at,
+        outcome: "deleted",
+        reason: (error as Error).message.slice(0, 200),
+      });
       log("a screenshot couldn't be read or masked, so it was deleted:", (error as Error).message);
     }
   }
 
   return {
+    skip({ sessionId, eventId, at, reason }) {
+      if (!/^[\w-]+$/.test(eventId)) return;
+      const dir = recordingDir(dataDir, sessionId);
+      if (existsSync(dir)) ledger(dir, { eventId, at, outcome: "skipped", reason });
+    },
     add(shot) {
       queue = queue.then(() => handle(shot)).catch((error: Error) => log("screenshot:", error.message));
     },

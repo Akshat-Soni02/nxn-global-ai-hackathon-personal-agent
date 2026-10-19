@@ -92,6 +92,7 @@ const daemon = await startDaemon({
     if (event === "wake") onWake();
   },
   onShot: (shot) => screen?.add(shot),
+  onShotSkip: (skip) => screen?.skip(skip),
   api: { call: (method, params) => (api ? api.call(method, params) : Promise.reject(new Error("not ready"))) },
 });
 // Development mode: a daemon started in a terminal stops when the terminal closes. The LaunchAgent (pnpm
