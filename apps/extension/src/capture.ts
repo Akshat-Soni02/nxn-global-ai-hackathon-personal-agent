@@ -2,7 +2,8 @@
 // meaning. Listeners run in the capture phase, so a page that stops propagation can't hide an event from us.
 // Only `import type` from @shadow/core here: a runtime import would bundle zod into every frame of every page.
 import type { ElementDescriptor, TraceEvent } from "@shadow/core";
-import { rowsOf, sheetExportUrl } from "@shadow/player/csv";
+import { parseCsv, sheetExportUrl } from "@shadow/player/csv";
+import { columnOfCell, isSheet, readCell, rowOfCell } from "./adapters/google-sheets.ts";
 import { actionableTarget, describeElement, hasVerifiedSelector, listPosition } from "./describe.ts";
 import { watchEffects } from "./effect.ts";
 import { CANVAS_EDITORS, modifiersOf, SingleKeys, shortcut } from "./keys.ts";
@@ -126,18 +127,30 @@ export function startCapture(
     send("select_text", selected.el, { value: selected.text, ...listOf(selected.el) });
   };
 
+  const inSheet = () => isSheet(doc.location?.href ?? "");
+  const cellNow = (): Partial<PageEvent> => {
+    const cell = inSheet() ? readCell(doc) : undefined;
+    return cell ? { cell } : {};
+  };
+  // The cell a value is being typed into, read at its first key: by the time the value is sent (Enter, leaving the
+  // cell), Sheets has already moved the selection on.
+  const typingCell = new WeakMap<Element, PageEvent["cell"]>();
+
   // Many keystrokes become one "type" event with the field's final value.
   const flushTyping = (el: Element) => {
     if (!dirty.has(el)) return;
     dirty.delete(el);
+    const cell = typingCell.get(el);
+    typingCell.delete(el);
+    const where = cell ? { cell } : {};
     const value = fieldValue(el);
     if (sent.get(el) === value) return;
     sent.set(el, value);
-    if (isSecret(el)) send("type", el, { secret: true });
+    if (isSecret(el)) send("type", el, { secret: true, ...where });
     else if (pasted.has(el)) {
       pasted.delete(el);
-      send("type", el, { pasted: true }); // filled from what was copied ({{vars.x}}), never stored
-    } else send("type", el, { value });
+      send("type", el, { pasted: true, ...where }); // filled from what was copied ({{vars.x}}), never stored
+    } else send("type", el, { value, ...where });
   };
 
   // What each click and Enter did (effect.ts): observed only while a recording is open.
@@ -242,7 +255,13 @@ export function startCapture(
           ...pointOf(e as MouseEvent, el),
           ...listOf(el),
         };
-        send("click", el, extras, target);
+        if (drawn && inSheet()) {
+          // Sheets moves its Name Box to the clicked cell just after the click: read it then, keeping the click's time.
+          const at = Date.now();
+          setTimeout(() => {
+            if (isRecording()) send("click", el, { ...extras, at, ...cellNow() }, target);
+          }, 150);
+        } else send("click", el, extras, target);
         watchAfter(el, cid);
       },
     ],
@@ -260,6 +279,7 @@ export function startCapture(
       (e) => {
         const el = editableField(e.composedPath()[0]);
         if (el) dirty.add(el);
+        if (el && inSheet() && !typingCell.has(el)) typingCell.set(el, readCell(doc));
       },
     ],
     [
@@ -346,8 +366,9 @@ export function startCapture(
         const field = editableField(e.composedPath()[0]) ?? (doc.activeElement && editableField(doc.activeElement));
         if (!field) return;
         pasted.add(field);
+        if (inSheet() && !typingCell.has(field)) typingCell.set(field, readCell(doc));
         dirty.add(field);
-        send("paste", field, { pasted: true });
+        send("paste", field, { pasted: true, ...cellNow() });
       },
     ],
     [
@@ -441,20 +462,36 @@ export function startCapture(
       return;
     }
     // Context for the compiler: the sheet's header and the row the copied cell is in, so it can write a rule such as
-    // "Amount of the row whose Date is today" instead of a fixed cell.
+    // "Amount of the row whose Date is today" instead of a fixed cell. The cell is read now, before the export arrives.
+    const cell = readCell(doc);
     options
       .fetchSheet(sheet)
       .then((csv) => {
-        const rows = rowsOf(csv);
-        const index = rows.findIndex((row) => Object.values(row).includes(text));
-        const row = rows[index];
-        const column = row && Object.keys(row).find((k) => row[k] === text);
+        const table = parseCsv(csv);
+        const header = (table[0] ?? []).map((h) => h.trim());
+        const line = cell ? rowOfCell(cell.ref) : undefined;
+        // The row of the cell you copied (the Name Box), not "the first cell equal to the copied text": a value that
+        // appears twice (4,928 two weeks running) picked the wrong row.
+        const cells =
+          line !== undefined ? table[line - 1] : table.find((r, i) => i > 0 && r.some((c) => c.trim() === text));
+        const row = cells && Object.fromEntries(header.map((name, i) => [name, (cells[i] ?? "").trim()]));
+        const index = cell ? columnOfCell(cell.ref) : undefined;
+        const column =
+          (index !== undefined ? header[index] : undefined) ?? (row && Object.keys(row).find((k) => row[k] === text));
         send("copy", el, {
           at,
           value: text,
           via,
           drawn: true,
-          context: { sheet, header: Object.keys(rows[0] ?? {}), row, column, rowIndex: index, rows: rows.length },
+          ...(cell ? { cell } : {}),
+          context: {
+            sheet,
+            header,
+            row,
+            column,
+            rowIndex: line !== undefined ? line - 2 : table.indexOf(cells ?? []) - 1,
+            rows: Math.max(0, table.length - 1),
+          },
         });
       })
       .catch(() => send("copy", el, { at, value: text, via, drawn: true, context: { sheet } }));
