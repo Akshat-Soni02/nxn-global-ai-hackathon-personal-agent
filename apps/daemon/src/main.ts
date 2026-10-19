@@ -41,7 +41,7 @@ import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
 import { finishRecording } from "./record.ts";
 import { createRecordControl, type RecordControl } from "./record-control.ts";
-import { readConsent, readForm, sweepRecordings } from "./recording-store.ts";
+import { maskTermsOf, readConsent, readForm, sweepRecordings } from "./recording-store.ts";
 import { runSkillOn } from "./runner.ts";
 import { createScreenReader, type ScreenReader, screenToolsFrom } from "./screen.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
@@ -206,10 +206,11 @@ const prompter: Prompter = {
 // Screenshots (when the form allowed them): their words are read and masked on the Mac by Shadow.app's binary, and
 // only the masked words are kept (screen.ts). Packaged, the app is the bundle the daemon runs inside.
 const macBinary = join(macApp, "Contents/MacOS/Shadow");
+const screenTools = screenToolsFrom(macBinary);
 screen = createScreenReader({
   dataDir: home,
-  tools: screenToolsFrom(macBinary),
-  never: (sessionId) => readForm(home, sessionId)?.never ?? [],
+  tools: screenTools,
+  never: (sessionId) => maskTermsOf(readForm(home, sessionId)),
   log,
 });
 const screenReader = screen;
@@ -227,16 +228,20 @@ record = createRecordControl({
   dataDir: home,
   daemon,
   ask: (question) => service.ask(question),
+  screenReady: () => screenTools !== undefined,
   finish: async (sessionId) => {
-    // Every screenshot is read and masked, and the narration turned into text, before the recording becomes a workflow.
-    await screenReader.idle();
-    await transcribeRecording({
-      dataDir: home,
-      sessionId,
-      transcribe,
-      never: readForm(home, sessionId)?.never ?? [],
-      log,
-    });
+    // Every screenshot is read and masked, and the narration turned into text, before the recording becomes a workflow:
+    // both at the same time (both run in Shadow.app, on the Mac).
+    await Promise.all([
+      screenReader.idle(),
+      transcribeRecording({
+        dataDir: home,
+        sessionId,
+        transcribe,
+        never: maskTermsOf(readForm(home, sessionId)),
+        log,
+      }),
+    ]);
     return finishRecording(sessionId, {
       dataDir: home,
       prompter,

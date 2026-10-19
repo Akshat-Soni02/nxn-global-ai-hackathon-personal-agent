@@ -38,6 +38,8 @@ export interface RecordControlOptions {
   // The recording → a saved workflow (record.ts finishRecording). Undefined when nothing was recorded.
   finish(sessionId: string): Promise<{ skill: { id: string } } | undefined>;
   log: Log;
+  // Shadow.app can read and mask pictures. Absent: assumed ready.
+  screenReady?(): boolean;
 }
 
 export interface RecordControl {
@@ -74,6 +76,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
     consent: readConsent(dataDir),
     last,
     macApp: daemon.mac().connected,
+    screenReady: options.screenReady?.() ?? true,
   });
   const changed = () => {
     const event: RecordEvent = { type: "recording", view: view() };

@@ -31,9 +31,9 @@ export function Record({ again }: { again?: string }) {
       </header>
       {data.phase === "idle" ? (
         again ? (
-          <AgainForm again={again} consent={data.consent} last={data.last} />
+          <AgainForm again={again} consent={data.consent} last={data.last} screenReady={data.screenReady} />
         ) : (
-          <GoalBox consent={data.consent} last={data.last} />
+          <GoalBox consent={data.consent} last={data.last} screenReady={data.screenReady} />
         )
       ) : null}
       {data.phase === "describing" ? <p>Answer the questions below (or in the terminal) to start recording.</p> : null}
@@ -99,10 +99,12 @@ function AgainForm({
   again,
   consent,
   last,
+  screenReady,
 }: {
   again: string;
   consent: RecordingView["consent"];
   last: RecordingView["last"];
+  screenReady?: boolean;
 }) {
   const workflow = useQuery<{ id: string; versions: number[]; latest: Skill } | null>("workflow", { id: again });
   if (workflow.data === null) return <p className="error">No workflow {again}.</p>;
@@ -119,6 +121,7 @@ function AgainForm({
       <GoalBox
         consent={consent}
         last={last}
+        screenReady={screenReady}
         again={again}
         initial={{ ...latest.description, when: when.find((t) => t.type !== "manual") ?? when[0] }}
       />
@@ -137,11 +140,13 @@ interface Initial {
 function GoalBox({
   consent,
   last,
+  screenReady,
   again,
   initial,
 }: {
   consent: RecordingView["consent"];
   last: RecordingView["last"];
+  screenReady?: boolean;
   again?: string;
   initial?: Initial;
 }) {
@@ -150,6 +155,8 @@ function GoalBox({
   const [screen, setScreen] = useState(consent.screen);
   const [microphone, setMicrophone] = useState(consent.microphone);
   const [pictures, setPictures] = useState(consent.pictures);
+  // Names and codes to hide from the model (optional, folded): masked like the Never words.
+  const [privateWords, setPrivateWords] = useState("");
   // Only the goal before recording. How often it runs, what changes, what stays and what it must never do come from
   // what is said and shown, and are set after Stop (the design agent, the editor). Recorded again: what the workflow
   // already says stays as it is.
@@ -165,6 +172,10 @@ function GoalBox({
           }
         : {}),
       consent: { screen, microphone, pictures: screen && pictures },
+      private: privateWords
+        .split(/[,\n]/)
+        .map((w) => w.trim())
+        .filter(Boolean),
       ...(again ? { again } : {}),
     });
 
@@ -206,9 +217,25 @@ function GoalBox({
             <span className="dot rec" /> {again ? "Record again" : "Record"}
           </Action>
         </div>
+        <details className="goalbox-private">
+          <summary>Private words (optional)</summary>
+          <input
+            type="text"
+            value={privateWords}
+            onChange={(e) => setPrivateWords(e.target.value)}
+            aria-label="Private words"
+            placeholder="Names or codes to hide from the model, comma-separated: Project Falcon, ACME-2231"
+          />
+        </details>
       </form>
 
       <p className="muted small goalbox-note">{consentNote(screen, microphone, screen && pictures)}</p>
+      {screen && screenReady === false ? (
+        <p className="error small">
+          Pictures can't be read right now: Shadow.app needs updating (pnpm setup:mac). The words on your screen won't
+          be recorded until it is.
+        </p>
+      ) : null}
       <p className="muted small">
         Say how often it runs and the rules you follow while you record ("every morning", "skip the ones already in the
         sheet"). Anything still unclear is asked after you stop.

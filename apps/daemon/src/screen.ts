@@ -112,15 +112,26 @@ export function createScreenReader(options: {
     try {
       const masked = maskLines(await tools.read(file), options.never(shot.sessionId));
       await tools.blackOut(file, [...masked.boxes, ...(shot.masks ?? [])]);
-      const text = masked.lines
-        .map((l) => l.text.trim())
-        .filter(Boolean)
-        .join("\n")
-        .slice(0, 2_000);
-      if (text) {
-        appendFileSync(join(dir, "screen.jsonl"), `${JSON.stringify({ at: shot.at, eventId: shot.eventId, text })}\n`, {
-          mode: 0o600,
+      // Every masked line with its place on the picture, up to 8,000 characters: the words around a click are found by
+      // position (the click point), and a control low on a long page is no longer cut off at 2,000 characters.
+      let total = 0;
+      const lines = masked.lines
+        .map((l) => ({ text: l.text.trim(), box: l.box }))
+        .filter((l) => l.text)
+        .filter((l) => {
+          total += l.text.length + 1;
+          return total <= 8_000;
         });
+      if (lines.length > 0) {
+        const line = {
+          at: shot.at,
+          eventId: shot.eventId,
+          ...(shot.tabId !== undefined ? { tabId: shot.tabId } : {}),
+          ...(shot.takenAt !== undefined ? { takenAt: shot.takenAt } : {}),
+          text: lines.map((l) => l.text).join("\n"),
+          lines,
+        };
+        appendFileSync(join(dir, "screen.jsonl"), `${JSON.stringify(line)}\n`, { mode: 0o600 });
       }
       ledger(dir, { eventId: shot.eventId, at: shot.at, outcome: "taken" });
     } catch (error) {

@@ -32,6 +32,9 @@ export const RecordForm = Description.extend({
   changes: list,
   constants: list,
   never: list,
+  // Words to hide from the model, given on the Record screen (folded, optional): names and codes the patterns can't
+  // know (a project's code name, a client). Masked like the Never words, in the screen's words and the narration.
+  private: list,
   when: z
     .array(Trigger)
     .min(1)
@@ -46,6 +49,12 @@ export const RecordForm = Description.extend({
     .optional(),
 });
 export type RecordForm = z.infer<typeof RecordForm>;
+
+// Everything masked by name in a recording's words: the Never list and the private words.
+export const maskTermsOf = (form?: Pick<RecordForm, "never" | "private">): string[] => [
+  ...(form?.never ?? []),
+  ...(form?.private ?? []),
+];
 export type RecordFormInput = z.input<typeof RecordForm>;
 
 export function recordingDir(dataDir: string, sessionId: string): string {
@@ -54,10 +63,13 @@ export function recordingDir(dataDir: string, sessionId: string): string {
   return join(dataDir, "recordings", sessionId);
 }
 
-export function writeForm(dataDir: string, sessionId: string, form: RecordForm): void {
+// The form as given (optional fields may be left out), saved with its defaults filled in.
+export function writeForm(dataDir: string, sessionId: string, form: RecordFormInput): void {
   const dir = recordingDir(dataDir, sessionId);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  writeFileSync(join(dir, "description.json"), `${JSON.stringify(form, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(join(dir, "description.json"), `${JSON.stringify(RecordForm.parse(form), null, 2)}\n`, {
+    mode: 0o600,
+  });
 }
 
 // The form a recording was started with; undefined for recordings made without one (before Oct 13).

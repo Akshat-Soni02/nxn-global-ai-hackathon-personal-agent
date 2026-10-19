@@ -799,6 +799,26 @@ nav a.active .badge {
 .goalbox-space {
   flex: 1;
 }
+/* Private words: folded under the bar, never required. */
+.goalbox-private {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.goalbox-private summary {
+  cursor: pointer;
+}
+.goalbox-private input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
 .chip {
   display: inline-flex;
   align-items: center;

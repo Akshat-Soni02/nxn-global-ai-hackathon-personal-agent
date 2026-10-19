@@ -156,4 +156,6 @@ export interface RecordingView {
   last?: { sessionId: string; outcome: "saved" | "empty" | "failed"; skillId?: string; text: string };
   // Whether Shadow.app is running (it shows the form in its window).
   macApp: boolean;
+  // Whether pictures can be read and masked (Shadow.app's tools): when not, the Record screen says so before recording.
+  screenReady: boolean;
 }

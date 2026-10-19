@@ -8,7 +8,7 @@ import type { Box } from "@shadow/recorder";
 import { afterEach, describe, expect, it } from "vitest";
 import { type Daemon, startDaemon } from "./daemon.ts";
 import { finishRecording } from "./record.ts";
-import { readNotes, writeForm } from "./recording-store.ts";
+import { maskTermsOf, readForm, readNotes, writeForm } from "./recording-store.ts";
 import { createScreenReader, type ScreenTools } from "./screen.ts";
 import { appendTrace } from "./trace-store.ts";
 
@@ -57,10 +57,16 @@ describe("screenshots", () => {
 
     const saved = readFileSync(join(home, "recordings", sessionId, "screen.jsonl"), "utf8");
     expect(saved).not.toMatch(/jane|acme|4242|Falcon/);
-    expect(JSON.parse(saved)).toEqual({
+    expect(JSON.parse(saved)).toMatchObject({
       at: 1500,
       eventId: "e1",
       text: "Weekly metrics\nFrom: ███\nCard ███\nRe: ███ budget",
+      lines: [
+        { text: "Weekly metrics", box: box(0) },
+        { text: "From: ███", box: box(30) },
+        { text: "Card ███", box: box(60) },
+        { text: "Re: ███ budget", box: box(90) },
+      ],
     });
     // The lines that had something masked, and the password field the page reported.
     expect(blackedOut).toEqual([[box(30), box(60), box(90), { x: 0, y: 500, w: 200, h: 30 }]]);
@@ -224,5 +230,33 @@ describe("screenshots over the socket", () => {
       .trim()
       .split("\n");
     expect(ledger.map((l) => JSON.parse(l).outcome)).toEqual(["no-tools", "no-tools"]);
+  });
+  it("keep up to 8,000 characters of words, each with its place, and mask the private words given before recording", async () => {
+    const home = temp();
+    const sessionId = "s-private";
+    writeForm(home, sessionId, {
+      goal: "KPIs",
+      changes: [],
+      constants: [],
+      never: [],
+      private: ["Project Falcon"],
+      when: [{ type: "manual" }],
+      consent: { screen: true, microphone: false, pictures: false },
+    });
+    const long = Array.from({ length: 400 }, (_, i) => `line ${i} of a long page`);
+    const { tools } = fakeTools(["Project Falcon budget", ...long]);
+    const reader = createScreenReader({
+      dataDir: home,
+      tools,
+      never: (id) => maskTermsOf(readForm(home, id)),
+      log: () => {},
+    });
+    reader.add({ sessionId, eventId: "e1", at: 1, tabId: 4, takenAt: 2, image: JPEG });
+    await reader.idle();
+    const line = JSON.parse(readFileSync(join(home, "recordings", sessionId, "screen.jsonl"), "utf8"));
+    expect(line.text).not.toContain("Falcon");
+    expect(line.text.length).toBeGreaterThan(2_000);
+    expect(line.text.length).toBeLessThanOrEqual(8_000);
+    expect(line).toMatchObject({ tabId: 4, takenAt: 2 });
   });
 });

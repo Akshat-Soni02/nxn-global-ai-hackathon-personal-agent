@@ -59,6 +59,19 @@ let real: Daemon | undefined;
 afterEach(() => real?.close());
 
 describe("the Record buttons", () => {
+  it("say whether pictures can be read, so the Record screen can warn before recording", () => {
+    const { daemon } = fakeDaemon(true);
+    const control = createRecordControl({
+      dataDir: temp(),
+      daemon,
+      ask: async () => "",
+      finish: async () => undefined,
+      log: () => {},
+      screenReady: () => false,
+    });
+    expect(control.view().screenReady).toBe(false);
+  });
+
   it("open the form in Shadow's window when the app runs, and start nothing until it is sent", () => {
     const { daemon, sent } = fakeDaemon(true);
     const control = createRecordControl({
