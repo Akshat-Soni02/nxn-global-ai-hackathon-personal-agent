@@ -33,6 +33,24 @@ function deps(results: Record<string, StepResult[]>, overrides: Partial<RunDeps>
 }
 
 describe("runSkill", () => {
+  it("ends as nothing to do when no step acted and nothing checks the result", async () => {
+    const s = skill([
+      {
+        id: "a",
+        type: "action",
+        intent: "find the reports",
+        channel: "fs",
+        action: "find",
+        args: { dir: "~/Downloads", glob: "*.csv", pick: "all" },
+        output: { name: "found", type: { type: "list", items: { type: "file" } } },
+      },
+    ]);
+    const { d } = deps({ a: [{ ok: true, value: [] }] });
+    const outcome = await runSkill(s, d, { inputs: {} });
+    expect(outcome.status).toBe("nothing_to_do");
+    expect(outcome.error).toMatch(/nothing was done/);
+  });
+
   it("passes inputs and typed outputs to later steps through references", async () => {
     const s = skill(
       [
@@ -106,9 +124,11 @@ describe("runSkill", () => {
   });
 
   it("succeeds on a retry", async () => {
-    const s = skill([
-      { id: "a", type: "action", intent: "nav", channel: "web", action: "navigate", on_fail: { retries: 1 } },
-    ]);
+    // A workflow that only reads needs something to check, or it did nothing (see "ends as nothing to do").
+    const s = skill(
+      [{ id: "a", type: "action", intent: "nav", channel: "web", action: "navigate", on_fail: { retries: 1 } }],
+      { success: [{ url_matches: "x" }] },
+    );
     const { d } = deps({ a: [{ ok: false, error: "slow" }, { ok: true }] });
     expect((await runSkill(s, d, { inputs: {} })).status).toBe("succeeded");
   });
