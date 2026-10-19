@@ -5,6 +5,7 @@ import type { ElementDescriptor, TraceEvent } from "@shadow/core";
 import { rowsOf, sheetExportUrl } from "@shadow/player/csv";
 import { actionableTarget, describeElement, hasVerifiedSelector, listPosition } from "./describe.ts";
 import { watchEffects } from "./effect.ts";
+import { CANVAS_EDITORS, modifiersOf, SingleKeys, shortcut } from "./keys.ts";
 
 export type PageEvent = Pick<
   TraceEvent,
@@ -148,6 +149,11 @@ export function startCapture(
       if (isRecording()) emit({ event: "effect", of: cid, effect });
     });
 
+  // Single-key shortcuts (Gmail's e), held a second so a burst of typing is never recorded (keys.ts).
+  const singles = new SingleKeys((key, at, el) => {
+    if (isRecording() && el.isConnected) send("key", el, { value: key, at });
+  });
+
   const listeners: [string, (event: Event) => void][] = [
     [
       "pointerdown",
@@ -228,9 +234,25 @@ export function startCapture(
           el.localName === "canvas" ||
           (!target.role && !target.name && !target.text && box.width * box.height >= DRAWN_AREA);
         const cid = newId();
-        const extras = { ...(drawn ? { drawn: true } : {}), cid, ...pointOf(e as MouseEvent, el), ...listOf(el) };
+        const opensTab = (e as MouseEvent).metaKey || (e as MouseEvent).ctrlKey;
+        const extras = {
+          ...(drawn ? { drawn: true } : {}),
+          ...(opensTab ? { newTab: true } : {}),
+          cid,
+          ...pointOf(e as MouseEvent, el),
+          ...listOf(el),
+        };
         send("click", el, extras, target);
         watchAfter(el, cid);
+      },
+    ],
+    [
+      // The middle button opens a link in a new tab and fires no click.
+      "auxclick",
+      (e) => {
+        if ((e as MouseEvent).button !== 1) return;
+        const el = actionableTarget(e);
+        if (el) send("click", el, { newTab: true, cid: newId(), ...listOf(el) });
       },
     ],
     [
@@ -287,14 +309,26 @@ export function startCapture(
     [
       "keydown",
       (e) => {
-        const key = (e as KeyboardEvent).key;
-        if (((e as KeyboardEvent).metaKey || (e as KeyboardEvent).ctrlKey) && key.toLowerCase() === "c") {
-          lastCopyKey = Date.now();
-        }
-        if (key !== "Enter" && key !== "Escape" && key !== "Tab") return;
+        const k = e as KeyboardEvent;
+        const key = k.key;
         const hit = e.composedPath()[0];
         const el = hit instanceof Element ? hit : doc.activeElement;
         const field = editableField(hit);
+        const mods = modifiersOf(k);
+        if ((k.metaKey || k.ctrlKey) && key.toLowerCase() === "c") lastCopyKey = Date.now();
+        if (shortcut(key, mods)) {
+          if (field) flushTyping(field); // the value reaches the trace before the key that sends it
+          if (!el) return;
+          const cid = newId();
+          send("key", el, { value: key.length === 1 ? key.toLowerCase() : key, modifiers: mods, cid });
+          if (key === "Enter") watchAfter(field ?? el, cid);
+          return;
+        }
+        if (key.length === 1 && mods.length === 0 && !field) {
+          if (el && !CANVAS_EDITORS.test(doc.location?.href ?? "")) singles.press(key, Date.now(), el);
+          return;
+        }
+        if (key !== "Enter" && key !== "Escape" && key !== "Tab") return;
         // The value must reach the trace before the key that submits it.
         if (field) flushTyping(field);
         // Tab only moves focus: the next step targets its own field. Enter in a textarea is a newline.
@@ -377,6 +411,7 @@ export function startCapture(
 
   listen(doc);
   stops.push(() => effects.stop());
+  stops.push(() => singles.stop());
 
   // copy is read last (bubble phase on the window), after the page's own handler: apps that draw their content
   // (Google Sheets) put the copied value on the clipboard themselves.

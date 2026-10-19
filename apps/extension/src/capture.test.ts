@@ -196,4 +196,16 @@ describe("capture", () => {
     expect(click?.point).toMatchObject({ x: 5, y: 5, dpr: 1 });
     expect(click?.list).toMatchObject({ index: 2, count: 3 });
   });
+
+  it("records ⌘Enter with its modifier, and a ⌘-click as opening a new tab", () => {
+    document.body.innerHTML = `<textarea id="m">hi</textarea><a id="l" href="/x">Open</a>`;
+    const { events, stop } = record();
+    $("#m").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true, composed: true }));
+    $("#l").dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, metaKey: true, detail: 1 }));
+    stop();
+    expect(events.map((e) => [e.event, e.value, e.modifiers, e.newTab])).toEqual([
+      ["key", "Enter", ["cmd"], undefined],
+      ["click", undefined, undefined, true],
+    ]);
+  });
 });
