@@ -900,3 +900,27 @@ describe("old and new traces", () => {
     expect(normalise(extra).map((s) => s.kind)).toEqual(normalise(old).map((s) => s.kind));
   });
 });
+
+describe("links with ids in their address", () => {
+  it("become opening that page, since the address is kept apart from what replay matches", async () => {
+    const link = {
+      tag: "a",
+      url: PAGE,
+      role: "link",
+      name: "Eventual",
+      href: "https://www.ycombinator.com/companies/eventual/jobs/7421",
+      fallbacks: [],
+      selectors: {},
+    };
+    const steps = normalise([
+      ev("navigate", 0, { url: PAGE }),
+      ev("click", 1_000, { target: link }),
+      ev("navigate", 1_500, { url: "https://www.ycombinator.com/companies/eventual/jobs/7421", transition: "link" }),
+    ]);
+    const { skill } = await compile(steps, {});
+    expect(acts(skill).map((s) => [s.action, s.args.url])).toContainEqual([
+      "navigate",
+      "https://www.ycombinator.com/companies/eventual/jobs/7421",
+    ]);
+  });
+});

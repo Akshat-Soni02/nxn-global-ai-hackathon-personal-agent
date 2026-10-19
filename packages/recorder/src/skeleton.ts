@@ -582,7 +582,8 @@ function pathOf(url: string | undefined): string {
 // Where a link click took you, when that is where the link points (same site and path): the link's own address,
 // not a script behind it.
 function linkDestination(step: NormalisedStep): string | undefined {
-  const href = step.target?.attrs?.href;
+  // The address kept apart from the locator (describe.ts keeps it even with ids in it), else the attribute.
+  const href = step.target?.href ?? step.target?.attrs?.href;
   if (!step.navigatesTo || step.checked !== undefined || step.target?.role !== "link" || !href) return undefined;
   try {
     const link = new URL(href, step.url);
