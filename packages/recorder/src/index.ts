@@ -31,6 +31,7 @@ export {
 } from "./design/design.ts";
 export { type DesignFinish, designViolations, outlineOf } from "./design/tools.ts";
 export { applyAnswer, type DrillResult, drill, type Prompter } from "./drill.ts";
+export { checkExpectations, Expectation, Expectations, type Verdict } from "./eval/expect.ts";
 export { toLocator } from "./locator.ts";
 export { type Box, type Line, MASK, maskLines, maskText } from "./mask.ts";
 export { type Note, narrationOf, notesByStep } from "./narration.ts";

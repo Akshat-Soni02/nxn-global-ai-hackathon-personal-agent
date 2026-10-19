@@ -1,0 +1,16 @@
+{
+  "goal": "Every day i frequently recieve kpi emails from my team. my goal is to add them to a sheet in my drive",
+  "changes": [],
+  "constants": [],
+  "never": [],
+  "when": [
+    {
+      "type": "manual"
+    }
+  ],
+  "consent": {
+    "screen": true,
+    "microphone": true,
+    "pictures": false
+  }
+}

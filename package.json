@@ -24,6 +24,7 @@
     "snapshot:pages": "tsx scripts/snapshot-pages.ts",
     "replay": "tsx scripts/replay.ts",
     "llm:check": "tsx scripts/llm-check.ts",
+    "design:eval": "tsx scripts/design-eval.ts",
     "daemon:dev": "pnpm --filter @shadow/daemon dev",
     "package": "tsx scripts/package.ts",
     "release": "tsx scripts/release.ts"
