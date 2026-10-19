@@ -4,6 +4,7 @@
 import type { ElementDescriptor, TraceEvent } from "@shadow/core";
 import { rowsOf, sheetExportUrl } from "@shadow/player/csv";
 import { actionableTarget, describeElement, hasVerifiedSelector, listPosition } from "./describe.ts";
+import { watchEffects } from "./effect.ts";
 
 export type PageEvent = Pick<
   TraceEvent,
@@ -138,6 +139,15 @@ export function startCapture(
     } else send("type", el, { value });
   };
 
+  // What each click and Enter did (effect.ts): observed only while a recording is open.
+  const effects = watchEffects(doc);
+  // Sent as its own event 700 ms later: a click that navigates away is gone by then, and its effect is the navigation
+  // the browser reports.
+  const watchAfter = (el: Element, cid: string) =>
+    effects.watch(el, (effect) => {
+      if (isRecording()) emit({ event: "effect", of: cid, effect });
+    });
+
   const listeners: [string, (event: Event) => void][] = [
     [
       "pointerdown",
@@ -220,6 +230,7 @@ export function startCapture(
         const cid = newId();
         const extras = { ...(drawn ? { drawn: true } : {}), cid, ...pointOf(e as MouseEvent, el), ...listOf(el) };
         send("click", el, extras, target);
+        watchAfter(el, cid);
       },
     ],
     [
@@ -290,7 +301,9 @@ export function startCapture(
         if (!el || key === "Tab" || el.closest(CLICKABLE)) return;
         if (key === "Enter" && el.localName === "textarea") return;
         if (key === "Enter") lastEnter = { form: el.closest("form"), at: e.timeStamp };
-        send("key", el, { value: key });
+        const cid = newId();
+        send("key", el, { value: key, cid });
+        if (key === "Enter") watchAfter(field ?? el, cid);
       },
     ],
     [
@@ -339,7 +352,11 @@ export function startCapture(
     for (const [type, handler] of listeners) {
       if (only && !only.has(type)) continue;
       const wrapped = (event: Event) => {
-        if (!isRecording()) return;
+        if (!isRecording()) {
+          effects.pause(); // the recording ended: stop watching this page
+          return;
+        }
+        effects.start(); // a recording is open: watch the page's changes (from its first event here)
         try {
           if (event.composedPath().some(isOwnUi)) return;
           for (const node of event.composedPath()) {
@@ -359,6 +376,7 @@ export function startCapture(
   };
 
   listen(doc);
+  stops.push(() => effects.stop());
 
   // copy is read last (bubble phase on the window), after the page's own handler: apps that draw their content
   // (Google Sheets) put the copied value on the clipboard themselves.
