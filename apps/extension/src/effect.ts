@@ -70,7 +70,7 @@ export function watchEffects(doc: Document, now: () => number = () => performanc
       const before = changes.filter((c) => c.t >= t0 - WATCH_MS && c.t < t0 && near(c)).length;
       const url = doc.location?.href;
       const expandedBefore = expandedOf(el);
-      const valueBefore = valueOf(el);
+      const valueBefore = fieldText(el);
       const timer = setTimeout(() => {
         timers.delete(timer);
         if (!el.ownerDocument.defaultView) return;
@@ -81,7 +81,7 @@ export function watchEffects(doc: Document, now: () => number = () => performanc
         if (expandedBefore === false && expandedOf(el) === true) effect.expanded = true;
         const opened = after.find((c) => c.opened)?.opened;
         if (opened) effect.opened = opened;
-        if (valueBefore.trim() && !valueOf(el).trim()) effect.emptied = true;
+        if (valueBefore.trim() && !fieldText(el).trim()) effect.emptied = true;
         done(effect);
       }, WATCH_MS);
       timers.add(timer);
