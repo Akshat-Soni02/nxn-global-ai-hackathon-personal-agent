@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fakeLlm } from "@shadow/llm";
+import { fakeLlm, UsageMeter } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
 import { createScreenDescriber } from "./describe.ts";
 import type { ScreenTools } from "./screen.ts";
@@ -124,5 +124,18 @@ describe("describing a picture for the model", () => {
     expect(imagesIn(llm.requests[0] ?? {})).toEqual([asDataUrl(MASKED)]);
     expect(existsSync(shot)).toBe(true); // the recording's own copy stays until the folder goes
     expect(readFileSync(shot)).toEqual(MASKED);
+  });
+
+  it("describes a masked picture once: the same picture and question come from the cache, and the call is counted", async () => {
+    const { dataDir, llm, describer } = setup(true);
+    const path = join(dataDir, "shot.jpg");
+    writeFileSync(path, MASKED);
+    const meter = new UsageMeter();
+    const first = await describer.describeMasked(path, "What is on screen?", meter);
+    const second = await describer.describeMasked(path, "What is on screen?", meter);
+    expect(second).toBe(first);
+    expect(llm.requests).toHaveLength(1);
+    expect(meter.usage.calls).toBe(1);
+    expect(readdirSync(join(dataDir, "cache", "vision"))).toHaveLength(1);
   });
 });

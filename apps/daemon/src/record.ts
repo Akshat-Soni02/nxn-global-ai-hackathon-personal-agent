@@ -181,6 +181,7 @@ export async function finishRecording(
             return describer.describeMasked(
               shot,
               `The user did: ${did}. Describe what is on screen and what the control they used is for.`,
+              options.meter,
             );
           }
         : undefined;
