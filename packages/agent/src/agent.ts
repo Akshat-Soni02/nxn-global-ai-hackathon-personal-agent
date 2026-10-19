@@ -60,6 +60,9 @@ export interface AgentOptions<F> {
   memory?: { keepFull: number; condenseTo: number };
   // The longest a single tool result may be, in characters.
   maxResultChars?: number;
+  // Tool calls run per turn, in order (default 1: any others are answered "Not run"). A model that plans several
+  // changes at once wastes no turns when this is higher; a finish ends the turn and the episode.
+  callsPerTurn?: number;
   now?: () => number;
 }
 
@@ -70,11 +73,11 @@ export type Outcome<F> =
   | { kind: "error"; error: string };
 
 export type AgentEvent =
-  | { type: "reply"; turn: number; thought: string; costUsd: number; ms: number }
+  | { type: "reply"; turn: number; thought: string; reasoning?: string; costUsd: number; ms: number }
   | { type: "call"; turn: number; tool: string; input: unknown }
   | { type: "result"; turn: number; tool: string; output: string; ms: number }
   | { type: "refused"; turn: number; tool: string; reason: string }
-  | { type: "invalid"; turn: number; tool?: string; error: string }
+  | { type: "invalid"; turn: number; tool?: string; error: string; input?: string }
   | { type: "protocol"; turn: number; protocol: Protocol; reason: string }
   | { type: "end"; turn: number; outcome: Outcome<unknown> };
 
@@ -86,6 +89,8 @@ export interface Episode<F> {
   protocol: Protocol;
   // Every event, in order: what the caller stores as the episode record.
   transcript: AgentEvent[];
+  // The whole system prompt sent, rules included: what the agent was told.
+  system: string;
 }
 
 const LIVE: readonly ToolKind[] = ["probe", "try"];
@@ -110,7 +115,15 @@ export async function runAgent<F>(options: AgentOptions<F>): Promise<Episode<F>>
   };
   const end = (outcome: Outcome<F>): Episode<F> => {
     emit({ type: "end", turn: state.turn, outcome });
-    return { outcome, turns: state.turn, liveActions: state.liveActions, usage: meter.usage, protocol, transcript };
+    return {
+      outcome,
+      turns: state.turn,
+      liveActions: state.liveActions,
+      usage: meter.usage,
+      protocol,
+      transcript,
+      system: messages[0]?.content ?? "",
+    };
   };
 
   // The conversation. Results are kept whole here and condensed only in what is sent (see `view`).
@@ -153,7 +166,14 @@ export async function runAgent<F>(options: AgentOptions<F>): Promise<Episode<F>>
           badJson: c.arguments === undefined ? c.raw : undefined,
         }));
         messages.push({ role: "assistant", content: reply.text, toolCalls: reply.toolCalls });
-        emit({ type: "reply", turn: state.turn, thought, costUsd: reply.costUsd, ms: reply.ms });
+        emit({
+          type: "reply",
+          turn: state.turn,
+          thought,
+          reasoning: reply.reasoning,
+          costUsd: reply.costUsd,
+          ms: reply.ms,
+        });
       } else {
         const reply = await options.llm.generate({
           profile,
@@ -167,7 +187,14 @@ export async function runAgent<F>(options: AgentOptions<F>): Promise<Episode<F>>
         thought = action.thought;
         calls = [{ name: action.tool, args: action.input }];
         messages.push({ role: "assistant", content: JSON.stringify(action) });
-        emit({ type: "reply", turn: state.turn, thought, costUsd: reply.costUsd, ms: reply.ms });
+        emit({
+          type: "reply",
+          turn: state.turn,
+          thought,
+          reasoning: reply.reasoning,
+          costUsd: reply.costUsd,
+          ms: reply.ms,
+        });
       }
     } catch (error) {
       if (options.signal?.aborted) return end({ kind: "aborted" });
@@ -194,63 +221,94 @@ export async function runAgent<F>(options: AgentOptions<F>): Promise<Episode<F>>
       continue;
     }
 
-    // ---- Check it, guard it, run it ----
-    const [call, ...extra] = calls;
+    // ---- Check each call, guard it, run it ----
+    const perTurn = Math.max(1, options.callsPerTurn ?? 1);
     let finished: { tool: string; value: F } | undefined;
-    let output: string;
-    const tool = call ? tools.get(call.name) : undefined;
-    if (!call || !tool) {
-      output = `There is no tool ${call?.name}. Tools: ${[...tools.keys()].join(", ")}.`;
-      emit({ type: "invalid", turn: state.turn, tool: call?.name, error: output });
-    } else if (call.badJson !== undefined) {
-      output = `The input for ${tool.name} was not valid JSON: ${call.badJson.slice(0, 200)}`;
-      emit({ type: "invalid", turn: state.turn, tool: tool.name, error: output });
-    } else {
-      const parsed = tool.input.safeParse(call.args ?? {});
-      const live = LIVE.includes(tool.kind);
-      if (!parsed.success) {
-        output = `Invalid input for ${tool.name}: ${parsed.error.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ")}`;
-        emit({ type: "invalid", turn: state.turn, tool: tool.name, error: output });
-      } else if (live && state.liveActions >= budget.liveActions) {
-        output = `Refused: this episode's ${budget.liveActions} live actions are used up. Finish with what you know.`;
-        emit({ type: "refused", turn: state.turn, tool: tool.name, reason: output });
-      } else {
-        emit({ type: "call", turn: state.turn, tool: tool.name, input: parsed.data });
-        const refusal = await options.guard?.({ tool, input: parsed.data }, { ...state });
-        if (refusal) {
-          output = `Refused: ${refusal}`;
-          emit({ type: "refused", turn: state.turn, tool: tool.name, reason: refusal });
-        } else {
-          const t0 = now();
-          try {
-            const result = await tool.run(parsed.data, { turn: state.turn, signal: options.signal });
-            state.liveActions += result.liveActions ?? (live ? 1 : 0);
-            output = clip(show(result.output), maxResult);
-            if (result.untrusted) output = `<untrusted_data>\n${output}\n</untrusted_data>`;
-            if (tool.kind === "finish" && result.finish !== undefined)
-              finished = { tool: tool.name, value: result.finish };
-          } catch (error) {
-            output = `${tool.name} failed: ${error instanceof Error ? error.message : String(error)}`;
-          }
-          emit({ type: "result", turn: state.turn, tool: tool.name, output, ms: now() - t0 });
-        }
+    const outputs: { call: (typeof calls)[number]; output: string; ran: boolean }[] = [];
+    for (const [i, call] of calls.entries()) {
+      if (finished || i >= perTurn) {
+        const output = finished
+          ? "Not run: the episode finished."
+          : perTurn === 1
+            ? "Not run: one tool per turn."
+            : `Not run: at most ${perTurn} tools per turn.`;
+        outputs.push({ call, output, ran: false });
+        continue;
       }
+      const result = await runCall(call);
+      outputs.push({ call, output: result.output, ran: true });
+      if (result.finished) finished = result.finished;
     }
     if (finished) return end({ kind: "finished", ...finished });
 
-    // ---- The result goes back to the model, with what is left of the budget ----
+    // ---- The results go back to the model, with what is left of the budget (counted after the calls ran) ----
     const left = budget.turns - state.turn;
     const status = `[turn ${state.turn} of ${budget.turns}, live actions ${state.liveActions} of ${budget.liveActions}${left <= 2 ? `; ${left} turn(s) left: finish soon` : ""}]`;
-    if (protocol === "tools" && call?.id) {
-      results.push(messages.length);
-      messages.push({ role: "tool", toolCallId: call.id, content: `${output}\n${status}` });
-      for (const other of extra) {
-        if (other.id) messages.push({ role: "tool", toolCallId: other.id, content: "Not run: one tool per turn." });
+    // The status goes with the last call that ran, as before; only results of calls that ran are working memory.
+    const lastRan = outputs.map((o) => o.ran).lastIndexOf(true);
+    for (const [i, { call, output, ran }] of outputs.entries()) {
+      if (protocol === "tools" && call.id) {
+        if (ran) results.push(messages.length);
+        messages.push({ role: "tool", toolCallId: call.id, content: i === lastRan ? `${output}\n${status}` : output });
+      } else if (i === 0) {
+        results.push(messages.length);
+        messages.push({ role: "user", content: `Result of ${call.name}:\n${output}\n${status}` });
       }
-    } else {
-      results.push(messages.length);
-      messages.push({ role: "user", content: `Result of ${call?.name}:\n${output}\n${status}` });
     }
+  }
+
+  // One call: checked, guarded and run. What the model sent is kept when it is rejected, so the transcript shows what
+  // it tried (reports/oct19-two-recordings.md: turns 5-7 were invisible).
+  async function runCall(call: {
+    id?: string;
+    name: string;
+    args: unknown;
+    badJson?: string;
+  }): Promise<{ output: string; finished?: { tool: string; value: F } }> {
+    const raw = (call.badJson ?? JSON.stringify(call.args ?? {}) ?? "").slice(0, 2_000);
+    const tool = tools.get(call.name);
+    if (!tool) {
+      const output = `There is no tool ${call.name}. Tools: ${[...tools.keys()].join(", ")}.`;
+      emit({ type: "invalid", turn: state.turn, tool: call.name, error: output, input: raw });
+      return { output };
+    }
+    if (call.badJson !== undefined) {
+      const output = `The input for ${tool.name} was not valid JSON: ${call.badJson.slice(0, 200)}`;
+      emit({ type: "invalid", turn: state.turn, tool: tool.name, error: output, input: raw });
+      return { output };
+    }
+    const parsed = tool.input.safeParse(call.args ?? {});
+    const live = LIVE.includes(tool.kind);
+    if (!parsed.success) {
+      const output = `Invalid input for ${tool.name}: ${parsed.error.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ")}`;
+      emit({ type: "invalid", turn: state.turn, tool: tool.name, error: output, input: raw });
+      return { output };
+    }
+    if (live && state.liveActions >= budget.liveActions) {
+      const output = `Refused: this episode's ${budget.liveActions} live actions are used up. Finish with what you know.`;
+      emit({ type: "refused", turn: state.turn, tool: tool.name, reason: output });
+      return { output };
+    }
+    emit({ type: "call", turn: state.turn, tool: tool.name, input: parsed.data });
+    const refusal = await options.guard?.({ tool, input: parsed.data }, { ...state });
+    if (refusal) {
+      emit({ type: "refused", turn: state.turn, tool: tool.name, reason: refusal });
+      return { output: `Refused: ${refusal}` };
+    }
+    const t0 = now();
+    let output: string;
+    let finished: { tool: string; value: F } | undefined;
+    try {
+      const result = await tool.run(parsed.data, { turn: state.turn, signal: options.signal });
+      state.liveActions += result.liveActions ?? (live ? 1 : 0);
+      output = clip(show(result.output), maxResult);
+      if (result.untrusted) output = `<untrusted_data>\n${output}\n</untrusted_data>`;
+      if (tool.kind === "finish" && result.finish !== undefined) finished = { tool: tool.name, value: result.finish };
+    } catch (error) {
+      output = `${tool.name} failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    emit({ type: "result", turn: state.turn, tool: tool.name, output, ms: now() - t0 });
+    return { output, finished };
   }
 }
 

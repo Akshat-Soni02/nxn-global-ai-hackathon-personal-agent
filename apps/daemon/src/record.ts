@@ -310,16 +310,16 @@ async function remember(
 function keepEpisode(dataDir: string, sessionId: string, design: Awaited<ReturnType<typeof designWorkflow>>): void {
   const dir = recordingDir(dataDir, sessionId);
   if (!existsSync(dir) || !design.episode) return;
-  const { transcript, usage, turns } = design.episode;
+  const { transcript, usage, turns, system } = design.episode;
   // `claimed`: what the agent said it did; `changes`: what it really changed (the two can differ).
   const result =
     design.kind === "designed"
       ? { claimed: design.summary, changes: design.changes, edits: design.edits }
       : { kept: design.reason, changes: design.changes };
-  // What it was told, so a poor result can be explained.
+  // What it was told (`system`: the whole system prompt sent, its rules included), so a poor result can be explained.
   writeFileSync(
     join(dir, "design.json"),
-    `${JSON.stringify({ ...result, turns, usage, prompt: design.prompt, transcript }, null, 2)}
+    `${JSON.stringify({ ...result, turns, usage, prompt: design.prompt, system, transcript }, null, 2)}
 `,
     {
       mode: 0o600,

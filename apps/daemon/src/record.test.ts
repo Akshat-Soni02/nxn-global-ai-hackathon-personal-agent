@@ -429,6 +429,60 @@ describe("record end to end", () => {
     expect(saved?.skill.name).toBe("Upload this month's invoice");
     expect(versions(home, "someone-elses-workflow")).toEqual([1]);
   });
+
+  it("keeps the whole system prompt the design agent was sent in design.json", async () => {
+    const home = temp();
+    const sessionId = "s-system";
+    writeForm(home, sessionId, {
+      goal: "Upload this month's invoice",
+      changes: [],
+      constants: [],
+      never: [],
+      when: [{ type: "manual" }],
+      consent: { screen: false, microphone: false, pictures: false },
+    });
+    appendTrace(home, {
+      id: "e1",
+      sessionId,
+      at: 1000,
+      event: "click",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: upload,
+    });
+    appendTrace(home, {
+      id: "e2",
+      sessionId,
+      at: 6000,
+      event: "file",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: upload,
+      file: { name: "invoice-0923.pdf", size: 10, type: "application/pdf" },
+    });
+    appendTrace(home, {
+      id: "e3",
+      sessionId,
+      at: 9000,
+      event: "click",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: submit,
+    });
+    const llm = fakeLlm([{ toolCalls: [{ name: "finish", arguments: { summary: "ok" } }] }]);
+    await finishRecording(sessionId, {
+      dataDir: home,
+      llm,
+      log: () => {},
+      design: { protocol: "tools" },
+      prompter: { ask: async () => "" },
+    });
+    const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
+    expect(kept.system).toContain("# How you work");
+  });
 });
 
 describe("choosing the file when a skill runs", () => {
