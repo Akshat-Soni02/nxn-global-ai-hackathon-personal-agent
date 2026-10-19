@@ -9,6 +9,7 @@ import type { PageOp } from "@shadow/player/web";
 import type { ButtonState } from "./button.ts";
 import { endRun, isAutomationTab, runPageCheck, runPageOp, runWebStep } from "./replay.ts";
 import type { ShotHint } from "./shot.ts";
+import { TabRegistry } from "./tab-registry.ts";
 
 const VERSION = chrome.runtime.getManifest().version;
 const QUICK_RETRY_MS = 3_000;
@@ -19,6 +20,8 @@ let recordingSession: string | undefined;
 // Whether this recording's form allowed a screenshot per step (record.start).
 let screenConsent = false;
 let ui: ButtonState = { daemon: false };
+// The tabs this recording used, announced at their first use (tab-registry.ts).
+const tabs = new TabRegistry();
 
 function send(message: Message) {
   port?.postMessage(message);
@@ -52,6 +55,8 @@ async function onDaemonMessage(message: Message) {
       break;
     case "record.start":
       screenConsent = message.consent?.screen === true;
+      // Before any event is recorded: which tabs were already open when Record was pressed.
+      tabs.start(await chrome.tabs.query({}).catch(() => []));
       setRecording(message.sessionId, { recording: { since: message.startedAt ?? Date.now() }, status: undefined });
       break;
     case "record.stop":
@@ -182,6 +187,25 @@ function record(event: { event: string; tabId?: number; [field: string]: unknown
   const { shot, ...fields } = event as typeof event & { shot?: ShotHint };
   const id = crypto.randomUUID();
   const at = typeof fields.at === "number" ? fields.at : Date.now();
+  // A tab that was open before Record, used for the first time: where it was, just before its first event.
+  if (event.tabId !== undefined && event.event !== "tab_open") {
+    const first = tabs.firstUse(event.tabId);
+    if (first?.preexisting) {
+      const { tabId, windowId, url, title } = first;
+      send({
+        id: crypto.randomUUID(),
+        type: "record.event",
+        sessionId: recordingSession,
+        event: "tab_open",
+        at: at - 1,
+        tabId,
+        windowId,
+        url,
+        title,
+        preexisting: true,
+      } as Message);
+    }
+  }
   send({ at, ...fields, id, type: "record.event", sessionId: recordingSession } as Message);
   if (screenConsent && SHOT_EVENTS.has(event.event) && event.tabId !== undefined && !shot?.skip) {
     queueShot(event.tabId, id, at, shot?.masks, event.event === "navigate" ? 1_200 : 400);
@@ -227,7 +251,13 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message?.type === "record.press") reply({ error: press(message.command === "stop" ? "stop" : "start") });
   else if (message?.type === "recording?") reply({ sessionId: recordingSession, ui: uiFor(sender.tab?.id) });
   else if (message?.type === "record.event")
-    record({ ...message, tabId: sender.tab?.id, frameId: sender.frameId, url: sender.url });
+    record({
+      ...message,
+      tabId: sender.tab?.id,
+      frameId: sender.frameId,
+      // The page's own address at the moment (content.ts), else the tab's.
+      url: typeof message.url === "string" ? message.url : sender.url,
+    });
 });
 
 // Browser events a content script can't see: page loads, single-page route changes, tabs, finished downloads.
@@ -240,15 +270,30 @@ chrome.webNavigation.onHistoryStateUpdated.addListener((nav) => {
     record({ event: "navigate", at: nav.timeStamp, tabId: nav.tabId, url: nav.url, transition: nav.transitionType });
 });
 chrome.tabs.onCreated.addListener((tab) => {
-  record({ event: "tab_open", tabId: tab.id, url: tab.pendingUrl ?? tab.url, openerTabId: tab.openerTabId });
+  tabs.opened(tab);
+  record({
+    event: "tab_open",
+    tabId: tab.id,
+    windowId: tab.windowId,
+    url: tab.pendingUrl ?? tab.url,
+    openerTabId: tab.openerTabId,
+  });
 });
 chrome.tabs.onRemoved.addListener((tabId) => record({ event: "tab_close", tabId }));
 // Switching tabs: replay runs in one tab, so the order of pages you worked on is rebuilt from these.
-chrome.tabs.onActivated.addListener(({ tabId }) => {
+chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
   if (!recordingSession) return;
   chrome.tabs.get(tabId).then(
-    (tab) => record({ event: "tab_switch", tabId, url: tab.url ?? tab.pendingUrl }),
-    () => record({ event: "tab_switch", tabId }),
+    (tab) => record({ event: "tab_switch", tabId, windowId, url: tab.url ?? tab.pendingUrl }),
+    () => record({ event: "tab_switch", tabId, windowId }),
+  );
+});
+// Switching Chrome windows is not a tab activation: recorded as its own event, with the window's active tab.
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (!recordingSession || windowId === chrome.windows.WINDOW_ID_NONE) return;
+  chrome.tabs.query({ active: true, windowId }).then(
+    ([tab]) => record({ event: "window_focus", windowId, tabId: tab?.id, url: tab?.url }),
+    () => {},
   );
 });
 // A finished download links the web and the Mac: its path is where a later file step will find it.

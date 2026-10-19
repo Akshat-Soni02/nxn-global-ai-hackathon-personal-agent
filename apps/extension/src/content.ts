@@ -55,7 +55,10 @@ const stopCapture = startCapture(
     if (!chrome.runtime?.id) return stop(); // orphaned: the extension was reloaded or removed
     // With a hint for the screenshot the background may take after it (shot.ts): skip it, or what to black out.
     const shot = shotHint(document, event as { secret?: boolean });
-    chrome.runtime.sendMessage({ type: "record.event", at: Date.now(), ...event, shot }).catch(() => {});
+    // The page's own address at this moment: in a single-page app the tab's address can lag behind (sender.url).
+    chrome.runtime
+      .sendMessage({ type: "record.event", at: Date.now(), url: location.href, ...event, shot })
+      .catch(() => {});
   },
   () => sessionId !== undefined,
   {
