@@ -208,4 +208,21 @@ describe("capture", () => {
       ["click", undefined, undefined, true],
     ]);
   });
+
+  it("records what a page's Copy button put on the clipboard, as a copy made by that button", () => {
+    document.body.innerHTML = `<button id="copy-link">Copy link</button>`;
+    const { events, stop } = record();
+    $("#copy-link").click();
+    const message = (text: string, source: Window | null) => {
+      const e = new MessageEvent("message", { data: { __shadowCopy: true, text } });
+      Object.defineProperty(e, "source", { value: source });
+      window.dispatchEvent(e);
+    };
+    message("https://share.test/abc", window);
+    message("forged", null); // not from this page's own window: ignored
+    stop();
+    expect(events.filter((e) => e.event === "copy").map((e) => [e.value, e.via, e.target?.name])).toEqual([
+      ["https://share.test/abc", "button", "Copy link"],
+    ]);
+  });
 });

@@ -11,6 +11,8 @@ const common = { outdir: "dist", bundle: true, target: "chrome120", sourcemap: t
 const contexts = await Promise.all([
   esbuild.context({ ...common, entryPoints: { background: "src/background.ts" }, format: "esm" }),
   esbuild.context({ ...common, entryPoints: { content: "src/content.ts" }, format: "iife" }),
+  // The page-world hook that reports a page's own clipboard writes (clipboard-hook.ts).
+  esbuild.context({ ...common, entryPoints: { "clipboard-hook": "src/clipboard-hook.ts" }, format: "iife" }),
 ]);
 
 if (watch) {

@@ -500,6 +500,21 @@ export function startCapture(
   win?.addEventListener("copy", onCopy);
   stops.push(() => win?.removeEventListener("copy", onCopy));
 
+  // A copy made by a page's Copy button (clipboard-hook.ts posts it from the page's world). Only from this window,
+  // and only the shape the hook sends; tied to the button clicked just before it.
+  const onHookCopy = (event: MessageEvent) => {
+    if (!isRecording() || event.source !== win) return;
+    const data = event.data as { __shadowCopy?: unknown; text?: unknown } | null;
+    if (data?.__shadowCopy !== true || typeof data.text !== "string") return;
+    const text = data.text.trim().slice(0, COPY_LIMIT);
+    if (!text) return;
+    const el = lastClick?.el.isConnected ? lastClick.el : (doc.activeElement ?? doc.body);
+    if (isSecret(el)) return;
+    send("copy", el, { at: Date.now(), value: text, via: "button" });
+  };
+  win?.addEventListener("message", onHookCopy);
+  stops.push(() => win?.removeEventListener("message", onHookCopy));
+
   return () => {
     for (const stop of stops) stop();
   };
