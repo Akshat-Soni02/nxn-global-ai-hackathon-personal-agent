@@ -17,6 +17,8 @@ export interface Review {
   cadence?: string;
   // The feed's lines while it was made (spec 4.1): "How this was made" on the workflow page.
   made?: string[];
+  // Questions not asked (another one changed the same step, or past five): each took its default.
+  notAsked?: string[];
   reviewed: boolean;
 }
 
@@ -41,13 +43,17 @@ export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] =
   return {
     skillId: skill.id,
     version: skill.version,
-    summary: design.kind === "designed" ? (design.summary ?? "Designed") : `Kept the recorded steps: ${design.reason}`,
+    summary:
+      design.kind === "designed"
+        ? (design.summary ?? "Designed")
+        : `${design.notes.length > 0 ? "Kept what the design reached" : "Kept the recorded steps"}: ${design.reason}`,
     notes: design.notes,
     said,
     notTested,
     gaps: design.gaps,
     ...(cadence ? { cadence } : {}),
     ...(made.length > 0 ? { made } : {}),
+    ...(design.skipped.length > 0 ? { notAsked: design.skipped } : {}),
     reviewed: false,
   };
 }

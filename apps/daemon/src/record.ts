@@ -21,6 +21,7 @@ import {
   describeChanges,
   designV2,
   drill,
+  type Evidence,
   effectsOf,
   normaliseAll,
   type Prompter,
@@ -190,41 +191,47 @@ export async function finishRecording(
   // One meter for the whole design: the pictures' captions and the agent share its $0.25 (spec, "Budget").
   const meter = options.meter?.child() ?? new UsageMeter();
   // The evidence package (spec 2.14): what code understood, kept in the recording's folder for the design agent.
-  const evidence =
-    (await writeEvidence({
-      dataDir,
-      sessionId,
-      trace,
-      steps,
-      noise,
-      skill,
-      idsByStep: compiled.base.idsByStep,
-      form: recorded,
-      notes,
-      describer: options.describer,
-      meter,
-      log,
-    })) ??
-    buildEvidence({
-      trace,
-      steps,
-      noise,
-      skill,
-      idsByStep: compiled.base.idsByStep,
-      goal: recorded?.goal ?? "",
-      switches: {
-        screen: recorded?.consent.screen ?? false,
-        voice: recorded?.consent.microphone ?? false,
-        pictures: recorded?.consent.pictures ?? false,
-      },
-      said: said.map(({ at, until, text }) => ({ at, ...(until !== undefined ? { until } : {}), text })),
-      pictures: [],
-      maskTerms: maskTermsOf(recorded),
-    });
+  let evidence: Evidence | undefined;
+  try {
+    evidence =
+      (await writeEvidence({
+        dataDir,
+        sessionId,
+        trace,
+        steps,
+        noise,
+        skill,
+        idsByStep: compiled.base.idsByStep,
+        form: recorded,
+        notes,
+        describer: options.describer,
+        meter,
+        log,
+      })) ??
+      buildEvidence({
+        trace,
+        steps,
+        noise,
+        skill,
+        idsByStep: compiled.base.idsByStep,
+        goal: recorded?.goal ?? "",
+        switches: {
+          screen: recorded?.consent.screen ?? false,
+          voice: recorded?.consent.microphone ?? false,
+          pictures: recorded?.consent.pictures ?? false,
+        },
+        said: said.map(({ at, until, text }) => ({ at, ...(until !== undefined ? { until } : {}), text })),
+        pictures: [],
+        maskTerms: maskTermsOf(recorded),
+      });
+  } catch (error) {
+    // Without evidence the design can't run, and the plain list is saved: a recording is never lost.
+    log("evidence couldn't be built:", (error as Error).message);
+  }
 
   // Design agent v2: the plain list -> the workflow meant. It asks its questions in one batch.
   let design: DesignV2Outcome | undefined;
-  if (llm) {
+  if (llm && evidence) {
     log("the design agent is reading the recording...");
     const effects = effectsOf(steps, compiled.base.idsByStep);
     const rehearse = options.rehearse;
@@ -254,8 +261,8 @@ export async function finishRecording(
     // The workflow's id and name are the daemon's (a new id per recording, or the workflow recorded again), never the
     // model's: a model-chosen id once saved a recording as the next version of another workflow.
     skill = { ...design.skill, id: skill.id, name: skill.name };
-    // v2 asked its questions in its own batch: the drill below has none left.
-    questions = [];
+    // v2 asked its questions in its own batch; any it never reached (it stopped first) go to the drill below.
+    questions = design.pending;
     await remember(options.memory, skill.id, design.answered);
     keepDesign(dataDir, sessionId, design);
   }

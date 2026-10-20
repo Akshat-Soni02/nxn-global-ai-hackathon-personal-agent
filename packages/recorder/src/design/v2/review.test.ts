@@ -28,6 +28,8 @@ const design = (extra: Partial<DesignV2Outcome>): DesignV2Outcome => ({
   gaps: [],
   asked: [],
   answered: [],
+  pending: [],
+  skipped: [],
   system: "",
   transcript: [],
   usage: { calls: 3, input: 0, output: 0, costUsd: 0.04 },
@@ -83,8 +85,12 @@ describe("what the review shows", () => {
       },
     });
     expect(reviewOf(partly, skill).notTested).toEqual(["s3: target not found", "s6: not reached"]);
-    const kept = reviewOf(design({ kind: "kept", reason: "it ran out of turns" }), skill);
+    const kept = reviewOf(design({ kind: "kept", reason: "it ran out of turns", notes: [] }), skill);
     expect(kept.summary).toBe("Kept the recorded steps: it ran out of turns");
+    // Changes it made before it stopped stay, and the summary says so.
+    const reached = reviewOf(design({ kind: "kept", reason: "it ran out of turns" }), skill);
+    expect(reached.summary).toBe("Kept what the design reached: it ran out of turns");
+    expect(reviewOf(design({ skipped: ["Which row?"] }), skill).notAsked).toEqual(["Which row?"]);
   });
 
   it("keeps the feed's lines, as how this was made", () => {

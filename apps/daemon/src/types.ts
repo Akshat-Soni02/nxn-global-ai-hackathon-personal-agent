@@ -182,5 +182,6 @@ export interface Review {
   gaps: string[];
   cadence?: string;
   made?: string[];
+  notAsked?: string[];
   reviewed: boolean;
 }

@@ -240,6 +240,7 @@ function ReviewCard({ review, onLooksRight }: { review: Review; onLooksRight: ()
         review.said.map((s) => `“${s.quote}” → ${s.notBuilt ? `not built: ${s.notBuilt}` : s.steps.join(", ")}`),
       )}
       {list("Not tested", review.notTested)}
+      {list("Not asked (each took its default)", review.notAsked ?? [])}
       {list("Still to check", review.gaps)}
       {review.made?.length ? (
         <details>

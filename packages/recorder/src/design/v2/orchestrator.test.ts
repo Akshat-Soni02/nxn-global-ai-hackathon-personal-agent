@@ -188,6 +188,39 @@ describe("design agent v2, stage by stage", () => {
     expect(JSON.stringify(llm.requests[1])).toContain("The recording holds: <untrusted_data>");
   });
 
+  it("keeps the recorded steps when a stopped design had lost the work you showed", async () => {
+    const removeAll = call("remove", { steps: ["s2", "s3", "s4", "s5"], why: "x" });
+    const look = call("look", {});
+    const { options, skill } = await setup({
+      llm: fakeLlm(scriptedDesigner([removeAll, look, look, look], task)),
+      budget: { costUsd: 0.25, calls: 3 },
+    });
+    const out = await designV2(options);
+    expect(out.kind).toBe("kept");
+    expect(out.reason).toMatch(/lost work you showed/);
+    expect([...walkSteps(out.skill.steps)].length).toBe([...walkSteps(skill.steps)].length);
+  });
+
+  it("keeps the plain list when the evidence can't be read", async () => {
+    const { options, skill } = await setup();
+    const out = await designV2({ ...options, evidence: {} as DesignV2Options["evidence"] });
+    expect(out.kind).toBe("kept");
+    expect([...walkSteps(out.skill.steps)].length).toBe([...walkSteps(skill.steps)].length);
+  });
+
+  it("takes a question's default when you let it decide (an empty answer), never an empty value", async () => {
+    const page: Question = {
+      id: "page-s1",
+      text: "Which inbox page?",
+      appliesTo: "steps.s1.args.url",
+      default: "https://mail.google.com/mail/u/0/#label/kpi",
+    };
+    const { options } = await setup({ llm: fakeLlm(scriptedDesigner([done("x")], { ...task, rules: [] })) });
+    const out = await designV2({ ...options, questions: [page], prompter: { ask: async () => "" } });
+    const s1 = out.skill.steps.find((s) => s.id === "s1");
+    expect(s1 && isAction(s1) ? s1.args.url : undefined).toBe("https://mail.google.com/mail/u/0/#label/kpi");
+  });
+
   it("says when the test run couldn't start, and doesn't send the agent round the fix loop", async () => {
     const report: TestReport = {
       outcome: "not run: Chrome is not connected",

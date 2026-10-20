@@ -485,6 +485,7 @@ describe("record end to end", () => {
   it("saves the recording when the model writes no task model: the plain list, and why, in design.json", async () => {
     const home = temp();
     const sessionId = "s-no-task";
+    const asked: string[] = [];
     writeForm(home, sessionId, {
       goal: "Upload this month's invoice",
       changes: [],
@@ -503,9 +504,16 @@ describe("record end to end", () => {
       llm: fakeLlm(() => "not a task model"),
       log: () => {},
       design: { protocol: "tools" },
-      prompter: { ask: async () => "" },
+      prompter: {
+        ask: async (q) => {
+          asked.push(q.id);
+          return "";
+        },
+      },
     });
     expect(saved?.skill.steps.length).toBeGreaterThan(1);
+    // Code's own questions are still asked when the design stops before asking them (which file next time?).
+    expect(asked.some((id) => id.startsWith("file-"))).toBe(true);
     const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
     expect(kept.kind).toBe("kept");
     expect(kept.reason).toMatch(/couldn't understand/);

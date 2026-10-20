@@ -49,6 +49,19 @@ describe("the questions left after a design", () => {
     expect(batch.agent.map((q) => q.id)).toEqual(["q2", "a", "b", "c"]);
   });
 
+  it("asks about the start of a workflow from both: code's input question doesn't silence the agent's on cadence", () => {
+    const batch = batchOf([file], [theirs("q1", "start")]);
+    expect(batch.code).toEqual([file]);
+    expect(batch.agent.map((q) => q.id)).toEqual(["q1"]);
+  });
+
+  it("keeps what it didn't ask, so the defaults are taken and the review lists them", () => {
+    const many = ["a", "b", "c", "d"].map((x) => theirs(x, x));
+    const batch = batchOf([row], [theirs("q1", "s5"), theirs("q2", "s2"), ...many]);
+    expect(batch.skipped.agent.map((q) => q.id)).toEqual(["q1", "d"]);
+    expect(batch.skipped.code).toEqual([]);
+  });
+
   it("puts every question to the user at once: one batch, not one after another", async () => {
     let open = 0;
     let most = 0;

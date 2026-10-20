@@ -40,11 +40,25 @@ const stepOf = (q: Question) => /^steps\.([^.]+)/.exec(q.appliesTo ?? "")?.[1];
 
 // One question per step: code's wins (its answer goes straight in), then the agent's, MAX_QUESTIONS in all; the rest
 // take their defaults and the review lists them.
-export function batchOf(code: Question[], agent: QueuedQuestion[]): { code: Question[]; agent: QueuedQuestion[] } {
-  const taken = new Set(code.map(stepOf).filter((s): s is string => Boolean(s)));
+// "start" holds many places (each input, how often it runs), so a question there doesn't stand for another one there.
+export function batchOf(
+  code: Question[],
+  agent: QueuedQuestion[],
+): {
+  code: Question[];
+  agent: QueuedQuestion[];
+  // Not asked (another question changes the same step, or past MAX_QUESTIONS): they take their defaults.
+  skipped: { code: Question[]; agent: QueuedQuestion[] };
+} {
+  const taken = new Set(code.map(stepOf).filter((s): s is string => Boolean(s) && s !== "start"));
   const keptCode = code.slice(0, MAX_QUESTIONS);
-  const theirs = agent.filter((q) => !taken.has(q.step));
-  return { code: keptCode, agent: theirs.slice(0, Math.max(0, MAX_QUESTIONS - keptCode.length)) };
+  const room = Math.max(0, MAX_QUESTIONS - keptCode.length);
+  const theirs = agent.filter((q) => !taken.has(q.step)).slice(0, room);
+  return {
+    code: keptCode,
+    agent: theirs,
+    skipped: { code: code.slice(MAX_QUESTIONS), agent: agent.filter((q) => !theirs.includes(q)) },
+  };
 }
 
 // Every question is put to the user at once, so they reach the Record screen as one batch, each next to its step.

@@ -21,7 +21,7 @@ import { plainChecks } from "../../plain-checks.ts";
 import { skeletonOf, skillInput } from "../../skeleton.ts";
 import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
-import { gate } from "./gate.ts";
+import { gate, lostWork } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { BUILD } from "./prompt.ts";
 import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
@@ -74,6 +74,10 @@ export interface DesignV2Outcome {
   asked: { question: string; answer: string; by: "code" | "agent" }[];
   // Code's questions and their answers, for memory (a lasting answer is remembered).
   answered: { question: Question; answer: string }[];
+  // Code's questions it never reached (it stopped first): the drill asks them, so none is lost.
+  pending: Question[];
+  // Questions not asked (another one changes the same step, or past MAX_QUESTIONS): they took their defaults.
+  skipped: string[];
   system: string;
   transcript: AgentEvent[];
   usage: Usage;
@@ -103,12 +107,9 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   const meter = options.meter ?? new UsageMeter();
   const budget = options.budget ?? DESIGN_V2_BUDGET;
   const say = options.onProgress ?? (() => {});
-  const view = evidenceView(options.evidence);
   const transcript: AgentEvent[] = [];
+  // Built from the plain list first, so even evidence that can't be read keeps the recording (below, in the try).
   const session = newSession(options.skill, options.facts, {
-    proposals: new Map(options.evidence.proposals.map((p) => [p.id, p])),
-    dropped: droppedOf(options.evidence),
-    evidence: view,
     // By the names the agent reads: a tab's title is masked like everything else it reads ("Inbox - ███ - Gmail").
     pages: new Map([...options.pages].map(([name, url]) => [maskText(name, options.maskTerms ?? []).text, url])),
     maskTerms: options.maskTerms ?? [],
@@ -117,6 +118,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   let done: DoneReport | undefined;
   const asked: DesignV2Outcome["asked"] = [];
   const answered: DesignV2Outcome["answered"] = [];
+  const skipped: string[] = [];
+  let reachedQuestions = false;
 
   const outcome = (
     extra: { kind: "designed"; summary?: string } | { kind: "kept"; reason: string },
@@ -131,13 +134,21 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     test: session.lastTest,
     asked,
     answered,
+    pending: reachedQuestions ? [] : openCodeQuestions(options.questions, options.skill, session.draft),
+    skipped,
     system: BUILD,
     transcript,
     usage: meter.usage,
   });
+  // What it reached is kept, unless it had lost work the user showed (the gate never saw it): then the plain list.
   const kept = (reason: string) => {
-    say(`Kept what it reached: ${reason}`);
-    return outcome({ kind: "kept", reason });
+    let why = reason;
+    if (lostWork(options.skill, session.draft, session.whys).length > 0) {
+      session.draft = options.skill;
+      why = `${reason}; what it reached had lost work you showed, so the recorded steps were kept`;
+    }
+    say(`Kept what it reached: ${why}`);
+    return outcome({ kind: "kept", reason: why });
   };
 
   // One episode of the agent loop on what is left of the budget: build/test/fix, or putting the answers in.
@@ -167,6 +178,10 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   };
 
   try {
+    session.proposals = new Map(options.evidence.proposals.map((p) => [p.id, p]));
+    session.dropped = droppedOf(options.evidence);
+    session.evidence = evidenceView(options.evidence);
+    const view = session.evidence;
     say("Understanding the task from what you did and said");
     const start = remaining(meter, budget);
     if (start.calls < 2 || start.costUsd === 0) return kept("its budget was used up before it could start");
@@ -235,16 +250,25 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // 5: the questions left, in one batch.
     const code = openCodeQuestions(options.questions, options.skill, session.draft);
     const batch = batchOf(code, session.questions);
+    reachedQuestions = true;
+    // Code's answer goes straight in: an empty one ("You decide") is the question's default, never an empty value.
+    const put = (question: Question, answer: string) => {
+      const given = answer.trim() || question.default || "";
+      if (!given) return;
+      const applied = applyAnswer(session.draft, question, given);
+      if (!applied.ok) return;
+      session.draft = applied.skill;
+      answered.push({ question, answer: given });
+    };
+    for (const question of batch.skipped.code) put(question, "");
+    skipped.push(...batch.skipped.code.map((q) => q.text), ...batch.skipped.agent.map((q) => q.text));
     const count = batch.code.length + batch.agent.length;
     if (count > 0) {
       say(`${count} question${count === 1 ? "" : "s"} for you`);
       const answers = await askBatch(options.prompter, session.draft, batch.code, batch.agent);
       for (const { question, answer } of answers.code) {
         asked.push({ question: question.text, answer, by: "code" });
-        const applied = applyAnswer(session.draft, question, answer);
-        if (!applied.ok) continue;
-        session.draft = applied.skill;
-        answered.push({ question, answer });
+        put(question, answer);
       }
       for (const { question, answer } of answers.agent) asked.push({ question: question.text, answer, by: "agent" });
       // 6: the agent puts its answers in (done tests again if the workflow changed, and the gate runs again).
