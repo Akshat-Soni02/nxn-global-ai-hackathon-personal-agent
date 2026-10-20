@@ -18,6 +18,9 @@ Spent $0.1958 in all; the ledger shows $0.6292 of $5.
 
 ### What failed, and why
 
+Not fixed and not re-run, by Rushil's choice on Oct 20. They are F1–F5 in
+[`reports/record-v2-changes.md`](../reports/record-v2-changes.md#failures-to-fix).
+
 1. **How often it runs (KPI ✗, Play Store ✗, YC listed as a gap).**
    - **What happened:** the task model's cadence came back `kind: "manual"` while quoting "Every day I get these KPI
      emails…" and "Every month I post all the Play Store reports…". The gate checks the frequency only when the task

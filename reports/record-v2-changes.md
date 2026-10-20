@@ -188,7 +188,7 @@ The old names still answer, as aliases.
 | `save_as` ignored on inserted steps | Ignored | `add` accepts it | **fixed (tests)** |
 | `describe_step_screenshot` never called | Unused | **Removed**: code captions every picture before the agent starts (`dca2d86`) | **fixed (live)**: checkpoint 2 |
 | A new step reused a removed step's id | — | New ids never repeat a recorded one (`38e0180`) | **fixed (tests)** |
-| *Found live (checkpoint 3, YC):* 20 of 40 calls refused: ids as one string `"s2, s3"`; a removal blocked by a later `{{var}}`; `add {do: "ai_step"}`; `output.type` as a string; `{{s6}}` (a step id) as a variable | — | — | **open**: fixes proposed |
+| *Found live (checkpoint 3, YC):* 20 of 40 calls refused: ids as one string `"s2, s3"`; a removal blocked by a later `{{var}}`; `add {do: "ai_step"}`; `output.type` as a string; `{{s6}}` (a step id) as a variable | — | — | **open**: F3 |
 
 ## D4 · The rules
 
@@ -216,7 +216,7 @@ Everything else is allowed and kept with its reason for the review.
 | Questions lost (the `id` misuse) | Lost | Fixed with the new tools | **fixed (live)** |
 | Asked one by one, without context, every recording's questions shown | — | One batch on the Record screen, next to each step; only this recording's; Enter sends; "You decide" takes the default; at most 5, the rest take their defaults and the review lists them (`0a058fb`, `fdaa488`) | **fixed (tests)** |
 | Code's questions dropped when a design stopped early | — | Kept for the drill (`fdaa488`) | **fixed (tests)** |
-| The agent asks anyway after seeing the answer | — | Found live: KPI asked "should it run on its own?" after "every day" | **open** |
+| The agent asks anyway after seeing the answer | — | Found live: KPI asked "should it run on its own?" after "every day" | **open**: F4 |
 | No timeout on a question | Waits | Unchanged | **open** |
 
 ## D6 · Finish, honesty and the review
@@ -224,10 +224,10 @@ Everything else is allowed and kept with its reason for the review.
 | Problem | Before | Now | Status |
 |---|---|---|---|
 | `finish` accepted a workflow that no longer does the task | Accepted | The **finish gate** (`gate.ts`) wants:<br>- every write kept;<br>- every rule you said built or explained;<br>- checks on text that really appeared;<br>- test failures explained;<br>- defaults for unattended runs;<br>- the frequency you said.<br>It refuses at most twice, then saves with the gaps listed (`b221880`) | **fixed (tests)** |
-| Every stated rule unbuilt | Accepted | Every rule needs steps or a reason | **partly**: the gate checks that the named steps exist, not what they mean (real KPI run "built" "the newest one" with the recorded click) |
+| Every stated rule unbuilt | Accepted | Every rule needs steps or a reason | **partly**: F2 |
 | No test before saving | None | A **safe test run** (`d35b071`):<br>- it opens pages, reads, and follows only recorded links;<br>- it only outlines typing, sending and acting buttons;<br>- it says first what it will do ("opening 1 email will mark it as read");<br>- without Chrome it says "not run";<br>- it queues behind real runs | **fixed (tests)**: not yet run live |
 | Summaries describing changes never made | History fixed in PR #13 | The **review**, built by code (`e3dbfc3`):<br>- a badge per change with its reason;<br>- "What you said → what was built";<br>- what wasn't tested.<br>Go live, and schedules, wait for "Looks right" (`feec1cc`) | **fixed (tests)** |
-| How often it runs, from "every day" | Worked (PR #13) | **Regressed, found live:** the model wrote "manual" while quoting "every day / every month", and the gate takes its word | **open**: fix proposed (the gate reads the frequency words itself) |
+| How often it runs, from "every day" | Worked (PR #13) | **Regressed, found live:** the model wrote "manual" while quoting "every day / every month", and the gate takes its word | **open**: F1 |
 
 ## D7 · Budget, cost and record-keeping
 
@@ -252,32 +252,63 @@ Everything else is allowed and kept with its reason for the review.
 These were approved with the spec. `labelDraft`, `labelRules` and `merge` in `compile.ts` are now unused but kept,
 because removing them needs your OK.
 
-## Still open, or planned
+## Failures to fix
 
-- **Checkpoint 3, step 2:** Rushil records KPI, YC and Play Store on his Mac; the safe test run is seen live.
-- **From the first real runs:**
-  - the gate should read the frequency words itself;
-  - the tool forgiveness gaps in D3;
-  - KPI's "the newest email" should become a loop. A new recording with list positions will show whether the agent
-    builds it.
-- **Replay (Akshat):**
-  - the matcher using list position, text and `near`;
-  - writing to a cell or the next empty row (then MCP);
-  - named tabs closed during approval waits;
-  - the run-time folder check;
-  - sign-off on `skill.ts` `tab`, the player's test run, dates and keys.
-- **Live checks after `pnpm setup:mac`:** Move to Trash, Shadow's prompts skipped, copy and paste from the app.
-- **Ten smaller items** from the Plan 3 review:
-  - a removal's reason is optional;
-  - the test run's AI calls are on the daemon's meter;
-  - checks may only use text seen while recording;
-  - a second round of questions for unattended runs;
-  - review wording;
-  - `<untrusted_data>` isn't escaped;
-  - relative input paths skip the folder check;
-  - stage 1 can make 4 calls;
-  - each progress line resends the whole view;
-  - "Done" shows twice.
+One list of everything known to be broken or missing in record and the design agent, as of Oct 20. Nothing here
+is being worked on now: on Oct 20, Rushil chose to list them rather than fix them, and not to re-run the evals.
+
+**Columns:**
+- **Seen in:** the run or review that showed it;
+- **Why it happens:** the cause in the code, as far as known;
+- **Fix (proposed):** not started;
+- **Owner:** "record" means this branch's side; "Akshat" means replay.
+
+### From the first real model runs (checkpoint 3, step 1)
+
+| # | Failure | Seen in | Why it happens | Fix (proposed) | Owner |
+|---|---|---|---|---|---|
+| F1 | **Runs by hand although you said how often.** "Every day" (KPI) and "every month" (Play Store) gave a manual workflow | KPI ✗ trigger, Play Store ✗ trigger; YC listed it as a gap | Stage 1 wrote the cadence as "manual" while quoting the words. The finish gate checks the frequency only when the task model says it isn't manual, so it took the model's word | The gate finds frequency words in the goal and what was said ("every day", "monthly", "each morning"…) itself, and refuses to finish while the workflow only runs by hand | record (`gate.ts`) |
+| F2 | **KPI: "always the newest one" not built.** No loop over new emails; the click on the one recorded email is claimed as building the rule | KPI ✗ has_loop | The model took the email subject to be a value you type, not "the newest in the list". The gate checks that the steps a rule names exist, not what they do. The old KPI fixture has no list positions, so code proposed no "item 1 of the list" to accept | Re-record KPI (list positions give the proposal). Maybe a gate check that a rule saying newest, top, every or all is built by a loop, an AI step or a list item | record |
+| F3 | **YC: 20 of 40 calls refused.** It ran out of calls and kept what it reached | YC, 40/40 calls, $0.12 | Gaps in the tools' forgiveness:<br>a) ids sent as one string, `"s2, s3"`;<br>b) removing the copy step while a later step still pastes `{{copied_1}}` (refused 4×; the message doesn't say "change that step first");<br>c) `add { do: "ai_step" }` (refused 3×);<br>d) an AI step's output type sent as `"text"`;<br>e) `{{s6}}`, a step id, used as a variable | a) split the ids;<br>b) name the blocking step;<br>c) pass `do: "ai_step"` on to the `ai_step` tool;<br>d) accept a type written as a word;<br>e) read `{{s6}}` as that step's `save_as` | record (`tools.ts`) |
+| F4 | **Asks what the recording already answered.** KPI asked "should it run on its own?" after "every day"; KPI and YC asked 3 questions each (too many) | KPI ✗ max_questions, YC ✗ max_questions | The agent re-asks with `confirm: true` after the evidence check showed it the answer | F1 removes the frequency one. Refuse `confirm` when the evidence quotes the answer, or count those against the 5 | record |
+| F5 | **KPI: the step that opens the sheet was removed**, so the paste would run on the Gmail page | KPI's `design.json` (removed s10, "redundant sheet navigation") | The gate doesn't check what page a write runs on. The safe test run would catch it, but it can't run in the eval (no Chrome) | The safe test run on Rushil's Mac (checkpoint 3, step 2). Or a gate check that a write's page is still opened before it | record |
+
+### From the Plan 3 review and the study (not seen in a real run yet)
+
+| # | Failure | Why it happens | Fix (proposed) | Owner |
+|---|---|---|---|---|
+| F6 | A run that waits for approval resumes with blank named tabs; its next step fails into repair | The daemon sends "run ended" at the end of every leg, waits included, and the extension then closes the tabs it opened | The "run ended" message says when the run is only waiting; the extension keeps its tabs then | Akshat |
+| F7 | A step without a tab runs in the window's first tab, while the test run highlights in the last tab used | `tab-map.ts`: no tab means the first tab | Agree the rule (inherit the previous step's tab, or the first tab), then highlight in the same tab | Akshat |
+| F8 | Replay can't find a step by its list position, text or `near` | The matcher scores role and name, attributes and selectors only (study P3) | Use the recorded list position and `near` | Akshat |
+| F9 | Can't write to a sheet cell or the next empty row | No replay action for it (study P4); the proposal is a note only | A "write to sheet" step; MCP or the Sheets API later | Akshat |
+| F10 | A file path with a `{{variable}}` is checked only when designed | No run-time check in the player | Check the allowed folders before a file is opened (`fs-channel.ts`) | Akshat |
+| F11 | Nameless Mac-app elements (Numbers cells) | No AX name (study R3) | Captions when Pictures is on; nothing else yet | record |
+| F12 | A question can wait for ever | No timeout (study D5) | A timeout that takes the default | record |
+
+### Smaller items (Plan 3 review)
+
+- **Removal reasons:** a removal's reason is optional, and a removal without one can't be explained afterwards.
+- **Test run's AI calls:** they're counted on the daemon's meter, not the design's $0.25.
+- **Checks:** may only use text seen while recording, not text the test run saw.
+- **A second round of questions:** for unattended runs, after the batch.
+- **Review page:**
+  - it says "no automation window" when the design stopped before testing;
+  - repeated lines share a key;
+  - "How this was made" hides after Looks right.
+- **`<untrusted_data>`:** page text isn't escaped inside it.
+- **Relative input paths:** they skip the folder check.
+- **Stage 1:** can make 4 model calls.
+- **Progress lines:** each one resends the whole Record view.
+- **The feed:** "Done" shows twice.
+
+### Not failures: still to be checked live
+
+- **Checkpoint 3, step 2:** Rushil records KPI, YC and Play Store on his Mac with v2 live. Every design spends up to
+  $0.25 of his key, and the safe test run opens pages in the automation window.
+- **After `pnpm setup:mac`:** Move to Trash, Shadow's prompts skipped, copy and paste from the app.
+- **Akshat's sign-off:** `skill.ts` `tab`, the player's test run, dates and keys.
+- **"Arilo Stats":** the name in the synthetic Play Store fixture may be a real Chat space; rename it before
+  pushing if so.
 
 ## Conclusion
 
