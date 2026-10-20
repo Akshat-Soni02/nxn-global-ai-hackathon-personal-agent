@@ -1,6 +1,15 @@
 // Normalise: turns a raw trace into the steps a person would describe, with no AI.
 // Mechanical rules only, so the compiler's input is stable and testable, and the model sees fewer tokens.
-import type { AxElement, ElementDescriptor, FileInfo, TraceEvent } from "@shadow/core";
+import type {
+  AxElement,
+  Cell,
+  Effect,
+  ElementDescriptor,
+  FileInfo,
+  ListPosition,
+  Point,
+  TraceEvent,
+} from "@shadow/core";
 
 export type StepKind =
   | "navigate"
@@ -46,6 +55,18 @@ export interface NormalisedStep {
   path?: string;
   toPath?: string;
   navigatesTo?: string; // the page this click or key press led to
+  // What capture saw (spec 1.3, 1.4, 1.10, 1.11): what the click or key did in the 700 ms after it, the item of a list
+  // it was in, the sheet cell, and where the pointer landed. Absent in recordings made before Oct 20.
+  effect?: Effect;
+  list?: ListPosition;
+  cell?: Cell;
+  point?: Point;
+  // This click opened a new tab (that tab's id).
+  opensTab?: number;
+  // An Enter that emptied the field it was pressed in: a chat message sent (spec 2.8). Needs your OK at run time.
+  sends?: boolean;
+  // The browser's Back or Forward.
+  back?: boolean;
   submits?: boolean; // it submitted a form
   produces?: string[]; // files that appeared because of it (downloads)
   candidate?: ParamCandidate;
@@ -72,6 +93,9 @@ export interface NormalisedStep {
 type Draft = Omit<NormalisedStep, "index">;
 
 const FOLLOW_MS = 3_000; // a navigation this soon after a click or key press was caused by it
+// Google's drawn editors: a cell editor empties on Enter (it only moves to the next cell), and is not a chat box.
+const CANVAS_EDITORS = /^https:\/\/docs\.google\.com\/(spreadsheets|document|presentation)\//;
+const OPENS_TAB_MS = 2_000; // a tab opened this soon after a click, naming its tab as opener, was opened by it
 const FILE_DIALOG_MS = 5 * 60_000; // how long the macOS file dialog may stay open between the click and the pick
 const SCRIPT_CLICK_MS = 1_000; // a page script clicking its hidden file input right after your click on its button
 const CAUSED = new Set(["link", "form_submit"]);
@@ -100,6 +124,15 @@ const NUMBER = /^-?\d+([.,]\d+)?$/;
 
 export function normalise(trace: TraceEvent[]): NormalisedStep[] {
   const events = [...trace].sort((a, b) => a.at - b.at);
+  // What each click or key did: capture's effect events point back at it by cid (spec 1.3).
+  const effects = new Map<string, Effect>();
+  for (const e of events) if (e.event === "effect" && e.of && e.effect) effects.set(e.of, e.effect);
+  // Tabs opened by a click: their tab_open names the tab it came from.
+  const openedTabs = events.filter((e) => e.event === "tab_open" && e.openerTabId !== undefined);
+  const opensTab = (e: TraceEvent) => {
+    const tab = openedTabs.find((o) => o.openerTabId === e.tabId && o.at >= e.at && o.at - e.at <= OPENS_TAB_MS);
+    return tab?.tabId !== undefined ? { opensTab: tab.tabId } : {};
+  };
   const steps: Draft[] = [];
   const last = () => steps.at(-1);
   let lastCopy: string | undefined;
@@ -111,6 +144,10 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
     frameId: e.frameId,
     url: e.url,
     target: e.target,
+    ...(e.cid && effects.has(e.cid) ? { effect: effects.get(e.cid) } : {}),
+    ...(e.list ? { list: e.list } : {}),
+    ...(e.cell ? { cell: e.cell } : {}),
+    ...(e.point ? { point: e.point } : {}),
     events: [e.id],
   });
   // A click that only focused a field or opened a dropdown adds nothing once you type or choose in it.
@@ -156,7 +193,7 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
           prev.events.push(e.id);
           break;
         }
-        steps.push({ ...base(e), kind: "navigate", target: undefined });
+        steps.push({ ...base(e), kind: "navigate", target: undefined, ...(e.back ? { back: true } : {}) });
         break;
       }
       case "click": {
@@ -172,7 +209,7 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
           prev.events.push(e.id);
           break;
         }
-        steps.push({ ...base(e), drawn: e.drawn });
+        steps.push({ ...base(e), drawn: e.drawn, ...opensTab(e) });
         break;
       }
       case "type": {
@@ -276,7 +313,20 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
         break;
       }
       case "key": {
-        if (e.value === "Enter" || e.value === "Escape") steps.push({ ...base(e), kind: "press", value: e.value });
+        // Enter and Escape, single keys outside a field (Gmail's e) and shortcuts (⌘Enter): capture already kept
+        // typing out (spec 1.8).
+        const named = e.value === "Enter" || e.value === "Escape";
+        const shortcut = (e.modifiers?.length ?? 0) > 0 || [...(e.value ?? "")].length === 1;
+        if (!e.value || (!named && !shortcut)) break;
+        const sends =
+          e.value === "Enter" && Boolean(effects.get(e.cid ?? "")?.emptied) && !CANVAS_EDITORS.test(e.url ?? "");
+        steps.push({
+          ...base(e),
+          kind: "press",
+          value: e.value,
+          ...(e.modifiers?.length ? { modifiers: e.modifiers } : {}),
+          ...(sends ? { sends: true } : {}),
+        });
         break;
       }
       case "submit": {
@@ -374,7 +424,7 @@ function findable(d?: ElementDescriptor): boolean {
 
 // Clicks on nothing in particular (page background, a field you then left empty) are noise.
 function isMeaningfulClick(step: Draft): boolean {
-  if (step.navigatesTo || step.submits || step.checked !== undefined) return true;
+  if (step.navigatesTo || step.submits || step.checked !== undefined || step.opensTab !== undefined) return true;
   const t = step.target;
   if (!t) return false;
   if (t.role && FOCUS_ONLY_ROLES.has(t.role)) return false;

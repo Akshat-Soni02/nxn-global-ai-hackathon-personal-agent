@@ -10,6 +10,10 @@ describe("the trace", () => {
     expect(TraceEvent.parse(old)).toEqual(old);
   });
 
+  it("keeps a Back or Forward", () => {
+    expect(TraceEvent.parse({ ...base, event: "navigate", transition: "link", back: true }).back).toBe(true);
+  });
+
   it("keeps the new facts: what a click did, its list position, its point, the sheet cell, how a copy was made", () => {
     const click = TraceEvent.parse({
       ...base,

@@ -128,6 +128,8 @@ export const TraceEvent = z.object({
   toPath: z.string().optional(),
   // navigate: chrome.webNavigation transitionType (typed, link, form_submit, reload, ...).
   transition: z.string().optional(),
+  // navigate: the browser's Back or Forward (webNavigation's forward_back qualifier).
+  back: z.boolean().optional(),
   // tab_open: the tab that opened this one.
   openerTabId: z.number().optional(),
   // The recorded selectors resolved back to this same element when it was described.

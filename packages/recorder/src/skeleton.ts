@@ -291,13 +291,14 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
     case "press":
       return {
         id,
-        intent: `Press ${step.value ?? "Enter"} in ${what}`,
+        intent: step.sends ? "Send the message (Enter)" : `Press ${step.value ?? "Enter"} in ${what}`,
         channel: "web",
         action: "press",
         target,
-        args: { key: step.value ?? "Enter" },
+        args: { key: step.value ?? "Enter", ...(step.modifiers?.length ? { modifiers: step.modifiers } : {}) },
         check: leadsTo,
-        requires_approval: isRisky(step),
+        // An Enter that emptied a chat box sent it (spec 2.8): it waits for your OK, like a Send button.
+        requires_approval: isRisky(step) || step.sends === true,
       };
     case "upload": {
       // The page never knew the file's path, so the file is always an input, chosen again at run time.

@@ -325,7 +325,15 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
 // Browser events a content script can't see: page loads, single-page route changes, tabs, finished downloads.
 chrome.webNavigation.onCommitted.addListener((nav) => {
   if (nav.frameId === 0)
-    record({ event: "navigate", at: nav.timeStamp, tabId: nav.tabId, url: nav.url, transition: nav.transitionType });
+    record({
+      event: "navigate",
+      at: nav.timeStamp,
+      tabId: nav.tabId,
+      url: nav.url,
+      transition: nav.transitionType,
+      // The browser's Back or Forward: a step "go back", not a typed address.
+      ...(nav.transitionQualifiers.includes("forward_back") ? { back: true } : {}),
+    });
 });
 chrome.webNavigation.onHistoryStateUpdated.addListener((nav) => {
   if (nav.frameId === 0)
