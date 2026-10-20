@@ -110,7 +110,7 @@ their schedules untouched). The reload was checked first: a click had `cid`, `po
 | no keylogging while typing in the sheet | ✓ only the `type` event |
 | the Gmail header click reads `changed: none` | ✓ despite Gmail's churn |
 | `select_text` + copy of the subject, `via: keyboard` | ✓ |
-| `list` on the email row | ✗ → **fixed** 99a0bf7: Gmail gives the row under the pointer a hover class (`aqw`), so the clicked row matched no other row; rows and list items now compare by tag and role |
+| `list` on the email row | ✗ → **fixed** 99a0bf7: Gmail gives the row under the pointer a hover class (`aqw`), so the clicked row matched no other row; rows and list items now compare by tag and role. Checked live after your reload: an unread, hovered row reads index 3 of 50; a sheet cell click has its cell and no list place (4ec5c1e) |
 | single key in Gmail | ✓ `j` (pressing `e` to archive was refused by Claude Code's permission check, so `j` stood in) |
 | tab switches, pictures | not tested here: Claude in Chrome acts on tabs without bringing them to the front, so no switches and every picture is "tab-hidden" (both checked in part 1) |
 
