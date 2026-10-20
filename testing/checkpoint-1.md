@@ -79,6 +79,9 @@ repo (D), Google's public sample sheet "Class Data" (F). Copies in `~/shadow-tes
 | Shadow's own prompts, Move to Trash, Screen Recording at Record | not checked: Swift, needs your `pnpm setup:mac` |
 | Gmail churn, typing a date into a sheet | not checked: needs your signed-in Chrome (part 2) |
 
+A cell click reads `changed: small`: that is Sheets moving its selection border (40 attribute changes on
+`.range-border`), not an announcement; no status or alert area changes on a cell click.
+
 Also fixed: names borrowed from far away (a paragraph named "Table", the page "Contents"; only controls borrow a name
 now), page-made clicks (GitHub's `g i` clicks the Issues tab itself: now `synthetic: true`), link shapes (`fK*gxxbq`
 is now `*`), and a url check the model wrote as a regex (replay failed on the right page). Commits 2754463, 4ec5c1e,
