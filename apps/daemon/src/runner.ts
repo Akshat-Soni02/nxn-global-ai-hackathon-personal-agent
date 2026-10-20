@@ -39,6 +39,8 @@ export interface RunHooks {
   // A walk-through: every step waits for you (WAIT too), after its target was outlined on the page or in the app.
   walk?: RunDeps["walk"];
   log(event: RunLogEvent): void;
+  // The test run (rehearse.ts): told whether each outline found its control.
+  onHighlight?(step: ActionStep, error?: string): void;
   // data.pick steps (see dataChannel in @shadow/player/node).
   data?: ChannelExecutor;
   // llm steps (see llmExecutor in @shadow/player/node).
@@ -202,7 +204,17 @@ export async function runSkillOn(
       approve: hooks.approve,
       ask: hooks.ask,
       walk: hooks.walk,
-      highlight: hooks.walk ? highlight : undefined,
+      highlight: hooks.walk
+        ? async (step: ActionStep) => {
+            try {
+              await highlight(step);
+              hooks.onHighlight?.(step);
+            } catch (error) {
+              hooks.onHighlight?.(step, (error as Error).message);
+              throw error;
+            }
+          }
+        : undefined,
       log,
     };
     const resume = options.resume;
