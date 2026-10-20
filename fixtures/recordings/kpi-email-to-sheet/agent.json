@@ -1,0 +1,57 @@
+{
+  "task": {
+    "outcome": "every new KPI email's subject and numbers are in the KPI sheet",
+    "cadence": { "kind": "schedule", "cron": "0 9 * * 1-5", "quote": "Every day" },
+    "rules": [{ "quote": "I always take the newest one, and never one I already did.", "where": "said" }]
+  },
+  "build": [
+    {
+      "toolCalls": [
+        { "name": "accept", "arguments": { "proposal": "p1", "why": "the date typed is the day it runs" } },
+        { "name": "remove", "arguments": { "steps": ["s4"], "why": "a click on the header that only showed it" } },
+        { "name": "trigger", "arguments": { "when": { "schedule": "0 9 * * 1-5" }, "why": "every day" } },
+        {
+          "name": "add",
+          "arguments": {
+            "after": "s2",
+            "step": {
+              "do": "read_all",
+              "intent": "read the inbox's subjects",
+              "target": { "like": "s3" },
+              "save_as": "subjects"
+            },
+            "why": "the newest emails, not this one"
+          }
+        },
+        {
+          "name": "ai_step",
+          "arguments": {
+            "after": "s13",
+            "intent": "pick the new KPI emails",
+            "instruction": "The subjects of KPI emails not already in the sheet",
+            "inputs": ["subjects"],
+            "output": { "name": "new_emails", "type": { "type": "list", "items": { "type": "text" } } },
+            "why": "never one already done"
+          }
+        },
+        {
+          "name": "loop",
+          "arguments": {
+            "steps": ["s3", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12"],
+            "over": "new_emails",
+            "item": { "name": "email", "type": { "type": "text" } },
+            "intent": "each new KPI email",
+            "why": "again and again"
+          }
+        },
+        {
+          "name": "done",
+          "arguments": {
+            "summary": "every new KPI email, each weekday morning",
+            "rules": [{ "rule": 0, "steps": ["ai1", "l1"] }]
+          }
+        }
+      ]
+    }
+  ]
+}

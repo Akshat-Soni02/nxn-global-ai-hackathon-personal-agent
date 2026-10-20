@@ -1,0 +1,25 @@
+{
+  "task": {
+    "outcome": "every month, all the Play Store reports are posted in the Arilo Stats space with today's date",
+    "cadence": { "kind": "schedule", "cron": "0 9 1 * *", "quote": "Every month" },
+    "rules": [
+      { "quote": "all the Play Store reports", "where": "said" },
+      { "quote": "With today's date.", "where": "said" }
+    ]
+  },
+  "build": [
+    {
+      "toolCalls": [
+        { "name": "accept", "arguments": { "proposal": "p1", "why": "with today's date" } },
+        { "name": "trigger", "arguments": { "when": { "schedule": "0 9 1 * *" }, "why": "every month" } },
+        {
+          "name": "done",
+          "arguments": {
+            "summary": "all the reports, monthly, dated today",
+            "rules": [{ "rule": 0, "steps": ["s2"] }, { "rule": 1, "steps": ["s3"] }]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "task": {
+    "outcome": "this week's hours are logged on NX-202",
+    "cadence": { "kind": "manual" },
+    "rules": [{ "quote": "The project is always NX-202.", "where": "said" }]
+  },
+  "build": [
+    {
+      "toolCalls": [
+        {
+          "name": "input",
+          "arguments": {
+            "name": "hours",
+            "type": "number",
+            "default": 7.5,
+            "about": "this week's hours",
+            "why": "the hours change every week"
+          }
+        },
+        {
+          "name": "change",
+          "arguments": { "step": "s3", "args": { "text": "{{hours}}" }, "why": "the hours change every week" }
+        },
+        {
+          "name": "done",
+          "arguments": {
+            "summary": "the hours are given each time; the project stays NX-202",
+            "rules": [{ "rule": 0, "steps": ["s2"] }]
+          }
+        }
+      ]
+    }
+  ]
+}

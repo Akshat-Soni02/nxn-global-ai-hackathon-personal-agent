@@ -97,7 +97,9 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   const known = (id: string) => ids().includes(id);
   const unknown = (id: string) => `no step ${id}. Steps: ${ids().join(", ")}`;
   const nextId = (prefix: string) => {
-    const used = new Set([...ids(), ...session.dropped.keys()]);
+    // Never an id the recording had (a removed step keeps its id and its why for the review), nor one code left out.
+    const recorded = [...walkSteps(session.original.steps)].map(({ step }) => step.id);
+    const used = new Set([...ids(), ...recorded, ...session.dropped.keys()]);
     let n = 1;
     while (used.has(`${prefix}${n}`)) n++;
     return `${prefix}${n}`;
@@ -131,6 +133,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   const hint = (problem: string): string => {
     const missing = /no step (\S+)/.exec(problem)?.[1];
     if (missing) return `${problem}. Steps: ${ids().join(", ")}`;
+    // The workflow's own steps: it can't be emptied (the Oct 19 Play Store run removed all but one).
+    if (/^steps: .*(at least|too small)/i.test(problem)) {
+      return `${problem}: a workflow keeps at least one step besides its trigger: remove fewer, or say in done why they go`;
+    }
     if (/steps.*(at least|too small)/i.test(problem))
       return `${problem}: give loop or branch the steps to repeat (steps: [ids])`;
     return problem;

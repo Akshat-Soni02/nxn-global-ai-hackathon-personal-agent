@@ -45,12 +45,17 @@ export function gate(input: GateInput): string[] {
   const problems: string[] = [];
   const now = new Map<string, Step>([...walkSteps(workflow.steps)].map(({ step }) => [step.id, step]));
 
-  // The work the user showed still happens: kept (in a loop counts), or its removal explained for the review.
-  for (const { step } of walkSteps(recorded.steps)) {
-    if (!isAction(step) || now.has(step.id) || explained.has(step.id)) continue;
-    if (!WRITES.has(`${step.channel}.${step.action}`) && !isOutward(step)) continue;
+  // The work the user showed still happens: kept (in a loop counts), or its removal explained for the review. A
+  // workflow that keeps none of it isn't what they meant, whatever reason each removal was given (Oct 19: the Play
+  // Store run kept one step of the recording).
+  const shown = [...walkSteps(recorded.steps)]
+    .map(({ step }) => step)
+    .filter((s) => isAction(s) && (WRITES.has(`${s.channel}.${s.action}`) || isOutward(s)));
+  const noneKept = shown.length > 0 && shown.every((s) => !now.has(s.id));
+  for (const step of shown) {
+    if (now.has(step.id) || (explained.has(step.id) && !noneKept)) continue;
     problems.push(
-      `${step.id} (${step.intent}) was work the user showed, and it is gone: keep it, repeat it in a loop, or remove it with a why the user will see`,
+      `${step.id} (${step.intent}) was work the user showed, and it is gone: keep it, repeat it in a loop, or remove it with a why the user will see${noneKept ? " (none of their work is left)" : ""}`,
     );
   }
 

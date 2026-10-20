@@ -113,6 +113,27 @@ describe("the tools", () => {
     expect(String(bad.output.problems)).toMatch(/"teleport" is not something a step can do. Use one of: open, click/);
   });
 
+  it("never gives a new step the id of a recorded one it removed: the review keeps them apart", async () => {
+    const s = session();
+    await run(s, "remove", { steps: ["s3"], why: "typed by mistake" });
+    const added = await run(s, "add", {
+      after: "s2",
+      step: { do: "type", intent: "type it right", target: { like: "s3" }, text: "x" },
+      why: "x",
+    });
+    expect(added.output.ok).toBe(true);
+    expect(findStep(s.draft, "s3")).toBeUndefined();
+    expect(findStep(s.draft, "s4")).toBeDefined();
+    expect(s.whys.get("s3")).toBe("typed by mistake");
+  });
+
+  it("says a workflow keeps a step when asked to remove every one", async () => {
+    const s = session();
+    const all = await run(s, "remove", { steps: ["s1", "s2", "s3"], why: "x" });
+    expect(String(all.output.problems)).toMatch(/keeps at least one step/);
+    expect(String(all.output.problems)).not.toMatch(/loop or branch/);
+  });
+
   it("copy a recorded target with like, and say what to use when a loop is empty", async () => {
     const s = session();
     const copied = await run(s, "add", {

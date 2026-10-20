@@ -69,6 +69,22 @@ describe("the finish gate", () => {
     expect(problems).toMatch(/s3 .*gone/);
   });
 
+  it("refuses a workflow that keeps none of the shown work, whatever reason each removal was given", () => {
+    const one = skill([act("s1", "web", "navigate", { url: CHAT })], [{ type: "schedule", cron: "0 9 1 * *" }]);
+    const whys = new Map([
+      ["s2", "x"],
+      ["s3", "x"],
+      ["s4", "x"],
+    ]);
+    const report = done([
+      { rule: 0, not_built: "x" },
+      { rule: 1, not_built: "x" },
+    ]);
+    const problems = gate(input(one, { explained: whys, done: report })).join("\n");
+    expect(problems).toMatch(/s2 .*gone/);
+    expect(problems).toMatch(/s3 .*gone/);
+  });
+
   it("refuses invented checks, empty ones, and text checks on a sheet's drawn cells", () => {
     const wf = skill(
       [

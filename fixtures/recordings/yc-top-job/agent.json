@@ -1,0 +1,19 @@
+{
+  "task": {
+    "outcome": "the newest YC job's title is in the sheet",
+    "cadence": { "kind": "schedule", "cron": "0 8 * * *", "quote": "Every morning" },
+    "rules": [{ "quote": "Always the top one.", "where": "said" }]
+  },
+  "build": [
+    {
+      "toolCalls": [
+        { "name": "accept", "arguments": { "proposal": "p1", "why": "always the top one" } },
+        { "name": "trigger", "arguments": { "when": { "schedule": "0 8 * * *" }, "why": "every morning" } },
+        {
+          "name": "done",
+          "arguments": { "summary": "the top job's title, each morning", "rules": [{ "rule": 0, "steps": ["s2"] }] }
+        }
+      ]
+    }
+  ]
+}
