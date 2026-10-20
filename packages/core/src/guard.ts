@@ -25,9 +25,10 @@ export function isOutward(step: Step): boolean {
   if (!isAction(step)) return false;
   const key = `${step.channel}.${step.action}`;
   if (key === "web.press" || key === "ax.key") {
-    // ⌘Enter and Ctrl+Enter send in mail and chat (Gmail, Outlook, comment boxes), whatever the field is called.
+    // ⌘Enter and Ctrl+Enter send in mail and chat (Gmail, Outlook, comment boxes); Mac apps call the key Return.
     const modifiers = (step.args.modifiers as string[] | undefined) ?? [];
-    if (step.args.key === "Enter" && modifiers.some((m) => m === "cmd" || m === "ctrl")) return true;
+    if ((step.args.key === "Enter" || step.args.key === "Return") && modifiers.some((m) => m === "cmd" || m === "ctrl"))
+      return true;
   }
   if (key === "web.click" || key === "ax.press" || key === "web.press" || key === "ax.key") {
     return targetWords(step.target).some((w) => OUTWARD.test(w));

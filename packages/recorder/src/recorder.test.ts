@@ -912,6 +912,25 @@ describe("the description form", () => {
     });
     expect(requireApprovals(skill).added).toEqual(["s1", "s2"]);
   });
+
+  it("asks before ⌘Return in a Mac app too: Mail and Outlook send with it", () => {
+    const key = (id: string, modifiers: string[]) => ({
+      id,
+      type: "action",
+      intent: id,
+      channel: "ax",
+      action: "key",
+      args: { app: "com.microsoft.Outlook", key: "Return", modifiers },
+    });
+    const skill = Skill.parse({
+      id: "mac",
+      version: 1,
+      name: "mac",
+      description: { goal: "reply" },
+      steps: [{ id: "start", type: "trigger", intent: "by hand" }, key("s1", ["cmd"]), key("s2", [])],
+    });
+    expect(requireApprovals(skill).added).toEqual(["s1"]);
+  });
 });
 
 describe("old and new traces", () => {
