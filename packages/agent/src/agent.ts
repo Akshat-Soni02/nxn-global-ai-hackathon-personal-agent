@@ -277,7 +277,7 @@ export async function runAgent<F>(options: AgentOptions<F>): Promise<Episode<F>>
       emit({ type: "invalid", turn: state.turn, tool: tool.name, error: output, input: raw });
       return { output };
     }
-    const parsed = tool.input.safeParse(call.args ?? {});
+    const parsed = tool.input.safeParse(tool.prepare ? tool.prepare(call.args ?? {}) : (call.args ?? {}));
     const live = LIVE.includes(tool.kind);
     if (!parsed.success) {
       const output = `Invalid input for ${tool.name}: ${parsed.error.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ")}`;

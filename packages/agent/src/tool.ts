@@ -33,6 +33,9 @@ export interface Tool<I = unknown, F = unknown> {
   description: string;
   // Checked before the tool runs; a bad input goes back to the model as an error.
   input: z.ZodType<I, unknown>;
+  // Cleans what the model sent before `input` checks it (a field sent as a JSON string): forgiving the shape, never
+  // the meaning. The schema still decides.
+  prepare?(input: unknown): unknown;
   run(input: I, ctx: ToolContext): ToolResult<F> | Promise<ToolResult<F>>;
 }
 

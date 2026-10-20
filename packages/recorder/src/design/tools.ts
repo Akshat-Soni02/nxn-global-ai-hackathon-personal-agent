@@ -20,11 +20,14 @@ import { type Base, type Form, Labels, labelDraft, type Question, stepsForModel 
 import { applyAnswer, type Prompter } from "../drill.ts";
 import { type Note, notesByStep } from "../narration.ts";
 import type { NormalisedStep } from "../normalise.ts";
+import { clip, outlineOf } from "./v2/outline.ts";
 import { climbs, inside, isReference, originOf, PATH_ARGS, samePage, withDates } from "./v2/places.ts";
 
 export type { Note } from "../narration.ts";
 export { notesByStep } from "../narration.ts";
+export { outlineOf } from "./v2/outline.ts";
 export { recordedFolders, recordedOpens, recordedPages } from "./v2/places.ts";
+export { slotOf } from "./v2/questions.ts";
 
 export interface DesignSession {
   // Where every target and site comes from: the workflow as compiled from the recording.
@@ -241,65 +244,6 @@ export function designViolations(
 }
 
 // ---- Showing the workflow ------------------------------------------------------------------------------------
-
-// One line per step, nested: what the agent and the drill see of the draft.
-export function outlineOf(skill: Skill): string {
-  const lines: string[] = [];
-  const trigger = triggerOf(skill);
-  const when = trigger.when.map((w) => (w.type === "schedule" ? `schedule ${w.cron}` : w.type)).join(", ");
-  const inputs = Object.entries(trigger.inputs)
-    .map(([name, input]) => {
-      const fill =
-        input.default !== undefined
-          ? ` = ${JSON.stringify(input.default)}`
-          : input.resolve
-            ? ` from ${JSON.stringify(input.resolve)}`
-            : "";
-      return `${name} (${typeText(input.type)})${fill}`;
-    })
-    .join("; ");
-  lines.push(`${trigger.id}  trigger  when: ${when}${inputs ? `  inputs: ${inputs}` : ""}`);
-  const walk = (steps: Step[], depth: number) => {
-    for (const step of steps) {
-      if (step.type === "trigger") continue;
-      const pad = "  ".repeat(depth);
-      const approval = step.requires_approval ? "  [approval]" : "";
-      if (step.type === "action") {
-        const target = step.target
-          ? `  on ${step.target.role ?? "element"} "${step.target.name ?? step.target.label ?? step.target.text ?? "?"}"`
-          : "";
-        const args = Object.keys(step.args).length > 0 ? `  args ${clip(JSON.stringify(step.args), 160)}` : "";
-        const out = step.output ? `  → ${step.output.name} (${typeText(step.output.type)})` : "";
-        lines.push(
-          `${pad}${step.id}  ${step.channel}.${step.action}  "${step.intent}"${target}${args}${out}${approval}`,
-        );
-      } else if (step.type === "llm") {
-        lines.push(
-          `${pad}${step.id}  llm  "${step.intent}"  reads ${step.inputs.join(", ") || "nothing"}  → ${step.output.name} (${typeText(step.output.type)})${approval}`,
-        );
-      } else if (step.kind === "loop") {
-        lines.push(
-          `${pad}${step.id}  loop "${step.intent}"  for each ${step.item.name} in ${step.over} (max ${step.max_items}, ${step.on_item_fail} on a failing item)${approval}`,
-        );
-        walk(step.steps, depth + 1);
-      } else {
-        lines.push(`${pad}${step.id}  if ${JSON.stringify(step.if)}  "${step.intent}"${approval}`);
-        walk(step.steps, depth + 1);
-        if (step.else.length > 0) {
-          lines.push(`${pad}  else`);
-          walk(step.else, depth + 1);
-        }
-      }
-    }
-  };
-  walk(skill.steps, 1);
-  return lines.join("\n");
-}
-
-function typeText(type: { type: string; items?: { type: string } }): string {
-  return type.type === "list" && type.items ? `list of ${type.items.type}` : type.type;
-}
-const clip = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max)}…`);
 
 // The recording by meaning (what compile's model saw), each step with the skill steps it became and the screen words
 // seen at it. `brief` (the agent's first message): of each picture's words, only the lines around what the step
@@ -826,25 +770,4 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
       },
     }),
   ];
-}
-
-// What sits where a question's answer goes ("steps.start.inputs.invoice.resolve.dir"), as JSON, so the agent's
-// change to it can be noticed; null when the step or input the question is about is gone (nothing left to ask).
-export function slotOf(skill: Skill, appliesTo: string | undefined): string | null {
-  let keys = (appliesTo ?? "").split(".").filter(Boolean);
-  let node: unknown = skill;
-  if (keys[0] === "steps" && keys.length >= 2) {
-    const step =
-      keys[1] === "0" ? skill.steps[0] : [...walkSteps(skill.steps)].find(({ step }) => step.id === keys[1])?.step;
-    if (!step) return null;
-    if (step.type === "trigger" && keys[2] === "inputs" && keys[3] && !(keys[3] in triggerOf(skill).inputs))
-      return null;
-    node = step;
-    keys = keys.slice(2);
-  }
-  for (const key of keys) {
-    if (node === null || typeof node !== "object") return "-";
-    node = (node as Record<string, unknown>)[key];
-  }
-  return JSON.stringify(node) ?? "-";
 }

@@ -322,6 +322,23 @@ describe("an agent edits a workflow through the guard", () => {
 });
 
 describe("record-keeping and several calls per turn (opt-in)", () => {
+  it("lets a tool clean its input before the schema checks it (a field sent as a JSON string)", async () => {
+    const take = tool({
+      name: "take",
+      kind: "edit",
+      description: "Take steps",
+      input: z.object({ steps: z.array(z.string()) }),
+      prepare: (input) => {
+        const v = input as { steps?: unknown };
+        return typeof v.steps === "string" ? { ...v, steps: JSON.parse(v.steps) } : v;
+      },
+      run: ({ steps }) => ({ output: `took ${steps.join(",")}` }),
+    });
+    const llm = fakeLlm([call("take", { steps: '["s2","s3"]' }), call("done", { summary: "ok" })]);
+    const episode = await runAgent({ llm, system: "s", task: "t", tools: [take, done] });
+    expect(episode.transcript.some((e) => e.type === "result" && e.output.startsWith("took s2,s3"))).toBe(true);
+  });
+
   it("runs every call of a turn in order when callsPerTurn allows it, and stops at a finish", async () => {
     const llm = fakeLlm([
       {

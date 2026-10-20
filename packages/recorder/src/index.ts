@@ -21,7 +21,6 @@ export {
   systemPrompt,
   templateProblems,
 } from "./compile.ts";
-export { changesSummary, describeChanges } from "./design/changes.ts";
 export {
   DESIGN_BUDGET,
   type DesignOptions,
@@ -30,6 +29,7 @@ export {
   MAX_QUESTIONS,
 } from "./design/design.ts";
 export { type DesignFinish, designViolations, outlineOf } from "./design/tools.ts";
+export { changesSummary, describeChanges } from "./design/v2/changes.ts";
 export {
   DoneReport,
   type EvidenceView,

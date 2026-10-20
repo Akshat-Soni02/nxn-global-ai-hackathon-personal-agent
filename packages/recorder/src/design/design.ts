@@ -18,7 +18,6 @@ import { narrationOf } from "../narration.ts";
 import type { NormalisedStep } from "../normalise.ts";
 import { plainChecks } from "../plain-checks.ts";
 import { skeletonOf } from "../skeleton.ts";
-import { describeChanges } from "./changes.ts";
 import {
   type DesignFinish,
   type DesignSession,
@@ -31,11 +30,13 @@ import {
   recordingView,
   slotOf,
 } from "./tools.ts";
+import { describeChanges } from "./v2/changes.ts";
+import { MAX_QUESTIONS } from "./v2/questions.ts";
 
 // 16 turns (a long recording needs several looks and edits), $0.10, no live actions, and no time limit: a question
 // waits for a person.
 export const DESIGN_BUDGET: Partial<Budget> = { turns: 16, costUsd: 0.1, liveActions: 0 };
-export const MAX_QUESTIONS = 5;
+export { MAX_QUESTIONS } from "./v2/questions.ts";
 
 export interface DesignOptions {
   llm: Llm;

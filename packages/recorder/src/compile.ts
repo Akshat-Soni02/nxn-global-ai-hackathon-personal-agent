@@ -506,7 +506,7 @@ const OUTPUT_OF: Record<"text" | "number" | "date" | "json", VarType> = {
 };
 
 // The type of a step's result, for a variable the model names with save_as (what each action produces: check.ts).
-function producedType(step: ActionDraft): VarType {
+export function producedType(step: ActionDraft): VarType {
   const a = step.args ?? {};
   switch (`${step.channel}.${step.action}`) {
     case "web.extract":
