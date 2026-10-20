@@ -29,6 +29,7 @@ export {
   MAX_QUESTIONS,
 } from "./design/design.ts";
 export { type DesignFinish, designViolations, outlineOf } from "./design/tools.ts";
+export { DESIGN_V2_BUDGET, remaining } from "./design/v2/budget.ts";
 export { changesSummary, describeChanges } from "./design/v2/changes.ts";
 export {
   DoneReport,
@@ -39,6 +40,10 @@ export {
   type TestReport,
   type TestStep,
 } from "./design/v2/contracts.ts";
+export { scriptedDesigner } from "./design/v2/fake.ts";
+export { type DesignV2Options, type DesignV2Outcome, designV2 } from "./design/v2/orchestrator.ts";
+export { recordedFolders, recordedPages } from "./design/v2/places.ts";
+export { type ChangeNote, changeNotes, type RecordingFacts } from "./design/v2/rules.ts";
 export { applyAnswer, type DrillResult, drill, type Prompter } from "./drill.ts";
 export { checkExpectations, Expectation, Expectations, type Verdict } from "./eval/expect.ts";
 export { answerFromEvidence } from "./evidence/answers.ts";
