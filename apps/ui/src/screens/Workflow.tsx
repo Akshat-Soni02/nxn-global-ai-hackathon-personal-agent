@@ -229,9 +229,9 @@ function ReviewCard({ review, onLooksRight }: { review: Review; onLooksRight: ()
       <ul className="review-notes">
         {badgesOf(review).map((b) => (
           <li key={`${b.step}-${b.label}`}>
-            <span className={`badge badge-${b.label.toLowerCase()}`}>{b.label}</span> <code>{b.step}</code>{" "}
-            {b.why ?? ""}
-            {b.untested ? <span className="badge badge-untested">Not tested</span> : null}
+            <span className={`review-badge review-badge-${b.label.toLowerCase()}`}>{b.label}</span>{" "}
+            <code>{b.step}</code> {b.why ?? ""}
+            {b.untested ? <span className="review-badge review-badge-untested">Not tested</span> : null}
           </li>
         ))}
       </ul>

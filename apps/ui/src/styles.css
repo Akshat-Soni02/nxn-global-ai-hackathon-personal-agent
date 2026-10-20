@@ -1,29 +1,1421 @@
+/* Shadow's window (docs/design-ui.md): the token system, light and dark, quiet surfaces, motion that eases out and
+   can be interrupted, one accent for the next action. */
+:root {
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --sidebar: rgba(245, 245, 247, 0.72);
+  --line: rgba(0, 0, 0, 0.08);
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --accent: #3a5bd9;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(58, 91, 217, 0.12);
+  --ok: #1f8a4c;
+  --ok-bg: #e5f5ec;
+  --bad: #c92a2a;
+  --bad-bg: #fdecec;
+  --wait: #b35c00;
+  --wait-bg: #fff3e0;
+  --busy: #1c6dd0;
+  --busy-bg: #e7f0fc;
+  --quiet-bg: rgba(0, 0, 0, 0.05);
+  --rec: #ef4444;
+  --card: #ffffff;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.06);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --t-press: 120ms;
+  --t-hover: 200ms;
+  --t-enter: 320ms;
+  --r-chip: 6px;
+  --r-control: 10px;
+  --r-card: 14px;
+  --r-panel: 18px;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0b0f;
+    --surface: #151519;
+    --sidebar: rgba(11, 11, 15, 0.72);
+    --line: rgba(255, 255, 255, 0.1);
+    --text: #f5f5f7;
+    --muted: #9a9aa3;
+    --accent: #6c8cff;
+    --accent-text: #0b0b0f;
+    --accent-soft: rgba(108, 140, 255, 0.16);
+    --ok: #4fd18b;
+    --ok-bg: #163125;
+    --bad: #ff6b6b;
+    --bad-bg: #3a1a1a;
+    --wait: #ffb054;
+    --wait-bg: #3a2a14;
+    --busy: #6aa8ff;
+    --busy-bg: #18283f;
+    --quiet-bg: rgba(255, 255, 255, 0.07);
+    --card: #151519;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --line: rgba(0, 0, 0, 0.3);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-press: 0ms;
+    --t-hover: 0ms;
+    --t-enter: 150ms;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px / 1.45 -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    "Helvetica Neue",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+code {
+  font:
+    12px ui-monospace,
+    "SF Mono",
+    Menlo,
+    monospace;
+  background: var(--quiet-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+h1 {
+  font-size: 24px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  margin: 4px 0;
+}
+h2 {
+  font-size: 15px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+.strong {
+  font-weight: 600;
+  color: var(--text);
+}
+.right {
+  text-align: right;
+}
+.error {
+  color: var(--bad);
+  font-size: 13px;
+}
+.ok-text {
+  color: var(--ok);
+  font-size: 13px;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-chip);
+}
+
+/* Layout: a translucent sidebar over the page, the content column beside it. The sidebar folds to a strip of icons
+   (.rail, main.tsx), its width easing between the two so the content slides rather than jumps. */
+.shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  height: 100%;
+  transition: grid-template-columns var(--t-enter) var(--ease);
+}
+.shell.rail {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell {
+    transition: none;
+  }
+}
+.sidebar {
+  overflow: hidden;
+  background: var(--sidebar);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding: 18px 10px 12px;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .sidebar {
+    background: var(--bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+  padding: 0 4px 14px;
+  white-space: nowrap;
+}
+.shell.rail .brand {
+  justify-content: center;
+  padding-inline: 0;
+}
+.brand-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Folded, the toggle alone stays, in the same spot; a narrow window has no toggle and shows the mark. */
+.shell.rail .fold + .brand-name {
+  display: none;
+}
+.fold {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    background var(--t-hover) var(--ease),
+    color var(--t-hover) var(--ease),
+    transform var(--t-press) var(--ease);
+}
+.fold:hover {
+  background: var(--quiet-bg);
+  color: var(--text);
+}
+.fold:active {
+  transform: scale(0.94);
+}
+.brand svg {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+nav a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: var(--r-control);
+  color: var(--text);
+  transition: background var(--t-hover) var(--ease);
+}
+nav a:hover {
+  text-decoration: none;
+  background: var(--quiet-bg);
+}
+nav a.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.nav-icon {
+  flex: none;
+}
+.nav-label {
+  flex: 1;
+  transition: opacity var(--t-hover) var(--ease);
+}
+.shell.rail .nav-label {
+  opacity: 0;
+}
+.shell.rail .brand .nav-label {
+  display: none;
+}
+.badge {
+  background: var(--wait);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 7px;
+  line-height: 18px;
+}
+nav a.active .badge {
+  background: var(--accent-text);
+  color: var(--accent);
+}
+/* Folded, the Inbox count rides on its icon. */
+.shell.rail nav a .badge {
+  position: absolute;
+  top: 0;
+  left: 20px;
+  min-width: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+.content {
+  overflow-y: auto;
+  padding: 28px 36px 48px;
+  max-width: 980px;
+  animation: enter var(--t-enter) var(--ease);
+}
+/* Editing takes the whole width (the panel sits on the right); the padding keeps space around it. */
+.content:has(.editor) {
+  max-width: none;
+}
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.locked {
+  max-width: 460px;
+  margin: 18vh auto;
+  text-align: center;
+}
+
+/* Health */
+.health {
+  margin-top: auto;
+  border-top: 1px solid var(--line);
+  padding: 12px 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+}
+.health-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.health-label {
+  flex: 1;
+}
+.health-text {
+  color: var(--muted);
+}
+/* Folded, only the dots show; their words stay for screen readers and in each row's tooltip. */
+.shell.rail .health {
+  align-items: center;
+  padding-inline: 0;
+}
+.shell.rail .health-label,
+.shell.rail .health-text,
+.shell.rail .health-usage {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.dot.ok {
+  background: var(--ok);
+}
+.dot.bad {
+  background: var(--muted);
+}
+.dot.rec {
+  background: var(--rec);
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    box-shadow: 0 0 0 7px rgba(239, 68, 68, 0.08);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot.rec {
+    animation: none;
+  }
+}
+
+/* Pages */
+.page-header {
+  margin-bottom: 22px;
+}
+.page-header p {
+  margin: 4px 0;
+}
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.section {
+  margin-top: 28px;
+}
+.empty {
+  border: 1px dashed var(--line);
+  border-radius: var(--r-card);
+  padding: 36px;
+  text-align: center;
+}
+.empty-title {
+  font-size: 15px;
+  margin: 0 0 4px;
+}
+
+/* Chips */
+.chip {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 1px 9px;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.chip.ok {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+.chip.bad {
+  color: var(--bad);
+  background: var(--bad-bg);
+}
+.chip.wait {
+  color: var(--wait);
+  background: var(--wait-bg);
+}
+.chip.busy {
+  color: var(--busy);
+  background: var(--busy-bg);
+}
+.chip.quiet {
+  color: var(--muted);
+  background: var(--quiet-bg);
+}
+
+/* Buttons and inputs: feedback on the press. */
+.button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--r-control);
+  padding: 6px 13px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  display: inline-block;
+  transition:
+    transform var(--t-press) var(--ease),
+    background var(--t-hover) var(--ease),
+    filter var(--t-hover) var(--ease);
+}
+.button:hover:not(:disabled) {
+  filter: brightness(0.97);
+  text-decoration: none;
+}
+.button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.button.danger {
+  color: var(--bad);
+}
+.button.armed {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+}
+.button.link {
+  border: none;
+  background: none;
+  color: var(--muted);
+}
+.button.small {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+.action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.input {
+  font: inherit;
+  padding: 6px 10px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  min-width: 280px;
+  transition: border-color var(--t-hover) var(--ease);
+}
+.input:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.input.short {
+  min-width: 120px;
+}
+.input.mono {
+  font:
+    12px ui-monospace,
+    "SF Mono",
+    Menlo,
+    monospace;
+}
+
+/* Inbox cards */
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--wait);
+  border-radius: var(--r-card);
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  animation: enter var(--t-enter) var(--ease);
+}
+.card.kind-repaired {
+  border-left-color: var(--ok);
+}
+.card.kind-walk {
+  border-left-color: var(--accent);
+}
+.card:target {
+  outline: 2px solid var(--accent);
+}
+.card-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+.kind {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 11px;
+  color: var(--wait);
+}
+.kind.kind-repaired {
+  color: var(--ok);
+}
+.kind.kind-walk {
+  color: var(--accent);
+}
+.card-title {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 8px 0 10px;
+}
+.detail {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+.answers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.card-link {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: var(--wait-bg);
+  border-radius: var(--r-card);
+  padding: 12px 16px;
+}
+
+/* Tables */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding: 6px 8px;
+}
+.table td {
+  border-bottom: 1px solid var(--line);
+  padding: 9px 8px;
+  vertical-align: top;
+}
+.table.compact td {
+  padding: 6px 8px;
+}
+.table tr.clickable {
+  cursor: pointer;
+}
+.table tr.clickable:hover td {
+  background: var(--quiet-bg);
+}
+.inline:hover {
+  text-decoration: none;
+}
+
+.flag {
+  font-size: 11px;
+  color: var(--wait);
+  border: 1px solid var(--wait);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+
+/* Versions */
+.versions {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.versions li {
+  display: grid;
+  grid-template-columns: 44px 170px 1fr auto;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+.version {
+  font-weight: 600;
+}
+.versions li.current .version {
+  color: var(--accent);
+  font-weight: 700;
+}
+.by {
+  color: var(--muted);
+}
+
+/* Run timeline */
+.timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 13px;
+}
+.event {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 10px;
+  padding: 4px 0;
+  border-left: 2px solid var(--line);
+  padding-left: 12px;
+}
+.event.ok {
+  border-left-color: var(--ok);
+}
+.event.bad {
+  border-left-color: var(--bad);
+}
+.event.wait {
+  border-left-color: var(--wait);
+}
+.event-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.episode {
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  padding: 8px 12px;
+  margin-bottom: 8px;
+}
+.episode pre {
+  max-height: 320px;
+  overflow: auto;
+  font-size: 11.5px;
+}
+/* What repair did, one line per tool call */
+.repair-steps {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+.repair-steps li {
+  margin: 4px 0;
+}
+.repair-steps li.good > .small {
+  color: var(--ok);
+}
+.repair-steps li.warn,
+.repair-steps li.warn > .small {
+  color: var(--bad);
+}
+.repair-steps li.end {
+  font-weight: 600;
+}
+.episode-raw {
+  margin-top: 4px;
+}
+
+/* The Frequency picker */
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  align-items: flex-end;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 14px 16px;
+}
+.picker .answers,
+.picker p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.field select,
+.field input {
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  padding: 6px 9px;
+}
+.field input[type="number"] {
+  width: 80px;
+}
+
+/* The goal box (screens/Record.tsx): one box like a chat composer, the Frequency and the consents in its bar. */
+.goalbox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 760px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px 12px 10px 14px;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.goalbox:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.goalbox-text {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.45;
+  padding: 2px 2px;
+}
+.goalbox-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.goalbox-space {
+  flex: 1;
+}
+/* Private words: folded under the bar, never required. */
+.goalbox-private {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.goalbox-private summary {
+  cursor: pointer;
+}
+.goalbox-private input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.chip:hover,
+.chip.on {
+  color: var(--text);
+}
+.icon-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.icon-toggle.on {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.icon-toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.chip:focus-visible,
+.icon-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.goalbox .button.primary {
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.goalbox .button.primary .dot.rec {
+  background: currentColor;
+}
+.goalbox-picker {
+  max-width: 760px;
+  box-sizing: border-box;
+  margin-top: 10px;
+}
+.goalbox-note {
+  max-width: 760px;
+  margin: 8px 4px 0;
+}
+.goalbox-more {
+  max-width: 760px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.goalbox-more summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.goalbox-more .input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+}
+
+/* "Or write your own answer", under a question's options (screens/Inbox.tsx). */
+.answers.other {
+  margin-top: 10px;
+}
+.answers.other .input {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* The description form (screens/Record.tsx) */
+.record-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 760px;
+}
+.field.wide .input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.field textarea {
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+.consent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 12px 16px;
+  font-size: 13px;
+}
+.consent legend {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 4px;
+}
+.recording h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The editor (screens/Editor.tsx): the tree, and on the right the panel for the picked step, which stays put (sticky)
+   while the tree scrolls. Where the two don't both fit, the panel goes under the tree, held at the bottom. */
+.editor {
+  container-type: inline-size;
+}
+.edit-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+  margin-top: 14px;
+}
+.inspector {
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 10px 30px rgba(0, 0, 0, 0.07);
+}
+.inspector-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px 20px;
+  animation: inspector-in 180ms var(--ease);
+}
+@keyframes inspector-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+}
+.inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.inspector-close {
+  margin-left: auto;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--quiet-bg);
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.inspector-close:hover {
+  color: var(--text);
+}
+.inspector-does {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.check-row input {
+  margin: 2px 0 0;
+}
+.check-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.inspector-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.inspector-foot .danger {
+  margin-left: auto;
+}
+.inspector-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 28px 22px;
+  text-align: center;
+}
+.inspector-empty-title {
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) {
+  .inspector-body {
+    animation: none;
+  }
+}
+@container (max-width: 860px) {
+  .edit-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* A sheet held at the bottom, at most half the window; the picked step scrolls to just above it. */
+  .inspector {
+    top: auto;
+    bottom: 12px;
+    max-height: 45vh;
+  }
+  .inspector:has(.inspector-empty) {
+    position: static;
+  }
+  /* The sheet's height, its 12px, the page's 48px bottom padding, and a little air. */
+  .wf-node.picked {
+    scroll-margin-bottom: calc(45vh + 76px);
+  }
+}
+
+/* A drill question beside the draft it is about (screens/Inbox.tsx, Question) */
+/* The draft gets the room (it is the wide one); the question card keeps a readable width beside it. */
+.drill {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
+  gap: 16px;
+  align-items: start;
+}
+.drill-draft {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 10px 14px;
+}
+@media (max-width: 760px) {
+  .drill {
+    grid-template-columns: 1fr;
+  }
+  .content {
+    padding: 16px;
+  }
+}
+
+/* The workflow as a tree (WorkflowTree.tsx): the start at the root, steps joined by lines, a loop's steps drawn inside
+   it, an "if" forking into arms side by side that join again below. */
+.wf-canvas {
+  overflow-x: auto;
+  padding: 6px 4px 14px;
+  --wire: color-mix(in srgb, var(--muted) 45%, transparent);
+  --gap: 22px;
+  --fade: 28px;
+}
+/* The stage has the tree's scaled size (WorkflowTree.tsx, useFit), centred; a tree still too wide starts at the left
+   edge and scrolls, the side with more of it fading out. */
+.wf-stage {
+  margin: 0 auto;
+}
+.wf-fit {
+  min-width: 0;
+  transform-origin: 0 0;
+}
+.wf-canvas.more-right {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent);
+}
+.wf-canvas.more-left {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - var(--fade)), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - var(--fade)), transparent);
+}
+.wf-canvas.more-left.more-right {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--fade),
+    #000 calc(100% - var(--fade)),
+    transparent
+  );
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
+}
+.wf-seq {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+}
+.wf-seq > * + * {
+  position: relative;
+  margin-top: var(--gap);
+}
+.wf-seq > * + *::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--gap));
+  left: 50%;
+  height: var(--gap);
+  border-left: 2px solid var(--wire);
+}
+.wf-node {
+  box-sizing: border-box;
+  width: 260px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  padding: 9px 12px;
+  text-align: left;
+}
+.wf-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.wf-kind {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.wf-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.wf-id {
+  font-size: 11px;
+  color: var(--muted);
+}
+.wf-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.wf-root {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--r-card);
+}
+.wf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.wf-chip {
+  font-size: 11.5px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.wf-ai {
+  border-color: var(--busy);
+}
+.wf-loop {
+  width: auto;
+  min-width: 260px;
+  border-radius: var(--r-card);
+  border-color: var(--wire);
+}
+.wf-inside {
+  margin-top: 10px;
+  padding: 14px 16px;
+  border: 1.5px dashed var(--wire);
+  border-radius: var(--r-control);
+  background: var(--quiet-bg);
+}
+.wf-repeat {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-align: right;
+}
+.wf-repeat::before {
+  content: "↻ ";
+}
+.wf-empty {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  padding: 4px 10px;
+}
+.wf-fork {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.wf-if {
+  border-color: var(--wait);
+  border-radius: var(--r-card);
+}
+.wf-arms {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  margin-top: var(--gap);
+}
+.wf-arms::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--gap));
+  left: 50%;
+  height: var(--gap);
+  border-left: 2px solid var(--wire);
+}
+.wf-arm {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 10px 0;
+}
+/* The bar the arms hang from, and the drop to each arm's label. */
+.wf-arm::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  border-top: 2px solid var(--wire);
+}
+.wf-arm:first-child::before {
+  left: 50%;
+}
+.wf-arm:last-child::before {
+  right: 50%;
+}
+.wf-arm::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 18px;
+  border-left: 2px solid var(--wire);
+}
+.wf-arm-label {
+  position: relative;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--wait);
+  background: var(--wait-bg);
+  border-radius: 999px;
+  padding: 2px 10px;
+  max-width: 240px;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.wf-arm > .wf-seq {
+  position: relative;
+  margin-top: 14px;
+}
+.wf-arm > .wf-seq::before {
+  content: "";
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  height: 14px;
+  border-left: 2px solid var(--wire);
+}
+/* Each arm runs down to the bar where the arms join again. */
+.wf-arm-end {
+  flex: 1;
+  min-height: 14px;
+  border-left: 2px solid var(--wire);
+}
+.wf-arm-foot {
+  position: relative;
+  align-self: stretch;
+  margin: 0 -10px;
+  height: 0;
+}
+.wf-arm-foot::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  border-top: 2px solid var(--wire);
+}
+.wf-arm:first-child > .wf-arm-foot::before {
+  left: 50%;
+}
+.wf-arm:last-child > .wf-arm-foot::before {
+  right: 50%;
+}
+.wf-node.asked,
+.wf-arm-label.asked,
+.wf-node.picked,
+.wf-arm-label.picked {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+/* In the editor a step's face, and an "else if" label, is a button that picks it (screens/Editor.tsx). */
+.wf-node.picked {
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+}
+.wf-pick {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+button.wf-arm-label {
+  border: 0;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+.wf-pick:focus-visible,
+button.wf-arm-label:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.wf-node:has(> .wf-pick:hover) {
+  border-color: var(--accent);
+}
+.wf-pick:hover .wf-title,
+button.wf-arm-label:hover {
+  text-decoration: underline;
+}
+.progress-feed {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted, #6b6b73);
+}
+.progress-feed li:last-child {
+  color: inherit;
+}
 .review-notes {
   list-style: none;
   padding: 0;
   display: grid;
   gap: 6px;
 }
-.badge {
+.review-badge {
   display: inline-block;
   padding: 1px 6px;
   border-radius: 6px;
   font-size: 12px;
   border: 1px solid currentColor;
 }
-.badge-added {
+.review-badge-added {
   color: #1a7f37;
 }
-.badge-changed {
+.review-badge-changed {
   color: #9a6700;
 }
-.badge-removed {
+.review-badge-removed {
   color: #cf222e;
 }
-.badge-moved {
+.review-badge-moved {
   color: #6e7781;
 }
-.badge-untested {
+.review-badge-untested {
   color: #8250df;
   margin-left: 6px;
 }
