@@ -21,12 +21,13 @@ import {
   designWorkflow,
   drill,
   type NormalisedStep,
-  normalise,
+  normaliseAll,
   type Prompter,
   type Question,
   requireApprovals,
 } from "@shadow/recorder";
 import type { ScreenDescriber } from "./describe.ts";
+import { writeEvidence } from "./evidence.ts";
 import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { goLiveProblems } from "./lifecycle.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
@@ -111,8 +112,8 @@ export async function finishRecording(
   // Pages never see a file's path; find each picked or dropped file on disk so the skill knows where they live.
   const raw = readTrace(dataDir, sessionId);
   const trace = options.locate ? await locateFiles(raw, options.locate) : raw;
-  const steps = normalise(trace);
-  log(`trace ${sessionId}: ${trace.length} event(s) -> ${steps.length} step(s)`);
+  const { steps, noise } = normaliseAll(trace);
+  log(`trace ${sessionId}: ${trace.length} event(s) -> ${steps.length} step(s), ${noise.length} left out`);
   if (steps.length === 0) {
     log("nothing to compile");
     return undefined;
@@ -165,6 +166,21 @@ export async function finishRecording(
     skill = applied.skill;
     log(`answered from what you said ("${found.quote}"): ${q.text} → ${found.answer}`);
     return false;
+  });
+  // The evidence package (spec 2.14): what code understood, kept in the recording's folder for the design agent.
+  await writeEvidence({
+    dataDir,
+    sessionId,
+    trace,
+    steps,
+    noise,
+    skill,
+    idsByStep: compiled.base.idsByStep,
+    form: recorded,
+    notes,
+    describer: options.describer,
+    meter: options.meter,
+    log,
   });
 
   // The design agent: the flat first draft -> the workflow meant. It asks its own questions (the drill).

@@ -530,6 +530,26 @@ describe("questions the recording answers (spec 2.10)", () => {
     expect(asked).not.toContain("file-invoice");
     expect(logs.join("\n")).toContain('answered from what you said ("I always upload the latest invoice.")');
   });
+
+  it("writes the evidence package into the recording's folder when it stops (spec 2.14)", async () => {
+    const home = temp();
+    const sessionId = "with-evidence";
+    mkdirSync(recordingDir(home, sessionId), { recursive: true });
+    const add = (id: string, at: number, body: Record<string, unknown>) =>
+      appendTrace(home, { id, sessionId, at, tabId: 1, frameId: 0, url: PAGE, ...body } as Parameters<
+        typeof appendTrace
+      >[1]);
+    add("e1", 1_000, { event: "click", target: upload });
+    add("e2", 6_000, {
+      event: "file",
+      target: upload,
+      file: { name: "invoice-0923.pdf", size: 10, type: "application/pdf" },
+    });
+    add("e3", 9_000, { event: "click", target: submit });
+    await finishRecording(sessionId, { dataDir: home, log: () => {}, prompter: { ask: async () => "" } });
+    const evidence = JSON.parse(readFileSync(join(recordingDir(home, sessionId), "evidence.json"), "utf8"));
+    expect(evidence.steps.map((s: { id: string }) => s.id)).toEqual(["s1", "s2", "s3"]);
+  });
 });
 
 describe("choosing the file when a skill runs", () => {
