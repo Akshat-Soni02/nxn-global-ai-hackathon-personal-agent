@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { isAction, Skill, triggerOf } from "@shadow/core";
 import { createDecoder, encode } from "@shadow/ipc";
 import { fakeLlm } from "@shadow/llm";
+import { scriptedDesigner } from "@shadow/recorder";
 import { afterEach, describe, expect, it } from "vitest";
 import { chooseFiles, cleanPath, givenInputs, splitArgs } from "./choose-file.ts";
 import { type Daemon, startDaemon } from "./daemon.ts";
@@ -356,7 +357,7 @@ describe("record end to end", () => {
     expect(versions(home, first.skill.id)).toEqual([1, 2]);
   });
 
-  it("keeps the id the daemon gave the recording, whatever id the design agent labels the task with", async () => {
+  it("keeps the id the daemon gave the recording, whatever the design does", async () => {
     const home = temp();
     saveSkill(
       home,
@@ -411,22 +412,7 @@ describe("record end to end", () => {
       url: PAGE,
       target: submit,
     });
-    const llm = fakeLlm([
-      {
-        toolCalls: [
-          {
-            name: "label_steps",
-            // One real label, so the call is valid and the failing run proves the overwrite (not an invalid call).
-            arguments: {
-              id: "someone-elses-workflow",
-              intent: "Send the invoice",
-              steps: [{ id: "s2", intent: "Attach this month's invoice" }],
-            },
-          },
-        ],
-      },
-      { toolCalls: [{ name: "finish", arguments: { summary: "labelled" } }] },
-    ]);
+    const llm = fakeLlm(scriptedDesigner());
     const saved = await finishRecording(sessionId, {
       dataDir: home,
       llm,
@@ -482,7 +468,7 @@ describe("record end to end", () => {
       url: PAGE,
       target: submit,
     });
-    const llm = fakeLlm([{ toolCalls: [{ name: "finish", arguments: { summary: "ok" } }] }]);
+    const llm = fakeLlm(scriptedDesigner());
     await finishRecording(sessionId, {
       dataDir: home,
       llm,
@@ -491,7 +477,38 @@ describe("record end to end", () => {
       prompter: { ask: async () => "" },
     });
     const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
-    expect(kept.system).toContain("# How you work");
+    expect(kept.system).toContain("You are Shadow's design agent");
+    expect(kept.task).toMatchObject({ cadence: { kind: "manual" } });
+    expect(Array.isArray(kept.transcript)).toBe(true);
+  });
+
+  it("saves the recording when the model writes no task model: the plain list, and why, in design.json", async () => {
+    const home = temp();
+    const sessionId = "s-no-task";
+    writeForm(home, sessionId, {
+      goal: "Upload this month's invoice",
+      changes: [],
+      constants: [],
+      never: [],
+      when: [{ type: "manual" }],
+      consent: { screen: false, microphone: false, pictures: false },
+    });
+    const file = { name: "invoice-0923.pdf", size: 10, type: "application/pdf" };
+    const at = { sessionId, tabId: 1, frameId: 0, url: PAGE };
+    appendTrace(home, { id: "e1", at: 1000, event: "click", target: upload, ...at });
+    appendTrace(home, { id: "e2", at: 6000, event: "file", target: upload, file, ...at });
+    appendTrace(home, { id: "e3", at: 9000, event: "click", target: submit, ...at });
+    const saved = await finishRecording(sessionId, {
+      dataDir: home,
+      llm: fakeLlm(() => "not a task model"),
+      log: () => {},
+      design: { protocol: "tools" },
+      prompter: { ask: async () => "" },
+    });
+    expect(saved?.skill.steps.length).toBeGreaterThan(1);
+    const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
+    expect(kept.kind).toBe("kept");
+    expect(kept.reason).toMatch(/couldn't understand/);
   });
 });
 

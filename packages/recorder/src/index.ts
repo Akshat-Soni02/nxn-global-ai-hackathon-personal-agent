@@ -3,32 +3,23 @@
 //   capture      content-script listeners and describeElement live in apps/extension (they need the DOM)
 //   normalise    trace -> the steps a person would describe (no AI)
 //   skeleton     steps -> a valid skill built by code: actions, targets, recorded values
-//   compile      skeleton + Nemotron -> intents, inputs, checks, approvals, questions
+//   compile      skeleton -> the plain step list and the questions code can't decide (no AI)
+//   evidence     what code understood: the timeline, classes, flow, proposals (no AI)
+//   design       design agent v2: understand (the task model) -> build -> test in the automation window -> ask
+//                once -> the finish gate; the last valid draft (else the plain list) is kept if it can't finish
 //   drill        the questions, asked once before saving; lasting answers go to memory
-//   design       the design agent: the compiled draft -> the workflow meant (loops, branches, llm steps), asking
-//                what is unclear; the compiled draft is kept if it can't finish
 //   mask         the words read from a screenshot, with emails, numbers, keys and Never terms hidden (███)
 //   approvals    approval on every step that sends, pays or deletes, or matches the user's Never list (code, last)
 export { requireApprovals } from "./approvals.ts";
 export {
-  type Chat,
   type Compiled,
   compile,
   extractJson,
   type Form,
   Question,
   stepsForModel,
-  systemPrompt,
   templateProblems,
 } from "./compile.ts";
-export {
-  DESIGN_BUDGET,
-  type DesignOptions,
-  type DesignOutcome,
-  designWorkflow,
-  MAX_QUESTIONS,
-} from "./design/design.ts";
-export { type DesignFinish, designViolations, outlineOf } from "./design/tools.ts";
 export { DESIGN_V2_BUDGET, remaining } from "./design/v2/budget.ts";
 export { changesSummary, describeChanges } from "./design/v2/changes.ts";
 export {
@@ -42,7 +33,9 @@ export {
 } from "./design/v2/contracts.ts";
 export { scriptedDesigner } from "./design/v2/fake.ts";
 export { type DesignV2Options, type DesignV2Outcome, designV2 } from "./design/v2/orchestrator.ts";
+export { outlineOf } from "./design/v2/outline.ts";
 export { recordedFolders, recordedPages } from "./design/v2/places.ts";
+export { MAX_QUESTIONS } from "./design/v2/questions.ts";
 export { type ChangeNote, changeNotes, type RecordingFacts } from "./design/v2/rules.ts";
 export { applyAnswer, type DrillResult, drill, type Prompter } from "./drill.ts";
 export { checkExpectations, Expectation, Expectations, type Verdict } from "./eval/expect.ts";

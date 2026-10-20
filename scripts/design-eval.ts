@@ -12,7 +12,7 @@ import { recordingDir } from "../apps/daemon/src/recording-store.ts";
 import { llmFromKeychain } from "../apps/daemon/src/settings.ts";
 import { tracePath } from "../apps/daemon/src/trace-store.ts";
 import { configFromEnv, createLlm, fakeLlm, type Llm, UsageMeter } from "../packages/llm/src/index.ts";
-import { checkExpectations, Expectations } from "../packages/recorder/src/index.ts";
+import { checkExpectations, Expectations, scriptedDesigner } from "../packages/recorder/src/index.ts";
 
 const LEDGER = resolve(import.meta.dirname, "../testing/design-eval-ledger.md");
 const CAP_USD = 5;
@@ -39,7 +39,8 @@ function spent(): number {
 
 async function model(): Promise<Llm> {
   if (!flag("--real")) {
-    return fakeLlm(() => ({ toolCalls: [{ name: "finish", arguments: { summary: "no changes (fake model)" } }] }));
+    // A quiet task model, then done at once: what code alone builds.
+    return fakeLlm(scriptedDesigner());
   }
   const total = spent();
   if (total + ESTIMATE_USD > CAP_USD) {
@@ -91,6 +92,8 @@ const saved = await finishRecording(sessionId, {
   dataDir,
   llm,
   meter,
+  // The scripted designer answers with native tool calls; a real model's protocol is the client's choice.
+  ...(flag("--real") ? {} : { design: { protocol: "tools" as const } }),
   log: (...a) => console.log("  ", ...a),
   prompter: {
     ask: async (q) => {

@@ -1,5 +1,10 @@
 # The design agent
 
+> **Replaced on 20 Oct 2026 by design agent v2** (`packages/recorder/src/design/v2/`: understand → build → test in the
+> automation window → ask once → the finish gate; spec `docs/superpowers/specs/2026-10-19-record-v2-design.md`, Phase 3;
+> plan `docs/superpowers/plans/2026-10-20-record-v2-plan3.md`). This page describes v1, whose `design.ts` and `tools.ts`
+> were removed; it is kept for the reports that cite it.
+
 **Job:** turn one recording into the workflow the user meant. The input is a flat replay of what they did, plus their own words (the description form) and what they said and saw while doing it. The output is a workflow tree in which:
 - values that change become **inputs**,
 - repeated work becomes a **loop**,
@@ -14,7 +19,7 @@ It runs once per recording, right after **Stop**, in the daemon. It's Nemotron 3
 
 > **Updated 15 Oct 2026** after the first real recording (`reports/first-real-recording-yc-to-sheets.md`): the narration reaches both model calls whole; questions the form or narration answer are closed, never asked; answers about new inputs create them; recorded writes can't be removed and at most half the recorded steps can; a click may become "open this page"; every page the recording reached counts as visited; edits take up to 100 operations; `design.json` keeps the prompt. §15 marks what is fixed.
 
-Code: `packages/recorder/src/design/design.ts` (prompt, entry point), `packages/recorder/src/design/tools.ts` (tools, rules, views), called from `apps/daemon/src/record.ts` (`finishRecording`).
+Code (v1, removed 20 Oct): `packages/recorder/src/design/design.ts` (prompt, entry point), `packages/recorder/src/design/tools.ts` (tools, rules, views), called from `apps/daemon/src/record.ts` (`finishRecording`). v2: `packages/recorder/src/design/v2/`.
 
 ---
 

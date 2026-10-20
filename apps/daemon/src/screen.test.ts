@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createDecoder, encode } from "@shadow/ipc";
 import { fakeLlm } from "@shadow/llm";
 import type { Box } from "@shadow/recorder";
+import { scriptedDesigner } from "@shadow/recorder";
 import { afterEach, describe, expect, it } from "vitest";
 import { type Daemon, startDaemon } from "./daemon.ts";
 import { finishRecording } from "./record.ts";
@@ -82,11 +83,7 @@ describe("screenshots", () => {
       target: { tag: "a", url: PAGE, role: "link", name: "Weekly metrics", fallbacks: [], selectors: { css: "#m" } },
     });
     expect(readNotes(home, sessionId)).toEqual([{ at: 1500, kind: "screen", text: expect.stringContaining("███") }]);
-    const llm = fakeLlm([
-      "{}",
-      { toolCalls: [{ name: "read_recording", arguments: {} }] },
-      { toolCalls: [{ name: "finish", arguments: { summary: "ok" } }] },
-    ]);
+    const llm = fakeLlm(scriptedDesigner());
     await finishRecording(sessionId, {
       dataDir: home,
       llm,
@@ -95,7 +92,8 @@ describe("screenshots", () => {
       prompter: { ask: async () => "" },
     });
     const sent = JSON.stringify(llm.requests);
-    expect(sent).toContain("on screen: Weekly metrics");
+    // What appeared on screen after the click, as data (the evidence the design agent reads first).
+    expect(sent).toMatch(/appeared: <untrusted_data>\\"Weekly metrics\\"/);
     expect(sent).not.toContain("jane");
     expect(sent).not.toContain("acme.com");
     expect(sent).not.toContain("4242 4242");

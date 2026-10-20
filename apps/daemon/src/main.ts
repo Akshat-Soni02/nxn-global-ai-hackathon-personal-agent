@@ -41,7 +41,8 @@ import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
 import { finishRecording } from "./record.ts";
 import { createRecordControl, type RecordControl } from "./record-control.ts";
-import { maskTermsOf, readConsent, readForm, sweepRecordings } from "./recording-store.ts";
+import { maskTermsOf, readConsent, readForm, recordingDir, sweepRecordings } from "./recording-store.ts";
+import { rehearse } from "./rehearse.ts";
 import { runSkillOn } from "./runner.ts";
 import { createScreenReader, type ScreenReader, screenToolsFrom } from "./screen.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
@@ -250,6 +251,9 @@ record = createRecordControl({
       locate: { searchDirs: defaultSearchDirs(watchDirs) },
       meter: usage,
       describer,
+      // The design agent's safe test run: in the automation window, its log next to the recording.
+      rehearse: (skill, effects, onLine) =>
+        rehearse(daemon, skill, { effects, hooks: { data, llm }, logDir: recordingDir(home, sessionId), onLine }),
       log,
     });
   },
