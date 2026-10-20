@@ -55,6 +55,7 @@ export {
   evidenceView,
 } from "./evidence/evidence.ts";
 export { type Flow, flowOf } from "./evidence/flow.ts";
+export { effectsOf, pagesOf } from "./evidence/pages.ts";
 export { dateIn, type ProposalInput, proposalsOf } from "./evidence/proposals.ts";
 export { type Picture, type StepScreen, screensOf } from "./evidence/screens.ts";
 export { type TabInfo, tabName, tabsOf } from "./evidence/tabs.ts";

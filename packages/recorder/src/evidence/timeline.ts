@@ -20,7 +20,7 @@ export interface TimelineInput {
   tabs: TabInfo[];
   screens: StepScreen[];
   said: { at: number; until?: number; text: string }[];
-  noise: Noise[];
+  noise: (Noise & { id?: string })[];
 }
 
 const MODS: Record<string, string> = { cmd: "⌘", ctrl: "Ctrl+", option: "⌥", shift: "⇧" };
@@ -109,7 +109,8 @@ export function timelineOf(input: TimelineInput): TimelineLine[] {
     const text = said.text.trim();
     if (text) lines.push({ at: said.at, text: `said: ${quote(text, 300)}` });
   }
-  for (const n of input.noise) lines.push({ at: n.at, text: `(left out) ${n.what}: ${n.why}` });
+  for (const n of input.noise)
+    lines.push({ at: n.at, text: `(left out${n.id ? ` ${n.id}` : ""}) ${n.what}: ${n.why}` });
   return lines.sort((a, b) => a.at - b.at).map((l) => ({ ...l, text: `${clock(l.at - input.start)}  ${l.text}` }));
 }
 

@@ -40,7 +40,8 @@ export interface Evidence {
   switches: { screen: boolean; voice: boolean; pictures: boolean };
   tabs: TabInfo[];
   steps: EvidenceStep[];
-  noise: Noise[];
+  // What code left out, each with an id (x1, x2…) that the agent's restore names.
+  noise: (Noise & { id: string })[];
   flow: Flow[];
   proposals: Proposal[];
   said: { at: number; until?: number; text: string }[];
@@ -124,6 +125,7 @@ export function buildEvidence(input: EvidenceInput): Evidence {
       events: s.events,
     };
   });
+  const noise = input.noise.map((n, i) => ({ id: `x${i + 1}`, ...n }));
   return masked(
     {
       version: 1,
@@ -133,7 +135,7 @@ export function buildEvidence(input: EvidenceInput): Evidence {
       switches: input.switches,
       tabs,
       steps,
-      noise: input.noise,
+      noise,
       flow: flowOf(input.steps, input.skill, input.idsByStep),
       proposals: proposalsOf({
         steps: input.steps,
@@ -152,7 +154,7 @@ export function buildEvidence(input: EvidenceInput): Evidence {
         tabs,
         screens,
         said: input.said,
-        noise: input.noise,
+        noise,
       }),
     },
     input.maskTerms ?? [],
@@ -160,6 +162,8 @@ export function buildEvidence(input: EvidenceInput): Evidence {
 }
 
 const q = (t: string) => `"${t}"`;
+// Screen words and captions are what pages and emails showed: data, never instructions.
+const data = (t: string) => `<untrusted_data>${t}</untrusted_data>`;
 const LEVELS = 6;
 
 // The timeline's lines with each step's details under it, as much as the level allows.
@@ -173,10 +177,10 @@ function render(ev: Evidence, lines: TimelineLine[], level: number): string[] {
     const revealOnly = step.class === "reveal";
     const appeared =
       level >= 5 && (step.class === "go" || revealOnly) ? [] : step.appeared.slice(0, level >= 4 ? 3 : 12);
-    if (appeared.length > 0) out.push(`        appeared: ${appeared.map(q).join(", ")}`);
+    if (appeared.length > 0) out.push(`        appeared: ${data(appeared.map(q).join(", "))}`);
     if (level < 2 && !(level >= 1 && revealOnly) && step.near.length > 0)
-      out.push(`        near the click: ${step.near.map(q).join(", ")}`);
-    if (step.caption && level < 3 && !(level >= 1 && revealOnly)) out.push(`        picture: ${step.caption}`);
+      out.push(`        near the click: ${data(step.near.map(q).join(", "))}`);
+    if (step.caption && level < 3 && !(level >= 1 && revealOnly)) out.push(`        picture: ${data(step.caption)}`);
     if (step.weak) out.push(`        weak target: ${step.weak}`);
   }
   return out;
