@@ -57,3 +57,40 @@ and tell me the two goals. (These stay on your Mac; nothing goes into git.)
 | every event that should have a picture has a line in shots.jsonl | shots.jsonl | |
 | screen.jsonl lines have boxes and tabId | screen.jsonl | |
 | no Shadow permission prompt in the trace | trace.jsonl | |
+
+## Results, 20 Oct: part 1, a test browser (no login)
+Claude in Chrome was not connected, so part 1 ran in a separate test setup that can't touch your Chrome or data: Chrome
+for Testing with a copy of the extension (version 0.0.1, then 0.0.2 after the fixes), its own daemon (`SHADOW_HOME` and
+`SHADOW_SOCKET` in the job's scratch folder, Shadow.app not started, only a scratch folder watched), driven by
+Playwright. Public pages only: Wikipedia's GDP table and the paste form (A'), YC's job board (C), GitHub's VS Code
+repo (D), Google's public sample sheet "Class Data" (F). Copies in `~/shadow-tests/checkpoint-1/test-browser/`.
+
+| Fact | Result |
+|---|---|
+| `select_text` for a double-click and a drag-selection; no click after them | ✓ (the double-click's *first* click is still recorded just before it: Plan 2 merges it) |
+| copy's target is the selected element; `via` | ✓ keyboard (Wikipedia cell, YC job title, sheet cells); ✓ button (GitHub's Copy URL, through the page hook) |
+| `effect` after each click | ✓ none / expanded (GitHub's Code menu); **fixed**: a "Saved" status line read as none |
+| `list` on rows and cards | ✓ YC card 0 and 1 of 20; **fixed**: a link in a table cell was item 0 of the row's 4 cells, paragraphs were a list |
+| `cell` on sheet clicks and copies | ✓ B8 "Female" on "Class Data", and its copy kept row 8 though B2 holds "Female" too; Name Box, formula bar and tab ids right on a live sheet. **Fixed**: drawn clicks carried a list place from Sheets' panes |
+| tabs: `tab_open preexisting`, opener, switches, closes | ✓ |
+| single keys, and no keylogging | ✓ `k`, `g`, `i` recorded; "hello" typed outside a field: nothing. **Fixed**: Escape on a menu's button was dropped |
+| shot ledger | ✓ a line per picture: taken / skipped tab-hidden / deleted (1 of 26: the OCR tool failed without saying why) |
+| `screen.jsonl` boxes and tabId | ✓ |
+| Shadow's own prompts, Move to Trash, Screen Recording at Record | not checked: Swift, needs your `pnpm setup:mac` |
+| Gmail churn, typing a date into a sheet | not checked: needs your signed-in Chrome (part 2) |
+
+Also fixed: names borrowed from far away (a paragraph named "Table", the page "Contents"; only controls borrow a name
+now), page-made clicks (GitHub's `g i` clicks the Issues tab itself: now `synthetic: true`), link shapes (`fK*gxxbq`
+is now `*`), and a url check the model wrote as a regex (replay failed on the right page). Commits 2754463, 4ec5c1e,
+e2bdf00.
+
+**For Plan 2** (seen live, not capture bugs): a click that opens a new tab has effect none and no picture (the tab
+is hidden 25 ms later): pair it with `tab_open` and use the tab's last picture; single-page navigations can land 780 ms
+after the click; back is recorded as a typed address; two clicks under 700 ms apart share an effect window; the
+double-click's first click; `synthetic` clicks are dropped once keys become steps.
+
+**For Plan 3 and Akshat** (seen in replay): steps after a click that opened a new tab run in the old tab
+(`step.tab`); a nameless "heading is visible" check can't tell headings apart; the recorded job title was clicked
+though a newer job was first (list item, not literal text); an approval on a plain link click; repair stops at an
+approval step; workflows saved before e2bdf00 may still hold regex url checks (the player could read them
+leniently). Real-model spend: $0.28 of $5 (ledger).
