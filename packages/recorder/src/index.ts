@@ -44,5 +44,14 @@ export { checkExpectations, Expectation, Expectations, type Verdict } from "./ev
 export { toLocator } from "./locator.ts";
 export { type Box, type Line, MASK, maskLines, maskText } from "./mask.ts";
 export { type Note, narrationOf, notesByStep } from "./narration.ts";
-export { globFor, type NormalisedStep, normalise, type ParamCandidate, sameTarget } from "./normalise.ts";
+export {
+  globFor,
+  NOISE,
+  type Noise,
+  type NormalisedStep,
+  normalise,
+  normaliseAll,
+  type ParamCandidate,
+  sameTarget,
+} from "./normalise.ts";
 export { type ActionDraft, buildSkeleton, type Skeleton, type SkillDraft, skeletonOf } from "./skeleton.ts";
