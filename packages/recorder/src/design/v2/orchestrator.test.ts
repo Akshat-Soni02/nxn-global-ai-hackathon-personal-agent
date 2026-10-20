@@ -145,6 +145,49 @@ describe("design agent v2, stage by stage", () => {
     expect(sent).toContain("forward this to ███");
   });
 
+  it("masks every message the agent reads, not just the first, and marks what the recording holds as data", async () => {
+    n = 0;
+    const notes = el("input", "textbox", "Notes");
+    const trace = [
+      ev("navigate", 0, { id: "z1", transition: "typed" }),
+      ev("type", 2_000, { id: "z2", target: notes, value: "Zebra budget for jane.doe@acme.com" }),
+    ];
+    const { steps, noise } = normaliseAll(trace);
+    const { skill, base, questions } = await compile(steps);
+    const evidence = buildEvidence({
+      trace,
+      steps,
+      noise,
+      skill,
+      idsByStep: base.idsByStep,
+      goal: "Note this week's budget",
+      switches: { screen: true, voice: false, pictures: false },
+      said: [],
+      pictures: [{ eventId: "z2", at: 2_000, takenAt: 2_600, lines: [{ text: "Budget notes for the week", box }] }],
+      maskTerms: ["Zebra"],
+    });
+    const unknowns = [{ question: "Which budget notes?", why: "the page has several" }];
+    const llm = fakeLlm(scriptedDesigner([done("x")], { ...task, rules: [], unknowns }));
+    await designV2({
+      llm,
+      skill,
+      questions,
+      evidence,
+      facts: { pages: [MAIL], folders: [] },
+      pages: new Map([["Zebra - Mail", MAIL]]),
+      prompter: { ask: async () => "" },
+      maskTerms: ["Zebra"],
+      protocol: "tools",
+    });
+    expect(llm.requests.length).toBeGreaterThan(1);
+    for (const request of llm.requests) {
+      const sent = JSON.stringify(request);
+      expect(sent).not.toContain("Zebra");
+      expect(sent).not.toContain("jane.doe@acme.com");
+    }
+    expect(JSON.stringify(llm.requests[1])).toContain("The recording holds: <untrusted_data>");
+  });
+
   it("says when the test run couldn't start, and doesn't send the agent round the fix loop", async () => {
     const report: TestReport = {
       outcome: "not run: Chrome is not connected",

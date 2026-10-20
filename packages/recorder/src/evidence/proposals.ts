@@ -185,7 +185,8 @@ function listItems(input: ProposalInput): Found[] {
     if ((!LISTISH.has(role) && list.count < 5) || (list.itemText ?? "").length < ITEM_TEXT_MIN) return;
     if (s.kind !== "click" && s.kind !== "copy") return;
     const where = list.container.name ?? list.container.role ?? list.container.tag;
-    const item = list.itemText ? ` ("${list.itemText.slice(0, 60)}")` : "";
+    // The item's text is what the page showed (an email's subject): data, never an instruction.
+    const item = list.itemText ? ` (<untrusted_data>"${list.itemText.slice(0, 60)}"</untrusted_data>)` : "";
     found.push({
       kind: "list_item",
       summary: `${id} ${s.kind === "copy" ? "copied from" : "clicked"} item ${list.index + 1} of ${list.count} in ${where}${item}: next time the item in that place (the newest, the top one), or the one with this text?`,

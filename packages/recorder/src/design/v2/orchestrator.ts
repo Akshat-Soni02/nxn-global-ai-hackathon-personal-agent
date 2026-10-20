@@ -16,6 +16,7 @@ import { requireApprovals } from "../../approvals.ts";
 import type { Question } from "../../compile.ts";
 import { applyAnswer, type Prompter } from "../../drill.ts";
 import { type Evidence, evidenceText, evidenceView } from "../../evidence/evidence.ts";
+import { maskText } from "../../mask.ts";
 import { plainChecks } from "../../plain-checks.ts";
 import { skeletonOf, skillInput } from "../../skeleton.ts";
 import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
@@ -108,7 +109,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     proposals: new Map(options.evidence.proposals.map((p) => [p.id, p])),
     dropped: droppedOf(options.evidence),
     evidence: view,
-    pages: options.pages,
+    // By the names the agent reads: a tab's title is masked like everything else it reads ("Inbox - ███ - Gmail").
+    pages: new Map([...options.pages].map(([name, url]) => [maskText(name, options.maskTerms ?? []).text, url])),
     maskTerms: options.maskTerms ?? [],
   });
   let task: TaskModel | undefined;
@@ -175,6 +177,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
       llm: options.llm,
       evidence: evidenceText(options.evidence).text,
       memory,
+      maskTerms: options.maskTerms ?? [],
       meter,
       signal: options.signal,
     });
@@ -188,7 +191,9 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     for (const u of theTask.unknowns) {
       const about = view.about(u.question);
       if (about.length > 0) {
-        seen.push(`- ${u.question} The recording holds: ${about.map((a) => `"${a}"`).join("; ")}`);
+        seen.push(
+          `- ${u.question} The recording holds: <untrusted_data>${about.map((a) => `"${a}"`).join("; ")}</untrusted_data>`,
+        );
         continue;
       }
       session.questions.push({
@@ -221,7 +226,10 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
       };
     }
 
-    const stopped = await episode(buildMessage(theTask, options.evidence, session, seen));
+    // Every message the agent reads is masked like the evidence: the outline holds recorded values (typed text, an
+    // email, a Never or private word), and page names hold tab titles.
+    const masked = (text: string) => maskText(text, session.maskTerms ?? []).text;
+    const stopped = await episode(masked(buildMessage(theTask, options.evidence, session, seen)));
     if (stopped) return kept(stopped);
 
     // 5: the questions left, in one batch.
@@ -242,7 +250,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
       // 6: the agent puts its answers in (done tests again if the workflow changed, and the gate runs again).
       if (answers.agent.length > 0) {
         session.refusedDone = 0;
-        const after = await episode(answersMessage(answers.agent, session));
+        const after = await episode(masked(answersMessage(answers.agent, session)));
         if (after) return kept(`it stopped while putting your answers in: ${after}`);
       }
     }

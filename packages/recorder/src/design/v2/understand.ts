@@ -2,6 +2,7 @@
 // before anything changes. The schema is checked by code: the client retries once with its errors, and this asks once
 // more (two retries in all). Without a task model there is no design: the orchestrator keeps the plain list.
 import type { Llm, UsageMeter } from "@shadow/llm";
+import { maskText } from "../../mask.ts";
 import { TaskModel } from "./contracts.ts";
 import { UNDERSTAND } from "./prompt.ts";
 
@@ -11,11 +12,17 @@ export async function understand(options: {
   evidence: string;
   // What memory holds about this task (earlier answers, facts about the user).
   memory?: string[];
+  // The recording's Never and private words: memory is masked with them like the evidence.
+  maskTerms?: string[];
   meter?: UsageMeter;
   signal?: AbortSignal;
 }): Promise<{ ok: true; task: TaskModel } | { ok: false; error: string }> {
   const remembered = options.memory?.length
-    ? ["", "What memory holds about this task:", ...options.memory.map((m) => `- ${m}`)]
+    ? [
+        "",
+        "What memory holds about this task:",
+        ...options.memory.map((m) => `- ${maskText(m, options.maskTerms ?? []).text}`),
+      ]
     : [];
   const user = [options.evidence, ...remembered].join("\n");
   let error = "no reply";
