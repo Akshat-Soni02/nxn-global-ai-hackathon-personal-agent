@@ -69,6 +69,14 @@ describe("listPosition", () => {
     expect(listPosition(document.querySelectorAll("span")[2] as Element)).toMatchObject({ index: 2, count: 3 });
   });
 
+  it("counts every row of Gmail's list, read or unread, and the one under the pointer (it gets a hover class)", () => {
+    const row = (n: number, cls: string) =>
+      `<tr role="row" class="${cls}"><td role="gridcell"><div role="link" id="m${n}">Mail ${n}</div></td></tr>`;
+    document.body.innerHTML = `<table role="grid"><tbody>${row(0, "zA zE s00Hgd aqw")}${row(1, "zA yO s00Hgd")}${row(2, "zA zE s00Hgd")}${row(3, "zA yO s00Hgd")}</tbody></table>`;
+    expect(listPosition($("#m0"))).toMatchObject({ index: 0, count: 4, itemText: "Mail 0" });
+    expect(listPosition($("#m3"))).toMatchObject({ index: 3, count: 4 });
+  });
+
   it("never makes a list of paragraphs or page sections (an article's text is not a list)", () => {
     document.body.innerHTML = `<main><section><p id="a">Gross domestic product <a href="/x">GDP</a></p><p>Two</p>
       <p>Three</p></section><section><p>Four</p></section><section><p>Five</p></section></main>`;

@@ -427,6 +427,10 @@ function briefly(el: Element): ElementDescriptor {
 }
 
 function shapeOf(el: Element): string {
+  // A row or a list item says what it is: its classes only mark state (Gmail's unread rows, and the row under the
+  // pointer, which gets a hover class just as it is clicked), so they are left out.
+  const itemRole = getRole(el) ?? "";
+  if (ITEM_ROLES.has(itemRole)) return `${el.localName}..${itemRole}`;
   const classes = Array.from(el.classList)
     .filter((c) => !GENERATED.test(c) && !STATE_CLASS.test(c))
     .sort()
