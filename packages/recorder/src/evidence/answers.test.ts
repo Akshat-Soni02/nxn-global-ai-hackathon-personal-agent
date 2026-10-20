@@ -24,6 +24,15 @@ describe("questions the recording answers", () => {
     expect(answerFromEvidence(file, said("Then I click upload."))).toBeUndefined();
   });
 
+  it("takes 'the newest' as an answer only when it is said of the files, never of an email", () => {
+    const mail = { goal: "Reply to the latest client email with the price list attached", said: [] };
+    expect(answerFromEvidence(file, mail)).toBeUndefined();
+    expect(answerFromEvidence(file, said("Open the most recent message first."))).toBeUndefined();
+    expect(answerFromEvidence(file, said("I take the most recent invoice from Downloads."))?.answer).toBe(
+      "the newest one",
+    );
+  });
+
   it("answers which row from 'today'", () => {
     const row: Question = {
       id: "row-s3",

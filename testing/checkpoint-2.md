@@ -65,6 +65,10 @@ Commit e642724, each change test first:
 
 Commit 9ed8752: a caption describes what was acted on, not a guessed outcome.
 
+After the final review's fixes (the commit after 254680b), all 8 again: the same steps, left-out clicks and proposals.
+Tokens moved by a few (213 to 973), because ids in addresses (sheet ids, a YC job id) are now masked in the text a model
+reads. The "@" left in GitHub's lines are icons read as text, not emails.
+
 ## Notes
 
 **For Plan 3:**

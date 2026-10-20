@@ -124,6 +124,20 @@ const FILE_DIALOG_MS = 5 * 60_000; // how long the macOS file dialog may stay op
 const SCRIPT_CLICK_MS = 1_000; // a page script clicking its hidden file input right after your click on its button
 const CAUSED = new Set(["link", "form_submit"]);
 const FOCUS_ONLY_ROLES = new Set(["textbox", "searchbox", "spinbutton"]);
+// Controls whose click changes something: a button, a menu item, a choice (classes.ts reads them too).
+export const ACTING_ROLES = new Set([
+  "button",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "option",
+  "checkbox",
+  "radio",
+  "switch",
+]);
+// Words on a control that acts, whatever it is built from (a div that says Save).
+const ACTS =
+  /\b(save|submit|send|delete|remove|archive|apply|confirm|add|create|update|post|publish|pay|buy|order|approve|sign|done|next|continue|upload|download|export|import|share|reply|forward|mark|move|star|label|assign)\b/i;
 // Finder is recorded by what it did to files (fs_move, fs_rename from the watcher), never by its clicks: a click on
 // last month's row can't be replayed next month. Shadow.app leaves Finder out too; this also covers old traces.
 const FILE_APPS = new Set(["com.apple.finder"]);
@@ -380,8 +394,13 @@ export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; no
         const named = e.value === "Enter" || e.value === "Escape";
         const shortcut = (e.modifiers?.length ?? 0) > 0 || [...(e.value ?? "")].length === 1;
         if (!e.value || (!named && !shortcut)) break;
+        // An Enter that emptied its box sent it; ⌘Enter and Ctrl+Enter send in mail and chat (Gmail closes the box
+        // instead of emptying it). Sheets' cell editor empties on Enter too: that is not a send.
+        const sendKey = e.modifiers?.some((m) => m === "cmd" || m === "ctrl");
         const sends =
-          e.value === "Enter" && Boolean(effects.get(e.cid ?? "")?.emptied) && !CANVAS_EDITORS.test(e.url ?? "");
+          e.value === "Enter" &&
+          (Boolean(effects.get(e.cid ?? "")?.emptied) || Boolean(sendKey)) &&
+          !CANVAS_EDITORS.test(e.url ?? "");
         steps.push({
           ...base(e),
           kind: "press",
@@ -494,11 +513,20 @@ export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; no
   };
 }
 
-// A click that changed nothing (capture watched it, spec 1.3), unless the next action came before the watch ended.
+// A click that changed nothing (capture watched it, spec 1.3), unless the next action came before the watch ended. A
+// file it downloaded changes no page; a control that acts may show what it did after the watch (a slow "Saved"), or
+// only in its own state (a switch); a link's page may land later (a single-page app, 780 ms): those are kept.
 function quiet(s: Draft, next?: Draft): boolean {
   const e = s.effect;
   if (!e || e.changed !== "none" || e.navigated || e.expanded || e.opened) return false;
-  if (s.navigatesTo || s.submits || s.checked !== undefined || s.opensTab !== undefined) return false;
+  if (s.navigatesTo || s.submits || s.checked !== undefined || s.opensTab !== undefined || s.produces?.length) {
+    return false;
+  }
+  const t = s.target;
+  if (t?.role && (ACTING_ROLES.has(t.role) || t.role === "link" || t.role === "tab")) return false;
+  // Its own words, or its text when that is a control's few words (not a whole header's).
+  const words = [t?.name, t?.label, t?.text && t.text.length <= 20 ? t.text : undefined].filter(Boolean).join(" ");
+  if (ACTS.test(words)) return false;
   return !next || next.at - s.at >= WATCH_MS;
 }
 

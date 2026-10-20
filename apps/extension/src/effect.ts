@@ -92,7 +92,8 @@ export function watchEffects(doc: Document, now: () => number = () => performanc
         if (expandedBefore === false && expandedOf(el) === true) effect.expanded = true;
         const opened = after.find((c) => c.opened)?.opened;
         if (opened) effect.opened = opened;
-        if (valueBefore.trim() && !fieldText(el).trim()) effect.emptied = true;
+        // Emptied, or gone with its text: Gmail closes the compose box when it sends.
+        if (valueBefore.trim() && (!el.isConnected || !fieldText(el).trim())) effect.emptied = true;
         done(effect);
       }, WATCH_MS);
       timers.add(timer);

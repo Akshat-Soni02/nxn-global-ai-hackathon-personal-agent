@@ -92,10 +92,11 @@ const stripBraces = (s: string) => s.replace(/^\s*\{\{\s*|\s*\}\}\s*$/g, "");
 
 // The type a reference points to, or a sentence saying why it is wrong.
 function refType(scope: Scope, expr: string): PathType | string {
-  // A built-in date: {{today|D MMM}} is text, {{today-1}} and {{week_start}} are dates.
-  const date = parseDateRef(expr);
-  if (date) return date.format ? { type: "text" } : { type: "date" };
+  // A workflow's own variable first (an older one may name itself week_start), then a built-in date: {{today|D MMM}} is
+  // text, {{today-1}} and {{week_start}} are dates.
   const ref = parseRef(expr);
+  const date = ref && scope.has(ref.name) ? undefined : parseDateRef(expr);
+  if (date) return date.format ? { type: "text" } : { type: "date" };
   if (!ref) return "is not a variable reference: use {{name}} or {{name.field}}";
   const root = scope.get(ref.name) ?? BUILT_INS[ref.name];
   if (!root) return `uses ${ref.name}, which is not declared by an earlier step`;

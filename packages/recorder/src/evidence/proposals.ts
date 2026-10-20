@@ -40,6 +40,10 @@ const DATE_FORMATS = [
   "MMM D",
   "MMMM D",
   "D MMM YYYY",
+  "DD MMM YYYY",
+  "D MMMM YYYY",
+  "MMM D, YYYY",
+  "MMMM D, YYYY",
   "DD/MM/YYYY",
   "D/M/YYYY",
   "MM/DD/YYYY",
@@ -64,8 +68,11 @@ export function dateIn(text: string, on: Date): { text: string; template: string
   // "w/c 19 Oct" is a week's Monday; on a Monday, plain "19 Oct" is today.
   const days = /\bw\/c\b|\bweek\b/i.test(text) ? [MONDAY, TODAY, YESTERDAY] : [TODAY, YESTERDAY, MONDAY];
   for (const day of days) {
-    for (const format of DATE_FORMATS) {
-      const shown = formatDate(dateOf(day.ref, on), format);
+    // The longest first: "20 Oct 2026" is all one date, never "20 Oct" and a year kept as text.
+    const date = dateOf(day.ref, on);
+    const formats = [...DATE_FORMATS].sort((a, b) => formatDate(date, b).length - formatDate(date, a).length);
+    for (const format of formats) {
+      const shown = formatDate(date, format);
       const at = text.indexOf(shown);
       if (at < 0) continue;
       const before = text[at - 1] ?? " ";

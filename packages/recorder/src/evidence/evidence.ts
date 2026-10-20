@@ -6,6 +6,7 @@
 // - The agent reads the rest through EvidenceView (Plan 3's look and ask tools).
 import type { Skill, TraceEvent } from "@shadow/core";
 import type { EvidenceView, Proposal } from "../design/v2/contracts.ts";
+import { maskText } from "../mask.ts";
 import type { Noise, NormalisedStep } from "../normalise.ts";
 import { classOf, type StepClass } from "./classes.ts";
 import { type Flow, flowOf } from "./flow.ts";
@@ -56,6 +57,8 @@ export interface EvidenceInput {
   said: Evidence["said"];
   pictures: Picture[];
   captions?: (string | undefined)[];
+  // The recording's Never and private words, masked with emails, keys and cards in all it shows a model.
+  maskTerms?: string[];
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -67,6 +70,31 @@ function weakness(s: NormalisedStep): string | undefined {
   if (!t.role && !t.name && !t.label && t.text) return "found only by its text: a list item or a read is safer";
   if (!t.name && !t.label && !t.text) return "nameless: nothing on it to find it by";
   return undefined;
+}
+
+// What a model reads of the evidence is masked like screen words: a value typed, copied or selected, a list item or a
+// cell can hold an email, a key, or one of the recording's Never and private words ("Copy API key" put a key in a
+// copy). The prepared changes (proposals' edits) and a left-out step's own record keep the real values: code applies
+// them, no model reads them.
+function masked(ev: Evidence, terms: string[]): Evidence {
+  const m = (t: string) => maskText(t, terms).text;
+  return {
+    ...ev,
+    tabs: ev.tabs.map((t) => ({ ...t, name: m(t.name) })),
+    steps: ev.steps.map((s) => ({
+      ...s,
+      ...(s.tab ? { tab: m(s.tab) } : {}),
+      line: m(s.line),
+      appeared: s.appeared.map(m),
+      near: s.near.map(m),
+      ...(s.caption ? { caption: m(s.caption) } : {}),
+    })),
+    noise: ev.noise.map((n) => ({ ...n, what: m(n.what) })),
+    flow: ev.flow.map((f) => (f.value ? { ...f, value: m(f.value) } : f)),
+    proposals: ev.proposals.map((p) => ({ ...p, summary: m(p.summary) })),
+    said: ev.said.map((s) => ({ ...s, text: m(s.text) })),
+    timeline: ev.timeline.map((l) => ({ ...l, text: m(l.text) })),
+  };
 }
 
 export function buildEvidence(input: EvidenceInput): Evidence {
@@ -96,36 +124,39 @@ export function buildEvidence(input: EvidenceInput): Evidence {
       events: s.events,
     };
   });
-  return {
-    version: 1,
-    goal: input.goal,
-    recordedOn: `${recordedOn.getFullYear()}-${pad(recordedOn.getMonth() + 1)}-${pad(recordedOn.getDate())}`,
-    start,
-    switches: input.switches,
-    tabs,
-    steps,
-    noise: input.noise,
-    flow: flowOf(input.steps, input.skill, input.idsByStep),
-    proposals: proposalsOf({
-      steps: input.steps,
-      skill: input.skill,
-      idsByStep: input.idsByStep,
+  return masked(
+    {
+      version: 1,
       goal: input.goal,
-      said: input.said,
-      recordedOn,
-    }),
-    said: input.said,
-    timeline: timelineOf({
+      recordedOn: `${recordedOn.getFullYear()}-${pad(recordedOn.getMonth() + 1)}-${pad(recordedOn.getDate())}`,
       start,
-      steps: input.steps,
-      ids: input.idsByStep,
-      classes,
+      switches: input.switches,
       tabs,
-      screens,
-      said: input.said,
+      steps,
       noise: input.noise,
-    }),
-  };
+      flow: flowOf(input.steps, input.skill, input.idsByStep),
+      proposals: proposalsOf({
+        steps: input.steps,
+        skill: input.skill,
+        idsByStep: input.idsByStep,
+        goal: input.goal,
+        said: input.said,
+        recordedOn,
+      }),
+      said: input.said,
+      timeline: timelineOf({
+        start,
+        steps: input.steps,
+        ids: input.idsByStep,
+        classes,
+        tabs,
+        screens,
+        said: input.said,
+        noise: input.noise,
+      }),
+    },
+    input.maskTerms ?? [],
+  );
 }
 
 const q = (t: string) => `"${t}"`;

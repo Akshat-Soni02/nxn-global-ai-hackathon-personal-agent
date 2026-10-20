@@ -66,6 +66,18 @@ describe("what a click did", () => {
     expect(seen[1]).toMatchObject({ emptied: true });
   });
 
+  it("counts a field that left the page after Enter as emptied: Gmail closes the compose box when it sends", async () => {
+    document.body.innerHTML = `<main><div id="compose"><div id="body" contenteditable="true">Hi Jo, the KPIs</div></div></main>`;
+    const watcher = watchEffects(document, () => clock);
+    watcher.start();
+    const seen: Effect[] = [];
+    watcher.watch(document.querySelector("#body") as Element, (e) => seen.push(e));
+    document.querySelector("#compose")?.remove(); // removed with its text still in it
+    await settle(700);
+    watcher.stop();
+    expect(seen[0]).toMatchObject({ emptied: true });
+  });
+
   it("sees a menu that opened on pointerdown, before the click (Gmail's toolbar, Sheets' menus)", async () => {
     document.body.innerHTML = `<main><button id="more">More</button></main>`;
     const watcher = watchEffects(document, () => clock);

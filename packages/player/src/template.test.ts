@@ -60,6 +60,10 @@ describe("dates in templates (spec 2.11)", () => {
     expect(at("Daily KPIs - {{week_start|[w/c] D MMM}}")).toBe("Daily KPIs - w/c 19 Oct");
   });
 
+  it("gives a workflow's own week_start its value, not the date", () => {
+    expect(resolveTemplates("{{week_start}}", { vars: { week_start: "w/c 19 Oct" } }, tuesday)).toBe("w/c 19 Oct");
+  });
+
   it("starts the week on Monday, also on a Sunday", () => {
     expect(at("{{week_start}}", new Date(2026, 9, 25))).toBe("2026-10-19");
   });

@@ -158,13 +158,15 @@ export async function finishRecording(
   const plain = skill;
   // Questions the recording already answers are not asked (spec 2.10): "which file?" after "the latest invoice".
   const said = notes.filter((n) => n.kind === "said");
+  const found: { question: Question; answer: string }[] = [];
   questions = questions.filter((q) => {
-    const found = answerFromEvidence(q, { goal: form?.description.goal ?? "", said });
-    if (!found) return true;
-    const applied = applyAnswer(skill, q, found.answer);
+    const answer = answerFromEvidence(q, { goal: form?.description.goal ?? "", said });
+    if (!answer) return true;
+    const applied = applyAnswer(skill, q, answer.answer);
     if (!applied.ok) return true;
     skill = applied.skill;
-    log(`answered from what you said ("${found.quote}"): ${q.text} → ${found.answer}`);
+    found.push({ question: q, answer: answer.answer });
+    log(`answered from what you said ("${answer.quote}"): ${q.text} → ${answer.answer}`);
     return false;
   });
   // The evidence package (spec 2.14): what code understood, kept in the recording's folder for the design agent.
@@ -218,6 +220,7 @@ export async function finishRecording(
       llm,
       skill,
       questions,
+      found,
       // The plain step list to label first: the agent's first move.
       base: compiled.base,
       steps,

@@ -2,7 +2,7 @@ import { type ElementDescriptor, isAction, type Skill, type TraceEvent, triggerO
 import { type FakeReply, fakeLlm } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
 import { compile, type Form, type Question } from "../compile.ts";
-import type { Prompter } from "../drill.ts";
+import { applyAnswer, type Prompter } from "../drill.ts";
 import { narrationOf } from "../narration.ts";
 import { type NormalisedStep, normalise } from "../normalise.ts";
 import { skeletonOf } from "../skeleton.ts";
@@ -456,6 +456,38 @@ describe("one AI reads the recording: it labels the plain list first", () => {
     expect(system).toMatch(/Never output targets, selectors, channels or actions/);
   });
 
+  it("keeps an answer found in what was said through labelling, and never asks it again", async () => {
+    const { steps, skill, questions, base } = await plain();
+    const file = questions.find((q) => (q.appliesTo ?? "").includes(".resolve"));
+    const newest = file?.options?.find((o) => /newest/i.test(`${o.label} ${String(o.value)}`))?.label;
+    if (!file || !newest) throw new Error("the upload asks which file, with a newest option");
+    const applied = applyAnswer(skill, file, newest);
+    if (!applied.ok) throw new Error(applied.error);
+    const at = (s: Skill) =>
+      (file.appliesTo ?? "").split(".").reduce<unknown>((v, k) => {
+        if (Array.isArray(v)) return v.find((x) => (x as { id?: string }).id === k) ?? v[Number(k)];
+        return (v as Record<string, unknown> | undefined)?.[k];
+      }, s);
+    const outcome = await designWorkflow({
+      llm: fakeLlm([
+        call("label_steps", { steps: [{ id: "s2", intent: "Attach this month's invoice" }] }),
+        call("finish", { summary: "Labelled the steps" }),
+      ]),
+      skill: applied.skill,
+      questions: questions.filter((q) => q.id !== file.id),
+      found: [{ question: file, answer: newest }],
+      steps,
+      form,
+      base,
+      prompter: prompter().p,
+      protocol: "tools",
+      budget: { turns: 3 },
+    });
+    expect(at(outcome.skill)).toEqual(at(applied.skill));
+    expect(at(outcome.skill)).not.toEqual(at(skill));
+    expect(outcome.pending.map((q) => q.appliesTo)).not.toContain(file.appliesTo);
+  });
+
   it("when it stops early, keeps what it reached; when it changed nothing, the plain list", async () => {
     const { steps, skill, questions, base } = await plain();
     const reached = await designWorkflow({
@@ -656,6 +688,35 @@ describe("the rules and the recording view", () => {
     expect(problems(withStep(clone(local), nav("n2", "file:///Users/me/.ssh/id_rsa")), local)).toEqual([
       expect.stringMatching(/n2: it may only open a site the recording visited/),
     ]);
+  });
+
+  it("reads a date in a path as the date it will be, so a date can't lead out of a recorded folder", async () => {
+    const { steps, skill } = await draft();
+    const downloaded = { ...steps[1], produces: ["/tmp/exports/kpis.csv"] } as NormalisedStep;
+    const folders = recordedFolders([...steps, downloaded], skill);
+    const find = (id: string, dir: string, glob = "*") => ({
+      id,
+      type: "action",
+      intent: id,
+      channel: "fs",
+      action: "find",
+      args: { dir, glob, pick: "all" },
+      output: { name: id, type: { type: "list", items: { type: "file" } } },
+    });
+    const problems = (step: object) =>
+      designViolations(skill, { ...skill, steps: [...skill.steps, step] } as Skill, undefined, folders);
+    // A dated folder inside a touched one is fine.
+    expect(problems(find("f1", "/tmp/exports/{{today|YYYY-MM}}"))).toEqual([]);
+    // Written, it looks inside /tmp/exports; run, "20/." and "./20" make "20/../20", and it climbs out.
+    expect(problems(find("f2", "/tmp/exports/{{today|D/.}}{{today|./D}}/../../../.ssh"))).toEqual([
+      expect.stringMatching(/f2: it may only look in folders/),
+    ]);
+    expect(problems(find("f3", "/tmp/exports", "{{today|D/.}}{{today|./D}}/../../*"))).toEqual([
+      expect.stringMatching(/f3: its glob .* must stay inside its folder/),
+    ]);
+    // A whole-string date is not a value an earlier step produced: it is checked like any place.
+    expect(problems(find("f4", "{{today|[~/.ssh]}}"))).toEqual([expect.stringMatching(/f4: it may only look/)]);
+    expect(problems(find("f5", "{{today}}"))).toEqual([expect.stringMatching(/f5: it may only look/)]);
   });
 
   it("gives the narration whole, before the recording, with the draft steps each piece spans", async () => {

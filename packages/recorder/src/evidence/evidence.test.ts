@@ -90,6 +90,43 @@ describe("the evidence package", () => {
     expect(evidence.timeline.map((l) => l.text).join("\n")).toContain('said: "always take the newest one"');
   });
 
+  it("hides emails, keys and the recording's private words in everything it shows a model", async () => {
+    const search = { tag: "input", url: MAIL, role: "textbox", name: "Search mail", fallbacks: [], selectors: {} };
+    const trace = [
+      ev("tab_open", 0, { title: "Inbox - Searce Mail", preexisting: true }),
+      ev("navigate", 1, { transition: "typed" }),
+      ev("click", 2_000, { target: row, cid: "c1", list: { ...list, itemText: "jane@client.com · Project Falcon" } }),
+      ev("effect", 2_700, { of: "c1", effect: { changed: "large" } }),
+      ev("copy", 8_000, { target: subject, value: "sk-live-abcdefghijklmnop1234", via: "keyboard" }),
+      ev("select_text", 10_000, { target: subject, value: "jane@client.com" }),
+      ev("click", 12_000, { target: search, cid: "c2" }),
+      ev("type", 13_000, { target: search, value: "Project Falcon for jane@client.com" }),
+    ];
+    const { steps, noise } = normaliseAll(trace);
+    const { skill, base } = await compile(steps);
+    const evidence = buildEvidence({
+      trace,
+      steps,
+      noise,
+      skill,
+      idsByStep: base.idsByStep,
+      goal: "Note the key",
+      switches: { screen: false, voice: false, pictures: false },
+      said: [],
+      pictures: [],
+      maskTerms: ["Project Falcon"],
+    });
+    const shown = [
+      evidenceText(evidence).text,
+      JSON.stringify({ steps: evidence.steps, timeline: evidence.timeline, flow: evidence.flow }),
+      JSON.stringify({ noise: evidence.noise.map((n) => n.what), proposals: evidence.proposals.map((p) => p.summary) }),
+    ].join("\n");
+    expect(shown).toContain("███");
+    for (const secret of ["jane@client.com", "sk-live-abcdefghijklmnop1234", "Project Falcon"]) {
+      expect(shown).not.toContain(secret);
+    }
+  });
+
   it("builds from an older recording with no effects, lists or cells (the KPI fixture)", async () => {
     const dir = join(import.meta.dirname, "../../../../fixtures/recordings/kpi-email-to-sheet");
     const trace = readFileSync(join(dir, "trace.jsonl"), "utf8")

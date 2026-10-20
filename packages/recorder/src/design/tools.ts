@@ -8,10 +8,13 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { type AnyTool, tool } from "@shadow/agent";
 import {
   applyEdits,
+  dateValue,
   type EditInput,
   isAction,
   isOutward,
   type Locator,
+  parseDateRef,
+  parseRef,
   type Skill,
   type Step,
   triggerOf,
@@ -46,6 +49,9 @@ export interface DesignSession {
   // The first draft's questions not asked yet, and the answers given so far (to them and to the agent's own).
   pending: Question[];
   answered: { question: Question; answer: string }[];
+  // Code's questions the recording already answered (spec 2.10): applied to the plain list, and again after labelling,
+  // which rebuilds the draft from the plain list.
+  found: { question: Question; answer: string }[];
   // For each open question, what sat where its answer goes when the question appeared (slotOf): if the agent changes
   // that place, it decided from what was said, and the question isn't asked after it.
   baseline: Map<string, string | null>;
@@ -116,8 +122,21 @@ const expand = (path: string): string => {
 };
 const inside = (where: unknown, folders: string[]): boolean =>
   typeof where === "string" && folders.some((f) => expand(where) === f || expand(where).startsWith(`${f}${sep}`));
-// A whole-string reference to a value an earlier step produced, or a run was given.
-const isReference = (where: unknown): boolean => typeof where === "string" && /^\{\{[^}]+\}\}$/.test(where.trim());
+// A whole-string reference to a value an earlier step produced, or a run was given. A date is neither: it is checked
+// like any place.
+const isReference = (where: unknown): boolean => {
+  const inner = typeof where === "string" ? /^\{\{([^}]+)\}\}$/.exec(where.trim())?.[1] : undefined;
+  return inner !== undefined && Boolean(parseRef(inner.trim())) && !parseDateRef(inner);
+};
+// A place with its dates written out as a run will write them: "{{today|D/.}}{{today|./D}}" is "20/../20", and
+// only written out can the check see it climb. Any day gives the same dots and slashes.
+const withDates = (where: unknown): unknown =>
+  typeof where === "string"
+    ? where.replace(/\{\{([^}]+)\}\}/g, (ref, inner: string) => {
+        const date = parseDateRef(inner);
+        return date ? dateValue(date, new Date()) : ref;
+      })
+    : where;
 // A glob that leaves its folder: absolute, from ~, or climbing with "..".
 const climbs = (glob: unknown): boolean =>
   typeof glob === "string" && (isAbsolute(glob) || glob.startsWith("~") || /(^|[\\/])\.\.([\\/]|$)/.test(glob));
@@ -224,7 +243,7 @@ export function designViolations(
     if (same(inputsBefore[name], input)) continue;
     const fixed = typeof input.default === "string" && /^[~/]/.test(input.default) ? input.default : undefined;
     for (const place of [input.resolve?.dir, fixed]) {
-      if (place !== undefined && !inside(place, folders)) {
+      if (place !== undefined && !inside(withDates(place), folders)) {
         problems.push(`${name}: an input may only point at ${where}, not ${String(place)}`);
       }
     }
@@ -268,10 +287,10 @@ export function designViolations(
     if (step.channel === "fs" && !(old && isAction(old) && same(old.args, step.args))) {
       for (const key of PATH_ARGS) {
         const place = step.args[key];
-        if (place === undefined || isReference(place) || inside(place, folders)) continue;
+        if (place === undefined || isReference(place) || inside(withDates(place), folders)) continue;
         problems.push(`${step.id}: it may only look in ${where}, not ${String(place)}`);
       }
-      if (climbs(step.args.glob)) {
+      if (climbs(withDates(step.args.glob))) {
         problems.push(`${step.id}: its glob (${String(step.args.glob)}) must stay inside its folder`);
       }
     }
@@ -623,14 +642,19 @@ export function designTools(session: DesignSession): AnyTool<DesignFinish>[] {
             }
             const labelled = labelDraft(session.base, labels);
             if (!labelled.ok) return { output: { ok: false, problems: labelled.problems } };
-            const broken = designViolations(session.original, labelled.skill, session.form, session.folders, {
+            let skill = labelled.skill;
+            for (const { question, answer } of session.found) {
+              const applied = applyAnswer(skill, question, answer);
+              if (applied.ok) skill = applied.skill;
+            }
+            const broken = designViolations(session.original, skill, session.form, session.folders, {
               pages: session.pages,
               opens: session.opens,
             });
             if (broken.length > 0) return { output: { ok: false, refused: broken } };
             // The labelled list is what the rules compare against from now on: an approval the labels added is protected.
-            session.draft = labelled.skill;
-            session.original = labelled.skill;
+            session.draft = skill;
+            session.original = skill;
             session.labelled = true;
             session.pending.push(...labelled.questions);
             for (const q of labelled.questions) session.modelQuestions.add(q.id);

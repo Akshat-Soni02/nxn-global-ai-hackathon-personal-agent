@@ -48,6 +48,10 @@ describe("dates", () => {
     expect(dateIn("20/10/2026", TUESDAY)?.text).toBe("{{today|DD/MM/YYYY}}");
     expect(dateIn("12 Oct", TUESDAY)).toBeUndefined();
     expect(dateIn("120 Oct", TUESDAY)).toBeUndefined();
+    // The whole date, year too: a year kept as text types the wrong year from January.
+    expect(dateIn("20 Oct 2026", TUESDAY)?.text).toBe("{{today|D MMM YYYY}}");
+    expect(dateIn("Oct 20, 2026", TUESDAY)?.text).toBe("{{today|MMM D, YYYY}}");
+    expect(dateIn("Due 20 October 2026", TUESDAY)?.text).toBe("Due {{today|D MMMM YYYY}}");
   });
 
   it("prepares the change to type today's date next time", async () => {

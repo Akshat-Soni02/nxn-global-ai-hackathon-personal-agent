@@ -1,20 +1,8 @@
 // What a recorded step did (spec 2.1), for the agent and the review: went somewhere, showed something, changed
 // something, or read something. Noise never reaches here: normaliseAll lists it apart.
-import type { NormalisedStep } from "../normalise.ts";
+import { ACTING_ROLES, type NormalisedStep } from "../normalise.ts";
 
 export type StepClass = "act" | "go" | "reveal" | "read";
-
-// Controls whose click changes something: a button, a menu item, a choice.
-const ACTING_ROLES = new Set([
-  "button",
-  "menuitem",
-  "menuitemcheckbox",
-  "menuitemradio",
-  "option",
-  "checkbox",
-  "radio",
-  "switch",
-]);
 
 export function classOf(step: NormalisedStep): StepClass {
   switch (step.kind) {

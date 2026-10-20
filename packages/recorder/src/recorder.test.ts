@@ -886,6 +886,32 @@ describe("the description form", () => {
     expect(added).toEqual([acts(skill)[1]?.id]);
     expect(acts(approved).map((s) => s.requires_approval)).toEqual([false, true, true]);
   });
+
+  it("asks before ⌘Enter or Ctrl+Enter, which send in mail and chat, whoever added the step", () => {
+    const press = (id: string, modifiers?: string[]) => ({
+      id,
+      type: "action",
+      intent: "press",
+      channel: "web",
+      action: "press",
+      target: { role: "textbox", name: "Message Body" },
+      args: { key: "Enter", ...(modifiers ? { modifiers } : {}) },
+    });
+    const skill = Skill.parse({
+      id: "mail",
+      version: 1,
+      name: "mail",
+      description: { goal: "reply" },
+      steps: [
+        { id: "start", type: "trigger", intent: "by hand" },
+        press("s1", ["cmd"]),
+        press("s2", ["ctrl"]),
+        press("s3", ["shift"]),
+        press("s4"),
+      ],
+    });
+    expect(requireApprovals(skill).added).toEqual(["s1", "s2"]);
+  });
 });
 
 describe("old and new traces", () => {

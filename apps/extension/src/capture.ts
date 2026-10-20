@@ -368,6 +368,8 @@ export function startCapture(
         // button or link is its click (recorded as one); Escape on one closes its menu, and is recorded.
         if (!el || key === "Tab" || (key === "Enter" && el.closest(CLICKABLE))) return;
         if (key === "Enter" && el.localName === "textarea") return;
+        // Shift+Enter in a field is a newline (chat boxes): replayed as Enter it would send the message.
+        if (key === "Enter" && k.shiftKey && field) return;
         if (key === "Enter") lastEnter = { form: el.closest("form"), at: e.timeStamp };
         const cid = newId();
         send("key", el, { value: key, cid });

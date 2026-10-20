@@ -1,7 +1,8 @@
 // Dates built into templates (spec 2.11): {{today}}, {{today-1}}, {{today+7}}, {{week_start}} (this week's Monday),
 // each with an optional format after a bar: {{today|D MMM}} is "20 Oct". Text in brackets is kept as it is:
 // {{week_start|[w/c] D MMM}} is "w/c 19 Oct". Without a format a date is YYYY-MM-DD, as {{today}} always was.
-// Tokens: YYYY YY MMMM MMM MM M DD D dddd ddd (English names).
+// Tokens: YYYY YY MMMM MMM MM M DD D dddd ddd (English names). A format is only tokens (at least one), words in brackets
+// and the separators , . / : - and space, and never makes "..": a date can't spell a path out of a folder.
 export interface DateRef {
   base: "today" | "week_start";
   offset: number;
@@ -25,11 +26,17 @@ const MONTHS = [
 ];
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const TOKEN = /\[([^\]]*)\]|YYYY|YY|MMMM|MMM|MM|M|DD|D|dddd|ddd/g;
+const FORMAT = /^(?:YYYY|YY|MMMM|MMM|MM|M|DD|D|dddd|ddd|\[[A-Za-z0-9 ,./:-]{1,20}\]|[ ,./:-])+$/;
 const pad = (n: number) => String(n).padStart(2, "0");
+
+const validFormat = (format: string): boolean =>
+  FORMAT.test(format) &&
+  /[YMDd]/.test(format.replace(/\[[^\]]*\]/g, "")) &&
+  !formatDate(new Date(2000, 0, 1), format).includes("..");
 
 export function parseDateRef(expr: string): DateRef | undefined {
   const m = DATE_REF.exec(expr.trim());
-  if (!m) return undefined;
+  if (!m || (m[4] !== undefined && !validFormat(m[4]))) return undefined;
   const offset = m[2] ? Number(m[3]) * (m[2] === "-" ? -1 : 1) : 0;
   return { base: m[1] as DateRef["base"], offset, ...(m[4] ? { format: m[4] } : {}) };
 }

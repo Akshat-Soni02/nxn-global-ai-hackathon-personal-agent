@@ -42,6 +42,9 @@ export interface DesignOptions {
   // The workflow it starts from (the plain step list), and the questions code knows it can't decide (none asked yet).
   skill: Skill;
   questions: Question[];
+  // Code's questions the recording already answered ("the latest invoice"): already applied to `skill`, and applied
+  // again once the plain list is labelled.
+  found?: { question: Question; answer: string }[];
   // The plain step list as code built it, to label first (label_steps). The daemon always passes it; without it the
   // agent starts from `skill` as it is (tests, older callers).
   base?: Base;
@@ -93,6 +96,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
     maskTerms: options.maskTerms ?? [],
     pending: [...options.questions],
     answered: [],
+    found: options.found ?? [],
     baseline: new Map(options.questions.map((q) => [q.id, slotOf(options.skill, q.appliesTo)])),
     base: options.base,
     labelled: !options.base,

@@ -90,6 +90,18 @@ describe("steps keep what capture saw", () => {
     expect(skeletonOf(cell).draft.steps.at(-1)).toMatchObject({ action: "press", requires_approval: false });
   });
 
+  it("makes ⌘Enter or Ctrl+Enter in a field a send that needs your OK, though Gmail's box closes instead of emptying", () => {
+    const steps = normalise([
+      start(),
+      ev("key", 1_000, { value: "Enter", modifiers: ["cmd"], target: el("textbox", "Message Body"), cid: "k1" }),
+      ev("effect", 1_700, { of: "k1", effect: { changed: "large" } }),
+      ev("key", 3_000, { value: "Enter", modifiers: ["ctrl"], target: el("textbox", "Comment"), cid: "k2" }),
+    ]);
+    expect(steps.filter((s) => s.kind === "press").map((s) => s.sends)).toEqual([true, true]);
+    const presses = skeletonOf(steps).draft.steps.filter((s) => s.action === "press");
+    expect(presses.map((s) => s.requires_approval)).toEqual([true, true]);
+  });
+
   it("keeps a Back", () => {
     const steps = normalise([
       start(),
@@ -148,6 +160,34 @@ describe("noise, removed and listed with its reason (spec 2.2)", () => {
       ev("click", 1_300, { target: el("button", "Archive"), cid: "c2" }),
     ]);
     expect(soon.steps).toHaveLength(3);
+  });
+
+  it("keeps a quiet click that downloaded a file, or on a control that acts (Save, a switch, a link)", () => {
+    const tile = { tag: "div", url: MAIL, text: "Q3 numbers", fallbacks: [], selectors: { css: "#q3" } };
+    const save = { tag: "div", url: MAIL, text: "Save", fallbacks: [], selectors: { css: "#save" } };
+    const { steps, noise } = normaliseAll([
+      start(),
+      ev("click", 1_000, { target: tile, cid: "c1" }),
+      ev("effect", 1_700, { of: "c1", effect: { changed: "none" } }),
+      ev("download", 2_500, { path: "/Users/me/Downloads/q3.csv" }),
+      ev("click", 10_000, { target: el("button", "Save settings"), cid: "c2" }),
+      ev("effect", 10_700, { of: "c2", effect: { changed: "none" } }),
+      ev("click", 20_000, { target: el("switch", "Email alerts"), cid: "c3" }),
+      ev("effect", 20_700, { of: "c3", effect: { changed: "none" } }),
+      ev("click", 30_000, { target: el("link", "Reports"), cid: "c4" }),
+      ev("effect", 30_700, { of: "c4", effect: { changed: "none" } }),
+      ev("click", 40_000, { target: save, cid: "c5" }),
+      ev("effect", 40_700, { of: "c5", effect: { changed: "none" } }),
+    ]);
+    expect(steps.map((s) => s.target?.name ?? s.target?.text ?? s.kind)).toEqual([
+      "navigate",
+      "Q3 numbers",
+      "Save settings",
+      "Email alerts",
+      "Reports",
+      "Save",
+    ]);
+    expect(noise).toEqual([]);
   });
 
   it("keeps a click with no recorded effect (an older recording)", () => {

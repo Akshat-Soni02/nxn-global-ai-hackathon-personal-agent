@@ -20,6 +20,30 @@ describe("captions", () => {
     expect(asked[0]).toContain("The user did: click");
   });
 
+  it("hides what was typed or copied in the question: an email, a key, a private word", async () => {
+    const typed: NormalisedStep = {
+      index: 0,
+      kind: "type",
+      at: 0,
+      events: [],
+      value: "Project Falcon for jane@client.com",
+    };
+    const asked: string[] = [];
+    await captionsOf(
+      [typed],
+      () => "/shots/1.jpg",
+      async (_path, question) => {
+        asked.push(question);
+        return "A search box.";
+      },
+      () => {},
+      ["Project Falcon"],
+    );
+    expect(asked[0]).toContain("███");
+    expect(asked[0]).not.toContain("jane@client.com");
+    expect(asked[0]).not.toContain("Project Falcon");
+  });
+
   it("says the picture is from just before the step, so the model names what was acted on, not an outcome", () => {
     const question = captionQuestion({ index: 0, kind: "click", at: 0, events: [] });
     expect(question).toContain("just before");

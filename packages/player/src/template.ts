@@ -12,7 +12,9 @@ export function today(now = new Date()): string {
 }
 
 function lookup(expr: string, vars: Record<string, unknown>, now: Date): unknown {
-  const date = parseDateRef(expr);
+  // A workflow's own variable first: an older one may name itself week_start.
+  const own = parseRef(expr);
+  const date = own && own.name in vars ? undefined : parseDateRef(expr);
   if (date) return dateValue(date, now);
   const ref = parseRef(expr);
   if (!ref) throw new Error(`{{${expr}}} is not a variable reference`);

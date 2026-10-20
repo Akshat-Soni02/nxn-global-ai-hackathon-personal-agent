@@ -18,7 +18,7 @@ import {
 } from "@shadow/recorder";
 import { cropAround } from "./crop.ts";
 import type { ScreenDescriber } from "./describe.ts";
-import { type RecordForm, recordingDir } from "./recording-store.ts";
+import { maskTermsOf, type RecordForm, recordingDir } from "./recording-store.ts";
 
 export function readPictures(dir: string): Picture[] {
   const file = join(dir, "screen.jsonl");
@@ -66,6 +66,7 @@ export async function writeEvidence(o: EvidenceOptions): Promise<Evidence | unde
     if (!existsSync(dir)) return undefined;
     const pictures = readPictures(dir);
     const consent = o.form?.consent ?? { screen: false, microphone: false, pictures: false };
+    const terms = maskTermsOf(o.form);
     let captions: (string | undefined)[] | undefined;
     const describer = o.describer;
     if (consent.pictures && describer?.allowed() && pictures.length > 0) {
@@ -84,6 +85,7 @@ export async function writeEvidence(o: EvidenceOptions): Promise<Evidence | unde
             o.meter,
           ),
         o.log,
+        terms,
       );
     }
     const evidence = buildEvidence({
@@ -99,6 +101,7 @@ export async function writeEvidence(o: EvidenceOptions): Promise<Evidence | unde
         .map(({ at, until, text }) => ({ at, ...(until !== undefined ? { until } : {}), text })),
       pictures,
       ...(captions ? { captions } : {}),
+      maskTerms: terms,
     });
     writeFileSync(join(dir, "evidence.json"), JSON.stringify(evidence), { mode: 0o600 });
     const { tokens, level } = evidenceText(evidence);

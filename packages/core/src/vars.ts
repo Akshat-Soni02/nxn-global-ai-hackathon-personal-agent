@@ -34,12 +34,15 @@ export interface FileValue {
 }
 
 export const BUILT_INS: Record<string, VarType> = { today: { type: "date" }, week_start: { type: "date" } };
+// week_start came later than today: a workflow saved before may declare its own (the design doc's KPI example), and
+// its own wins, so only today is reserved.
+const RESERVED = new Set(["today"]);
 
 // A variable name: what a trigger input, a step's output, an ask's output and a loop's item declare.
 export const VarName = z
   .string()
   .regex(/^[a-z][a-z0-9_]*$/)
-  .refine((n) => !(n in BUILT_INS), { message: "reserved name" });
+  .refine((n) => !RESERVED.has(n), { message: "reserved name" });
 
 export const typeText = (t: VarType): string =>
   t.type === "list"

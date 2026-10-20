@@ -209,6 +209,16 @@ describe("capture", () => {
     ]);
   });
 
+  it("never records Shift+Enter in a field: it is a newline, and replayed as Enter it would send a chat message", () => {
+    document.body.innerHTML = `<div id="chat" contenteditable="true">line one</div>`;
+    const { events, stop } = record();
+    $("#chat").dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, composed: true }),
+    );
+    stop();
+    expect(events.filter((e) => e.event === "key")).toEqual([]);
+  });
+
   it("records what a page's Copy button put on the clipboard, as a copy made by that button", () => {
     document.body.innerHTML = `<button id="copy-link">Copy link</button>`;
     const { events, stop } = record();
