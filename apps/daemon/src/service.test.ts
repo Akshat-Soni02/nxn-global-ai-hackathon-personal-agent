@@ -232,6 +232,26 @@ describe("the daemon as a service", () => {
   });
 });
 
+describe("one automation window", () => {
+  it("queues work that needs the window to itself (the design's test run) with the runs, never alongside", async () => {
+    const { open } = setup([write("s1")]);
+    const { service } = open();
+    const order: string[] = [];
+    const first = service.exclusive(async () => {
+      order.push("test run starts");
+      await new Promise((r) => setTimeout(r, 10));
+      order.push("test run ends");
+      return 1;
+    });
+    const second = service.exclusive(async () => {
+      order.push("next starts");
+      return 2;
+    });
+    expect(await Promise.all([first, second])).toEqual([1, 2]);
+    expect(order).toEqual(["test run starts", "test run ends", "next starts"]);
+  });
+});
+
 describe("the workflow lifecycle", () => {
   it("keeps waiting for Looks right when a later version (a new Frequency) is saved on top of the design", () => {
     const { open, dataDir } = setup([write("s1")]);

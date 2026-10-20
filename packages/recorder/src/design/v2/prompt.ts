@@ -32,6 +32,8 @@ Principles
 - Remove what isn't part of the task (a click that changed nothing, a detour), with why. Put back a step code left
   out (restore x2) if it mattered.
 - Open pages by name: { do: "open", page: "s1" } or { page: "KPI Sheet" }. Code writes the address.
+- tab: "KPI Sheet" keeps a page open in its own tab, as it was. A step without a tab runs in the window's first tab:
+  give every step that works in that page its tab.
 - Steps that send, submit, pay, delete or post wait for the user's OK: code adds that, and it can't be turned off.
 - Ask only what the evidence can't answer (ask). Your questions reach the user in one batch after you build.
 - Test it (test) once it is built: the test opens pages and reads, and only outlines what would type or send. Fix
@@ -53,6 +55,7 @@ Sheet", s5 type "19 Oct" into A4, s6 paste into B4. Code proposed p1 list_item (
   output { name: "new_emails" }
 - loop s2–s6 over "new_emails", item { name: "email" }, why "every new KPI email, not this one"
 - change s4 { page: "KPI Sheet", tab: "KPI Sheet" }, why "paste where they copied to, without reloading the sheet"
+- change s5 { tab: "KPI Sheet" } and s6 { tab: "KPI Sheet" }, why "they type and paste in that sheet"
 - trigger { schedule: "0 9 * * 1-5" }, why "every day: a weekday morning"
 - ask "Which row should each day's numbers go in?", why "the recording wrote A4; the next empty row isn't
   supported yet", step "s5", options ["A4", "the next empty row"]

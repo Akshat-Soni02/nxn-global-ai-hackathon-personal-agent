@@ -38,6 +38,9 @@ describe("stage 1: understand", () => {
     expect(BUILD).toContain("<untrusted_data>");
     expect(BUILD).toMatch(/accept p1/);
     expect(BUILD).toMatch(/page: "KPI Sheet"/);
+    // A step without a tab runs in the window's first tab: every step that works in the sheet names it.
+    expect(BUILD).toMatch(/without a tab runs in the window's first tab/);
+    expect(BUILD).toMatch(/change s5 \{ tab: "KPI Sheet" \} and s6 \{ tab: "KPI Sheet" \}/);
     expect(BUILD.split("\n").length).toBeLessThanOrEqual(80);
   });
 });

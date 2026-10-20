@@ -100,6 +100,9 @@ export interface Service {
   fire(skillId: string, trigger: "schedule" | "folder", provided?: Record<string, unknown>): RunRow;
   // The workflow's run that is still going or waiting for the user, if any.
   busy(skillId: string): RunRow | undefined;
+  // Work that needs the automation window to itself (the design's test run): queued with the runs' legs, so the two
+  // never share the window (each one's end closes the other's tabs).
+  exclusive<T>(work: () => Promise<T>): Promise<T>;
   // The editor (docs/design.md, "6. Edit"): a draft beside the workflow, as a base version plus edit operations,
   // autosaved after every change. editDraft refuses an edit the workflow can't take (check.ts) and says why.
   draft(id: string): DraftView;
@@ -547,6 +550,8 @@ export function createService(options: ServiceOptions): Service {
       return { version: saved.skill.version };
     },
 
+    exclusive: <T>(work: () => Promise<T>) =>
+      new Promise<T>((resolve, reject) => enqueue(() => work().then(resolve, reject))),
     busy: (skillId) =>
       store.listRuns({ skillId, limit: 20 }).find((r) => r.status === "running" || r.status === "waiting"),
 
