@@ -18,7 +18,9 @@ export const ACTION_DOCS: Record<string, ActionDoc> = {
   "web.click": { args: "{}" },
   "web.type": { args: "{ text, clear?: boolean }  focuses the target, then types key by key" },
   "web.select": { args: "{ option }  the visible option label" },
-  "web.press": { args: '{ key }  e.g. "Enter", "Escape"' },
+  "web.press": {
+    args: '{ key, modifiers?: ("cmd" | "shift" | "option" | "ctrl")[] }  e.g. "Enter", "Escape", "e"; ⌘Enter is key "Enter" with ["cmd"]',
+  },
   "web.upload": {
     args: "{ file }  target: the <input type=file>, the control that opens it, or a drop zone; no native dialog",
   },

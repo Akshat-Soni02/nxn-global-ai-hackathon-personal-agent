@@ -17,18 +17,10 @@ import { type Cdp, callOn, evaluate, pollUntil, type RemoteObject, sleep } from 
 import { pagePart, waitForCheck } from "./checks.ts";
 import { rowsOf, sheetExportUrl } from "./csv.ts";
 import { type DomNode, fileAccessError, pickFileInput } from "./file-input.ts";
+import { keyEvents, type Modifier, modifiersOf } from "./keys.ts";
 import { attributesOf, type MatchOutcome, match, matchAll, selectAll } from "./match.ts";
 
 export const DEFAULT_WEB_TIMEOUT_MS = 10_000;
-
-const KEYS: Record<string, { code: string; keyCode: number; text?: string }> = {
-  Enter: { code: "Enter", keyCode: 13, text: "\r" },
-  Escape: { code: "Escape", keyCode: 27 },
-  Tab: { code: "Tab", keyCode: 9 },
-  Backspace: { code: "Backspace", keyCode: 8 },
-  ArrowDown: { code: "ArrowDown", keyCode: 40 },
-  ArrowUp: { code: "ArrowUp", keyCode: 38 },
-};
 
 // Page-side functions, kept as strings so build tools cannot rewrite them before they are sent to the page.
 const FN_HIT_TEST = `function (x, y) {
@@ -120,12 +112,10 @@ async function click(cdp: Cdp, backendNodeId: number): Promise<string | undefine
   return undefined;
 }
 
-async function press(cdp: Cdp, key: string): Promise<string | undefined> {
-  const k = KEYS[key];
-  if (!k) return `unsupported key ${key}`;
-  const common = { key, code: k.code, windowsVirtualKeyCode: k.keyCode, nativeVirtualKeyCode: k.keyCode };
-  await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", ...common, ...(k.text ? { text: k.text } : {}) });
-  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...common });
+async function press(cdp: Cdp, key: string, modifiers: Modifier[] = []): Promise<string | undefined> {
+  const events = keyEvents(key, modifiers);
+  if (typeof events === "string") return events;
+  for (const event of events) await cdp.send("Input.dispatchKeyEvent", { ...event });
   return undefined;
 }
 
@@ -266,7 +256,7 @@ export async function executeWebStep(cdp: Cdp, step: Step, env: WebEnv = {}): Pr
     );
     value = render(items, a);
   } else if (step.action === "press" && !step.target) {
-    const error = await press(cdp, String(a.key ?? ""));
+    const error = await press(cdp, String(a.key ?? ""), modifiersOf(a.modifiers));
     if (error) return fail(error);
   } else if (step.target) {
     const outcome = await waitForTarget(cdp, step, timeoutMs);
@@ -294,7 +284,7 @@ export async function executeWebStep(cdp: Cdp, step: Step, env: WebEnv = {}): Pr
         break;
       case "press":
         await cdp.send("DOM.focus", { backendNodeId: id });
-        error = await press(cdp, String(a.key ?? ""));
+        error = await press(cdp, String(a.key ?? ""), modifiersOf(a.modifiers));
         break;
       case "upload": {
         // A file value or a list of them (or plain paths): the page gets their paths.

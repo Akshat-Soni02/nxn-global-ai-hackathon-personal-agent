@@ -26,7 +26,7 @@
 //   web.click     {}
 //   web.type      { text, clear?: boolean }            focuses the target, then types it key by key
 //   web.select    { option }                            visible option label
-//   web.press     { key }                               e.g. "Enter", "Escape"
+//   web.press     { key, modifiers? }                   e.g. "Enter", "Escape", "e"; ⌘Enter: "Enter" with ["cmd"]
 //   web.upload    { file }                              target is the <input type=file>, the control that opens it,
 //                                                       or a drop zone; no native dialog either way
 //   web.drag      { to: Locator }                       drags the target onto `to` (a card onto a list)
