@@ -462,7 +462,7 @@ export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; no
   steps.forEach((s, i) => {
     if (s.kind === "click" && s.drawn) {
       drawn++;
-      drop(s.events, s.at, s.tabId, "a click on a drawn grid", NOISE.drawn, s);
+      drop(s.events, s.at, s.tabId, s.cell ? `clicked cell ${s.cell.ref}` : "clicked the drawn grid", NOISE.drawn, s);
       return;
     }
     if (s.kind === "click" && quiet(s, steps[i + 1])) {

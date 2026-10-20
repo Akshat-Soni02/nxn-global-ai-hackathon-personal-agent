@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { narrationOf } from "../narration.ts";
 import type { NormalisedStep } from "../normalise.ts";
-import { timelineOf, timelineSlice } from "./timeline.ts";
+import { describeStep, timelineOf, timelineSlice } from "./timeline.ts";
 
 const SHEET = "https://docs.google.com/spreadsheets/d/ID/edit";
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
@@ -59,5 +59,17 @@ describe("one timeline", () => {
   it("names the draft's steps in the narration, not the recorded order", () => {
     const said = [{ at: 12_500, until: 12_900, kind: "said" as const, text: "always the newest one" }];
     expect(narrationOf(steps, said, [["s1"], ["s2", "s3"]])).toEqual([{ during: "s2", said: "always the newest one" }]);
+  });
+
+  it("names no target for a key pressed on the page itself", () => {
+    const key: NormalisedStep = {
+      index: 0,
+      kind: "press",
+      at: 0,
+      value: "j",
+      events: ["k"],
+      target: { tag: "body", url: MAIL, text: "(function(){try{ var _F_toggles", fallbacks: [], selectors: {} },
+    };
+    expect(describeStep(key)).toBe("press j");
   });
 });

@@ -39,7 +39,7 @@ const list = {
   container: { tag: "table", url: MAIL, role: "grid", fallbacks: [], selectors: { css: "table.F" } },
   index: 0,
   count: 50,
-  itemText: "Daily KPIs",
+  itemText: "Ana · Daily KPIs - w/c 19 Oct · Hi All, numbers attached",
 };
 
 async function evidenceOf(

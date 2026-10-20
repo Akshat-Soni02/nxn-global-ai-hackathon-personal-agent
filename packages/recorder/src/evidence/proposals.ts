@@ -99,9 +99,15 @@ function dates(input: ProposalInput): Found[] {
 }
 
 // --- open directly: pages gone through only to reach one -----------------------------------------------------------
+// A step that only went somewhere known: a page opened, or a link followed to a recorded address. A click that picked an
+// item of a list is a choice (a list item proposal), not a detour; a click with no recorded destination ends the chain.
 const goes = (s?: NormalisedStep) =>
   Boolean(
-    s && (s.kind === "navigate" || s.kind === "click") && classOf(s) === "go" && s.opensTab === undefined && !s.submits,
+    s &&
+      classOf(s) === "go" &&
+      (s.kind === "navigate" || (s.kind === "click" && s.navigatesTo && !s.list)) &&
+      s.opensTab === undefined &&
+      !s.submits,
   );
 const samePage = (a: string, b: string) => {
   try {
@@ -126,7 +132,7 @@ function openDirectly(input: ProposalInput): Found[] {
     let j = i;
     while (j + 1 < steps.length && goes(steps[j + 1]) && steps[j + 1]?.tabId === steps[i]?.tabId) j++;
     const last = steps[j];
-    const url = last?.navigatesTo ?? last?.url;
+    const url = last?.kind === "navigate" ? (last.navigatesTo ?? last.url) : last?.navigatesTo;
     const usedAfter = Boolean(
       url && steps.slice(j + 1).some((s) => s.tabId === last?.tabId && s.url && samePage(s.url, url)),
     );
@@ -157,13 +163,19 @@ function openDirectly(input: ProposalInput): Found[] {
 
 // --- list item: a click or copy on an item of a list ---------------------------------------------------------------
 const PAGE_CHROME = new Set(["navigation", "menubar", "tablist", "toolbar", "banner", "tree"]);
+// Containers that say they are lists. Others need more items to count: four header blocks are not a list (Gmail).
+const LISTISH = new Set(["list", "grid", "table", "rowgroup", "listbox", "treegrid", "feed"]);
+// An item's text this short is a label (a tab, a menu entry), not content picked from a list (Checkpoint 2).
+const ITEM_TEXT_MIN = 20;
 
 function listItems(input: ProposalInput): Found[] {
   const found: Found[] = [];
   input.steps.forEach((s, i) => {
     const id = firstId(input, i);
     const list = s.list;
-    if (!id || !list || list.count < 3 || PAGE_CHROME.has(list.container.role ?? "")) return;
+    const role = list?.container.role ?? "";
+    if (!id || !list || list.count < 3 || PAGE_CHROME.has(role)) return;
+    if ((!LISTISH.has(role) && list.count < 5) || (list.itemText ?? "").length < ITEM_TEXT_MIN) return;
     if (s.kind !== "click" && s.kind !== "copy") return;
     const where = list.container.name ?? list.container.role ?? list.container.tag;
     const item = list.itemText ? ` ("${list.itemText.slice(0, 60)}")` : "";
@@ -203,6 +215,8 @@ function repeats(input: ProposalInput): Found[] {
     for (let i = 0; i + 2 * k <= steps.length; i++) {
       const group = steps.slice(i, i + k);
       if (group.every((s) => s.kind === "navigate") || group.some((_, d) => taken.has(i + d))) continue;
+      // One step done twice repeats only for items of a list or rows: two keys or two typings are not a loop.
+      if (k === 1 && !group[0]?.list && !group[0]?.cell) continue;
       let times = 1;
       while (i + (times + 1) * k <= steps.length && alike(group, steps.slice(i + times * k, i + (times + 1) * k)))
         times++;

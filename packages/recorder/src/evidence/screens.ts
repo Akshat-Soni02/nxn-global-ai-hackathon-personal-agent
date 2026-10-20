@@ -11,6 +11,8 @@ import type { NormalisedStep } from "../normalise.ts";
 export interface Picture {
   eventId: string;
   at: number;
+  // When the picture was taken: often a second after its event (Checkpoint 2). Older pictures have only `at`.
+  takenAt?: number;
   tabId?: number;
   lines: Line[];
 }
@@ -25,19 +27,25 @@ const NEAR_LINES = 6;
 const APPEARED_LINES = 12;
 const NEAR_CSS_PX = 150;
 const clean = (t: string) => t.replace(/\s+/g, " ").trim();
-const useful = (t: string) => t.length >= 2 && !/^[█\s]+$/.test(t);
+// Shadow's own Stop pill ("• Stop • 1:00") is on every picture and changes each second: never something that appeared.
+const SHADOW_PILL = /^[•·\s]*(stop|record)[•·\s]*\d{1,2}:\d{2}[•·\s]*$/i;
+const useful = (t: string) => t.length >= 2 && !/^[█\s]+$/.test(t) && !SHADOW_PILL.test(t);
 
 export function screensOf(steps: NormalisedStep[], pictures: Picture[], trace: TraceEvent[]): StepScreen[] {
   const tabOfEvent = new Map(trace.map((e) => [e.id, e.tabId]));
+  // By when each picture was taken: the typing's picture is taken after the Save click that ended the typing.
   const shots = pictures
-    .map((p) => ({ ...p, tabId: p.tabId ?? tabOfEvent.get(p.eventId) }))
-    .sort((a, b) => a.at - b.at);
+    .map((p) => ({ ...p, tabId: p.tabId ?? tabOfEvent.get(p.eventId), time: p.takenAt ?? p.at }))
+    .sort((a, b) => a.time - b.time);
   return steps.map((step, i) => {
     const mine = new Set(step.events);
     const nextAt = steps[i + 1]?.at ?? Number.POSITIVE_INFINITY;
     const tab = shots.filter((s) => step.tabId === undefined || s.tabId === step.tabId);
-    const before = tab.filter((s) => s.at < step.at && !mine.has(s.eventId)).at(-1);
-    const after = tab.filter((s) => (s.at >= step.at || mine.has(s.eventId)) && s.at < nextAt).at(-1);
+    const after = tab.filter((s) => (s.time >= step.at || mine.has(s.eventId)) && s.time < nextAt).at(-1);
+    // Nothing pictured before the step: its own first picture (a copy's click) is the "before" of its last.
+    const before =
+      tab.filter((s) => s.time < step.at && !mine.has(s.eventId)).at(-1) ??
+      tab.find((s) => mine.has(s.eventId) && s !== after);
     const seen = new Set((before?.lines ?? []).map((l) => clean(l.text)));
     const appeared = after
       ? [...new Set(after.lines.map((l) => clean(l.text)))]

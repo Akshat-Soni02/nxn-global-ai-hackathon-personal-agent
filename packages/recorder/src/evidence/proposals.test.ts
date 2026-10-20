@@ -70,7 +70,7 @@ describe("other generalisations", () => {
       container: { tag: "table", url: MAIL, role, fallbacks: [], selectors: { css: "table.F" } },
       index: 0,
       count: 50,
-      itemText: "Daily KPIs",
+      itemText: "Ana · Daily KPIs - w/c 19 Oct · Hi All, numbers attached",
     });
     const { proposals } = await propose([
       step("navigate", { events: [] }),
@@ -136,5 +136,66 @@ describe("other generalisations", () => {
       ["The project is always NX-202."],
     );
     expect(proposals.find((p) => p.kind === "constant")?.summary).toContain("NX-202");
+  });
+
+  it("doesn't open a page directly when the click's destination isn't known, or when it picked an item of a list", async () => {
+    const inbox = await propose([
+      step("navigate", { events: [] }),
+      step("click", { target: el("link", "Daily KPIs") }), // an older recording: no destination kept
+      step("copy", { value: "4,928", target: el("cell", "Tickets") }),
+    ]);
+    expect(inbox.proposals.filter((p) => p.kind === "open_directly")).toEqual([]);
+    const picked = await propose([
+      step("navigate", { url: "https://github.com/o/r/issues", events: [] }),
+      step("click", {
+        url: "https://github.com/o/r/issues",
+        target: el("link", "Evolving the interface"),
+        navigatesTo: "https://github.com/o/r/issues/334285",
+        list: {
+          container: { tag: "ul", url: MAIL, role: "list", fallbacks: [], selectors: {} },
+          index: 0,
+          count: 25,
+          itemText: "Evolving the interface #334285 opened on Sep 3",
+        },
+      }),
+      step("copy", {
+        url: "https://github.com/o/r/issues/334285",
+        value: "Evolving",
+        target: el("heading", "Evolving"),
+      }),
+    ]);
+    expect(picked.proposals.filter((p) => p.kind === "open_directly")).toEqual([]);
+  });
+
+  it("finds a repeat of one step only when it is done for items of a list or rows, not two keys or two typings", async () => {
+    const { proposals } = await propose([
+      step("navigate", { events: [] }),
+      step("press", { value: "g", target: el("main", "Repo") }),
+      step("press", { value: "i", target: el("main", "Repo") }),
+    ]);
+    expect(proposals.filter((p) => p.kind === "repeat")).toEqual([]);
+  });
+
+  it("proposes a list item only for content lists, not page chrome or a few header blocks", async () => {
+    const list = (role: string | undefined, count: number, itemText: string) => ({
+      container: { tag: "div", url: MAIL, ...(role ? { role } : {}), fallbacks: [], selectors: {} },
+      index: 1,
+      count,
+      itemText,
+    });
+    const { proposals } = await propose([
+      step("navigate", { events: [] }),
+      step("click", {
+        target: el("link", "Issues"),
+        list: list("list", 8, "Issues 5k+ ( 5k+ )"),
+        navigatesTo: `${MAIL}/i`,
+      }),
+      step("copy", {
+        value: "Subject",
+        target: el("heading", "Subject"),
+        list: list(undefined, 4, "Print all In new window One day left to enter"),
+      }),
+    ]);
+    expect(proposals.filter((p) => p.kind === "list_item")).toEqual([]);
   });
 });

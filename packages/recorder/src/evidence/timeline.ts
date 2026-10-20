@@ -34,7 +34,9 @@ const labelOf = (s: NormalisedStep) =>
   s.target?.name ?? s.target?.label ?? s.target?.seenAs ?? s.target?.text ?? s.element?.title ?? "";
 
 export function describeStep(s: NormalisedStep): string {
-  const on = s.target ? ` ${s.target.role ?? s.target.tag} ${quote(labelOf(s))}` : "";
+  // A key pressed on the page itself has no target worth naming (its text is the whole page, scripts and all).
+  const named = s.target && s.target.tag !== "body" && s.target.tag !== "html";
+  const on = named && s.target ? ` ${s.target.role ?? s.target.tag} ${quote(labelOf(s))}` : "";
   switch (s.kind) {
     case "navigate":
       return `${s.back ? "go back to" : "open"} ${shortUrl(s.navigatesTo ?? s.url ?? "")}`;

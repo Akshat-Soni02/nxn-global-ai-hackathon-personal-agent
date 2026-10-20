@@ -30,7 +30,15 @@ export function readPictures(dir: string): Picture[] {
       try {
         const p = JSON.parse(line) as Partial<Picture>;
         if (!p.eventId || typeof p.at !== "number" || !Array.isArray(p.lines)) return [];
-        return [{ eventId: p.eventId, at: p.at, ...(p.tabId !== undefined ? { tabId: p.tabId } : {}), lines: p.lines }];
+        return [
+          {
+            eventId: p.eventId,
+            at: p.at,
+            ...(typeof p.takenAt === "number" ? { takenAt: p.takenAt } : {}),
+            ...(p.tabId !== undefined ? { tabId: p.tabId } : {}),
+            lines: p.lines,
+          },
+        ];
       } catch {
         return [];
       }

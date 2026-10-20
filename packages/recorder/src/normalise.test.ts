@@ -188,5 +188,6 @@ describe("noise, removed and listed with its reason (spec 2.2)", () => {
       "a click on a drawn grid: its cell goes with the copy or typing after it",
       "only put the cursor in a field: the typing after it is the step",
     ]);
+    expect(noise[0]?.what).toBe("clicked cell C3"); // said once: not "a click on a drawn grid: a click on a drawn grid"
   });
 });
