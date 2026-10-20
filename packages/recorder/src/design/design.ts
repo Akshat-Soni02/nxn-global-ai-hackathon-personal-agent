@@ -16,6 +16,7 @@ import { type Base, type Form, labelRules, type Question } from "../compile.ts";
 import type { Prompter } from "../drill.ts";
 import { narrationOf } from "../narration.ts";
 import type { NormalisedStep } from "../normalise.ts";
+import { plainChecks } from "../plain-checks.ts";
 import { skeletonOf } from "../skeleton.ts";
 import { describeChanges } from "./changes.ts";
 import {
@@ -126,7 +127,8 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
   if (outcome.kind === "finished") {
     return {
       kind: "designed",
-      skill: session.draft,
+      // url checks as the player reads them: a part of the address, not a regex the model wrote.
+      skill: plainChecks(session.draft),
       summary: outcome.value.summary,
       edits: session.edits,
       pending: session.pending.filter((q) => stillOpen(session, q)),
@@ -139,7 +141,7 @@ export async function designWorkflow(options: DesignOptions): Promise<DesignOutc
   // It stopped early (out of turns or money, an error, stopped): whatever it reached is kept. Every change it made
   // passed the schema and the rules, so its last draft is a valid workflow, with the answers already given written
   // in; if it changed nothing, that is the plain step list. Nothing is thrown away, and nothing is asked twice.
-  const kept = session.draft;
+  const kept = plainChecks(session.draft);
   const reason =
     outcome.kind === "out_of_budget"
       ? `it ran out of ${outcome.budget}`

@@ -92,6 +92,22 @@ describe("the design agent", () => {
     expect(task).toContain("s3  web.click");
   });
 
+  it("hands back a url check as the part of the address the player looks for, even when the model wrote a regex", async () => {
+    const { steps, skill, questions } = await draft();
+    const { p } = prompter();
+    const llm = fakeLlm([
+      call("edit", {
+        edits: [
+          { op: "set", step: "s1", field: "check", value: { url_matches: "http://localhost:5173/upload\\.html" } },
+        ],
+      }),
+      call("finish", { summary: "Checked the page opened" }),
+    ]);
+    const outcome = await designWorkflow({ llm, skill, questions, steps, form, prompter: p, protocol: "tools" });
+    const s1 = [...walkSteps(outcome.skill.steps)].find(({ step }) => step.id === "s1")?.step;
+    expect(s1).toMatchObject({ check: { url_matches: "http://localhost:5173/upload.html" } });
+  });
+
   it("is refused anything outside the rules, and the draft is left as it was", async () => {
     const { steps, skill, questions } = await draft();
     const llm = fakeLlm([
