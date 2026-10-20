@@ -2,10 +2,20 @@
 // walk-through nobody presses, through the same path as Walk through (runSkillOn with a walk). Its log goes next to the
 // recording, not with the runs: it is part of designing, not a run of the workflow. Your own windows are never used,
 // and the tabs it opened are closed when it ends (the extension's endRun).
-import type { Skill } from "@shadow/core";
+import { isAction, type Skill, walkSteps } from "@shadow/core";
 import { type RecordedEffect, rehearsal, rehearsalPlan } from "@shadow/player";
 import type { Daemon } from "./daemon.ts";
 import { type RunHooks, runSkillOn } from "./runner.ts";
+
+// Why the test run can't start, before it tries: the browser or the Mac app the workflow needs isn't connected. Said
+// as "not run", so the gate doesn't send the agent round the fix loop and the review says "not tested". Without this,
+// the runner opens Chrome, waits 30 s, and its first step fails.
+export function notRunWhy(skill: Skill, connected: { extension: boolean; mac: boolean }): string | undefined {
+  const channels = new Set([...walkSteps(skill.steps)].flatMap(({ step }) => (isAction(step) ? [step.channel] : [])));
+  if (channels.has("web") && !connected.extension) return "Chrome is not connected to Shadow";
+  if (channels.has("ax") && !connected.mac) return "Shadow.app is not running";
+  return undefined;
+}
 
 export async function rehearse(
   daemon: Daemon,
@@ -20,6 +30,11 @@ export async function rehearse(
   },
 ) {
   const r = rehearsal(skill, options.effects, options.onLine);
+  const why = notRunWhy(skill, { extension: daemon.extensions.size > 0, mac: daemon.mac().connected });
+  if (why) {
+    options.onLine?.(`The test run can't start: ${why}`);
+    return r.report(`not run: ${why}`);
+  }
   // Before it starts: what it will do, what it will only outline, and what reading changes (an email marked read).
   const plan = rehearsalPlan(skill, options.effects);
   options.onLine?.(

@@ -16,6 +16,7 @@ import { basename } from "node:path";
 import { type Skill, type Trigger, triggerOf } from "@shadow/core";
 import { expandHome, findFiles } from "@shadow/player/node";
 import { folderInput, nextTime, readState, triggerKey } from "./lifecycle.ts";
+import { readReview } from "./review-store.ts";
 import type { Service } from "./service.ts";
 import { listSkills, loadSkill } from "./skill-store.ts";
 import type { Store } from "./store.ts";
@@ -174,6 +175,9 @@ export function startTriggers(options: {
         if (state.state !== "live") continue;
         const skill = loadSkill(dataDir, id);
         if (!skill) continue;
+        // A design not looked at yet doesn't start on its own (a live workflow recorded again): Looks right first.
+        const review = readReview(dataDir, id);
+        if (review && !review.reviewed && review.version <= skill.version) continue;
         triggerOf(skill).when.forEach((trigger, index) => {
           if (trigger.type === "schedule") schedule(skill, index, trigger, state.since);
           if (trigger.type === "folder_watch") active.add(folder(skill, index, trigger, state.since));

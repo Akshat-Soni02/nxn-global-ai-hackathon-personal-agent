@@ -221,6 +221,9 @@ describe("the whole loop on a scratch daemon", () => {
     );
 
     // Go live: the Frequency from the form is the trigger, so the checks pass.
+    // The design is reviewed first: Go live waits for Looks right, whatever was saved on top of it (the edit, v2).
+    expect(() => service.goLive(id)).toThrow(/Looks right/);
+    expect(service.looksRight(id)?.reviewed).toBe(true);
     expect(service.goLive(id).state).toBe("live");
 
     // 8-9 Run, by hand, with this time's file: the Documents tab is missing (drift), the ladder waits longer and

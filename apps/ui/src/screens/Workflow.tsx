@@ -30,7 +30,7 @@ export function Workflow({ id }: { id: string }) {
   const history = [...latest.history].reverse();
   const mine = summary.data?.find((w) => w.id === id);
   const state = mine?.state;
-  const needsLook = Boolean(review.data && !review.data.reviewed && review.data.version === latest.version);
+  const needsLook = Boolean(review.data && !review.data.reviewed && review.data.version <= latest.version);
 
   return (
     <>

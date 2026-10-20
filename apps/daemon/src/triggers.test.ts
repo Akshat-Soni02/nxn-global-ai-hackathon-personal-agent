@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { writeState } from "./lifecycle.ts";
+import { markReviewed, writeReview } from "./review-store.ts";
 import { saveSkill } from "./skill-store.ts";
 import { openStore, type RunRow } from "./store.ts";
 import { startTriggers } from "./triggers.ts";
@@ -81,6 +82,28 @@ describe("schedules", () => {
     t.setClock(at("2026-10-12T09:00:10") + DAY);
     await t.triggers().tick();
     expect(t.fired).toHaveLength(2);
+  });
+
+  it("wait for Looks right on a design that isn't reviewed yet (a live workflow recorded again)", async () => {
+    const t = setup([{ type: "schedule", cron: "0 9 * * *" }]);
+    t.live(at("2026-10-12T08:00:00"));
+    writeReview(t.dataDir, {
+      skillId: "report",
+      version: 1,
+      summary: "x",
+      notes: [],
+      said: [],
+      notTested: [],
+      gaps: [],
+      reviewed: false,
+    });
+    t.setClock(at("2026-10-12T09:00:20"));
+    await t.triggers().tick();
+    expect(t.fired).toEqual([]);
+    markReviewed(t.dataDir, "report");
+    t.setClock(at("2026-10-12T09:00:10") + DAY);
+    await t.triggers().tick();
+    expect(t.fired).toHaveLength(1);
   });
 
   it("run a missed time once, however many were missed, with run_once", async () => {

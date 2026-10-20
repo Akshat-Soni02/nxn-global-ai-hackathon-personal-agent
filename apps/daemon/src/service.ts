@@ -242,7 +242,8 @@ export function createService(options: ServiceOptions): Service {
   };
   const goLive = (id: string): StateFile => {
     const review = readReview(dataDir, id);
-    if (review && !review.reviewed && review.version === latest(id).version) {
+    // A version saved on top of the design (a new Frequency, an edit) doesn't lift it: Looks right does.
+    if (review && !review.reviewed && review.version <= latest(id).version) {
       throw new Error("can't go live yet: look at what the design changed, then press Looks right");
     }
     const problems = goLiveProblems(latest(id));

@@ -233,6 +233,23 @@ describe("the daemon as a service", () => {
 });
 
 describe("the workflow lifecycle", () => {
+  it("keeps waiting for Looks right when a later version (a new Frequency) is saved on top of the design", () => {
+    const { open, dataDir } = setup([write("s1")]);
+    const { service } = open();
+    writeReview(dataDir, {
+      skillId: "report",
+      version: 1,
+      summary: "x",
+      notes: [],
+      said: [],
+      notTested: [],
+      gaps: [],
+      reviewed: false,
+    });
+    service.setTrigger("report", [{ type: "manual" }]);
+    expect(() => service.goLive("report")).toThrow(/Looks right/);
+  });
+
   it("waits for Looks right before a designed workflow goes live", () => {
     const { open, dataDir } = setup([write("s1")]);
     const { service } = open();
