@@ -5,6 +5,7 @@ import { compile, type Form, type Question } from "../compile.ts";
 import type { Prompter } from "../drill.ts";
 import { narrationOf } from "../narration.ts";
 import { type NormalisedStep, normalise } from "../normalise.ts";
+import { skeletonOf } from "../skeleton.ts";
 import { designWorkflow } from "./design.ts";
 import { designViolations, notesByStep, recordedFolders, recordedOpens } from "./tools.ts";
 
@@ -657,9 +658,11 @@ describe("the rules and the recording view", () => {
     ]);
   });
 
-  it("gives the narration whole, before the recording, with the steps each piece spans", async () => {
+  it("gives the narration whole, before the recording, with the draft steps each piece spans", async () => {
     const { steps, skill, questions } = await draft();
-    const upload = steps.findIndex((s) => s.kind === "upload") + 1;
+    // Named by the draft's ids (spec 2.9), the ones the agent edits.
+    const ids = skeletonOf(steps).idsByStep;
+    const upload = ids[steps.findIndex((s) => s.kind === "upload")]?.[0];
     const said = [
       { at: -3_000, kind: "said" as const, text: "every day I take the top 5 new ones" },
       { at: 5_200, until: 9_000, kind: "said" as const, text: "skip the ones already in my sheet" },
@@ -681,8 +684,8 @@ describe("the rules and the recording view", () => {
       protocol: "tools",
     });
     const task = ((llm.requests[0]?.messages ?? []) as { content: string }[])[1]?.content ?? "";
-    expect(task).toContain("- [before step 1] every day I take the top 5 new ones");
-    expect(task).toContain(`- [steps ${upload}-${steps.length}] skip the ones already in my sheet`);
+    expect(task).toContain("- [before the first step] every day I take the top 5 new ones");
+    expect(task).toContain(`- [${upload}–${ids.at(-1)?.at(-1)}] skip the ones already in my sheet`);
     expect(task.indexOf("# What they said")).toBeLessThan(task.indexOf("# The recording"));
     expect(task).toContain("on screen: (as before)");
     expect(task).not.toContain("x".repeat(301));
@@ -732,8 +735,9 @@ describe("the rules and the recording view", () => {
         return "{}";
       },
     });
+    const ids = skeletonOf(steps).idsByStep;
     expect(JSON.parse(seen[0] ?? "{}").narration).toEqual([
-      { during: `step ${steps.findIndex((s) => s.kind === "upload") + 1}`, said: "always the newest invoice" },
+      { during: ids[steps.findIndex((s) => s.kind === "upload")]?.[0], said: "always the newest invoice" },
     ]);
   });
 

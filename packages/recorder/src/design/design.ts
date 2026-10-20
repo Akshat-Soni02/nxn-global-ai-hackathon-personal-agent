@@ -212,7 +212,7 @@ they did, once. Make the draft do what they meant, so it runs right next time, w
 
 function taskOf(session: DesignSession): string {
   const form = session.form;
-  const said = narrationOf(session.steps, session.notes);
+  const said = narrationOf(session.steps, session.notes, session.idsByStep);
   return [
     "# The description",
     form

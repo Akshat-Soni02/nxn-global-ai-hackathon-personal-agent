@@ -131,7 +131,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
   }
 
   const memory = options.memory ? await options.memory.search(memoryQuery(steps), { limit: 8 }) : [];
-  const narration = narrationOf(steps, options.notes ?? []);
+  const narration = narrationOf(steps, options.notes ?? [], idsByStep);
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt() },
     {
