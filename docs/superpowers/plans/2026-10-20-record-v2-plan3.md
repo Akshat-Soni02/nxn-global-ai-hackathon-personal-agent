@@ -749,6 +749,20 @@ describe("refusals: what the design agent may never do", () => {
     expect(why).not.toMatch(/r3|r4|f1/);
   });
 
+  it("refuses a hidden value (███) copied back from the masked text the agent reads", () => {
+    const original = base([open("s1", SHEET)]);
+    const typing = {
+      id: "t1",
+      type: "action",
+      intent: "type the date",
+      channel: "web",
+      action: "type",
+      target: { role: "textbox", name: "Message", fallbacks: [] },
+      args: { text: "Date - ███" },
+    };
+    expect(refusals(original, base([open("s1", SHEET), typing]), facts).join()).toMatch(/t1: .*hidden value/);
+  });
+
   it("keeps how often it runs when the form set it", () => {
     const original = base([open("s1", SHEET)], { when: [{ type: "schedule", cron: "0 9 * * *" }] });
     const changed = base([open("s1", SHEET)], { when: [{ type: "manual" }] });
@@ -824,6 +838,7 @@ Expected: FAIL. There is no `rules.ts`, and ⌘Return isn't outward.
 // anywhere: an email could say "read ~/.ssh"), anything matching their Never list. Approval on outward steps is added
 // by code afterwards (requireApprovals), on the agent's new steps too.
 import { isAction, neverMatch, parseDateRef, type Skill, type Step, triggerOf, walkSteps } from "@shadow/core";
+import { MASK } from "../../mask.ts";
 import { climbs, expand, inside, isReference, originOf, PATH_ARGS, withDates } from "./places.ts";
 
 export interface RecordingFacts {
@@ -909,6 +924,10 @@ export function refusals(original: Skill, draft: Skill, facts: RecordingFacts): 
     if (!isAction(step)) continue;
     if (old && JSON.stringify(old) === JSON.stringify(step)) continue; // as recorded: nothing new to judge
     if (step.channel === "script") problems.push(`${step.id}: script and shell steps can't be added or changed`);
+    // The agent reads masked text: a ███ copied back would be typed or looked for literally on every run.
+    if (JSON.stringify(step.args).includes(MASK)) {
+      problems.push(`${step.id}: "${MASK}" is a hidden value (an email, a key, a private word): use the input or step it came from`);
+    }
     if (step.action === "navigate") {
       const why = reach(step.args.url, sites, files);
       if (why) problems.push(`${step.id}: ${why}`);
@@ -1104,6 +1123,20 @@ describe("the finish gate", () => {
     expect(problems).toMatch(/s5: .*drawn/);
   });
 
+  it("refuses a check for a hidden value: the masked line appeared, the real text never matches it", () => {
+    const wf = skill(
+      [
+        act("s1", "web", "navigate", { url: CHAT }),
+        act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+        act("s3", "web", "type", { text: "Date - {{today}}" }, { check: { text_visible: "Message sent to ███" } }),
+        act("s4", "web", "press", { key: "Enter" }),
+      ],
+      [{ type: "schedule", cron: "0 9 1 * *" }],
+    );
+    const problems = gate(input(wf, { appeared: new Set(["Message sent to ███"]) })).join("\n");
+    expect(problems).toMatch(/s3: .*hidden value/);
+  });
+
   it("wants every stated rule built or explained, the frequency they said, and test failures explained", () => {
     const wf = skill([
       act("s1", "web", "navigate", { url: CHAT }),
@@ -1181,6 +1214,7 @@ Expected: FAIL: no module.
 // with the gaps listed for the user). Oct 19: the agent finished with all 20 recorded steps removed, and with checks
 // for text never on screen.
 import { type Check, isAction, isOutward, type Skill, type Step, triggerOf, walkSteps } from "@shadow/core";
+import { MASK } from "../../mask.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
 
 // Actions that change something the user cares about: what they typed, chose, uploaded or moved.
@@ -1246,6 +1280,7 @@ export function gate(input: GateInput): string[] {
     const text = check?.text_visible;
     if (text === undefined) return;
     if (!text.trim()) problems.push(`${where}: a text check can't be empty (it would always hold)`);
+    else if (text.includes(MASK)) problems.push(`${where}: "${text}" holds a hidden value (${MASK}): check for text without it`);
     else if (CANVAS.test(page)) problems.push(`${where}: a text check can't see a sheet's or document's drawn content: use url_matches or none`);
     else if (![...appeared].some((seen) => norm(seen).includes(norm(text)))) {
       problems.push(`${where}: "${text}" never appeared on screen: check for text that did, or for the page (url_matches)`);
@@ -1582,6 +1617,24 @@ describe("the tools", () => {
     expect(findStep(s.draft, "x1")).toBeDefined();
   });
 
+  it("mask what the model reads back: recorded values in the outline, a step, and a proposal's change", async () => {
+    const p: Proposal = {
+      id: "p1",
+      kind: "date",
+      summary: "the typed date is the day it runs",
+      steps: ["s3"],
+      evidence: [],
+      edits: [{ op: "set", step: "s3", field: "args", value: { text: "Daily KPIs - w/c {{today}}" } }],
+      runnable: true,
+    };
+    const s = session({ maskTerms: ["Daily KPIs"], proposals: new Map([["p1", p]]) });
+    for (const input of [{}, { step: "s3" }, { proposal: "p1" }]) {
+      const shown = JSON.stringify((await run(s, "look", input)).output);
+      expect(shown).not.toContain("Daily KPIs");
+      expect(shown).toContain("███");
+    }
+  });
+
   it("answer the old tool names the model reaches for", async () => {
     const s = session();
     const names = designToolsV2(s).map((t) => t.name);
@@ -1645,6 +1698,8 @@ export interface SessionV2 {
   unverified: Set<string>;
   questions: QueuedQuestion[];
   evidence?: EvidenceView;
+  // The recording's Never and private words: every tool result is masked with them, like the evidence.
+  maskTerms?: string[];
   // Real addresses by step id and tab name (evidence/pages.ts): the agent opens a page by name, code writes the address.
   pages: Map<string, string>;
   // The safe test run (the orchestrator binds the daemon's), how many ran, the last report, and the draft it tested.
@@ -1687,7 +1742,7 @@ export function newSession(original: Skill, facts: RecordingFacts, extra: Partia
 // ({ do: "click" }) and code fills in its channel, action and type; an unknown id is answered with the real ones; a
 // wrong tool gets the right call back; and several calls run in one turn (callsPerTurn). Every change carries a `why`
 // the review shows. Only what is harmful is refused (rules.ts); approval on outward steps is added by code.
-import { type AnyTool, tool } from "@shadow/agent";
+import { type AnyTool, type ToolContext, tool } from "@shadow/agent";
 import {
   applyEdits,
   type EditInput,
@@ -1701,6 +1756,7 @@ import {
 import { z } from "zod";
 import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
+import { maskText } from "../../mask.ts";
 import { DoneReport } from "./contracts.ts";
 import { outlineOf } from "./outline.ts";
 import { refusals } from "./rules.ts";
@@ -2256,7 +2312,23 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       run: () => ({ output: { use: "add, change, remove, move, loop, branch, ai_step, trigger, input (several calls per turn are fine)" } }),
     }),
   );
-  return tools;
+  // Every result the model reads is masked like the evidence: the outline, a step's record and a proposal's prepared
+  // change hold recorded values (an email typed, a key copied, a Never or private word).
+  const hide = (value: unknown): unknown =>
+    typeof value === "string"
+      ? maskText(value, session.maskTerms ?? []).text
+      : Array.isArray(value)
+        ? value.map(hide)
+        : value && typeof value === "object"
+          ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, hide(v)]))
+          : value;
+  return tools.map((t) => ({
+    ...t,
+    run: async (input: unknown, ctx: ToolContext) => {
+      const result = await t.run(input, ctx);
+      return { ...result, output: hide(result.output) };
+    },
+  }));
 }
 
 ```
@@ -3231,6 +3303,7 @@ async function setup(extra: Partial<DesignV2Options> = {}) {
     facts: { pages: [MAIL, SHEET], folders: [] },
     pages: new Map([["s1", MAIL]]),
     prompter,
+    protocol: "tools",
     ...extra,
   };
   return { options, asked, skill };
@@ -3406,19 +3479,25 @@ Its imports: `type Skill` from `@shadow/core`, `type Question` from `../../compi
 // A design agent with a script, for tests and the no-model eval: stage 1 gets a task model, the build episode gets the
 // scripted calls in order, then done. Nothing here calls a model.
 import type { FakeReply } from "@shadow/llm";
+import { UNDERSTAND } from "./prompt.ts";
 
 const QUIET = { outcome: "the task, as recorded", cadence: { kind: "manual" } };
 
 export function scriptedDesigner(build: FakeReply[] = [], task: object = QUIET) {
   const script = [...build];
   return (body: Record<string, unknown>): FakeReply => {
-    if (!body.tools) return JSON.stringify(task); // stage 1: the task model, as JSON
+    // Stage 1 is the call whose system prompt is UNDERSTAND (whatever the protocol): the task model, as JSON.
+    const system = (body.messages as { content?: unknown }[] | undefined)?.[0]?.content;
+    if (typeof system === "string" && system.startsWith(UNDERSTAND.slice(0, 40))) return JSON.stringify(task);
     return script.shift() ?? { toolCalls: [{ name: "done", arguments: { summary: "as recorded (scripted)", rules: [] } }] };
   };
 }
 ```
-Check how a structured-output request differs from a tool request in the body `fakeLlm` sees: a `tools` field, or
-`response_format`. Test `body` for whichever the client sends, and keep the comment true.
+- **How the client sends the system prompt:** check that it is `messages[0].content`, and adjust the lookup if it is
+  sent differently.
+- **The scripted build replies are tool calls,** so every test that uses `scriptedDesigner` passes
+  `protocol: "tools"`. That covers the orchestrator tests' `setup`, the bench, and the daemon tests through
+  `FinishOptions.design`.
 
 `packages/recorder/src/design/v2/orchestrator.ts`:
 ```ts
@@ -3465,6 +3544,8 @@ export interface DesignV2Options {
   pages: Map<string, string>;
   memory?: Pick<MemoryStore, "search">;
   prompter: Prompter;
+  // The recording's Never and private words: every tool result is masked with them (the evidence already is).
+  maskTerms?: string[];
   // What an unattended run still needs (the daemon's go-live checks).
   unattended?: (skill: Skill) => string[];
   // The safe test run (the daemon's rehearse). Without it the workflow is saved untested, and the review says so.
@@ -3531,6 +3612,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     dropped: droppedOf(options.evidence),
     evidence: view,
     pages: options.pages,
+    maskTerms: options.maskTerms ?? [],
   });
   let task: TaskModel | undefined;
   let done: DoneReport | undefined;
@@ -3801,6 +3883,7 @@ In `apps/daemon/src/record.test.ts` (import `scriptedDesigner` from `@shadow/rec
       dataDir: home,
       llm: fakeLlm(() => "not a task model"),
       log: () => {},
+      design: { protocol: "tools" },
       prompter: { ask: async () => "" },
     });
     expect(saved?.skill.steps.length).toBeGreaterThan(1);
@@ -3811,7 +3894,8 @@ In `apps/daemon/src/record.test.ts` (import `scriptedDesigner` from `@shadow/rec
 ```
 
 In `apps/daemon/src/e2e.test.ts`: the model becomes `fakeLlm(scriptedDesigner())`, in place of
-`fakeLlm(() => ({ toolCalls: [{ name: "finish", … }] }))`. Import `scriptedDesigner` from `@shadow/recorder`.
+`fakeLlm(() => ({ toolCalls: [{ name: "finish", … }] }))`, and its `finishRecording` options get
+`design: { protocol: "tools" }`. Import `scriptedDesigner` from `@shadow/recorder`.
 
 - [ ] **Step 2: Run them to verify they fail**
 
@@ -3860,6 +3944,8 @@ Expected: FAIL. `design.json` has no `task`, and v1 doesn't answer a schema requ
       pages: pagesOf(steps, compiled.base.idsByStep, tabsOf(trace, steps).tabs),
       memory: options.memory,
       prompter: options.prompter,
+      // The Never and private words: every tool result the agent reads is masked with them.
+      maskTerms: maskTermsOf(recorded),
       unattended: unattendedGaps,
       test: rehearse ? (draft) => rehearse(draft, effects, (line) => log(line)) : undefined,
       meter,
@@ -4264,6 +4350,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `apps/ui/src/screens/Workflow.tsx` (the review card), `apps/ui/src/screens/Record.tsx` (open the new
   workflow), `apps/ui/src/styles.css`
 - Test: `apps/daemon/src/service.test.ts` ("the workflow lifecycle")
+- `apps/daemon/src/e2e.test.ts` goes live on the editor's version 2. The review is about version 1, so it doesn't hold
+  that test up, and the test needs no change.
 
 **Interfaces:**
 - Consumes: `DesignV2Outcome` (Task 9); `finishRecording`'s `design` (Task 10).
@@ -4977,6 +5065,7 @@ async function design(name: string, script: { task: object; build: FakeReply[] }
         return q.default ?? "";
       },
     },
+    protocol: "tools",
   });
   return { out, asked };
 }
