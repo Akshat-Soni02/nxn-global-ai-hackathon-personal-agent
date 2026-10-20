@@ -7,10 +7,15 @@ code is written. About 10 minutes.
 1. `git switch feat/record-v2 && corepack pnpm install && corepack pnpm build`
 2. Chrome → `chrome://extensions` → Shadow → reload (the ↻ icon). It now also loads `clipboard-hook.js`.
 3. `corepack pnpm setup:mac`, then System Settings → Privacy & Security → Accessibility: turn Shadow off and on.
-   Screen Recording and Microphone: allowed.
+   Screen Recording and Microphone: allowed. If macOS asks for Screen Recording again (the rebuilt app is a new
+   app to it), allow it, then **quit and reopen Shadow.app**: macOS only applies that permission after a relaunch,
+   and until then every picture fails.
 4. Restart the daemon: `launchctl kickstart -k gui/$(id -u)/com.shadow.daemon` (or stop it and run `corepack pnpm daemon`).
 5. `corepack pnpm fixtures` in a terminal (serves http://localhost:5173).
-6. A test Google Sheet with a header row (Date, Item, Amount) and two filled rows, where **the same amount appears in
+6. A 10-second throwaway recording with Screen on: Record, click a Finder window, click a Chrome page, Stop. Its folder
+   (`~/Library/Application Support/Shadow/recordings/<newest>/shots.jsonl`) should show `"outcome":"taken"` lines.
+   If they say `deleted` or `no-tools`, step 3 hasn't taken: quit and reopen Shadow.app once more.
+7. A test Google Sheet with a header row (Date, Item, Amount) and two filled rows, where **the same amount appears in
    both rows** (e.g. 1,234).
 
 The Record screen should now show a folded "Private words (optional)" line under the goal box. If it shows "Pictures
@@ -25,7 +30,7 @@ Goal: "Copy today's amount from my sheet into the expense form".
 4. In tab 2: click Amount, ⌘V, click Save.
 5. Tab 1: click the first empty cell of column A and type today's date like "19 Oct". Press Enter.
 6. Say while doing it: "I always take today's row" and "the date is today".
-7. Stop. Answer any question with Enter.
+7. Stop. Answer any question by clicking its first option. (Enter doesn't send an answer yet: that is Phase 4.)
 
 ## Recording B: Gmail (Screen on)
 Goal: "Note the newest email's subject".
