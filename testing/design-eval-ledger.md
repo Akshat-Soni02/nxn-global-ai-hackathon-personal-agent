@@ -10,3 +10,4 @@
 | 2026-10-20 | cp1 C replay v2: repair agent after the new-tab check failed (escalated at approval) | nemotron-3-super | $0.0380 | n/a (found new-tab + literal-target issues) |
 | 2026-10-20 | cp1 part 2 A: real Sheet + form, your Chrome (daemon Stop, design v1) | nemotron-3-super | $0.0246 | n/a (capture check) |
 | 2026-10-20 | cp1 part 2 B: Gmail promotions, your Chrome (daemon Stop, design v1) | nemotron-3-super | $0.0506 | n/a (capture check) |
+| 2026-10-20 | cp2 live captions: 5 pictures (GLM-5.3-Flash) + design v1 on Stop, test browser | glm-5.3-flash + nemotron-3-super | $0.0741 | captions ✓ (one cut short) |

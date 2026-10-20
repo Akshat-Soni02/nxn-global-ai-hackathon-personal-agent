@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NormalisedStep } from "../normalise.ts";
-import { captionsOf } from "./captions.ts";
+import { captionQuestion, captionsOf } from "./captions.ts";
 
 const step = (at: number): NormalisedStep => ({ index: 0, kind: "click", at, events: [`e${at}`] });
 
@@ -18,5 +18,11 @@ describe("captions", () => {
     );
     expect(captions.map((c) => c?.length)).toEqual([200, undefined, undefined]);
     expect(asked[0]).toContain("The user did: click");
+  });
+
+  it("says the picture is from just before the step, so the model names what was acted on, not an outcome", () => {
+    const question = captionQuestion({ index: 0, kind: "click", at: 0, events: [] });
+    expect(question).toContain("just before");
+    expect(question).not.toContain("what changed");
   });
 });
