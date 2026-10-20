@@ -8,7 +8,7 @@ import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
-import { questionsFor } from "../questions.ts";
+import { progressOf, questionsFor } from "../questions.ts";
 import { savedSince } from "../review.ts";
 import { Question } from "./Inbox.tsx";
 
@@ -56,9 +56,9 @@ export function Record({ again }: { again?: string }) {
         <section className="section">
           <h2>Turning your recording into a workflow…</h2>
           <p className="muted">{data.form?.goal}</p>
-          {data.progress.length > 0 ? (
+          {progressOf(data).length > 0 ? (
             <ol className="progress-feed" aria-live="polite">
-              {data.progress.map((p) => (
+              {progressOf(data).map((p) => (
                 <li key={`${p.at}-${p.line}`}>{p.line}</li>
               ))}
             </ol>
