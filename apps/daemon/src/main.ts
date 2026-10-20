@@ -255,9 +255,10 @@ record = createRecordControl({
       meter: usage,
       describer,
       // The design agent's safe test run: in the automation window, its log next to the recording.
-      rehearse: (skill, effects, onLine) =>
+      rehearse: (skill, effects, onLine, recorded) =>
         rehearse(daemon, skill, {
           effects,
+          recorded,
           hooks: { data, llm },
           logDir: recordingDir(home, sessionId),
           onLine: (line) => {

@@ -22,6 +22,8 @@ export async function rehearse(
   skill: Skill,
   options: {
     effects: Map<string, RecordedEffect>;
+    // The steps whose control is the one recorded, unchanged: only their links are followed.
+    recorded?: Set<string>;
     inputs?: Record<string, unknown>;
     hooks: Pick<RunHooks, "data" | "llm">;
     logDir: string;
@@ -29,14 +31,14 @@ export async function rehearse(
     signal?: AbortSignal;
   },
 ) {
-  const r = rehearsal(skill, options.effects, options.onLine);
+  const r = rehearsal(skill, options.effects, options.onLine, options.recorded);
   const why = notRunWhy(skill, { extension: daemon.extensions.size > 0, mac: daemon.mac().connected });
   if (why) {
     options.onLine?.(`The test run can't start: ${why}`);
     return r.report(`not run: ${why}`);
   }
   // Before it starts: what it will do, what it will only outline, and what reading changes (an email marked read).
-  const plan = rehearsalPlan(skill, options.effects);
+  const plan = rehearsalPlan(skill, options.effects, options.recorded);
   options.onLine?.(
     `Testing in the automation window: it will open and read ${plan.does.length} step(s) and only outline ${plan.outlines.length}`,
   );

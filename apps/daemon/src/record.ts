@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, sep } from "node:path";
-import { type Effect, type Skill, type TraceEvent, triggerOf } from "@shadow/core";
+import { type Effect, isAction, type Skill, type Step, type TraceEvent, triggerOf, walkSteps } from "@shadow/core";
 import { type Llm, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import {
@@ -114,7 +114,13 @@ export interface FinishOptions {
   describer?: ScreenDescriber;
   // The design agent's safe test run in the automation window (main.ts binds the daemon's rehearse). Without it, the
   // workflow is saved untested and the review says so.
-  rehearse?: (skill: Skill, effects: Map<string, Effect>, onLine: (line: string) => void) => Promise<TestReport>;
+  // `recorded`: the steps whose control is the one recorded, unchanged (only their links are followed).
+  rehearse?: (
+    skill: Skill,
+    effects: Map<string, Effect>,
+    onLine: (line: string) => void,
+    recorded: Set<string>,
+  ) => Promise<TestReport>;
   // Plain-language lines for the Record screen as the work goes on.
   progress?: (line: string) => void;
 }
@@ -247,7 +253,9 @@ export async function finishRecording(
       // The Never and private words: every tool result the agent reads is masked with them.
       maskTerms: maskTermsOf(recorded),
       unattended: unattendedGaps,
-      test: rehearse ? (draft) => rehearse(draft, effects, (line) => log(line)) : undefined,
+      test: rehearse
+        ? (draft) => rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft))
+        : undefined,
       meter,
       onProgress: progress,
       onEvent: (event) => {
@@ -310,6 +318,16 @@ export async function finishRecording(
   progress(`Saved ${saved.skill.name}`);
   if (design) writeReview(dataDir, reviewOf(design, saved.skill, made));
   return { ...saved, design };
+}
+
+// The steps whose control is still the one recorded: the test run follows a link only there (a link the agent added,
+// or a control it changed, is only outlined).
+function unchangedControls(recorded: Skill, draft: Skill): Set<string> {
+  const target = (step: Step) => JSON.stringify(isAction(step) ? step.target : undefined);
+  const was = new Map([...walkSteps(recorded.steps)].map(({ step }) => [step.id, target(step)]));
+  return new Set(
+    [...walkSteps(draft.steps)].filter(({ step }) => was.get(step.id) === target(step)).map(({ step }) => step.id),
+  );
 }
 
 // A Frequency that starts runs on their own (a schedule, a folder) needs every input filled without asking: a default

@@ -8,7 +8,7 @@ import { type ActionStep, isAction, isOutward, type LlmStep, type Skill, walkSte
 import type { RunLogEvent, WalkChoice } from "./types.ts";
 
 export const ACTION_VERBS =
-  /\b(archive|delete|remove|trash|mark|move|label|star|assign|approve|send|submit|pay|post|save|publish|share|confirm|reply|forward|invite|upload|buy|order|book|apply|unsubscribe)\b/i;
+  /\b(archive|delete|remove|trash|mark|move|label|star|assign|approve|send|submit|pay|post|save|publish|share|confirm|reply|forward|invite|upload|buy|order|book|apply|unsubscribe|accept|decline|reject|cancel|join|leave|follow|unfollow|subscribe|like|vote|dismiss|snooze|mute|block|resolve|merge|close)\b/i;
 const READS = new Set(["web.navigate", "web.wait_for", "web.extract", "fs.find", "fs.read", "data.pick", "ax.open"]);
 const SAFE_ROLES = new Set(["link", "tab", "menuitem", "treeitem"]);
 export const MAX_LLM = 3;
@@ -21,11 +21,15 @@ export interface RecordedEffect {
   expanded?: boolean;
 }
 
+// `recorded`: the step's control is the one recorded, unchanged. A link the agent added, or a recorded step whose
+// control it changed, has no effect of its own: it is only outlined (its old effect was another control's).
 export function rehearsalChoice(
   step: ActionStep | LlmStep,
-  effect: RecordedEffect | undefined,
+  recordedEffect: RecordedEffect | undefined,
   llmSoFar: number,
+  recorded = true,
 ): { choice: WalkChoice; why: string } {
+  const effect = recorded ? recordedEffect : undefined;
   if (step.type === "llm") {
     return llmSoFar < MAX_LLM
       ? { choice: "do", why: "reads text" }
@@ -40,6 +44,7 @@ export function rehearsalChoice(
   const role = step.target?.role ?? "";
   const went = Boolean(effect?.navigated || effect?.opened || effect?.expanded);
   // A link or tab with no recorded effect (an older recording) only goes somewhere; a menu item needs its effect.
+  if (!recorded) return { choice: "skip", why: "a control that wasn't recorded: it may change something" };
   if (SAFE_ROLES.has(role) && (went || (effect === undefined && (role === "link" || role === "tab")))) {
     return { choice: "do", why: `a ${role} that only goes somewhere` };
   }
@@ -54,6 +59,8 @@ const MAIL = /^https:\/\/(mail\.google\.com|outlook\.(live|office|office365)\.co
 export function rehearsalPlan(
   skill: Skill,
   effects: Map<string, RecordedEffect>,
+  // The steps whose control is the one recorded, unchanged; without it, every step's is.
+  recorded?: Set<string>,
 ): { does: string[]; outlines: string[]; warnings: string[] } {
   const does: string[] = [];
   const outlines: string[] = [];
@@ -63,7 +70,7 @@ export function rehearsalPlan(
   for (const { step } of walkSteps(skill.steps)) {
     if (step.type !== "action" && step.type !== "llm") continue;
     if (isAction(step) && step.action === "navigate") page = String(step.args.url ?? "");
-    const { choice, why } = rehearsalChoice(step, effects.get(step.id), llm);
+    const { choice, why } = rehearsalChoice(step, effects.get(step.id), llm, !recorded || recorded.has(step.id));
     if (choice === "do") {
       if (step.type === "llm") llm++;
       does.push(`${step.id} ${step.intent}`);
@@ -99,6 +106,8 @@ export function rehearsal(
   skill: Skill,
   effects: Map<string, RecordedEffect>,
   onLine?: (line: string) => void,
+  // The steps whose control is the one recorded, unchanged; without it, every step's is.
+  recorded?: Set<string>,
 ): Rehearsal {
   let llm = 0;
   const steps = new Map<string, RehearsalStep>(); // by path
@@ -106,7 +115,7 @@ export function rehearsal(
   const say = (line: string) => onLine?.(line);
   return {
     async walk(step, path) {
-      const { choice, why } = rehearsalChoice(step, effects.get(step.id), llm);
+      const { choice, why } = rehearsalChoice(step, effects.get(step.id), llm, !recorded || recorded.has(step.id));
       if (choice === "do" && step.type === "llm") llm++;
       if (choice === "skip") {
         const target =

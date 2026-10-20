@@ -53,6 +53,20 @@ describe("what the test run does for real", () => {
   });
 });
 
+describe("what the test run never does", () => {
+  it("never follows a link the agent invented, nor one whose recorded control was changed; never Decline or Join", () => {
+    const link = act("s9", "click", { role: "link", name: "Daily KPIs" });
+    expect(rehearsalChoice(link, undefined, 0, false).choice).toBe("skip");
+    expect(rehearsalChoice(link, { changed: "large", navigated: true }, 0, false).choice).toBe("skip");
+    expect(rehearsalChoice(link, undefined, 0, true).choice).toBe("do");
+    for (const name of ["Decline", "Join meeting", "Accept invite", "Unfollow", "Resolve"]) {
+      expect(
+        rehearsalChoice(act("s3", "click", { role: "link", name }), { changed: "large", navigated: true }, 0).choice,
+      ).toBe("skip");
+    }
+  });
+});
+
 describe("what it says before it starts", () => {
   it("lists what it will do, what it will only outline, and that opening an email marks it read", () => {
     const skill = Skill.parse({
