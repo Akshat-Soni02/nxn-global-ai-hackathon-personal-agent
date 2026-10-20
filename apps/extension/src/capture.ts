@@ -264,7 +264,8 @@ export function startCapture(
           ...(synthetic ? { synthetic: true } : {}),
           cid,
           ...pointOf(e as MouseEvent, el),
-          ...listOf(el),
+          // A drawn area's place is its cell or point: the page's own panes around it are not a list.
+          ...(drawn ? {} : listOf(el)),
         };
         if (drawn && inSheet()) {
           // Sheets moves its Name Box to the clicked cell just after the click: read it then, keeping the click's time.

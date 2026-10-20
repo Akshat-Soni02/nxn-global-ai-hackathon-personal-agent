@@ -43,6 +43,29 @@ describe("Google Sheets", () => {
     });
   });
 
+  it("gives a click on the drawn grid its cell and no place in a list (Sheets' own panes are not a list)", async () => {
+    document.body.innerHTML = `<input id="t-name-box" value="A1"><div id="t-formula-bar-input"></div>
+      <div class="docs-sheet-active-tab"><span class="docs-sheet-tab-name">Class Data</span></div>
+      <div id="0-grid-container"><div class="pane"><canvas id="grid"></canvas></div><div class="pane"><b>x</b></div>
+      <div class="pane"><b>Add more rows at the bottom</b></div></div>`;
+    const events: PageEvent[] = [];
+    const stop = startCapture(
+      document,
+      (e) => events.push(e),
+      () => true,
+      {},
+    );
+    const grid = document.querySelector("#grid") as Element;
+    grid.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, composed: true }));
+    grid.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, detail: 1 }));
+    (document.querySelector("#t-name-box") as HTMLInputElement).value = "B8";
+    await vi.advanceTimersByTimeAsync(200);
+    stop();
+    const click = events.find((e) => e.event === "click");
+    expect(click).toMatchObject({ drawn: true, cell: { ref: "B8", sheet: "Class Data" } });
+    expect(click?.list).toBeUndefined();
+  });
+
   it("gives a click on the grid and the value typed into a cell their cells", async () => {
     page("A1", "");
     const events: PageEvent[] = [];
