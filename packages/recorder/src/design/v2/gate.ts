@@ -45,12 +45,12 @@ export function gate(input: GateInput): string[] {
   const problems: string[] = [];
   const now = new Map<string, Step>([...walkSteps(workflow.steps)].map(({ step }) => [step.id, step]));
 
-  // The work the user showed still happens: kept (in a loop counts), or its removal explained for the review. A
-  // workflow that keeps none of it isn't what they meant, whatever reason each removal was given (Oct 19: the Play
-  // Store run kept one step of the recording).
+  // The work the user showed (what they typed, chose, moved or sent: a step that needed approval sent something) still
+  // happens: kept (in a loop counts), or its removal explained for the review. A workflow that keeps none of it isn't
+  // what they meant, whatever reason each removal was given (Oct 19: the Play Store run kept one step of the recording).
   const shown = [...walkSteps(recorded.steps)]
     .map(({ step }) => step)
-    .filter((s) => isAction(s) && (WRITES.has(`${s.channel}.${s.action}`) || isOutward(s)));
+    .filter((s) => isAction(s) && (WRITES.has(`${s.channel}.${s.action}`) || isOutward(s) || s.requires_approval));
   const noneKept = shown.length > 0 && shown.every((s) => !now.has(s.id));
   for (const step of shown) {
     if (now.has(step.id) || (explained.has(step.id) && !noneKept)) continue;

@@ -134,6 +134,54 @@ describe("the tools", () => {
     expect(String(all.output.problems)).not.toMatch(/loop or branch/);
   });
 
+  it("asks before an Enter, Return or new line the agent adds in a field, whatever the field is called", async () => {
+    const s = session();
+    const enter = await run(s, "add", {
+      after: "s3",
+      step: { do: "press", intent: "send it", target: { like: "s3" }, key: "Enter" },
+      why: "x",
+    });
+    expect(enter.output.approval_added).toEqual(["s4"]);
+    const line = await run(s, "add", {
+      after: "s4",
+      step: { do: "type", intent: "type and send", target: { like: "s3" }, text: "hello\n" },
+      why: "x",
+    });
+    expect(line.output.approval_added).toEqual(["s5"]);
+    const shifted = await run(s, "add", {
+      after: "s5",
+      step: { do: "press", intent: "new line", target: { like: "s3" }, key: "Enter", modifiers: ["shift"] },
+      why: "x",
+    });
+    expect(shifted.output.approval_added).toBeUndefined();
+  });
+
+  it("asks before a step that copies a recorded send, after the send itself was removed", async () => {
+    const withSend = Skill.parse({
+      ...recorded,
+      steps: [
+        ...recorded.steps,
+        {
+          id: "s4",
+          type: "action",
+          intent: "send",
+          channel: "web",
+          action: "click",
+          target: { role: "button", name: "Go", fallbacks: [] },
+          requires_approval: true,
+        },
+      ],
+    });
+    const s = newSession(withSend, facts);
+    await run(s, "remove", { steps: ["s4"], why: "x" });
+    const again = await run(s, "add", {
+      after: "s3",
+      step: { do: "click", intent: "go", target: { like: "s4" } },
+      why: "x",
+    });
+    expect(again.output.approval_added).toEqual(["s5"]);
+  });
+
   it("copy a recorded target with like, and say what to use when a loop is empty", async () => {
     const s = session();
     const copied = await run(s, "add", {

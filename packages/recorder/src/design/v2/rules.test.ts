@@ -159,6 +159,31 @@ describe("refusals: what the design agent may never do", () => {
     expect(why).not.toMatch(/r3|r4|f1/);
   });
 
+  it("keeps uploads and watched folders inside the folders the recording touched too", () => {
+    const original = base([open("s1", SHEET)]);
+    const upload = (id: string, file: string) => ({
+      id,
+      type: "action",
+      intent: `upload ${id}`,
+      channel: "web",
+      action: "upload",
+      target: { role: "button", name: "Upload", fallbacks: [] },
+      args: { file },
+    });
+    const ai = { id: "ai1", type: "llm", intent: "pick", instruction: "x", inputs: ["{{x}}"], output: text("answer") };
+    const why = (...steps: unknown[]) => refusals(original, base([open("s1", SHEET), ...steps]), facts).join("\n");
+    expect(why(upload("u1", "/tmp/exports/kpis.csv"))).toBe("");
+    expect(why(upload("u2", "~/.ssh/id_rsa"))).toMatch(/u2: it may only reach .* not ~\/\.ssh\/id_rsa/);
+    const fromAnswer = refusals(
+      original,
+      base([open("s1", SHEET), ai, upload("u3", "{{answer}}")], { inputs: { x: { type: { type: "text" } } } }),
+      facts,
+    ).join("\n");
+    expect(fromAnswer).toMatch(/u3: a path made from \{\{answer\}\}/);
+    const watched = base([open("s1", SHEET)], { when: [{ type: "folder_watch", dir: "~/.ssh", glob: "*" }] });
+    expect(refusals(original, watched, facts).join()).toMatch(/start: it may only watch .* not ~\/\.ssh/);
+  });
+
   it("refuses a hidden value (███) copied back from the masked text the agent reads", () => {
     const original = base([open("s1", SHEET)]);
     const typing = {

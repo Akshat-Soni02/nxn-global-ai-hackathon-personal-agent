@@ -85,6 +85,24 @@ describe("the finish gate", () => {
     expect(problems).toMatch(/s3 .*gone/);
   });
 
+  it("counts a recorded step that needed approval (an Enter that sent) as work the user showed", () => {
+    const sent = skill([
+      act("s1", "web", "navigate", { url: CHAT }),
+      act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+      act("s3", "web", "type", { text: "Date - 19 Oct" }),
+      act("s4", "web", "press", { key: "Enter" }, { requires_approval: true }),
+    ]);
+    const without = skill(
+      [
+        act("s1", "web", "navigate", { url: CHAT }),
+        act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+        act("s3", "web", "type", { text: "Date - {{today}}" }),
+      ],
+      [{ type: "schedule", cron: "0 9 1 * *" }],
+    );
+    expect(gate(input(without, { recorded: sent })).join("\n")).toMatch(/s4 .*gone/);
+  });
+
   it("refuses invented checks, empty ones, and text checks on a sheet's drawn cells", () => {
     const wf = skill(
       [

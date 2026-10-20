@@ -21,7 +21,7 @@ import { producedType } from "../../compile.ts";
 import { maskText } from "../../mask.ts";
 import { DoneReport } from "./contracts.ts";
 import { outlineOf } from "./outline.ts";
-import { refusals } from "./rules.ts";
+import { maySend, refusals } from "./rules.ts";
 import { MAX_DONE_REFUSALS, MAX_TESTS, type SessionV2 } from "./session.ts";
 
 // A tool input, or one of its fields, sent as a JSON string: parsed. Anything that isn't JSON stays as it was.
@@ -118,13 +118,30 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     const refused = refusals(session.original, result.skill, session.facts);
     if (refused.length > 0) return { output: { ok: false, refused } };
     const approved = requireApprovals(result.skill);
-    session.draft = approved.skill;
+    // What it added or changed that may send (an Enter in a message box, a copy of a recorded send): approval too.
+    const before = new Map([...walkSteps(session.draft.steps)].map(({ step }) => [step.id, JSON.stringify(step)]));
+    const sending = [...walkSteps(approved.skill.steps)]
+      .map(({ step }) => step)
+      .filter(
+        (step) =>
+          isAction(step) &&
+          !step.requires_approval &&
+          before.get(step.id) !== JSON.stringify(step) &&
+          maySend(step, session.original),
+      )
+      .map((step) => step.id);
+    const marked = applyEdits(
+      approved.skill,
+      sending.map((id): EditInput => ({ op: "set", step: id, field: "requires_approval", value: true })),
+    );
+    session.draft = marked.ok ? marked.skill : approved.skill;
+    const added = [...approved.added, ...(marked.ok ? sending : [])];
     for (const id of touched) if (why) session.whys.set(id, why);
     for (const id of unverified) session.unverified.add(id);
     return {
       output: {
         ok: true,
-        ...(approved.added.length > 0 ? { approval_added: approved.added } : {}),
+        ...(added.length > 0 ? { approval_added: added } : {}),
         workflow: outlineOf(session.draft),
       },
     };

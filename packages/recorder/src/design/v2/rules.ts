@@ -71,6 +71,14 @@ export function refusals(original: Skill, draft: Skill, facts: RecordingFacts): 
   const where = `folders the recording touched (${folders.join(", ") || "none"})`;
   const safe = safeSources(draft);
 
+  // Nor may a folder it watches (a run starts when a file lands there, and the file is handed to its steps).
+  const watched = new Set(triggerOf(original).when.flatMap((w) => (w.type === "folder_watch" ? [w.dir] : [])));
+  for (const w of triggerOf(draft).when) {
+    if (w.type !== "folder_watch" || watched.has(w.dir)) continue;
+    if (!inside(withDates(w.dir), folders))
+      problems.push(`start: it may only watch ${where}, not ${w.dir}: ask the user instead`);
+  }
+
   // An input the agent declares may not point outside those folders either (a default path, or where to look).
   const inputsBefore = triggerOf(original).inputs;
   for (const [name, input] of Object.entries(triggerOf(draft).inputs)) {
@@ -102,20 +110,26 @@ export function refusals(original: Skill, draft: Skill, facts: RecordingFacts): 
       const why = reach(step.args.url, sites, files);
       if (why) problems.push(`${step.id}: ${why}`);
     }
-    if (step.channel === "fs") {
-      for (const key of PATH_ARGS) {
-        const place = step.args[key];
-        if (place === undefined) continue;
-        const unsafe = unsafeRefs(place, safe);
-        if (unsafe.length > 0) {
-          problems.push(
-            `${step.id}: a path made from {{${unsafe[0]}}} (an AI step's answer, or text read from a page) could point anywhere: use a file a find step found, or an input the user gives`,
-          );
-          continue;
-        }
-        if (isReference(place) || inside(withDates(place), folders)) continue;
-        problems.push(`${step.id}: it may only reach ${where}, not ${String(place)}: ask the user instead`);
+    // A place on disk the step reads, writes or hands to a page: an fs step's path arguments, or an upload's files.
+    const places =
+      step.channel === "fs"
+        ? PATH_ARGS.map((key) => step.args[key])
+        : step.channel === "web" && step.action === "upload"
+          ? [step.args.file, ...(Array.isArray(step.args.files) ? step.args.files : [])]
+          : [];
+    for (const place of places) {
+      if (place === undefined) continue;
+      const unsafe = unsafeRefs(place, safe);
+      if (unsafe.length > 0) {
+        problems.push(
+          `${step.id}: a path made from {{${unsafe[0]}}} (an AI step's answer, or text read from a page) could point anywhere: use a file a find step found, or an input the user gives`,
+        );
+        continue;
       }
+      if (isReference(place) || inside(withDates(place), folders)) continue;
+      problems.push(`${step.id}: it may only reach ${where}, not ${String(place)}: ask the user instead`);
+    }
+    if (step.channel === "fs") {
       if (climbs(withDates(step.args.glob))) {
         problems.push(`${step.id}: its glob (${String(step.args.glob)}) must stay inside its folder`);
       }
@@ -137,6 +151,31 @@ function reach(url: unknown, sites: Set<string>, files: Set<string>): string | u
     return "an address built from a value could go anywhere: click the item instead, or start the address with its site (https://…/{{…}})";
   }
   return sites.has(origin) ? undefined : `${origin} is a site the recording didn't visit: ask the user instead`;
+}
+
+// Whether a step the agent added or changed may send, whatever its control is called (isOutward reads only the
+// control's words, and "Message Arilo Stats" says nothing): Enter or Return without Shift (it sends in chat and mail,
+// and submits forms), text with a new line (typing it presses Enter), or a copy of a recorded step that needed
+// approval. Code asks first (spec: approval on Enter-that-sends, including steps the agent adds).
+export function maySend(step: Step, original: Skill): boolean {
+  if (!isAction(step)) return false;
+  const key = `${step.channel}.${step.action}`;
+  if ((key === "web.press" || key === "ax.key") && /^(enter|return)$/i.test(String(step.args.key ?? ""))) {
+    return !((step.args.modifiers as string[] | undefined) ?? []).includes("shift");
+  }
+  if (
+    (key === "web.type" || key === "ax.set_value") &&
+    /[\r\n]/.test(String(step.args.text ?? step.args.value ?? ""))
+  ) {
+    return true;
+  }
+  if (!step.target) return false;
+  const same = (s: Step) =>
+    isAction(s) &&
+    s.requires_approval &&
+    `${s.channel}.${s.action}` === key &&
+    JSON.stringify(s.target) === JSON.stringify(step.target);
+  return [...walkSteps(original.steps)].some(({ step: s }) => same(s));
 }
 
 // What the agent changed, step by step, with its reason: the review highlights each one for the user to check.
