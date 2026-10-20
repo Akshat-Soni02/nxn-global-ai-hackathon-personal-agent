@@ -10,6 +10,9 @@ the same sections again, as they are built now: the fundamental issues (§0), Re
 - **Not handled:** limits by design.
 - **Problems seen:** every failure from the reports and checks that traces to this section, and where it stands.
 
+The design sections, like `section-study.md`'s, skip "Edge cases handled" and "Not handled": their limits are under
+Problems seen.
+
 Replay and recovery (P, X) are not covered here; they are as in `section-study.md`, plus the few hooks record needed
 (§0.4). What changed, commit by commit, is in [`record-v2-changes.md`](record-v2-changes.md). Code is as of
 `feat/record-v2` at `16f313f` (Oct 20).
@@ -230,6 +233,14 @@ Stop   ─► R6 read and mask the pictures  ║  R7 transcribe          (at the
   - a workflow step may name its tab (`step.tab`), and the automation window keeps one tab per name (`tab-map.ts`);
   - code doesn't name tabs on recorded steps; the agent does (D3).
 
+**Edge cases handled**
+- A tab opened by a click: its opener is kept, and §R9 ties the tab to that click.
+- A tab open before Record that you then used: announced at first use, with its address.
+- A tab you never used: not in the recording at all.
+- A tab closed mid-recording.
+- A switch to a tab that can't be read: recorded without an address.
+- A replay running during the recording: its tabs are never recorded.
+
 **Not handled**
 - A tab opened during the recording gets no title, only its address.
 - After the extension's background restarts, it doesn't know the automation tabs until it reloads its tab map. Events
@@ -289,6 +300,14 @@ Stop   ─► R6 read and mask the pictures  ║  R7 transcribe          (at the
   - at Record, Shadow.app asks for Screen Recording if Pictures is on and it isn't granted yet. It doesn't check the
     answer.
 
+**Edge cases handled**
+- Opening a menu: the chosen item is the step, not the click that opened the menu.
+- Pastes into a field (⌘V): the value isn't kept.
+- Editing shortcuts inside a field (⌘A, C, X, Z) aren't steps.
+- Electron apps (Slack, VS Code): asked to expose their controls.
+- A hung app: each Accessibility call gives up after 0.5 s.
+- Accessibility turned on or off mid-recording: the recorder restarts.
+
 **Not handled**
 - **System Settings:** the Privacy skip covers clicks only. Keys, typing and app switches in it are still recorded.
 - **Languages:** "Privacy" and "Move to Trash" are matched in English only.
@@ -342,6 +361,14 @@ Downloads come from the extension. A picked or dropped file is found on disk by 
   1. Spotlight, for 5 s;
   2. then a walk 3 levels deep, up to 20,000 entries;
   3. it must have the same name and size; the closest date wins.
+
+**Edge cases handled**
+- Renames of files never seen before.
+- External drives, watched once a Finder window shows them.
+- Downloads, linked to the step that caused them (`produces`).
+- Temporary and half-downloaded files.
+- A file rewritten in place, which isn't a move.
+- Cloud folders inside `~/Library` (Google Drive, iCloud).
 
 **Not handled**
 - **Inodes:** files that existed before Record are known only in the watched folders' top level. Deeper ones pair by name
@@ -400,12 +427,21 @@ or navigate, and, **new**, after `select_text` and `tab_switch`.
 - **The Record screen warns before recording** when Shadow.app can't read or mask pictures (`screenReady`, §R6).
 - **Storage:** pictures are saved as `shots/<event>.jpg`, readable only by you (0600).
 
+**Edge cases handled**
+- Fast bursts of events: the queue keeps the most telling pictures.
+- A click that opens a new tab: the new tab is pictured when it shows.
+- The tab hidden when its picture is due: skipped, with `tab-hidden` in the ledger.
+- Pictures still waiting at Stop: written down as `stopped`.
+- A password field with focus: no picture.
+
 **Not handled**
 - **No ledger line for:**
   - an automation tab;
   - no open session or no Screen consent;
   - any Mac picture skipped or failed.
 - **No picture for:** paste, drag, tab open or close, window focus and downloads.
+- **A click that opens a new tab** has no picture of its own (the tab hides it 25 ms later), and the evidence doesn't give
+  it the new tab's picture.
 - **Black-out gaps:**
   - none in iframes;
   - boxes are measured at the event, but the picture is taken 400–1,200 ms later, so a field that moved isn't covered;
@@ -419,7 +455,7 @@ or navigate, and, **new**, after `select_text` and `tab_switch`.
 | Every picture discarded (binary detection) | pre-[1] | fixed (Oct 14) |
 | A burst of events lost pictures: the newest replaced the waiting one (H14) | [8] | **fixed (live)** [4] (`c820e9a`) |
 | **Pictures lost silently**: one log line, "screenshots aren't taken" | [8] | **fixed (live)** [4]: a ledger line per event (`c820e9a`, `c9f6248`) |
-| A click that opens a new tab had no picture (the tab hides 25 ms later) | [4] | **fixed (tests)**: pictured on the new tab's switch |
+| A click that opens a new tab had no picture (the tab hides 25 ms later) | [4] | **partly:** the new tab is pictured when it shows (`c820e9a`); the click itself still has none [4] |
 
 **Where:** `apps/extension/src/background.ts`, `shot-queue.ts`, `shot.ts`; `apps/daemon/src/screen.ts`;
 `packages/core/src/messages.ts`; `apps/mac/Sources/main.swift`.
@@ -454,6 +490,13 @@ Only `screen.jsonl` (and captions, §R8) reaches a model.
 - **No unmasked pictures:** a picture that can't be read or masked is deleted, never kept unmasked.
 - **`screenReady`:** Shadow.app's binary can read and black out pictures. It's worked out once, when the daemon starts.
 - **Masked again later:** everything the agent reads is masked again (D1).
+
+**Edge cases handled**
+- Pictures still arriving at Stop: the reader finishes them first.
+- Shadow.app missing, or unable to read: each picture is deleted with `no-tools`, and the Record screen warns before
+  recording.
+- A hung read or black-out: time limits (120 s, 60 s), then the picture is deleted.
+- Dates like `2026-10-19` aren't masked as phone numbers.
 
 **Not handled**
 - **`screenReady` isn't checked again:** after Shadow.app is fixed, the daemon must restart.
@@ -629,6 +672,16 @@ Each step now also keeps:
   - the next step came within 700 ms, too soon to tell.
 - **What the agent can put back:** only drawn, quiet, focus and nameless noise (`restore`, D3).
 
+**Edge cases handled**
+- As before: double clicks, label clicks, implicit submit, focus clicks, file dialogs opened by script, reloads, a
+  recording that starts mid-page.
+- **New:**
+  - a selection, then a copy;
+  - clicks the page made itself, on its own or after your keys;
+  - a click on a sheet's drawn grid, whose cell goes with the copy or typing after it;
+  - Enter in Google's editors, which moves to the next cell and isn't a send;
+  - tab switches with nothing done between them.
+
 **Not handled**
 - **Still dropped with no noise line:**
   - pages replay can't open (`chrome://`);
@@ -713,6 +766,15 @@ Each step now also keeps:
     Trash (new); anything matching Never;
   - **uploads aren't gated:** the click that sends the form is;
   - **when:** after every change the agent makes, too (D4).
+
+**Edge cases handled**
+- As before: map addresses that change per visit, ambiguous US/EU dates (`10/3/2026` kept as both), files found on
+  disk after a pick or drop, shadow roots.
+- **New:**
+  - a sheet copy's row is the copied cell's row, even when the same value is elsewhere;
+  - "open directly" never swallows a pick from a list;
+  - page chrome (Gmail's header blocks, GitHub's nav tabs) isn't proposed as a list [5];
+  - two keys or two typings aren't proposed as a repeat [5].
 
 **Not handled**
 - **Link addresses:**
