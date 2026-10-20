@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { type ActionStep, Skill } from "@shadow/core";
 import { type RunDeps, type RunOutcome, runSkill } from "@shadow/player";
 import { describe, expect, it } from "vitest";
+import { writeReview } from "./review-store.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
 import { saveSkill } from "./skill-store.ts";
 import { openStore } from "./store.ts";
@@ -232,6 +233,25 @@ describe("the daemon as a service", () => {
 });
 
 describe("the workflow lifecycle", () => {
+  it("waits for Looks right before a designed workflow goes live", () => {
+    const { open, dataDir } = setup([write("s1")]);
+    const { service } = open();
+    const review = {
+      skillId: "report",
+      version: 1,
+      summary: "x",
+      notes: [],
+      said: [],
+      notTested: [],
+      gaps: [],
+      reviewed: false,
+    };
+    writeReview(dataDir, review);
+    expect(() => service.goLive("report")).toThrow(/Looks right/);
+    service.looksRight("report");
+    expect(service.goLive("report")).toMatchObject({ state: "live" });
+  });
+
   const failing = async (): Promise<RunOutcome> => ({
     status: "failed",
     vars: {},

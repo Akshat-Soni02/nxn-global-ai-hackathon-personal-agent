@@ -21,10 +21,11 @@ import {
 } from "@shadow/player";
 import { deleteDraft, draftSkill, readDraft, writeDraft } from "./draft-store.ts";
 import { goLiveProblems, nextTime, readState, triggerKey, writeState } from "./lifecycle.ts";
+import { markReviewed, readReview } from "./review-store.ts";
 import { newRunId } from "./runner.ts";
 import { listSkills, loadSkill, rollbackSkill, saveSkill, versions } from "./skill-store.ts";
 import type { Checkpoint, InboxItem, RunRow, RunState, Store } from "./store.ts";
-import type { DraftView, Question, ServiceEvent, StateFile, WorkflowSummary } from "./types.ts";
+import type { DraftView, Question, Review, ServiceEvent, StateFile, WorkflowSummary } from "./types.ts";
 
 // Auto-pause (docs/design.md, "Workflow lifecycle"): this many failed runs in a row, started by the trigger.
 export const AUTO_PAUSE_AFTER = 3;
@@ -86,6 +87,9 @@ export interface Service {
   // A workflow's lifecycle (lifecycle.ts). goLive and resume run the checks and throw with what is missing.
   state(id: string): StateFile;
   goLive(id: string): StateFile;
+  // The review of the latest design (skills/<id>/review.json), and "Looks right" (spec 4.3).
+  review(id: string): Review | null;
+  looksRight(id: string): Review | null;
   pause(id: string, reason?: string): StateFile;
   resume(id: string): StateFile;
   // Sets the Frequency: the trigger step's `when`, saved as the next version (by: user). On a live workflow the new
@@ -237,6 +241,10 @@ export function createService(options: ServiceOptions): Service {
     return skill;
   };
   const goLive = (id: string): StateFile => {
+    const review = readReview(dataDir, id);
+    if (review && !review.reviewed && review.version === latest(id).version) {
+      throw new Error("can't go live yet: look at what the design changed, then press Looks right");
+    }
     const problems = goLiveProblems(latest(id));
     if (problems.length > 0) throw new Error(`can't go live: ${problems.join("; ")}`);
     return setState(id, { state: "live", since: now() });
@@ -504,6 +512,12 @@ export function createService(options: ServiceOptions): Service {
 
     state: (id) => readState(dataDir, id),
     goLive,
+    review: (id) => readReview(dataDir, id) ?? null,
+    looksRight: (id) => {
+      const marked = markReviewed(dataDir, id) ?? null;
+      emit({ type: "workflow", id, state: readState(dataDir, id) });
+      return marked;
+    },
     pause: (id, reason) => pause(id, reason),
     resume: goLive,
 

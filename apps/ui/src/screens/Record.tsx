@@ -5,10 +5,11 @@
 // anything still unclear is asked after Stop.
 import type { Skill, Trigger } from "@shadow/core";
 import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
 import { questionsFor } from "../questions.ts";
+import { savedSince } from "../review.ts";
 import { Question } from "./Inbox.tsx";
 
 // `again`: a workflow's id, to record that task again: the box starts filled in from it, and the recording becomes
@@ -16,6 +17,18 @@ import { Question } from "./Inbox.tsx";
 export function Record({ again }: { again?: string }) {
   const { data, error } = useQuery<RecordingView>("recording");
   const inbox = useQuery<InboxItem[]>("inbox", { open: true });
+  // After Stop, the workflow it saved opens (H24): only one saved since this screen opened. `seen` is the last
+  // recording when the screen first had its data (null until then), so an older one never opens.
+  const seen = useRef<string | undefined | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    if (seen.current === null) {
+      seen.current = data.last?.sessionId;
+      return;
+    }
+    const saved = savedSince(seen.current, data.last);
+    if (saved) location.hash = `#/workflows/${saved}`;
+  }, [data]);
   if (!data) return <Loading error={error} />;
   // Questions outside a run: the form's (from the terminal) and the ones about this recording.
   const questions = questionsFor(inbox.data ?? [], data.sessionId);

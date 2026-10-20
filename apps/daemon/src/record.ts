@@ -30,6 +30,7 @@ import {
   recordedFolders,
   recordedPages,
   requireApprovals,
+  reviewOf,
   type TestReport,
   tabsOf,
 } from "@shadow/recorder";
@@ -39,6 +40,7 @@ import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { goLiveProblems } from "./lifecycle.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
 import { maskTermsOf, readForm, readNotes, recordingDir } from "./recording-store.ts";
+import { writeReview } from "./review-store.ts";
 import { loadSkill, newSkillId, saveSkill } from "./skill-store.ts";
 import { appendTrace, readTrace } from "./trace-store.ts";
 
@@ -121,12 +123,18 @@ export async function finishRecording(
   options: FinishOptions,
 ): Promise<{ path: string; skill: Skill; design?: DesignV2Outcome } | undefined> {
   const { dataDir, log } = options;
+  // The feed's lines are kept for the review's "How this was made" too.
+  const made: string[] = [];
+  const progress = (line: string) => {
+    made.push(line);
+    options.progress?.(line);
+  };
   // Pages never see a file's path; find each picked or dropped file on disk so the skill knows where they live.
   const raw = readTrace(dataDir, sessionId);
   const trace = options.locate ? await locateFiles(raw, options.locate) : raw;
   const { steps, noise } = normaliseAll(trace);
   log(`trace ${sessionId}: ${trace.length} event(s) -> ${steps.length} step(s), ${noise.length} left out`);
-  options.progress?.(`Read ${trace.length} actions as ${steps.length} steps`);
+  progress(`Read ${trace.length} actions as ${steps.length} steps`);
   if (steps.length === 0) {
     log("nothing to compile");
     return undefined;
@@ -234,10 +242,10 @@ export async function finishRecording(
       unattended: unattendedGaps,
       test: rehearse ? (draft) => rehearse(draft, effects, (line) => log(line)) : undefined,
       meter,
-      onProgress: options.progress,
+      onProgress: progress,
       onEvent: (event) => {
         const line = progressLine(event);
-        if (line) options.progress?.(line);
+        if (line) progress(line);
       },
       ...options.design,
     });
@@ -292,7 +300,8 @@ export async function finishRecording(
         };
   const saved = saveSkill(dataDir, noted);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
-  options.progress?.(`Saved ${saved.skill.name}`);
+  progress(`Saved ${saved.skill.name}`);
+  if (design) writeReview(dataDir, reviewOf(design, saved.skill, made));
   return { ...saved, design };
 }
 

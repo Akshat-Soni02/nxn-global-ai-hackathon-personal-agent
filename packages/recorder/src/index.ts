@@ -37,6 +37,7 @@ export { outlineOf } from "./design/v2/outline.ts";
 export { recordedFolders, recordedPages } from "./design/v2/places.ts";
 export { progressLine } from "./design/v2/progress.ts";
 export { MAX_QUESTIONS } from "./design/v2/questions.ts";
+export { type Review, reviewOf } from "./design/v2/review.ts";
 export { type ChangeNote, changeNotes, type RecordingFacts } from "./design/v2/rules.ts";
 export { applyAnswer, type DrillResult, drill, type Prompter } from "./drill.ts";
 export { checkExpectations, Expectation, Expectations, type Verdict } from "./eval/expect.ts";

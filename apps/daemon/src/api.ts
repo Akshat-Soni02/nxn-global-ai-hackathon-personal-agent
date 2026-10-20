@@ -63,6 +63,8 @@ const methods = {
   // The workflow lifecycle (lifecycle.ts): its state, going live (the checks run first), pausing, resuming.
   state: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.state(p.id) },
   goLive: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.goLive(p.id) },
+  review: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.review(p.id) },
+  looksRight: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.looksRight(p.id) },
   pause: {
     params: z.object({ id, reason: z.string().max(200).optional() }),
     run: (s: Service, p: { id: string; reason?: string }) => s.pause(p.id, p.reason),

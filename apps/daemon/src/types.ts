@@ -163,3 +163,24 @@ export interface RecordingView {
   // What is happening while a recording becomes a workflow, in plain words, oldest first.
   progress: { at: number; line: string }[];
 }
+// A design's review (skills/<id>/review.json; built by packages/recorder/src/design/v2/review.ts), as the window reads
+// it. Declared here, not imported: the recorder package needs Node, and the window's code must not load it. record.ts
+// hands the recorder's Review to writeReview, which takes this one, so the two can't drift apart unnoticed.
+export interface Review {
+  skillId: string;
+  version: number;
+  summary: string;
+  notes: {
+    step: string;
+    change: "added" | "removed" | "changed" | "moved";
+    what: string;
+    why?: string;
+    unverified?: boolean;
+  }[];
+  said: { quote: string; steps: string[]; notBuilt?: string }[];
+  notTested: string[];
+  gaps: string[];
+  cadence?: string;
+  made?: string[];
+  reviewed: boolean;
+}
