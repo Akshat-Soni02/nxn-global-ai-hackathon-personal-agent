@@ -1,0 +1,8 @@
+[
+  { "kind": "trigger", "type": "schedule", "why": "every month" },
+  { "kind": "uses_today", "why": "the date typed is the day it runs" },
+  { "kind": "write_kept", "action": "web.upload", "why": "the reports are uploaded (the Oct 19 run removed this)" },
+  { "kind": "write_kept", "action": "web.press", "why": "the message is sent" },
+  { "kind": "not_asked", "pattern": "[Ww]hich file", "why": "they said all the reports" },
+  { "kind": "max_questions", "n": 2, "why": "everything else is recorded or said" }
+]
