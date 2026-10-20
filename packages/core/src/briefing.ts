@@ -104,7 +104,7 @@ export function briefing(options: BriefingOptions = {}): string {
     "Every value a step reads is a variable declared, with its type, by an earlier step: the trigger's inputs, an",
     "action's or llm step's output { name, type }, an ask's output, or a loop's item (visible only inside the loop).",
     "Names are unique. After a branch, a variable is visible only if both arms produce it with the same type.",
-    "References: {{name}}, {{name.field}}, {{name.0}}; {{today}} is built in (YYYY-MM-DD). A string that is exactly",
+    "References: {{name}}, {{name.field}}, {{name.0}}; {{today}} is built in (YYYY-MM-DD); also {{today-1}}, {{today+7}}, {{week_start}} (this week's Monday), and a format after a bar: {{today|D MMM}} is 20 Oct, {{week_start|[w/c] D MMM}} is w/c 19 Oct. A string that is exactly",
     "one reference keeps the value's type; inside longer text it becomes text.",
   );
   if (options.edits) {

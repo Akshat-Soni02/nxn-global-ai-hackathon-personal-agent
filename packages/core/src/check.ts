@@ -1,6 +1,8 @@
 // The save-time check of a skill's variables: every {{…}} points to a variable that is visible at that step, its
 // fields exist, a loop runs over a list, names are declared once, and a step only declares an output its action can
 // produce. Run when a skill is parsed, so a saved skill never refers to something missing.
+
+import { parseDateRef } from "./dates.ts";
 import type { ActionStep, Step } from "./skill.ts";
 import { BUILT_INS, findRefs, type PathType, parseRef, sameType, typeAt, typeText, type VarType } from "./vars.ts";
 
@@ -90,6 +92,9 @@ const stripBraces = (s: string) => s.replace(/^\s*\{\{\s*|\s*\}\}\s*$/g, "");
 
 // The type a reference points to, or a sentence saying why it is wrong.
 function refType(scope: Scope, expr: string): PathType | string {
+  // A built-in date: {{today|D MMM}} is text, {{today-1}} and {{week_start}} are dates.
+  const date = parseDateRef(expr);
+  if (date) return date.format ? { type: "text" } : { type: "date" };
   const ref = parseRef(expr);
   if (!ref) return "is not a variable reference: use {{name}} or {{name.field}}";
   const root = scope.get(ref.name) ?? BUILT_INS[ref.name];

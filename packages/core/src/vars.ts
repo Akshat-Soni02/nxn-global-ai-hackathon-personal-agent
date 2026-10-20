@@ -33,7 +33,7 @@ export interface FileValue {
   modified: string;
 }
 
-export const BUILT_INS: Record<string, VarType> = { today: { type: "date" } };
+export const BUILT_INS: Record<string, VarType> = { today: { type: "date" }, week_start: { type: "date" } };
 
 // A variable name: what a trigger input, a step's output, an ask's output and a loop's item declare.
 export const VarName = z

@@ -44,3 +44,23 @@ describe("templates", () => {
     expect(today(new Date(2026, 0, 5))).toBe("2026-01-05");
   });
 });
+
+describe("dates in templates (spec 2.11)", () => {
+  const tuesday = new Date(2026, 9, 20, 9, 30); // Tuesday 20 Oct 2026
+  const at = (t: string, now = tuesday) => resolveTemplates(t, { vars: {} }, now);
+
+  it("gives today, a day before or after, and the week's Monday, in the format typed", () => {
+    expect(at("{{today}}")).toBe("2026-10-20");
+    expect(at("{{today-1}}")).toBe("2026-10-19");
+    expect(at("{{today+3|ddd D MMMM YYYY}}")).toBe("Fri 23 October 2026");
+    expect(at("{{today|D MMM}}")).toBe("20 Oct");
+    expect(at("{{ today | DD/MM/YYYY }}")).toBe("20/10/2026");
+    expect(at("{{today|D.M.YYYY}}")).toBe("20.10.2026");
+    expect(at("{{week_start}}")).toBe("2026-10-19");
+    expect(at("Daily KPIs - {{week_start|[w/c] D MMM}}")).toBe("Daily KPIs - w/c 19 Oct");
+  });
+
+  it("starts the week on Monday, also on a Sunday", () => {
+    expect(at("{{week_start}}", new Date(2026, 9, 25))).toBe("2026-10-19");
+  });
+});

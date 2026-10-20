@@ -4,6 +4,7 @@
 import {
   type ActionStep,
   type AxElement,
+  BUILT_INS,
   type Check,
   type Description,
   type Input,
@@ -508,7 +509,7 @@ function addInput(inputs: Record<string, Input>, raw: string, input: Input): str
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .replace(/^(\d)/, "input_$1") || "input";
-  let name = base === "today" ? "today_input" : base;
+  let name = base in BUILT_INS ? `${base}_input` : base;
   for (let n = 2; name in inputs; n++) name = `${base}_${n}`;
   inputs[name] = input;
   return name;
