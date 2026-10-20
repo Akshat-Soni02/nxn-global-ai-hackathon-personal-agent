@@ -12,6 +12,8 @@ import { type Skill, type TraceEvent, triggerOf } from "@shadow/core";
 import type { Llm, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import {
+  answerFromEvidence,
+  applyAnswer,
   changesSummary,
   compile,
   type DesignOptions,
@@ -153,6 +155,17 @@ export async function finishRecording(
   let questions = compiled.questions;
   // The plain step list, before anything was decided: the history note says what changed from it.
   const plain = skill;
+  // Questions the recording already answers are not asked (spec 2.10): "which file?" after "the latest invoice".
+  const said = notes.filter((n) => n.kind === "said");
+  questions = questions.filter((q) => {
+    const found = answerFromEvidence(q, { goal: form?.description.goal ?? "", said });
+    if (!found) return true;
+    const applied = applyAnswer(skill, q, found.answer);
+    if (!applied.ok) return true;
+    skill = applied.skill;
+    log(`answered from what you said ("${found.quote}"): ${q.text} → ${found.answer}`);
+    return false;
+  });
 
   // The design agent: the flat first draft -> the workflow meant. It asks its own questions (the drill).
   if (llm) {

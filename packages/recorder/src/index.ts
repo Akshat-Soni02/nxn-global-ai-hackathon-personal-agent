@@ -41,6 +41,7 @@ export {
 } from "./design/v2/contracts.ts";
 export { applyAnswer, type DrillResult, drill, type Prompter } from "./drill.ts";
 export { checkExpectations, Expectation, Expectations, type Verdict } from "./eval/expect.ts";
+export { answerFromEvidence } from "./evidence/answers.ts";
 export { toLocator } from "./locator.ts";
 export { type Box, type Line, MASK, maskLines, maskText } from "./mask.ts";
 export { type Note, narrationOf, notesByStep } from "./narration.ts";

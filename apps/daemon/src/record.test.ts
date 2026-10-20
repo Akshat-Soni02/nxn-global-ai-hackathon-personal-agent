@@ -12,7 +12,7 @@ import { classify, type FsChange, ignored, watchDirsFromEnv, watchFiles } from "
 import { readState, writeState } from "./lifecycle.ts";
 import { locateFile, locateFiles } from "./locate-file.ts";
 import { finishRecording } from "./record.ts";
-import { writeForm } from "./recording-store.ts";
+import { recordingDir, writeForm } from "./recording-store.ts";
 import { findSkills, loadSkill, saveSkill, versions } from "./skill-store.ts";
 import { appendTrace, readTrace, tracePath } from "./trace-store.ts";
 
@@ -492,6 +492,43 @@ describe("record end to end", () => {
     });
     const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
     expect(kept.system).toContain("# How you work");
+  });
+});
+
+describe("questions the recording answers (spec 2.10)", () => {
+  it("doesn't ask which file next time when you said the newest one", async () => {
+    const home = temp();
+    const sessionId = "said-newest";
+    mkdirSync(recordingDir(home, sessionId), { recursive: true });
+    const add = (id: string, at: number, body: Record<string, unknown>) =>
+      appendTrace(home, { id, sessionId, at, tabId: 1, frameId: 0, url: PAGE, ...body } as Parameters<
+        typeof appendTrace
+      >[1]);
+    add("e1", 1_000, { event: "click", target: upload });
+    add("e2", 6_000, {
+      event: "file",
+      target: upload,
+      file: { name: "invoice-0923.pdf", size: 10, type: "application/pdf" },
+    });
+    add("e3", 9_000, { event: "click", target: submit });
+    writeFileSync(
+      join(recordingDir(home, sessionId), "transcript.jsonl"),
+      `${JSON.stringify({ at: 2_000, until: 4_000, text: "I always upload the latest invoice." })}\n`,
+    );
+    const asked: string[] = [];
+    const logs: string[] = [];
+    await finishRecording(sessionId, {
+      dataDir: home,
+      log: (...a: unknown[]) => logs.push(a.join(" ")),
+      prompter: {
+        ask: async (q) => {
+          asked.push(q.id);
+          return "";
+        },
+      },
+    });
+    expect(asked).not.toContain("file-invoice");
+    expect(logs.join("\n")).toContain('answered from what you said ("I always upload the latest invoice.")');
   });
 });
 
