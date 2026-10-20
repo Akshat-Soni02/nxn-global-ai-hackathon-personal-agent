@@ -15,11 +15,15 @@ const OPENED: Record<string, Effect["opened"]> = {
   listbox: "listbox",
 };
 const OPENABLE = "[role=dialog],[role=alertdialog],[role=menu],[role=listbox],dialog";
+// Where a page announces what an action did ("Saved", "Message sent", "Copied"): anywhere on the page, so near any
+// target, and one new line there is a change.
+const LIVE = "[role=status],[role=alert],[aria-live]:not([aria-live=off]),output";
 
 interface Change {
   t: number;
   node: Node;
   opened?: Effect["opened"];
+  live?: boolean;
 }
 
 export interface EffectWatcher {
@@ -42,8 +46,9 @@ export function watchEffects(doc: Document, now: () => number = () => performanc
   const record = (records: MutationRecord[]) => {
     const t = now();
     for (const r of records) {
-      for (const node of r.addedNodes) changes.push({ t, node, opened: openedBy(node) });
-      if (r.type !== "childList" || r.removedNodes.length > 0) changes.push({ t, node: r.target });
+      const live = inLiveRegion(r.target);
+      for (const node of r.addedNodes) changes.push({ t, node, opened: openedBy(node), live });
+      if (r.type !== "childList" || r.removedNodes.length > 0) changes.push({ t, node: r.target, live });
     }
     // Two seconds are enough: the 700 ms before the oldest watch, and the watch itself.
     while (changes.length > 0 && (changes[0]?.t ?? t) < t - 2_000) changes.shift();
@@ -69,8 +74,10 @@ export function watchEffects(doc: Document, now: () => number = () => performanc
       start();
       const t0 = since ?? now();
       const scope = scopeOf(el);
-      const near = (c: Change) => scope.contains(c.node) || Boolean(c.opened);
-      const before = changes.filter((c) => c.t >= t0 - WATCH_MS && c.t < t0 && near(c)).length;
+      const near = (c: Change) => scope.contains(c.node) || Boolean(c.opened) || Boolean(c.live);
+      const earlier = changes.filter((c) => c.t >= t0 - WATCH_MS && c.t < t0 && near(c));
+      const before = earlier.length;
+      const liveBefore = earlier.filter((c) => c.live).length;
       const url = doc.location?.href;
       const expandedBefore = expandedOf(el);
       const valueBefore = fieldText(el);
@@ -79,7 +86,8 @@ export function watchEffects(doc: Document, now: () => number = () => performanc
         if (!el.ownerDocument.defaultView) return;
         const after = changes.filter((c) => c.t >= t0);
         const extra = Math.max(0, after.filter(near).length - before);
-        const effect: Effect = { changed: extra <= 2 ? "none" : extra <= 25 ? "small" : "large" };
+        const announced = after.filter((c) => c.live).length > liveBefore;
+        const effect: Effect = { changed: extra > 25 ? "large" : extra > 2 || announced ? "small" : "none" };
         if (doc.location?.href !== url) effect.navigated = true;
         if (expandedBefore === false && expandedOf(el) === true) effect.expanded = true;
         const opened = after.find((c) => c.opened)?.opened;
@@ -103,6 +111,11 @@ function openedBy(node: Node): Effect["opened"] {
   if (OPENED[role]) return OPENED[role];
   const inner = node.querySelector(OPENABLE);
   return inner ? openedBy(inner) : undefined;
+}
+
+function inLiveRegion(node: Node): boolean {
+  const el = node instanceof Element ? node : node.parentElement;
+  return Boolean(el?.closest(LIVE));
 }
 
 function expandedOf(el: Element): boolean | undefined {

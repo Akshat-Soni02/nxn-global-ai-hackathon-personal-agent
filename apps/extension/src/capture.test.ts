@@ -243,6 +243,28 @@ describe("capture", () => {
     expect(JSON.stringify(events)).not.toContain("483920");
   });
 
+  it("records Escape pressed on a menu's button (it closes the menu; only Enter on a button is its click)", () => {
+    document.body.innerHTML = `<button id="code" aria-expanded="true">Code</button>`;
+    const { events, stop } = record();
+    $("#code").focus();
+    $("#code").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+    stop();
+    expect(events.filter((e) => e.event === "key").map((e) => e.value)).toEqual(["Escape"]);
+  });
+
+  it("marks a click the page made itself (GitHub's g i clicks the Issues tab), and not one you made", () => {
+    document.body.innerHTML = `<a id="issues" href="/issues">Issues</a><button id="b">Save</button>`;
+    const { events, stop } = record();
+    $("#issues").click(); // page code: no pointer went down, and the browser marks the event untrusted
+    pointer($("#b"), "pointerdown", 0);
+    $("#b").dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, detail: 1 }));
+    stop();
+    expect(events.filter((e) => e.event === "click").map((e) => [e.target?.name, e.synthetic])).toEqual([
+      ["Issues", true],
+      ["Save", undefined],
+    ]);
+  });
+
   it("never records characters typed with Option, nor any key in a secret field", () => {
     document.body.innerHTML = `<input type="password" name="pw"><div id="doc">x</div>`;
     const { events, stop } = record();

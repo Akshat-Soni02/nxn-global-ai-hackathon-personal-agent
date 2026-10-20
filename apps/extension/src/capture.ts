@@ -27,6 +27,7 @@ export type PageEvent = Pick<
   | "via"
   | "cid"
   | "newTab"
+  | "synthetic"
   | "cell"
   | "modifiers"
   | "of"
@@ -255,9 +256,12 @@ export function startCapture(
           (!target.role && !target.name && !target.text && box.width * box.height >= DRAWN_AREA);
         const cid = newId();
         const opensTab = (e as MouseEvent).metaKey || (e as MouseEvent).ctrlKey;
+        // The page's own code clicked (no pointer went down, and the browser marks the event untrusted).
+        const synthetic = !e.isTrusted && !fresh;
         const extras = {
           ...(drawn ? { drawn: true } : {}),
           ...(opensTab ? { newTab: true } : {}),
+          ...(synthetic ? { synthetic: true } : {}),
           cid,
           ...pointOf(e as MouseEvent, el),
           ...listOf(el),
@@ -359,8 +363,9 @@ export function startCapture(
         if (key !== "Enter" && key !== "Escape" && key !== "Tab") return;
         // The value must reach the trace before the key that submits it.
         if (field) flushTyping(field);
-        // Tab only moves focus: the next step targets its own field. Enter in a textarea is a newline.
-        if (!el || key === "Tab" || el.closest(CLICKABLE)) return;
+        // Tab only moves focus: the next step targets its own field. Enter in a textarea is a newline. Enter on a
+        // button or link is its click (recorded as one); Escape on one closes its menu, and is recorded.
+        if (!el || key === "Tab" || (key === "Enter" && el.closest(CLICKABLE))) return;
         if (key === "Enter" && el.localName === "textarea") return;
         if (key === "Enter") lastEnter = { form: el.closest("form"), at: e.timeStamp };
         const cid = newId();

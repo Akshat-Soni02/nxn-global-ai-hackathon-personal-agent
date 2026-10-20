@@ -153,6 +153,9 @@ export const TraceEvent = z.object({
   via: z.enum(["keyboard", "menu", "button"]).optional(),
   // click: with ⌘ or Ctrl, or the middle button: the link opens in a new tab.
   newTab: z.boolean().optional(),
+  // click: made by the page's own code (element.click(), e.g. GitHub's g i shortcut clicking the Issues tab), not by
+  // you: the browser marks it untrusted. The keys or click that caused it are the step.
+  synthetic: z.boolean().optional(),
   windowId: z.number().optional(),
   // tab_open: the tab's title; preexisting: it was already open when Record was pressed.
   title: z.string().optional(),

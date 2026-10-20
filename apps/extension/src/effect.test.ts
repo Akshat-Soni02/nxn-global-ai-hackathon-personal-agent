@@ -87,6 +87,20 @@ describe("what a click did", () => {
     expect(effect).toMatchObject({ opened: "menu" });
   });
 
+  it("sees a status line that appears after Save, wherever it sits on the page (a form's 'Saved', Gmail's 'Message sent')", async () => {
+    document.body.innerHTML = `<form><input name="amount"><button id="save">Save</button></form><p id="status" role="status"></p>`;
+    const watcher = watchEffects(document, () => clock);
+    watcher.start();
+    let effect: Effect | undefined;
+    watcher.watch(document.querySelector("#save") as Element, (e) => {
+      effect = e;
+    });
+    (document.querySelector("#status") as Element).textContent = "Saved amount 5,471,299";
+    await settle(700);
+    watcher.stop();
+    expect(effect).toEqual({ changed: "small" });
+  });
+
   it("counts only what goes beyond the churn in the target's own region", async () => {
     document.body.innerHTML = `<main><ul id="rows"></ul><button id="more">More</button></main>`;
     const watcher = watchEffects(document, () => clock);

@@ -80,13 +80,15 @@ export function describeElement(el: Element): ElementDescriptor {
   const inTree = !isHiddenFileInput(el);
   const name = inTree ? accessibleName(el) : undefined;
   const href = el.localName === "a" ? el.getAttribute("href") : null;
+  const elRole = inTree ? role(el) : undefined;
   return {
     tag: el.localName,
     url: el.ownerDocument.location?.href ?? "",
-    role: inTree ? role(el) : undefined,
+    role: elRole,
     name,
-    ...(name ? {} : seen(el)),
-    ...(href && href.length <= 300 ? { href, hrefShape: href.replace(/\d+/g, "*") } : {}),
+    ...(name || !CONTROL_ROLES.has(elRole ?? "") ? {} : seen(el)),
+    // Every word with a digit in it is an id: /jobs/fK75gxxbq-engineer is /jobs/*-engineer, not /jobs/fK*gxxbq-engineer.
+    ...(href && href.length <= 300 ? { href, hrefShape: href.replace(/[A-Za-z0-9]*\d[A-Za-z0-9]*/g, "*") } : {}),
     label: labelText(el),
     text: FIELDS.has(el.localName) ? undefined : clean(el.textContent),
     near: near?.text,
@@ -127,6 +129,26 @@ function accessibleName(el: Element): string | undefined {
 }
 
 const HEADING = "h1, h2, h3, h4, h5, h6, [role=heading]";
+// What a person clicks or types into. Only these borrow a name from around them: a paragraph, a page area or the page
+// itself is described by its own text, never by a heading or a picture near it ("Table" for Wikipedia's first paragraph).
+const CONTROL_ROLES = new Set([
+  "link",
+  "button",
+  "tab",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "option",
+  "checkbox",
+  "radio",
+  "switch",
+  "treeitem",
+  "combobox",
+  "searchbox",
+  "textbox",
+  "slider",
+  "spinbutton",
+]);
 
 // What a person would call a control the accessibility tree leaves nameless: its title, an image's alt text, a heading
 // inside it or in its card (the YC job card's link wraps only the logo; the company name is the card's heading), its
@@ -327,7 +349,31 @@ function literal(text: string): string {
   return `concat('${text.split("'").join(`', "'", '`)}')`;
 }
 
-const ITEM_ROLES = new Set(["listitem", "row", "article", "gridcell", "option", "treeitem", "menuitem"]);
+const ITEM_ROLES = new Set(["listitem", "row", "article", "option", "treeitem", "menuitem"]);
+// Never the item: a table cell (its place in its row is a column; the row is the item), text (paragraphs, headings)
+// and the page's own areas. A link in Wikipedia's table is in row 4, not in cell 1 of 4.
+const CELL_ROLES = new Set(["cell", "gridcell", "columnheader", "rowheader"]);
+const NOT_ITEMS = new Set([
+  "td",
+  "th",
+  "p",
+  "span",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "label",
+  "section",
+  "main",
+  "header",
+  "footer",
+  "nav",
+  "aside",
+  "form",
+  "fieldset",
+]);
 // Classes that mark state, not shape: the selected job card is still one of the job cards.
 const STATE_CLASS = /active|selected|hover|focus|open|current|checked|first|last|odd|even/i;
 
@@ -340,6 +386,7 @@ export function listPosition(el: Element): ListPosition | undefined {
   for (let depth = 0; item?.parentElement && depth < 6; item = item.parentElement, depth++) {
     const parent: Element = item.parentElement;
     if (parent === doc.body || parent === doc.documentElement) return undefined;
+    if (NOT_ITEMS.has(item.localName) || CELL_ROLES.has(getRole(item) ?? "")) continue;
     const shape = shapeOf(item);
     const same = Array.from(parent.children).filter((c) => shapeOf(c) === shape);
     if (same.length >= 3 && (ITEM_ROLES.has(getRole(item) ?? "") || item.children.length > 0)) {

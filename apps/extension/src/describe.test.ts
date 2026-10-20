@@ -28,6 +28,21 @@ describe("describeElement", () => {
     });
     expect(d.attrs?.href).toBeUndefined(); // never matched on: a job id differs next time
   });
+
+  it("names only controls: a paragraph, a page area and the page itself keep their own text (Wikipedia, GitHub)", () => {
+    document.body.innerHTML = `<main><section><p id="intro">Gross domestic product is the market value of goods</p>
+      <h2>Table</h2></section><div id="area"><img alt="mrleemurray" src="a.png"><p>Evolving the VS Code Interface</p></div>
+      <h1>Contents</h1></main>`;
+    expect(describeElement($("#intro")).seenAs).toBeUndefined();
+    expect(describeElement($("#area")).seenAs).toBeUndefined();
+    expect(describeElement(document.body).seenAs).toBeUndefined();
+    expect(describeElement($("#intro")).text).toBe("Gross domestic product is the market value of goods");
+  });
+
+  it("stars every word with a digit in a link's shape: a job id is one id, not digits inside letters (YC)", () => {
+    document.body.innerHTML = `<a href="/companies/y-combinator/jobs/fK75gxxbq-product-engineer-post-batch">Job</a>`;
+    expect(describeElement($("a")).hrefShape).toBe("/companies/y-combinator/jobs/*-product-engineer-post-batch");
+  });
 });
 
 describe("listPosition", () => {
@@ -39,5 +54,25 @@ describe("listPosition", () => {
     expect(listPosition(second)).toMatchObject({ index: 1, count: 3, itemText: "Numeral Remote" });
     document.body.innerHTML = "<p><span>a</span> <span>b</span></p>";
     expect(listPosition($("span"))).toBeUndefined(); // two loose spans are not a list
+  });
+
+  it("puts a link in a table cell at its row, not at its column (Wikipedia's table, Gmail's grid)", () => {
+    const rows = ["Japan", "India", "France"]
+      .map((n) => `<tr><td><a href="/wiki/${n}">${n}</a></td><td>1</td><td>2</td><td>3</td></tr>`)
+      .join("");
+    document.body.innerHTML = `<table><tbody>${rows}</tbody></table>`;
+    const india = document.querySelectorAll("a")[1] as Element;
+    expect(listPosition(india)).toMatchObject({ index: 1, count: 3, itemText: "India 1 2 3" });
+    const cells = (n: string) =>
+      `<div role="row"><div role="gridcell"><span>${n}</span></div><div role="gridcell">a</div><div role="gridcell">b</div></div>`;
+    document.body.innerHTML = `<div role="grid">${["Mail A", "Mail B", "Mail C"].map(cells).join("")}</div>`;
+    expect(listPosition(document.querySelectorAll("span")[2] as Element)).toMatchObject({ index: 2, count: 3 });
+  });
+
+  it("never makes a list of paragraphs or page sections (an article's text is not a list)", () => {
+    document.body.innerHTML = `<main><section><p id="a">Gross domestic product <a href="/x">GDP</a></p><p>Two</p>
+      <p>Three</p></section><section><p>Four</p></section><section><p>Five</p></section></main>`;
+    expect(listPosition($("#a"))).toBeUndefined();
+    expect(listPosition($("#a a"))).toBeUndefined();
   });
 });
