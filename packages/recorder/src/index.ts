@@ -35,6 +35,7 @@ export { scriptedDesigner } from "./design/v2/fake.ts";
 export { type DesignV2Options, type DesignV2Outcome, designV2 } from "./design/v2/orchestrator.ts";
 export { outlineOf } from "./design/v2/outline.ts";
 export { recordedFolders, recordedPages } from "./design/v2/places.ts";
+export { progressLine } from "./design/v2/progress.ts";
 export { MAX_QUESTIONS } from "./design/v2/questions.ts";
 export { type ChangeNote, changeNotes, type RecordingFacts } from "./design/v2/rules.ts";
 export { applyAnswer, type DrillResult, drill, type Prompter } from "./drill.ts";

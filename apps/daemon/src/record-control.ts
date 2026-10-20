@@ -36,7 +36,7 @@ export interface RecordControlOptions {
   // A question in the inbox (service.ask): how the form is filled in from the terminal.
   ask(question: Question): Promise<string>;
   // The recording → a saved workflow (record.ts finishRecording). Undefined when nothing was recorded.
-  finish(sessionId: string): Promise<{ skill: { id: string } } | undefined>;
+  finish(sessionId: string, progress: (line: string) => void): Promise<{ skill: { id: string } } | undefined>;
   log: Log;
   // Shadow.app can read and mask pictures. Absent: assumed ready.
   screenReady?(): boolean;
@@ -56,6 +56,8 @@ export interface RecordControl {
   discard(): Promise<{ sessionId?: string }>;
   // Turn a kept recording into a workflow again.
   compile(sessionId: string): Promise<void>;
+  // A line of what is happening while a recording becomes a workflow, for the Record screen.
+  progress(line: string): void;
   subscribe(listener: (event: RecordEvent) => void): () => void;
 }
 
@@ -67,6 +69,8 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
   let startedAt: number | undefined;
   let form: RecordForm | undefined;
   let last: RecordingView["last"];
+  // Kept until the next recording, so the last lines stay next to "Last recording: …".
+  let progress: RecordingView["progress"] = [];
 
   const view = (): RecordingView => ({
     phase,
@@ -77,6 +81,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
     last,
     macApp: daemon.mac().connected,
     screenReady: options.screenReady?.() ?? true,
+    progress,
   });
   const changed = () => {
     const event: RecordEvent = { type: "recording", view: view() };
@@ -93,10 +98,11 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
     phase = "compiling";
     sessionId = id;
     form ??= readForm(dataDir, id);
+    progress = [];
     changed();
     status("compiling", "Turning your recording into a workflow…");
     try {
-      const saved = await options.finish(id);
+      const saved = await options.finish(id, control.progress);
       if (saved) {
         // The recording's folder is deleted a day from now (recording-store.ts).
         writeMeta(dataDir, id, { savedAt: Date.now(), skillId: saved.skill.id, outcome: "saved" });
@@ -126,6 +132,11 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
 
   const control: RecordControl = {
     view,
+
+    progress(line) {
+      progress = [...progress, { at: Date.now(), line }].slice(-200);
+      changed();
+    },
 
     press() {
       if (phase === "compiling") return busy();
@@ -175,6 +186,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
       const parsed = RecordFormSchema.safeParse(input);
       if (!parsed.success) throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
       form = parsed.data;
+      progress = [];
       saveConsent(dataDir, form.consent);
       // startRecording and writeForm both run before any event is handled, so the folder has its form first.
       sessionId = daemon.startRecording({ consent: form.consent });

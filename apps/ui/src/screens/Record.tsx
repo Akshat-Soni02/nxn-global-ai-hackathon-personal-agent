@@ -8,6 +8,7 @@ import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { type ReactNode, useEffect, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
+import { questionsFor } from "../questions.ts";
 import { Question } from "./Inbox.tsx";
 
 // `again`: a workflow's id, to record that task again: the box starts filled in from it, and the recording becomes
@@ -17,7 +18,7 @@ export function Record({ again }: { again?: string }) {
   const inbox = useQuery<InboxItem[]>("inbox", { open: true });
   if (!data) return <Loading error={error} />;
   // Questions outside a run: the form's (from the terminal) and the ones about this recording.
-  const questions = (inbox.data ?? []).filter((i) => i.kind === "question").reverse();
+  const questions = questionsFor(inbox.data ?? [], data.sessionId);
 
   return (
     <>
@@ -42,6 +43,13 @@ export function Record({ again }: { again?: string }) {
         <section className="section">
           <h2>Turning your recording into a workflow…</h2>
           <p className="muted">{data.form?.goal}</p>
+          {data.progress.length > 0 ? (
+            <ol className="progress-feed" aria-live="polite">
+              {data.progress.map((p) => (
+                <li key={`${p.at}-${p.line}`}>{p.line}</li>
+              ))}
+            </ol>
+          ) : null}
         </section>
       ) : null}
       {data.phase !== "idle" && questions.length > 0 ? (

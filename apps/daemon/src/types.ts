@@ -123,6 +123,8 @@ export interface Question {
   default?: string;
   step?: string;
   draft?: unknown;
+  // The recording the question is about: the Record screen shows only its questions.
+  sessionId?: string;
 }
 
 // Recording (record-control.ts), as the window's Record screen gets it from `recording`.
@@ -158,4 +160,6 @@ export interface RecordingView {
   macApp: boolean;
   // Whether pictures can be read and masked (Shadow.app's tools): when not, the Record screen says so before recording.
   screenReady: boolean;
+  // What is happening while a recording becomes a workflow, in plain words, oldest first.
+  progress: { at: number; line: string }[];
 }

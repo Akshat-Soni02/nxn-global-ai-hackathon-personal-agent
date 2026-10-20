@@ -203,7 +203,13 @@ function TextAnswer({
   const [text, setText] = useState("");
   if (required) {
     return (
-      <form className="answers other" onSubmit={(e) => e.preventDefault()}>
+      <form
+        className="answers other"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (text.trim()) void onSend(text.trim());
+        }}
+      >
         <input
           className="input"
           value={text}
@@ -216,6 +222,9 @@ function TextAnswer({
             Send
           </Action>
         ) : null}
+        <button type="button" className="button secondary" onClick={() => void onSend("")}>
+          You decide
+        </button>
       </form>
     );
   }
@@ -224,6 +233,7 @@ function TextAnswer({
       className="answers"
       onSubmit={(e) => {
         e.preventDefault();
+        void onSend(text || placeholder || "");
       }}
     >
       <input
@@ -236,6 +246,9 @@ function TextAnswer({
       <Action kind="primary" run={() => onSend(text || placeholder || "")}>
         Send
       </Action>
+      <button type="button" className="button secondary" onClick={() => void onSend("")}>
+        You decide
+      </button>
     </form>
   );
 }

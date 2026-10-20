@@ -25,6 +25,7 @@ import {
   normaliseAll,
   type Prompter,
   pagesOf,
+  progressLine,
   type Question,
   recordedFolders,
   recordedPages,
@@ -111,6 +112,8 @@ export interface FinishOptions {
   // The design agent's safe test run in the automation window (main.ts binds the daemon's rehearse). Without it, the
   // workflow is saved untested and the review says so.
   rehearse?: (skill: Skill, effects: Map<string, Effect>, onLine: (line: string) => void) => Promise<TestReport>;
+  // Plain-language lines for the Record screen as the work goes on.
+  progress?: (line: string) => void;
 }
 
 export async function finishRecording(
@@ -123,6 +126,7 @@ export async function finishRecording(
   const trace = options.locate ? await locateFiles(raw, options.locate) : raw;
   const { steps, noise } = normaliseAll(trace);
   log(`trace ${sessionId}: ${trace.length} event(s) -> ${steps.length} step(s), ${noise.length} left out`);
+  options.progress?.(`Read ${trace.length} actions as ${steps.length} steps`);
   if (steps.length === 0) {
     log("nothing to compile");
     return undefined;
@@ -230,6 +234,11 @@ export async function finishRecording(
       unattended: unattendedGaps,
       test: rehearse ? (draft) => rehearse(draft, effects, (line) => log(line)) : undefined,
       meter,
+      onProgress: options.progress,
+      onEvent: (event) => {
+        const line = progressLine(event);
+        if (line) options.progress?.(line);
+      },
       ...options.design,
     });
     const cost = `$${design.usage.costUsd.toFixed(4)}, ${design.usage.calls} calls`;
@@ -283,6 +292,7 @@ export async function finishRecording(
         };
   const saved = saveSkill(dataDir, noted);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
+  options.progress?.(`Saved ${saved.skill.name}`);
   return { ...saved, design };
 }
 

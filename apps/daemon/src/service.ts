@@ -577,6 +577,7 @@ export function createService(options: ServiceOptions): Service {
           default: question.default,
           step: question.step,
           draft: question.draft,
+          sessionId: question.sessionId,
         },
       });
       return new Promise((resolve) => questions.set(item.id, resolve));

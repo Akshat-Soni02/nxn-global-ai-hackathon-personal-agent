@@ -202,6 +202,8 @@ const prompter: Prompter = {
       // A design-agent question is shown on the draft, next to its step.
       step: about?.step,
       draft: about?.draft,
+      // The recording being turned into a workflow: the Record screen shows only its questions.
+      sessionId: record?.view().sessionId,
     }),
 };
 // Screenshots (when the form allowed them): their words are read and masked on the Mac by Shadow.app's binary, and
@@ -230,9 +232,10 @@ record = createRecordControl({
   daemon,
   ask: (question) => service.ask(question),
   screenReady: () => screenTools !== undefined,
-  finish: async (sessionId) => {
+  finish: async (sessionId, progress) => {
     // Every screenshot is read and masked, and the narration turned into text, before the recording becomes a workflow:
     // both at the same time (both run in Shadow.app, on the Mac).
+    progress("Reading the words on your screen and turning your voice into text");
     await Promise.all([
       screenReader.idle(),
       transcribeRecording({
@@ -253,7 +256,16 @@ record = createRecordControl({
       describer,
       // The design agent's safe test run: in the automation window, its log next to the recording.
       rehearse: (skill, effects, onLine) =>
-        rehearse(daemon, skill, { effects, hooks: { data, llm }, logDir: recordingDir(home, sessionId), onLine }),
+        rehearse(daemon, skill, {
+          effects,
+          hooks: { data, llm },
+          logDir: recordingDir(home, sessionId),
+          onLine: (line) => {
+            onLine(line);
+            progress(line);
+          },
+        }),
+      progress,
       log,
     });
   },

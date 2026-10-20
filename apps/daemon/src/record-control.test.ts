@@ -73,6 +73,22 @@ describe("the Record buttons", () => {
     expect(control.view().screenReady).toBe(false);
   });
 
+  it("keeps the lines of progress while a recording becomes a workflow, for the Record screen", () => {
+    const { daemon } = fakeDaemon(false);
+    const control = createRecordControl({
+      dataDir: temp(),
+      daemon,
+      ask: async () => "",
+      finish: async () => undefined,
+      log: () => {},
+    });
+    const events: unknown[] = [];
+    control.subscribe((e) => events.push(e));
+    control.progress("Read 42 actions as 18 steps");
+    expect(control.view().progress.map((p) => p.line)).toEqual(["Read 42 actions as 18 steps"]);
+    expect(events).toContainEqual(expect.objectContaining({ type: "recording" }));
+  });
+
   it("open the form in Shadow's window when the app runs, and start nothing until it is sent", () => {
     const { daemon, sent } = fakeDaemon(true);
     const control = createRecordControl({
