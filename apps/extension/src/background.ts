@@ -7,7 +7,7 @@
 import { type Message, NATIVE_HOST_NAME } from "@shadow/core";
 import type { PageOp } from "@shadow/player/web";
 import type { ButtonState } from "./button.ts";
-import { endRun, isAutomationTab, runPageCheck, runPageOp, runWebStep } from "./replay.ts";
+import { endRun, forgetAutomationTab, isAutomationTab, runPageCheck, runPageOp, runWebStep } from "./replay.ts";
 import type { ShotHint } from "./shot.ts";
 import { type ShotJob, ShotQueue } from "./shot-queue.ts";
 import { TabRegistry } from "./tab-registry.ts";
@@ -349,7 +349,11 @@ chrome.tabs.onCreated.addListener((tab) => {
     openerTabId: tab.openerTabId,
   });
 });
-chrome.tabs.onRemoved.addListener((tabId) => record({ event: "tab_close", tabId }));
+// Recorded first (an automation tab is ignored while it is still known), then forgotten by replay.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  record({ event: "tab_close", tabId });
+  forgetAutomationTab(tabId);
+});
 // Switching tabs: replay runs in one tab, so the order of pages you worked on is rebuilt from these.
 chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
   if (!recordingSession) return;

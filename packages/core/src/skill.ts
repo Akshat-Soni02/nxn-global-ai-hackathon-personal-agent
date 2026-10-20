@@ -22,6 +22,7 @@
 // A file value can be given wherever a path is expected. Moving or copying an empty list is a no-op.
 //
 // Args by action (the same, as data agents are briefed with: ACTION_DOCS in briefing.ts):
+// Any action step: tab?: the automation tab it runs in, by name.
 //   web.navigate  { url }
 //   web.click     {}
 //   web.type      { text, clear?: boolean }            focuses the target, then types it key by key
@@ -176,6 +177,10 @@ export const ActionStep = z
     channel: Channel,
     action: z.string(),
     target: Locator.optional(),
+    // Which tab of the automation window it runs in, by name ("KPI Sheet", "Gmail"). Without one: the first tab. A
+    // name stays the same tab for the whole run, so going back to it keeps its page as it was (a selected cell, a
+    // scrolled list) instead of opening it again. Needs replay's sign-off: the extension keeps a tab per name.
+    tab: z.string().min(1).max(60).optional(),
     args: z.record(z.string(), z.unknown()).default({}),
     wait: Check.optional(),
     check: Check.optional(),
