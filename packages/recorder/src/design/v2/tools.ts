@@ -612,8 +612,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
               unverified = true;
             }
           }
+          // First, so the other changes in this call apply on top of it (a replace built from the step as it was would
+          // undo them).
           if (tab)
-            edits.push({
+            edits.unshift({
               op: "replace",
               step: id,
               with: { ...step, ...(args ? { args: { ...step.args, ...args } } : {}), tab } as never,

@@ -182,6 +182,24 @@ describe("the tools", () => {
     expect(again.output.approval_added).toEqual(["s5"]);
   });
 
+  it("changes a step's tab together with its other fields, losing none", async () => {
+    const s = session();
+    const changed = await run(s, "change", {
+      step: "s3",
+      intent: "type the subject in the draft",
+      target: { role: "textbox", name: "Subject line" },
+      tab: "Gmail",
+      why: "x",
+    });
+    expect(changed.output.ok).toBe(true);
+    const step = findStep(s.draft, "s3");
+    expect(step).toMatchObject({
+      intent: "type the subject in the draft",
+      tab: "Gmail",
+      target: { name: "Subject line" },
+    });
+  });
+
   it("copy a recorded target with like, and say what to use when a loop is empty", async () => {
     const s = session();
     const copied = await run(s, "add", {
