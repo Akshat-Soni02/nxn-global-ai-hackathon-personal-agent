@@ -97,3 +97,28 @@ double-click's first click; `synthetic` clicks are dropped once keys become step
 though a newer job was first (list item, not literal text); an approval on a plain link click; repair stops at an
 approval step; workflows saved before e2bdf00 may still hold regex url checks (the player could read them
 leniently). Real-model spend: $0.28 of $5 (ledger).
+
+## Results, 20 Oct: part 2, your Chrome (signed in)
+Driven through Claude in Chrome, with a daemon on the normal socket but a scratch data folder (your workflows and
+their schedules untouched). The reload was checked first: a click had `cid`, `point` and an `effect`. A: the sheet
+"Shadow checkpoint 1 test" (made for this, in your Drive) and the paste form. B: Gmail, Promotions. Copies in
+`~/shadow-tests/checkpoint-1/your-chrome/`.
+
+| Fact | Result |
+|---|---|
+| `cell` on sheet clicks, the copy and the typed date | ✓ C3, B2, A4; the copy of C3 "1,234" took row 3 `{19 Oct, Lunch, 1,234}` though C2 is 1,234 too; "20 Oct" typed into A4 is one `type` with its cell |
+| no keylogging while typing in the sheet | ✓ only the `type` event |
+| the Gmail header click reads `changed: none` | ✓ despite Gmail's churn |
+| `select_text` + copy of the subject, `via: keyboard` | ✓ |
+| `list` on the email row | ✗ → **fixed** 99a0bf7: Gmail gives the row under the pointer a hover class (`aqw`), so the clicked row matched no other row; rows and list items now compare by tag and role |
+| single key in Gmail | ✓ `j` (pressing `e` to archive was refused by Claude Code's permission check, so `j` stood in) |
+| tab switches, pictures | not tested here: Claude in Chrome acts on tabs without bringing them to the front, so no switches and every picture is "tab-hidden" (both checked in part 1) |
+
+**For Plan 2**: Enter in a sheet cell reads `emptied: true` (the cell editor clears): "Enter that empties = sent"
+must skip cells. The subject's copy got a list place "item 0 of 4" from Gmail's header blocks: only rows and cards
+should become list proposals. The design agent turned the typed "20 Oct" (the recording day) into "tomorrow" by an AI
+step, kept a stray click on the form's heading as "focus the amount field", and clicked the newest email by its
+subject: the date, noise and list-item proposals are what fix these.
+
+Left for you: the StackBlitz/Bolt promotion "One day left to enter for $10,000" is now read (it was unread; marking it
+unread again was refused by the same permission check). Real-model spend in all: $0.36 of $5.
