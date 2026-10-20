@@ -80,7 +80,7 @@
 
 ---
 
-### Task 1: The contracts between the evidence (Plan 2) and the agent (Plan 3)
+### Task 1 (moved to Plan 2, Task 1): The contracts between the evidence (Plan 2) and the agent (Plan 3)
 
 **Files:**
 - Create: `packages/recorder/src/design/v2/contracts.ts`

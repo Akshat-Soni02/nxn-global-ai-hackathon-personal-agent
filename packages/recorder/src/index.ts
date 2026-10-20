@@ -30,6 +30,15 @@ export {
   MAX_QUESTIONS,
 } from "./design/design.ts";
 export { type DesignFinish, designViolations, outlineOf } from "./design/tools.ts";
+export {
+  DoneReport,
+  type EvidenceView,
+  PROPOSAL_KINDS,
+  type Proposal,
+  TaskModel,
+  type TestReport,
+  type TestStep,
+} from "./design/v2/contracts.ts";
 export { applyAnswer, type DrillResult, drill, type Prompter } from "./drill.ts";
 export { checkExpectations, Expectation, Expectations, type Verdict } from "./eval/expect.ts";
 export { toLocator } from "./locator.ts";
