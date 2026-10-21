@@ -149,6 +149,8 @@ Shadow appears in the menu bar (how many things wait for you, Record, health, th
 
 **Keep it running without a terminal** (optional): `pnpm setup:daemon` starts the daemon at login and again if it stops; it opens Shadow.app. `pnpm setup:daemon --uninstall` stops it; do that before running `pnpm daemon` in a terminal, since only one daemon runs at a time. Logs are in `~/Library/Logs/Shadow` (Console.app shows them).
 
+**Start over from scratch**: `pnpm reset:shadow` stops Shadow and removes what a script can (the login agent, Shadow's macOS permissions, Chrome's bridge, the Keychain key, the data, logs and build output), then lists the few steps only you can do (the Chrome extension, Files and Folders, Login Items). Add `--backup` to move the data to `~/shadow-backup/<date time>/` instead of deleting it, `--dry-run` to see what it would do, `--keep-key` or `--keep-build` to keep those.
+
 ### 4. Record a task
 
 1. Press the round **Record** button (drag it anywhere), **Record a task** in the menu bar, or **Record** in the window. The window opens the short form: say what the task is for (the goal) and how often it should run, then **Start recording**. Do the task in Chrome, Finder or any Mac app, then press **Stop** (or the trash to discard the recording). Without Shadow.app, the same button appears inside Chrome pages (and the extension's toolbar icon), and the form's questions come to the Inbox; `record` in the terminal asks them there too.
