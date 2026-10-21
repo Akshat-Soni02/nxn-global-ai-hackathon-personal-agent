@@ -206,6 +206,9 @@ final class AppMain: NSObject, NSApplicationDelegate {
         voice.start(dir: dir)
       }
       let started = (message["startedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
+      // Ask for Screen Recording now, before anything is recorded: asked later, its prompt and System Settings became
+      // steps of the task (reports/oct19-two-recordings.md, B).
+      if screenConsent && !CGPreflightScreenCaptureAccess() { _ = CGRequestScreenCaptureAccess() }
       recorder.start()
       panel.recording(
         since: started, mic: (message["consent"] as? JSON)?["microphone"] as? Bool ?? false, screen: screenConsent)

@@ -1,0 +1,37 @@
+[
+  {
+    "kind": "trigger",
+    "type": "schedule",
+    "why": "every day"
+  },
+  {
+    "kind": "uses_today",
+    "why": "the typed 19 Oct is the day it runs"
+  },
+  {
+    "kind": "write_kept",
+    "action": "web.type",
+    "value": "\\{\\{",
+    "why": "the copied subject and numbers are pasted"
+  },
+  {
+    "kind": "no_text_only_target",
+    "why": "the header-block click can't be found again"
+  },
+  {
+    "kind": "has_loop",
+    "why": "every new KPI email, not this one"
+  },
+  {
+    "kind": "write_kept",
+    "action": "web.type",
+    "value": "next_empty_row",
+    "why": "writes go to the next empty row, not A1",
+    "expectedToFail": true
+  },
+  {
+    "kind": "max_questions",
+    "n": 2,
+    "why": "which sheet and which columns are recorded"
+  }
+]

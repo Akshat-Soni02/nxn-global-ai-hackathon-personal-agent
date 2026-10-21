@@ -1,7 +1,8 @@
 // Resolves {{…}} references in a step before it runs. One namespace: every variable is declared by an earlier step
-// (the trigger's inputs, an output, an ask's answer, a loop's item), reached with .field and .N paths, plus {{today}}.
+// (the trigger's inputs, an output, an ask's answer, a loop's item), reached with .field and .N paths, plus the built-in
+// dates: {{today}}, {{today-1}}, {{week_start}}, each with an optional format ({{today|D MMM}}, core dates.ts).
 // See the reference rules at the top of packages/core/src/skill.ts.
-import { parseRef, valueAt } from "@shadow/core";
+import { dateValue, parseDateRef, parseRef, valueAt } from "@shadow/core";
 
 const REF = /\{\{\s*([^}]+?)\s*\}\}/g;
 
@@ -11,9 +12,12 @@ export function today(now = new Date()): string {
 }
 
 function lookup(expr: string, vars: Record<string, unknown>, now: Date): unknown {
+  // A workflow's own variable first: an older one may name itself week_start.
+  const own = parseRef(expr);
+  const date = own && own.name in vars ? undefined : parseDateRef(expr);
+  if (date) return dateValue(date, now);
   const ref = parseRef(expr);
   if (!ref) throw new Error(`{{${expr}}} is not a variable reference`);
-  if (ref.name === "today" && ref.path.length === 0) return today(now);
   if (!(ref.name in vars)) throw new Error(`{{${expr}}}: ${ref.name} has no value yet`);
   return valueAt(ref.name, vars[ref.name], ref.path);
 }

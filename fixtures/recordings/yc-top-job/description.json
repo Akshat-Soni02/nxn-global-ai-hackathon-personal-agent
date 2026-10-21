@@ -1,0 +1,16 @@
+{
+  "goal": "Note the title of the newest YC job in my sheet",
+  "changes": [],
+  "constants": [],
+  "never": [],
+  "when": [
+    {
+      "type": "manual"
+    }
+  ],
+  "consent": {
+    "screen": true,
+    "microphone": true,
+    "pictures": false
+  }
+}

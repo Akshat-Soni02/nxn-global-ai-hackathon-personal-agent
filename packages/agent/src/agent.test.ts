@@ -320,3 +320,72 @@ describe("an agent edits a workflow through the guard", () => {
     expect(sent(llm, 0)[0]?.content).toContain("{ op: retarget, step, target: Locator }");
   });
 });
+
+describe("record-keeping and several calls per turn (opt-in)", () => {
+  it("lets a tool clean its input before the schema checks it (a field sent as a JSON string)", async () => {
+    const take = tool({
+      name: "take",
+      kind: "edit",
+      description: "Take steps",
+      input: z.object({ steps: z.array(z.string()) }),
+      prepare: (input) => {
+        const v = input as { steps?: unknown };
+        return typeof v.steps === "string" ? { ...v, steps: JSON.parse(v.steps) } : v;
+      },
+      run: ({ steps }) => ({ output: `took ${steps.join(",")}` }),
+    });
+    const llm = fakeLlm([call("take", { steps: '["s2","s3"]' }), call("done", { summary: "ok" })]);
+    const episode = await runAgent({ llm, system: "s", task: "t", tools: [take, done] });
+    expect(episode.transcript.some((e) => e.type === "result" && e.output.startsWith("took s2,s3"))).toBe(true);
+  });
+
+  it("runs every call of a turn in order when callsPerTurn allows it, and stops at a finish", async () => {
+    const llm = fakeLlm([
+      {
+        toolCalls: [
+          { name: "look", arguments: {} },
+          { name: "dismiss", arguments: { text: "Accept cookies" } },
+          { name: "done", arguments: { summary: "fixed" } },
+          { name: "look", arguments: {} },
+        ],
+      },
+    ]);
+    const episode = await runAgent({ llm, system: "s", task: "t", tools: [look, probe, done], callsPerTurn: 8 });
+    expect(episode.outcome).toEqual({ kind: "finished", tool: "done", value: "fixed" });
+    expect(episode.turns).toBe(1);
+    expect(episode.transcript.filter((e) => e.type === "call").map((e) => (e as { tool: string }).tool)).toEqual([
+      "look",
+      "dismiss",
+      "done",
+    ]);
+  });
+
+  it("keeps one call per turn by default: the others are answered, not run", async () => {
+    const llm = fakeLlm([
+      {
+        toolCalls: [
+          { name: "look", arguments: {} },
+          { name: "dismiss", arguments: { text: "x" } },
+        ],
+      },
+      call("done", { summary: "ok" }),
+    ]);
+    const episode = await runAgent({ llm, system: "s", task: "t", tools: [look, probe, done] });
+    expect(episode.transcript.filter((e) => e.type === "call")).toHaveLength(2); // look, then done
+    expect(JSON.stringify(llm.requests[1])).toContain("Not run: one tool per turn.");
+  });
+
+  it("stores the input of a call it rejected, the model's reasoning, and the whole system prompt", async () => {
+    const llm = fakeLlm([
+      { reasoning: "I should dismiss the banner first.", toolCalls: [{ name: "dismiss", arguments: { text: 5 } }] },
+      call("done", { summary: "ok" }),
+    ]);
+    const episode = await runAgent({ llm, system: "You repair workflows.", task: "t", tools: [look, probe, done] });
+    const invalid = episode.transcript.find((e) => e.type === "invalid") as { input?: string } | undefined;
+    expect(invalid?.input).toBe('{"text":5}');
+    const reply = episode.transcript.find((e) => e.type === "reply") as { reasoning?: string } | undefined;
+    expect(reply?.reasoning).toBe("I should dismiss the banner first.");
+    expect(episode.system).toContain("You repair workflows.");
+    expect(episode.system).toContain("# How you work");
+  });
+});

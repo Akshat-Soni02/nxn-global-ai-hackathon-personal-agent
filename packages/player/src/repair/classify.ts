@@ -34,6 +34,16 @@ export function classify(failure: Failure, signals?: PageSignals): Classificatio
   }
 
   // Channel errors that need something from the user.
+  // Chrome stopped answering (the hang seen in three runs, with the automation window behind another window): the
+  // user can bring it forward; nothing on the page changed, so it is not drift and repair can't fix it. First of the
+  // channel errors: "Accessibility.queryAXTree" in its text would otherwise read as the Accessibility permission.
+  if (/Chrome did not answer|extension did not answer/i.test(error)) {
+    return {
+      class: "environment",
+      reason: error,
+      need: "bring the Shadow automation window to the front, then try the step again",
+    };
+  }
   if (/Shadow\.app is not running/i.test(error)) {
     return { class: "environment", reason: error, need: "start Shadow.app" };
   }

@@ -1,6 +1,15 @@
 // Normalise: turns a raw trace into the steps a person would describe, with no AI.
 // Mechanical rules only, so the compiler's input is stable and testable, and the model sees fewer tokens.
-import type { AxElement, ElementDescriptor, FileInfo, TraceEvent } from "@shadow/core";
+import type {
+  AxElement,
+  Cell,
+  Effect,
+  ElementDescriptor,
+  FileInfo,
+  ListPosition,
+  Point,
+  TraceEvent,
+} from "@shadow/core";
 
 export type StepKind =
   | "navigate"
@@ -46,6 +55,18 @@ export interface NormalisedStep {
   path?: string;
   toPath?: string;
   navigatesTo?: string; // the page this click or key press led to
+  // What capture saw (spec 1.3, 1.4, 1.10, 1.11): what the click or key did in the 700 ms after it, the item of a list
+  // it was in, the sheet cell, and where the pointer landed. Absent in recordings made before Oct 20.
+  effect?: Effect;
+  list?: ListPosition;
+  cell?: Cell;
+  point?: Point;
+  // This click opened a new tab (that tab's id).
+  opensTab?: number;
+  // An Enter that emptied the field it was pressed in: a chat message sent (spec 2.8). Needs your OK at run time.
+  sends?: boolean;
+  // The browser's Back or Forward.
+  back?: boolean;
   submits?: boolean; // it submitted a form
   produces?: string[]; // files that appeared because of it (downloads)
   candidate?: ParamCandidate;
@@ -64,19 +85,68 @@ export interface NormalisedStep {
   modifiers?: ("cmd" | "shift" | "option" | "ctrl")[];
   button?: "left" | "right";
   long?: boolean;
+  // fs_move: the file was moved to the Trash (Finder's Move to Trash).
+  trashed?: boolean;
   events: string[]; // ids of the trace events merged into this step
 }
 
 type Draft = Omit<NormalisedStep, "index">;
 
+// A step left out of the draft (spec 2.2), with why: listed, never silently dropped. The agent can put one back.
+export interface Noise {
+  events: string[]; // the trace events it was
+  at: number;
+  tabId?: number;
+  what: string; // `clicked "Print all"`, `selected "fluctuations"`
+  why: string; // one plain reason
+  step?: Omit<NormalisedStep, "index">; // the step it would have been: Plan 3's restore puts it back
+}
+
+export const NOISE = {
+  selected: "selected text but didn't copy it",
+  quiet: "changed nothing on the page, and nothing was copied from it",
+  switched: "switched to a tab and away again without doing anything there",
+  afterKeys: "the page clicked it after the keys you pressed",
+  byPage: "the page's own code clicked it, not you",
+  drawn: "a click on a drawn grid: its cell goes with the copy or typing after it",
+  focus: "only put the cursor in a field: the typing after it is the step",
+  nameless: "nothing to find it by again",
+} as const;
+const WATCH_MS = 700; // capture watches a click this long; a next action sooner mixes their effects
+const STEP_EVENTS = new Set(["click", "type", "select", "check", "file", "drop", "drag", "key", "navigate"]);
+const labelOf = (t?: ElementDescriptor) => (t?.name ?? t?.label ?? t?.text ?? t?.tag ?? "").slice(0, 40);
+
 const FOLLOW_MS = 3_000; // a navigation this soon after a click or key press was caused by it
+// Google's drawn editors: a cell editor empties on Enter (it only moves to the next cell), and is not a chat box.
+const CANVAS_EDITORS = /^https:\/\/docs\.google\.com\/(spreadsheets|document|presentation)\//;
+const OPENS_TAB_MS = 2_000; // a tab opened this soon after a click, naming its tab as opener, was opened by it
 const FILE_DIALOG_MS = 5 * 60_000; // how long the macOS file dialog may stay open between the click and the pick
 const SCRIPT_CLICK_MS = 1_000; // a page script clicking its hidden file input right after your click on its button
 const CAUSED = new Set(["link", "form_submit"]);
 const FOCUS_ONLY_ROLES = new Set(["textbox", "searchbox", "spinbutton"]);
+// Controls whose click changes something: a button, a menu item, a choice (classes.ts reads them too).
+export const ACTING_ROLES = new Set([
+  "button",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "option",
+  "checkbox",
+  "radio",
+  "switch",
+]);
+// Words on a control that acts, whatever it is built from (a div that says Save).
+const ACTS =
+  /\b(save|submit|send|delete|remove|archive|apply|confirm|add|create|update|post|publish|pay|buy|order|approve|sign|done|next|continue|upload|download|export|import|share|reply|forward|mark|move|star|label|assign)\b/i;
 // Finder is recorded by what it did to files (fs_move, fs_rename from the watcher), never by its clicks: a click on
 // last month's row can't be replayed next month. Shadow.app leaves Finder out too; this also covers old traces.
 const FILE_APPS = new Set(["com.apple.finder"]);
+// Finder's Move to Trash (its menu item, or ⌘⌫), reported by Shadow.app: the file that vanishes right after it is a
+// trashed file, a step. Apps delete their own files all day, so a vanish without it is not.
+const TRASH_MS = 5_000;
+const finderTrash = (e: TraceEvent) =>
+  (e.event === "app_menu" && (e.menu ?? []).at(-1) === "Move to Trash") ||
+  (e.event === "app_key" && /^(delete|backspace)$/i.test(e.value ?? "") && (e.modifiers ?? []).includes("cmd"));
 // Mac-app elements that only hold others: a click on one is a click on nothing in particular.
 const AX_CONTAINERS = new Set([
   "AXWindow",
@@ -91,10 +161,36 @@ const DATE = /^\d{4}-\d{2}-\d{2}$|^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/;
 const NUMBER = /^-?\d+([.,]\d+)?$/;
 
 export function normalise(trace: TraceEvent[]): NormalisedStep[] {
+  return normaliseAll(trace).steps;
+}
+
+export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; noise: Noise[] } {
   const events = [...trace].sort((a, b) => a.at - b.at);
+  // What each click or key did: capture's effect events point back at it by cid (spec 1.3).
+  const effects = new Map<string, Effect>();
+  for (const e of events) if (e.event === "effect" && e.of && e.effect) effects.set(e.of, e.effect);
+  // Tabs opened by a click: their tab_open names the tab it came from.
+  const openedTabs = events.filter((e) => e.event === "tab_open" && e.openerTabId !== undefined);
+  const opensTab = (e: TraceEvent) => {
+    const tab = openedTabs.find((o) => o.openerTabId === e.tabId && o.at >= e.at && o.at - e.at <= OPENS_TAB_MS);
+    return tab?.tabId !== undefined ? { opensTab: tab.tabId } : {};
+  };
   const steps: Draft[] = [];
   const last = () => steps.at(-1);
+  const noise: Noise[] = [];
+  const drop = (events: string[], at: number, tabId: number | undefined, what: string, why: string, step?: Draft) =>
+    noise.push({ events, at, ...(tabId !== undefined ? { tabId } : {}), what, why, ...(step ? { step } : {}) });
+  // Selected text waits for its copy (one read step); the click that made a double-click selection goes with it.
+  let selection: { e: TraceEvent; clicks: string[] } | undefined;
+  const settleSelection = () => {
+    if (selection) {
+      const { e, clicks } = selection;
+      drop([...clicks, e.id], e.at, e.tabId, `selected "${(e.value ?? "").slice(0, 40)}"`, NOISE.selected);
+    }
+    selection = undefined;
+  };
   let lastCopy: string | undefined;
+  let lastTrash: number | undefined;
   const base = (e: TraceEvent): Draft => ({
     kind: "click",
     at: e.at,
@@ -102,6 +198,10 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
     frameId: e.frameId,
     url: e.url,
     target: e.target,
+    ...(e.cid && effects.has(e.cid) ? { effect: effects.get(e.cid) } : {}),
+    ...(e.list ? { list: e.list } : {}),
+    ...(e.cell ? { cell: e.cell } : {}),
+    ...(e.point ? { point: e.point } : {}),
     events: [e.id],
   });
   // A click that only focused a field or opened a dropdown adds nothing once you type or choose in it.
@@ -124,8 +224,12 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
   };
 
   for (const e of events) {
+    if (selection && STEP_EVENTS.has(e.event)) settleSelection();
     const prev = last();
-    if (e.event.startsWith("app_") && FILE_APPS.has(appOf(e)?.id ?? "")) continue;
+    if (e.event.startsWith("app_") && FILE_APPS.has(appOf(e)?.id ?? "")) {
+      if (finderTrash(e)) lastTrash = e.at;
+      continue;
+    }
     switch (e.event) {
       case "navigate": {
         // A page replay can't open (a new tab page, another extension's page, chrome://settings) is not a step: the
@@ -144,11 +248,17 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
           prev.events.push(e.id);
           break;
         }
-        steps.push({ ...base(e), kind: "navigate", target: undefined });
+        steps.push({ ...base(e), kind: "navigate", target: undefined, ...(e.back ? { back: true } : {}) });
         break;
       }
       case "click": {
         if (!e.target) break;
+        if (e.synthetic && !(e.target?.tag === "input" && e.target.attrs?.type === "file")) {
+          const prev = last();
+          const why = prev?.kind === "press" && e.at - prev.at < 1_000 ? NOISE.afterKeys : NOISE.byPage;
+          drop([e.id], e.at, e.tabId, `clicked "${labelOf(e.target)}"`, why);
+          break;
+        }
         // The same element clicked again at once (double click, a label and its control) is one action.
         if (prev?.kind === "click" && sameTarget(prev.target, e.target) && e.at - prev.at < 600) {
           prev.events.push(e.id);
@@ -160,7 +270,7 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
           prev.events.push(e.id);
           break;
         }
-        steps.push({ ...base(e), drawn: e.drawn });
+        steps.push({ ...base(e), drawn: e.drawn, ...opensTab(e) });
         break;
       }
       case "type": {
@@ -184,8 +294,23 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
         });
         break;
       }
+      case "select_text": {
+        settleSelection();
+        const prev = last();
+        const clicks =
+          prev?.kind === "click" && sameTarget(prev.target, e.target) && e.at - prev.at < 600
+            ? (steps.pop()?.events ?? [])
+            : [];
+        selection = { e, clicks };
+        break;
+      }
       case "copy": {
         if (e.secret || !e.value) break; // a copy out of a secret field: nothing to reuse, and nothing stored
+        const selected =
+          selection && selection.e.tabId === e.tabId && e.at - selection.e.at <= 10_000
+            ? [...selection.clicks, selection.e.id]
+            : [];
+        if (selected.length > 0) selection = undefined;
         // The click that selected what was copied is part of the copy: a click on a drawn app's canvas, or the
         // press-and-drag that selected text in the same element.
         const selecting =
@@ -197,7 +322,7 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
           value: e.value,
           context: e.context,
           drawn: e.drawn,
-          events: [...absorbed, e.id],
+          events: [...selected, ...absorbed, e.id],
         });
         lastCopy = e.id;
         break;
@@ -264,7 +389,25 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
         break;
       }
       case "key": {
-        if (e.value === "Enter" || e.value === "Escape") steps.push({ ...base(e), kind: "press", value: e.value });
+        // Enter and Escape, single keys outside a field (Gmail's e) and shortcuts (⌘Enter): capture already kept
+        // typing out (spec 1.8).
+        const named = e.value === "Enter" || e.value === "Escape";
+        const shortcut = (e.modifiers?.length ?? 0) > 0 || [...(e.value ?? "")].length === 1;
+        if (!e.value || (!named && !shortcut)) break;
+        // An Enter that emptied its box sent it; ⌘Enter and Ctrl+Enter send in mail and chat (Gmail closes the box
+        // instead of emptying it). Sheets' cell editor empties on Enter too: that is not a send.
+        const sendKey = e.modifiers?.some((m) => m === "cmd" || m === "ctrl");
+        const sends =
+          e.value === "Enter" &&
+          (Boolean(effects.get(e.cid ?? "")?.emptied) || Boolean(sendKey)) &&
+          !CANVAS_EDITORS.test(e.url ?? "");
+        steps.push({
+          ...base(e),
+          kind: "press",
+          value: e.value,
+          ...(e.modifiers?.length ? { modifiers: e.modifiers } : {}),
+          ...(sends ? { sends: true } : {}),
+        });
         break;
       }
       case "submit": {
@@ -283,6 +426,14 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
       case "fs_rename":
         steps.push({ ...base(e), kind: e.event, target: undefined, path: e.path, toPath: e.toPath });
         break;
+      case "fs_remove": {
+        const home = /^(\/Users\/[^/]+)\//.exec(e.path ?? "")?.[1];
+        if (lastTrash === undefined || e.at - lastTrash > TRASH_MS || !e.path || !home) break;
+        const name = e.path.split("/").pop() ?? "";
+        const toPath = `${home}/.Trash/${name}`;
+        steps.push({ ...base(e), kind: "fs_move", target: undefined, path: e.path, toPath, trashed: true });
+        break;
+      }
       case "app_click": {
         const el = e.element;
         if (!el || (AX_CONTAINERS.has(el.role) && !el.title && !el.description && !el.identifier)) break;
@@ -322,22 +473,61 @@ export function normalise(trace: TraceEvent[]): NormalisedStep[] {
     }
   }
 
-  // Drawn clicks no copy explained can't be replayed by element: they are reported on the next step instead.
+  settleSelection();
+  // Drawn clicks no copy explained can't be replayed by element: they are reported on the next step instead. Clicks
+  // that changed nothing, only focused a field, or have nothing to find them by are left out too: each one listed.
   const kept: Draft[] = [];
   let drawn = 0;
-  for (const s of steps) {
-    if (s.kind === "click" && s.drawn) drawn++;
-    else if (s.kind !== "click" || isMeaningfulClick(s)) {
-      kept.push(drawn > 0 ? { ...s, drawnBefore: drawn } : s);
-      drawn = 0;
+  steps.forEach((s, i) => {
+    if (s.kind === "click" && s.drawn) {
+      drawn++;
+      drop(s.events, s.at, s.tabId, s.cell ? `clicked cell ${s.cell.ref}` : "clicked the drawn grid", NOISE.drawn, s);
+      return;
     }
-  }
+    if (s.kind === "click" && quiet(s, steps[i + 1])) {
+      drop(s.events, s.at, s.tabId, `clicked "${labelOf(s.target)}"`, NOISE.quiet, s);
+      return;
+    }
+    if (s.kind === "click" && !isMeaningfulClick(s)) {
+      const focus = Boolean(s.target?.role && FOCUS_ONLY_ROLES.has(s.target.role));
+      drop(s.events, s.at, s.tabId, `clicked "${labelOf(s.target)}"`, focus ? NOISE.focus : NOISE.nameless, s);
+      return;
+    }
+    kept.push(drawn > 0 ? { ...s, drawnBefore: drawn } : s);
+    drawn = 0;
+  });
   addStartingPage(kept);
   followTabs(kept);
   const produced = events.flatMap((e) =>
     e.path && (e.event === "download" || e.event === "fs_create") ? [e.path] : [],
   );
-  return kept.map((s, index) => ({ ...s, index, candidate: candidateFor(s, produced) }));
+  const switches = events.filter((e) => e.event === "tab_switch");
+  switches.forEach((sw, i) => {
+    const until = switches[i + 1]?.at ?? Number.POSITIVE_INFINITY;
+    const used = kept.some((s) => s.tabId === sw.tabId && s.at >= sw.at && s.at < until);
+    if (!used) drop([sw.id], sw.at, sw.tabId, "switched tabs", NOISE.switched);
+  });
+  return {
+    steps: kept.map((s, index) => ({ ...s, index, candidate: candidateFor(s, produced) })),
+    noise: noise.sort((a, b) => a.at - b.at),
+  };
+}
+
+// A click that changed nothing (capture watched it, spec 1.3), unless the next action came before the watch ended. A
+// file it downloaded changes no page; a control that acts may show what it did after the watch (a slow "Saved"), or
+// only in its own state (a switch); a link's page may land later (a single-page app, 780 ms): those are kept.
+function quiet(s: Draft, next?: Draft): boolean {
+  const e = s.effect;
+  if (!e || e.changed !== "none" || e.navigated || e.expanded || e.opened) return false;
+  if (s.navigatesTo || s.submits || s.checked !== undefined || s.opensTab !== undefined || s.produces?.length) {
+    return false;
+  }
+  const t = s.target;
+  if (t?.role && (ACTING_ROLES.has(t.role) || t.role === "link" || t.role === "tab")) return false;
+  // Its own words, or its text when that is a control's few words (not a whole header's).
+  const words = [t?.name, t?.label, t?.text && t.text.length <= 20 ? t.text : undefined].filter(Boolean).join(" ");
+  if (ACTS.test(words)) return false;
+  return !next || next.at - s.at >= WATCH_MS;
 }
 
 // Replay opens web pages and local files in its own tab. Chrome's own pages and other extensions' pages refuse it
@@ -354,7 +544,7 @@ function findable(d?: ElementDescriptor): boolean {
 
 // Clicks on nothing in particular (page background, a field you then left empty) are noise.
 function isMeaningfulClick(step: Draft): boolean {
-  if (step.navigatesTo || step.submits || step.checked !== undefined) return true;
+  if (step.navigatesTo || step.submits || step.checked !== undefined || step.opensTab !== undefined) return true;
   const t = step.target;
   if (!t) return false;
   if (t.role && FOCUS_ONLY_ROLES.has(t.role)) return false;

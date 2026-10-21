@@ -30,7 +30,7 @@ Mac apps, with your files. When a website changes, it fixes the task itself and 
 2. Fill in the **goal**: what is done when this task is done. Example: "This week's numbers are in the KPI sheet".
    Everything else is optional: how often it should run, what changes each time, what stays the same, what it must
    never do without asking. Leave them empty if you are not sure.
-3. Two switches: a picture of the window at each step (only the words on it leave your Mac, private ones masked),
+3. Two switches: a picture of the window at each step (only the words on it leave your Mac; emails, card numbers, keys and any private words you list are masked),
    and your voice while you explain (turned into text on your Mac). Both off is fine.
 4. Press **Record**. A red button with a clock appears on your screen, above every app: that is the recording. Do
    the task the way you always do, in Chrome, in a Mac app, in Finder. If you like, say out loud why you choose what you choose: "always the newest one".

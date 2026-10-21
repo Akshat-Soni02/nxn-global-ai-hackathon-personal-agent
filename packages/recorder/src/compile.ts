@@ -1,19 +1,13 @@
-// Compile: normalised steps -> a Skill. Code builds the skeleton (actions, targets, recorded values); Nemotron adds
-// what code can't know: what each step is for, which values change each run, how to tell it worked, what to ask you.
-// The model's answer is merged by step id, validated with the same zod schema the player parses, and sent back with
-// the errors when it fails (at most 3 attempts). If it never passes, the skeleton is saved: a recording is never lost.
-// The description form filled in before recording (goal, Frequency, what changes, what stays, never) is the user's:
-// the model reads it, and it is copied into the skill as it is; no answer, the model's or the drill's, changes it.
+// Compile: normalised steps -> a Skill, by code alone. The skeleton (actions, targets, recorded values) becomes the
+// plain step list, with the questions code knows it can't decide. The description form filled in before recording
+// (goal, Frequency, what changes, what stays, never) is the user's: it is copied into the skill as it is. What the
+// recording meant is design agent v2's (design/v2/); no model is called here.
 import { ACTIONS, Check, type Description, Input, type LlmStep, Skill, Trigger, type VarType } from "@shadow/core";
-import type { ChatMessage } from "@shadow/llm";
-import type { MemoryStore } from "@shadow/memory";
 import { z } from "zod";
 import { applyAnswer } from "./drill.ts";
-import { type Note, narrationOf } from "./narration.ts";
+import { maskText } from "./mask.ts";
 import type { NormalisedStep } from "./normalise.ts";
 import { type ActionDraft, type SkillDraft, skeletonOf, skillInput, TRIGGER_ID } from "./skeleton.ts";
-
-export type Chat = (messages: ChatMessage[]) => Promise<string>;
 
 // A drill question. appliesTo is where the answer goes in the skill ("steps.start.inputs.invoice.resolve.dir",
 // "steps.s3.requires_approval", "steps.start.when", "description.goal"); an option's value is the JSON stored there.
@@ -77,12 +71,7 @@ export interface Form {
 }
 
 export interface CompileOptions {
-  chat?: Chat;
   form?: Form;
-  // What was said while recording (the narration); the masked screen words aren't needed here.
-  notes?: Note[];
-  memory?: Pick<MemoryStore, "search">;
-  maxAttempts?: number;
   // US dollars per million input tokens, to show what a per-run AI step costs (the fast profile's model price).
   pricePerMTok?: number;
 }
@@ -124,100 +113,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
     warnings,
   });
 
-  if (!options.chat) {
-    warnings.push("No model configured (NEBIUS_* in .env), so the skill was built by code only.");
-    return skeletonOnly(0);
-  }
-
-  const memory = options.memory ? await options.memory.search(memoryQuery(steps), { limit: 8 }) : [];
-  const narration = narrationOf(steps, options.notes ?? []);
-  const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt() },
-    {
-      role: "user",
-      content: JSON.stringify({
-        ...(form ? { description: form.description, frequency: form.when } : {}),
-        ...(narration.length > 0 ? { narration } : {}),
-        steps: stepsForModel(steps, idsByStep),
-        skeleton: skeletonForModel(draft),
-        memory: memory.map((m) => m.text),
-      }),
-    },
-  ];
-
-  const maxAttempts = options.maxAttempts ?? 3;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    let raw: string;
-    try {
-      raw = await options.chat(messages);
-    } catch (error) {
-      warnings.push(`Model call failed: ${error instanceof Error ? error.message : String(error)}`);
-      return skeletonOnly(attempt);
-    }
-    let issues: string[];
-    let merged: SkillDraft | undefined;
-    let notes: Annotations | undefined;
-    let costQuestions: Question[] = [];
-    try {
-      notes = Annotations.parse(extractJson(raw));
-      merged = withForm(merge(draft, notes), form);
-      costQuestions = aiQuestions(merged, notes, steps, idsByStep, options.pricePerMTok).map((c) => c.question);
-      const parsed = Skill.safeParse(skillInput(merged));
-      issues = [
-        ...(parsed.success
-          ? []
-          : parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ` : "") + i.message)),
-      ];
-    } catch (error) {
-      issues = [
-        error instanceof z.ZodError
-          ? error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")
-          : String(error),
-      ];
-    }
-    if (issues.length === 0 && merged && notes) {
-      const asked = new Set(notes.questions.map((q) => q.appliesTo));
-      return {
-        skill: Skill.parse(skillInput(merged)),
-        questions: [
-          ...costQuestions,
-          ...notes.questions.filter(open),
-          ...ownQuestions.filter((q) => !asked.has(q.appliesTo)),
-        ],
-        base,
-        model: "nemotron",
-        attempts: attempt,
-        warnings,
-      };
-    }
-    messages.push(
-      { role: "assistant", content: raw },
-      {
-        role: "user",
-        content: `That JSON was rejected:\n- ${issues.join("\n- ")}\nReturn the corrected JSON object only.`,
-      },
-    );
-  }
-  warnings.push(`The model's answer failed the schema check ${maxAttempts} times, so the code-only skill was kept.`);
-  return skeletonOnly(maxAttempts);
-}
-
-export function systemPrompt(): string {
-  return [
-    "You turn one recorded demonstration of a computer task into a reusable skill for an automation player.",
-    "You get JSON with: steps (what the person did, in order), skeleton (a valid draft skill that code built from those steps), memory (things the person told us before), and when the person filled in the form before recording, description and frequency.",
-    "description is the person's own words: goal (what is done when the task is done), changes (values that are different each run: make them inputs, never fixed values), constants (things that stay the same: they may stay fixed), never (things it must never do without asking: steps like that need approval). frequency is when it runs. Both are final: use them, never change or ask about them.",
-    'narration, when present, is what the person said while doing it, in order, with the recorded steps each piece was said over ("steps 4-7"). It says what they mean: how many ("the top 5"), which ones ("only remote ones", "skip those already in my sheet"), what to do when there are fewer, which value goes where. The recording is one example of that; the narration and the description are the rule.',
-    "Reply with ONE JSON object and nothing else. Every field is optional:",
-    '{"id": string, "intent": string, "inputs": {...}, "when": [...], "success": [...], "steps": [{"id": "s1", "intent": string, "args": {...}, "check": {...}, "wait": {...}, "requires_approval": boolean, "save_as": string, "on_fail": {"retries": number, "fallback": "agent" | "ask"}}], "questions": [...]}',
-    "Rules:",
-    ...labelRules(),
-    '- Ask, don\'t guess: anything you are unsure about becomes a question {"id", "text", "appliesTo", "options": [{"label", "value"}], "default", "remember": "fact" | "preference"}. appliesTo is where the answer goes in the skill, whose first step (id "start") holds when and inputs: such as "steps.start.inputs.invoice.resolve.dir", "steps.s3.requires_approval", "steps.start.when" or "description.goal"; value is the JSON stored there; default is the label of the default option. Set remember when the answer is a lasting fact about the person. At most 5 questions, and none that memory, the description or the narration already answers: what they state ("always 5", "skip the ones I already took") becomes an input with that value as its default, or stays fixed.',
-    "Examples of when to ask and when not to:",
-    '- Ask: the file you uploaded (this exact file, or the newest of its kind?); a value typed once that may change ("38 hours every week?"); which sheet row (today\'s, or always this one?); approval for a step that pays, sends, deletes or posts; what a click on a drawn area was for.',
-    "- Don't ask: anything the description or the narration says (how many, which ones to skip, which value goes in which column); anything the recording already shows (which page, which button, the order of steps); anything memory answers; selectors or layout; wording, colours or style; the same thing twice.",
-    '- A good question has options and a default: {"text": "Run it when a new invoice lands in Downloads?", "appliesTo": "steps.start.when", "options": [{"label": "yes", "value": [{"type": "folder_watch", "dir": "~/Downloads", "glob": "invoice-*.pdf"}]}, {"label": "only when I press Run", "value": [{"type": "manual"}]}], "default": "yes"}.',
-  ].join("\n");
+  return skeletonOnly(0);
 }
 
 // How to label the plain step list: names, inputs, checks, approvals, args. Shared by the old one-call compile and the
@@ -292,9 +188,15 @@ export function labelDraft(
   return { ok: true, skill, questions, kept };
 }
 
-// The model sees what you did, by meaning: no selectors, never a secret's value. Also the design agent's view of the
-// recording (design/tools.ts).
-export function stepsForModel(steps: NormalisedStep[], idsByStep: string[][]) {
+// A step by meaning: no selectors, never a secret's value.
+// What the model reads of each step. Values typed or copied are masked like screen words (keys, tokens, cards, emails)
+// and by the recording's Never and private words: a page's "Copy API key" button put a key in a copy's value.
+export function stepsForModel(steps: NormalisedStep[], idsByStep: string[][], terms: string[] = []) {
+  const hide = (text: string | undefined) => (text === undefined ? undefined : maskText(text, terms).text);
+  const hideRow = (row: unknown) =>
+    row && typeof row === "object"
+      ? Object.fromEntries(Object.entries(row as Record<string, unknown>).map(([k, v]) => [k, hide(String(v))]))
+      : row;
   return steps.map((s, i) => ({
     ids: idsByStep[i],
     did: s.kind,
@@ -312,7 +214,7 @@ export function stepsForModel(steps: NormalisedStep[], idsByStep: string[][]) {
     menu: s.menu,
     keys: s.kind === "app_key" ? [...(s.modifiers ?? []), s.value].join("+") : undefined,
     dropped_on: s.to && { role: s.to.role, name: s.to.name, label: s.to.label, near: s.to.near },
-    value: s.secret ? "(secret, not recorded)" : s.value?.slice(0, 200),
+    value: s.secret ? "(secret, not recorded)" : hide(s.value?.slice(0, 200)),
     checked: s.checked,
     file: s.file?.name,
     path: s.path,
@@ -321,17 +223,13 @@ export function stepsForModel(steps: NormalisedStep[], idsByStep: string[][]) {
     produced: s.produces,
     likely_changes: s.candidate,
     // A copy: what was copied; from a sheet also its header and the one row it came from (no other rows).
-    copied: s.kind === "copy" ? s.value?.slice(0, 200) : undefined,
+    copied: s.kind === "copy" ? hide(s.value?.slice(0, 200)) : undefined,
     sheet:
       s.kind === "copy" && s.context?.header
-        ? { header: s.context.header, row: s.context.row, column: s.context.column }
+        ? { header: s.context.header, row: hideRow(s.context.row), column: s.context.column }
         : undefined,
     pasted_from_copy: s.pasted ? Boolean(s.fromCopy) : undefined,
   }));
-}
-
-function skeletonForModel(draft: SkillDraft) {
-  return { ...draft, steps: draft.steps.map(({ target: _target, ...step }) => step) };
 }
 
 // The parts of a skill the form decides.
@@ -360,21 +258,6 @@ function withForm(draft: SkillDraft, form: Form | undefined): SkillDraft {
   };
   const when = form.whenFixed || !draft.when?.length ? structuredClone(form.when) : draft.when;
   return { ...draft, description, when };
-}
-
-function memoryQuery(steps: NormalisedStep[]): string {
-  return steps
-    .flatMap((s) => [
-      s.target?.name,
-      s.target?.label,
-      s.target?.near,
-      s.file?.name,
-      hostOf(s.url),
-      s.element?.title,
-      s.app?.name,
-    ])
-    .filter(Boolean)
-    .join(" ");
 }
 
 function merge(draft: SkillDraft, notes: Annotations): SkillDraft {
@@ -498,7 +381,7 @@ const OUTPUT_OF: Record<"text" | "number" | "date" | "json", VarType> = {
 };
 
 // The type of a step's result, for a variable the model names with save_as (what each action produces: check.ts).
-function producedType(step: ActionDraft): VarType {
+export function producedType(step: ActionDraft): VarType {
   const a = step.args ?? {};
   switch (`${step.channel}.${step.action}`) {
     case "web.extract":
@@ -577,7 +460,7 @@ function sameOrigin(a: unknown, b: unknown): boolean {
   }
 }
 
-function hostOf(url: string | undefined): string | undefined {
+function _hostOf(url: string | undefined): string | undefined {
   try {
     return url ? new URL(url).hostname : undefined;
   } catch {

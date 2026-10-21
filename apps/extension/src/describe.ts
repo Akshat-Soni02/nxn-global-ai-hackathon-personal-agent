@@ -1,7 +1,7 @@
 // describeElement: everything we know about one control, by meaning, never by position.
 // The recorder calls it on the element you used. The player will call it on each candidate and score that against the
 // stored Locator, so both sides must compute role and name the same way (descriptor.ts).
-import type { ElementDescriptor } from "@shadow/core";
+import type { ElementDescriptor, ListPosition } from "@shadow/core";
 import { computeAccessibleName, getRole } from "dom-accessibility-api";
 
 // What a click is "on": a click on the <span> inside a button is a click on the button.
@@ -32,8 +32,10 @@ const ACTIONABLE = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(", ");
 
-// Values that change on every deploy or render, so they can't find the element again.
-const GENERATED = /\d{4,}|[a-f0-9]{8,}|^:r[0-9a-z]*:$|^(ember|react|mui|radix|headlessui)[-:]/i;
+// Values that change on every deploy or render, so they can't find the element again: long numbers and hex, React's
+// :r1:, Google's per-session ids (:1g, 19fml5:17: a KPI sheet's tab failed on one the next day), and framework prefixes.
+const GENERATED =
+  /\d{4,}|[a-f0-9]{8,}|^:r[0-9a-z]*:$|^:[0-9a-z]{1,6}$|^[0-9a-z]{3,}:\d+$|^(ember|react|mui|radix|headlessui)[-:]/i;
 const KEEP_ATTRS = [
   "id",
   "name",
@@ -76,11 +78,17 @@ export function describeElement(el: Element): ElementDescriptor {
   // A hidden file input is not in Chrome's accessibility tree, so it has no role or name to match on at replay;
   // storing one would only lower the match score. Its label, attributes and selectors still describe it.
   const inTree = !isHiddenFileInput(el);
+  const name = inTree ? accessibleName(el) : undefined;
+  const href = el.localName === "a" ? el.getAttribute("href") : null;
+  const elRole = inTree ? role(el) : undefined;
   return {
     tag: el.localName,
     url: el.ownerDocument.location?.href ?? "",
-    role: inTree ? role(el) : undefined,
-    name: inTree ? accessibleName(el) : undefined,
+    role: elRole,
+    name,
+    ...(name || !CONTROL_ROLES.has(elRole ?? "") ? {} : seen(el)),
+    // Every word with a digit in it is an id: /jobs/fK75gxxbq-engineer is /jobs/*-engineer, not /jobs/fK*gxxbq-engineer.
+    ...(href && href.length <= 300 ? { href, hrefShape: href.replace(/[A-Za-z0-9]*\d[A-Za-z0-9]*/g, "*") } : {}),
     label: labelText(el),
     text: FIELDS.has(el.localName) ? undefined : clean(el.textContent),
     near: near?.text,
@@ -117,6 +125,57 @@ function accessibleName(el: Element): string | undefined {
     return clean(computeAccessibleName(el));
   } catch {
     return undefined;
+  }
+}
+
+const HEADING = "h1, h2, h3, h4, h5, h6, [role=heading]";
+// What a person clicks or types into. Only these borrow a name from around them: a paragraph, a page area or the page
+// itself is described by its own text, never by a heading or a picture near it ("Table" for Wikipedia's first paragraph).
+const CONTROL_ROLES = new Set([
+  "link",
+  "button",
+  "tab",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "option",
+  "checkbox",
+  "radio",
+  "switch",
+  "treeitem",
+  "combobox",
+  "searchbox",
+  "textbox",
+  "slider",
+  "spinbutton",
+]);
+
+// What a person would call a control the accessibility tree leaves nameless: its title, an image's alt text, a heading
+// inside it or in its card (the YC job card's link wraps only the logo; the company name is the card's heading), its
+// text, or the last part of its address. For the design agent; replay matches Chrome's own name only.
+function seen(el: Element): Pick<ElementDescriptor, "seenAs" | "seenFrom"> {
+  const title = clean(el.getAttribute("title"));
+  if (title) return { seenAs: title, seenFrom: "title" };
+  const alt = clean(el.querySelector("img[alt]")?.getAttribute("alt"));
+  if (alt) return { seenAs: alt, seenFrom: "alt" };
+  const own = clean(el.querySelector(HEADING)?.textContent);
+  if (own) return { seenAs: own, seenFrom: "heading" };
+  for (
+    let a = el.parentElement, depth = 0;
+    a && depth < 3 && a !== el.ownerDocument.body;
+    a = a.parentElement, depth++
+  ) {
+    const heading = clean(a.querySelector(HEADING)?.textContent);
+    if (heading) return { seenAs: heading, seenFrom: "card" };
+  }
+  const text = FIELDS.has(el.localName) ? undefined : clean(el.textContent);
+  if (text) return { seenAs: text, seenFrom: "text" };
+  const last = el.getAttribute("href")?.split(/[?#]/)[0]?.split("/").filter(Boolean).pop();
+  if (!last) return {};
+  try {
+    return { seenAs: decodeURIComponent(last).replace(/[-_]+/g, " "), seenFrom: "href" };
+  } catch {
+    return { seenAs: last, seenFrom: "href" };
   }
 }
 
@@ -288,4 +347,93 @@ function literal(text: string): string {
   if (!text.includes("'")) return `'${text}'`;
   if (!text.includes('"')) return `"${text}"`;
   return `concat('${text.split("'").join(`', "'", '`)}')`;
+}
+
+const ITEM_ROLES = new Set(["listitem", "row", "article", "option", "treeitem", "menuitem"]);
+// Never the item: a table cell (its place in its row is a column; the row is the item), text (paragraphs, headings)
+// and the page's own areas. A link in Wikipedia's table is in row 4, not in cell 1 of 4.
+const CELL_ROLES = new Set(["cell", "gridcell", "columnheader", "rowheader"]);
+const NOT_ITEMS = new Set([
+  "td",
+  "th",
+  "p",
+  "span",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "label",
+  "section",
+  "main",
+  "header",
+  "footer",
+  "nav",
+  "aside",
+  "form",
+  "fieldset",
+]);
+// Classes that mark state, not shape: the selected job card is still one of the job cards.
+const STATE_CLASS = /active|selected|hover|focus|open|current|checked|first|last|odd|even/i;
+
+// Where an element sits in a list: the nearest ancestor (or itself) that is one of 3+ siblings of the same shape (a job
+// card among job cards, an email row among rows), its place and the list. "The top job" needs this: before, the only
+// trace of it was a selector's :nth-of-type, which replay never reads.
+export function listPosition(el: Element): ListPosition | undefined {
+  const doc = el.ownerDocument;
+  let item: Element | null = el;
+  for (let depth = 0; item?.parentElement && depth < 6; item = item.parentElement, depth++) {
+    const parent: Element = item.parentElement;
+    if (parent === doc.body || parent === doc.documentElement) return undefined;
+    if (NOT_ITEMS.has(item.localName) || CELL_ROLES.has(getRole(item) ?? "")) continue;
+    const shape = shapeOf(item);
+    const same = Array.from(parent.children).filter((c) => shapeOf(c) === shape);
+    if (same.length >= 3 && (ITEM_ROLES.has(getRole(item) ?? "") || item.children.length > 0)) {
+      return {
+        container: briefly(parent),
+        index: same.indexOf(item),
+        count: same.length,
+        itemText: clean(textPieces(item), 120),
+      };
+    }
+  }
+  return undefined;
+}
+
+// An item's text with its pieces apart ("Numeral Remote", not "NumeralRemote": textContent runs blocks together).
+function textPieces(el: Element): string {
+  const walker = el.ownerDocument.createTreeWalker(el, 4 /* NodeFilter.SHOW_TEXT */);
+  const pieces: string[] = [];
+  for (let node = walker.nextNode(); node && pieces.length < 40; node = walker.nextNode()) {
+    const text = node.textContent?.trim();
+    if (text) pieces.push(text);
+  }
+  return pieces.join(" ");
+}
+
+// The list itself, described only by what is cheap to compute on every click: role, name, attributes and a CSS
+// selector. No XPath search and no text: a whole inbox's text would be read on each click.
+function briefly(el: Element): ElementDescriptor {
+  return {
+    tag: el.localName,
+    url: el.ownerDocument.location?.href ?? "",
+    role: role(el),
+    name: accessibleName(el),
+    attrs: keptAttrs(el),
+    fallbacks: [],
+    selectors: { css: stableCss(el) ?? structuralCss(el) },
+  };
+}
+
+function shapeOf(el: Element): string {
+  // A row or a list item says what it is: its classes only mark state (Gmail's unread rows, and the row under the
+  // pointer, which gets a hover class just as it is clicked), so they are left out.
+  const itemRole = getRole(el) ?? "";
+  if (ITEM_ROLES.has(itemRole)) return `${el.localName}..${itemRole}`;
+  const classes = Array.from(el.classList)
+    .filter((c) => !GENERATED.test(c) && !STATE_CLASS.test(c))
+    .sort()
+    .join(".");
+  return `${el.localName}.${classes}.${getRole(el) ?? ""}`;
 }

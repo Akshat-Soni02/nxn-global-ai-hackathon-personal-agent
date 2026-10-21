@@ -1,34 +1,47 @@
 // Record, daemon side. While recording: every event goes to the session's trace file, web events from the extension
 // and file events from the folder watcher alike. After stop: trace -> normalise -> the plain step list (code, no
-// model) -> the design agent, the one AI that reads the recording: it labels the steps, makes loops, branches and
-// llm steps, and asks what is unclear -> the questions code still has -> what an unattended Frequency needs ->
-// approvals (code) -> skills/<id>/vN.json. Without a model the plain step list is saved; if the agent stops early,
-// its last valid draft is. The recording's folder is kept for a day (recording-store.ts), so a failed or poor result
+// model) -> the evidence package -> design agent v2 (understand, build, test in the automation window, ask once,
+// the finish gate) -> what an unattended Frequency needs -> approvals (code) -> skills/<id>/vN.json. Without a model
+// the plain step list is saved; if the agent stops early, its last valid draft is. The recording's folder is kept for a day (recording-store.ts), so a failed or poor result
 // can be redone with `compile <session>` until then.
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, sep } from "node:path";
-import { type Skill, type TraceEvent, triggerOf } from "@shadow/core";
-import type { Llm, UsageMeter } from "@shadow/llm";
+import { type Effect, isAction, type Skill, type Step, type TraceEvent, triggerOf, walkSteps } from "@shadow/core";
+import { type Llm, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import {
+  answerFromEvidence,
+  applyAnswer,
+  buildEvidence,
   changesSummary,
   compile,
-  type DesignOptions,
+  type DesignV2Options,
+  type DesignV2Outcome,
   describeChanges,
-  designWorkflow,
+  designV2,
   drill,
-  type NormalisedStep,
-  normalise,
+  type Evidence,
+  effectsOf,
+  normaliseAll,
   type Prompter,
+  pagesOf,
+  progressLine,
   type Question,
+  recordedFolders,
+  recordedPages,
   requireApprovals,
+  reviewOf,
+  type TestReport,
+  tabsOf,
 } from "@shadow/recorder";
 import type { ScreenDescriber } from "./describe.ts";
+import { writeEvidence } from "./evidence.ts";
 import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { goLiveProblems } from "./lifecycle.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
-import { readForm, readNotes, recordingDir } from "./recording-store.ts";
+import { maskTermsOf, readForm, readNotes, recordingDir } from "./recording-store.ts";
+import { writeReview } from "./review-store.ts";
 import { loadSkill, newSkillId, saveSkill } from "./skill-store.ts";
 import { appendTrace, readTrace } from "./trace-store.ts";
 
@@ -95,22 +108,40 @@ export interface FinishOptions {
   // Counts what the model costs (the daemon's meter).
   meter?: UsageMeter;
   // The design agent's budget, for tests.
-  design?: Pick<DesignOptions, "budget" | "protocol">;
-  // Masked pictures described by the vision model (describe.ts), for the design agent's describe_step_screenshot. Used only
-  // when this recording's form allowed pictures.
+  design?: Pick<DesignV2Options, "budget" | "protocol">;
+  // Masked pictures described by the vision model (describe.ts): the steps' captions in the evidence. Used only when
+  // this recording's form allowed pictures.
   describer?: ScreenDescriber;
+  // The design agent's safe test run in the automation window (main.ts binds the daemon's rehearse). Without it, the
+  // workflow is saved untested and the review says so.
+  // `recorded`: the steps whose control is the one recorded, unchanged (only their links are followed).
+  rehearse?: (
+    skill: Skill,
+    effects: Map<string, Effect>,
+    onLine: (line: string) => void,
+    recorded: Set<string>,
+  ) => Promise<TestReport>;
+  // Plain-language lines for the Record screen as the work goes on.
+  progress?: (line: string) => void;
 }
 
 export async function finishRecording(
   sessionId: string,
   options: FinishOptions,
-): Promise<{ path: string; skill: Skill } | undefined> {
+): Promise<{ path: string; skill: Skill; design?: DesignV2Outcome } | undefined> {
   const { dataDir, log } = options;
+  // The feed's lines are kept for the review's "How this was made" too.
+  const made: string[] = [];
+  const progress = (line: string) => {
+    made.push(line);
+    options.progress?.(line);
+  };
   // Pages never see a file's path; find each picked or dropped file on disk so the skill knows where they live.
   const raw = readTrace(dataDir, sessionId);
   const trace = options.locate ? await locateFiles(raw, options.locate) : raw;
-  const steps = normalise(trace);
-  log(`trace ${sessionId}: ${trace.length} event(s) -> ${steps.length} step(s)`);
+  const { steps, noise } = normaliseAll(trace);
+  log(`trace ${sessionId}: ${trace.length} event(s) -> ${steps.length} step(s), ${noise.length} left out`);
+  progress(`Read ${trace.length} actions as ${steps.length} steps`);
   if (steps.length === 0) {
     log("nothing to compile");
     return undefined;
@@ -139,8 +170,7 @@ export async function finishRecording(
   // Per-run AI steps run on the fast profile: its input price is what a question about one shows it costing.
   const fast = llm?.config.catalog[llm.config.profiles.fast.model];
   const compiled = await compile(steps, { pricePerMTok: fast?.priceIn, form });
-  // compile's own note about running without a model is about its old one-call path: the agent is what uses the model now.
-  for (const warning of compiled.warnings) if (!warning.startsWith("No model configured")) log(warning);
+  for (const warning of compiled.warnings) log(warning);
   if (!llm) log("no model configured (a key in Settings or .env): saving the plain step list");
 
   // A recording is a new skill with its own id, so recordings never collide; unless the form said it is the task you
@@ -153,62 +183,96 @@ export async function finishRecording(
   let questions = compiled.questions;
   // The plain step list, before anything was decided: the history note says what changed from it.
   const plain = skill;
+  // Questions the recording already answers are not asked (spec 2.10): "which file?" after "the latest invoice".
+  const said = notes.filter((n) => n.kind === "said");
+  questions = questions.filter((q) => {
+    const answer = answerFromEvidence(q, { goal: form?.description.goal ?? "", said });
+    if (!answer) return true;
+    const applied = applyAnswer(skill, q, answer.answer);
+    if (!applied.ok) return true;
+    skill = applied.skill;
+    log(`answered from what you said ("${answer.quote}"): ${q.text} → ${answer.answer}`);
+    return false;
+  });
+  // One meter for the whole design: the pictures' captions and the agent share its $0.25 (spec, "Budget").
+  const meter = options.meter?.child() ?? new UsageMeter();
+  // The evidence package (spec 2.14): what code understood, kept in the recording's folder for the design agent.
+  let evidence: Evidence | undefined;
+  try {
+    evidence =
+      (await writeEvidence({
+        dataDir,
+        sessionId,
+        trace,
+        steps,
+        noise,
+        skill,
+        idsByStep: compiled.base.idsByStep,
+        form: recorded,
+        notes,
+        describer: options.describer,
+        meter,
+        log,
+      })) ??
+      buildEvidence({
+        trace,
+        steps,
+        noise,
+        skill,
+        idsByStep: compiled.base.idsByStep,
+        goal: recorded?.goal ?? "",
+        switches: {
+          screen: recorded?.consent.screen ?? false,
+          voice: recorded?.consent.microphone ?? false,
+          pictures: recorded?.consent.pictures ?? false,
+        },
+        said: said.map(({ at, until, text }) => ({ at, ...(until !== undefined ? { until } : {}), text })),
+        pictures: [],
+        maskTerms: maskTermsOf(recorded),
+      });
+  } catch (error) {
+    // Without evidence the design can't run, and the plain list is saved: a recording is never lost.
+    log("evidence couldn't be built:", (error as Error).message);
+  }
 
-  // The design agent: the flat first draft -> the workflow meant. It asks its own questions (the drill).
-  if (llm) {
+  // Design agent v2: the plain list -> the workflow meant. It asks its questions in one batch.
+  let design: DesignV2Outcome | undefined;
+  if (llm && evidence) {
     log("the design agent is reading the recording...");
-    // A step's picture, already masked by screen.ts (shots/<event>.jpg), described: only when this recording's form
-    // allowed pictures to be sent.
-    const describer = options.describer;
-    const describeScreen =
-      describer && recorded?.consent.pictures && describer.allowed()
-        ? async (step: NormalisedStep) => {
-            const dir = recordingDir(dataDir, sessionId);
-            // Event ids come from the extension and the app: only plain ones name a file, so no id can point outside
-            // the recording's shots folder.
-            const shot = step.events
-              .filter((id) => /^[\w-]+$/.test(id))
-              .map((id) => join(dir, "shots", `${id}.jpg`))
-              .find((p) => existsSync(p));
-            if (!shot) throw new Error("no picture was kept for that step");
-            const did = [
-              step.kind.replace(/_/g, " "),
-              step.target?.name ?? step.element?.title ?? step.element?.description,
-              step.value && !step.secret ? `"${step.value.slice(0, 60)}"` : undefined,
-            ]
-              .filter(Boolean)
-              .join(" ");
-            return describer.describeMasked(
-              shot,
-              `The user did: ${did}. Describe what is on screen and what the control they used is for.`,
-            );
-          }
-        : undefined;
-    const design = await designWorkflow({
+    const effects = effectsOf(steps, compiled.base.idsByStep);
+    const rehearse = options.rehearse;
+    design = await designV2({
       llm,
       skill,
       questions,
-      // The plain step list to label first: the agent's first move.
-      base: compiled.base,
-      steps,
-      form,
-      notes,
+      evidence,
+      facts: { pages: recordedPages(steps), folders: recordedFolders(steps, skill), whenFixed: form?.whenFixed },
+      pages: pagesOf(steps, compiled.base.idsByStep, tabsOf(trace, steps).tabs),
       memory: options.memory,
       prompter: options.prompter,
-      // It may finish only once a run started by the Frequency could fill every input on its own.
-      checks: unattendedGaps,
-      describeScreen,
-      meter: options.meter,
+      // The Never and private words: every tool result the agent reads is masked with them.
+      maskTerms: maskTermsOf(recorded),
+      unattended: unattendedGaps,
+      test: rehearse
+        ? (draft) => rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft))
+        : undefined,
+      meter,
+      onProgress: progress,
+      onEvent: (event) => {
+        const line = progressLine(event);
+        if (line) progress(line);
+      },
       ...options.design,
     });
-    const cost = design.episode ? `, $${design.episode.usage.costUsd.toFixed(4)}` : "";
-    if (design.kind === "designed") log(`design agent: ${design.summary} (${design.episode?.turns ?? 0} turns${cost})`);
-    else log(`design agent: ${design.reason}${cost}; keeping what it reached`);
-    log(`what changed: ${changesSummary(design.changes)}`);
-    skill = design.skill;
+    const cost = `$${design.usage.costUsd.toFixed(4)}, ${design.usage.calls} calls`;
+    log(`design agent: ${design.kind === "designed" ? design.summary : design.reason} (${cost})`);
+    // The workflow's id and name are the daemon's (a new id per recording, or the workflow recorded again), never the
+    // model's: a model-chosen id once saved a recording as the next version of another workflow.
+    skill = { ...design.skill, id: skill.id, name: skill.name };
+    // v2 asked its questions in its own batch; any it never reached (it stopped first) go to the drill below.
     questions = design.pending;
     await remember(options.memory, skill.id, design.answered);
-    keepEpisode(dataDir, sessionId, design);
+    keepDesign(dataDir, sessionId, design);
   }
 
   if (questions.length > 0) log(`${questions.length} question(s) before saving. Enter takes the default.`);
@@ -251,7 +315,19 @@ export async function finishRecording(
         };
   const saved = saveSkill(dataDir, noted);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
-  return saved;
+  progress(`Saved ${saved.skill.name}`);
+  if (design) writeReview(dataDir, reviewOf(design, saved.skill, made));
+  return { ...saved, design };
+}
+
+// The steps whose control is still the one recorded: the test run follows a link only there (a link the agent added,
+// or a control it changed, is only outlined).
+function unchangedControls(recorded: Skill, draft: Skill): Set<string> {
+  const target = (step: Step) => JSON.stringify(isAction(step) ? step.target : undefined);
+  const was = new Map([...walkSteps(recorded.steps)].map(({ step }) => [step.id, target(step)]));
+  return new Set(
+    [...walkSteps(draft.steps)].filter(({ step }) => was.get(step.id) === target(step)).map(({ step }) => step.id),
+  );
 }
 
 // A Frequency that starts runs on their own (a schedule, a folder) needs every input filled without asking: a default
@@ -303,23 +379,11 @@ async function remember(
   }
 }
 
-// What the design agent did, turn by turn, kept with the recording (and deleted with it).
-function keepEpisode(dataDir: string, sessionId: string, design: Awaited<ReturnType<typeof designWorkflow>>): void {
+// What the design did, stage by stage, kept with the recording (and deleted with it): the task model, the decisions,
+// the changes with their whys, the test report, what was asked, the gaps, and the whole transcript.
+function keepDesign(dataDir: string, sessionId: string, design: DesignV2Outcome): void {
   const dir = recordingDir(dataDir, sessionId);
-  if (!existsSync(dir) || !design.episode) return;
-  const { transcript, usage, turns } = design.episode;
-  // `claimed`: what the agent said it did; `changes`: what it really changed (the two can differ).
-  const result =
-    design.kind === "designed"
-      ? { claimed: design.summary, changes: design.changes, edits: design.edits }
-      : { kept: design.reason, changes: design.changes };
-  // What it was told, so a poor result can be explained.
-  writeFileSync(
-    join(dir, "design.json"),
-    `${JSON.stringify({ ...result, turns, usage, prompt: design.prompt, transcript }, null, 2)}
-`,
-    {
-      mode: 0o600,
-    },
-  );
+  if (!existsSync(dir)) return;
+  const { skill: _skill, ...kept } = design;
+  writeFileSync(join(dir, "design.json"), `${JSON.stringify(kept, null, 2)}\n`, { mode: 0o600 });
 }

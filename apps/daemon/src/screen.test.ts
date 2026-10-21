@@ -5,10 +5,11 @@ import { join } from "node:path";
 import { createDecoder, encode } from "@shadow/ipc";
 import { fakeLlm } from "@shadow/llm";
 import type { Box } from "@shadow/recorder";
+import { scriptedDesigner } from "@shadow/recorder";
 import { afterEach, describe, expect, it } from "vitest";
 import { type Daemon, startDaemon } from "./daemon.ts";
 import { finishRecording } from "./record.ts";
-import { readNotes, writeForm } from "./recording-store.ts";
+import { maskTermsOf, readForm, readNotes, writeForm } from "./recording-store.ts";
 import { createScreenReader, type ScreenTools } from "./screen.ts";
 import { appendTrace } from "./trace-store.ts";
 
@@ -57,10 +58,16 @@ describe("screenshots", () => {
 
     const saved = readFileSync(join(home, "recordings", sessionId, "screen.jsonl"), "utf8");
     expect(saved).not.toMatch(/jane|acme|4242|Falcon/);
-    expect(JSON.parse(saved)).toEqual({
+    expect(JSON.parse(saved)).toMatchObject({
       at: 1500,
       eventId: "e1",
       text: "Weekly metrics\nFrom: ███\nCard ███\nRe: ███ budget",
+      lines: [
+        { text: "Weekly metrics", box: box(0) },
+        { text: "From: ███", box: box(30) },
+        { text: "Card ███", box: box(60) },
+        { text: "Re: ███ budget", box: box(90) },
+      ],
     });
     // The lines that had something masked, and the password field the page reported.
     expect(blackedOut).toEqual([[box(30), box(60), box(90), { x: 0, y: 500, w: 200, h: 30 }]]);
@@ -76,11 +83,7 @@ describe("screenshots", () => {
       target: { tag: "a", url: PAGE, role: "link", name: "Weekly metrics", fallbacks: [], selectors: { css: "#m" } },
     });
     expect(readNotes(home, sessionId)).toEqual([{ at: 1500, kind: "screen", text: expect.stringContaining("███") }]);
-    const llm = fakeLlm([
-      "{}",
-      { toolCalls: [{ name: "read_recording", arguments: {} }] },
-      { toolCalls: [{ name: "finish", arguments: { summary: "ok" } }] },
-    ]);
+    const llm = fakeLlm(scriptedDesigner());
     await finishRecording(sessionId, {
       dataDir: home,
       llm,
@@ -89,7 +92,8 @@ describe("screenshots", () => {
       prompter: { ask: async () => "" },
     });
     const sent = JSON.stringify(llm.requests);
-    expect(sent).toContain("on screen: Weekly metrics");
+    // What appeared on screen after the click, as data (the evidence the design agent reads first).
+    expect(sent).toMatch(/appeared: <untrusted_data>\\"Weekly metrics\\"/);
     expect(sent).not.toContain("jane");
     expect(sent).not.toContain("acme.com");
     expect(sent).not.toContain("4242 4242");
@@ -194,5 +198,63 @@ describe("screenshots over the socket", () => {
     await daemon.stopRecording();
     ext.end();
     expect(shots).toEqual(["a", "big"]);
+  });
+  it("keep a ledger line for every picture: taken, or why not", async () => {
+    const home = temp();
+    const sessionId = recording(home);
+    const { tools } = fakeTools(["Inbox"]);
+    const reader = createScreenReader({ dataDir: home, tools, never: () => [], log: () => {} });
+    reader.add({ sessionId, eventId: "e1", at: 1, image: JPEG });
+    reader.skip({ sessionId, eventId: "e2", at: 2, reason: "rate-limit" });
+    await reader.idle();
+    const ledger = readFileSync(join(home, "recordings", sessionId, "shots.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    expect(ledger).toEqual([
+      { eventId: "e2", at: 2, outcome: "skipped", reason: "rate-limit" },
+      { eventId: "e1", at: 1, outcome: "taken" },
+    ]);
+  });
+
+  it("say no-tools for every picture when Shadow.app can't read pictures, instead of losing them silently", async () => {
+    const home = temp();
+    const sessionId = recording(home);
+    const reader = createScreenReader({ dataDir: home, tools: undefined, never: () => [], log: () => {} });
+    reader.add({ sessionId, eventId: "e1", at: 1, image: JPEG });
+    reader.add({ sessionId, eventId: "e2", at: 2, image: JPEG });
+    await reader.idle();
+    const ledger = readFileSync(join(home, "recordings", sessionId, "shots.jsonl"), "utf8")
+      .trim()
+      .split("\n");
+    expect(ledger.map((l) => JSON.parse(l).outcome)).toEqual(["no-tools", "no-tools"]);
+  });
+  it("keep up to 8,000 characters of words, each with its place, and mask the private words given before recording", async () => {
+    const home = temp();
+    const sessionId = "s-private";
+    writeForm(home, sessionId, {
+      goal: "KPIs",
+      changes: [],
+      constants: [],
+      never: [],
+      private: ["Project Falcon"],
+      when: [{ type: "manual" }],
+      consent: { screen: true, microphone: false, pictures: false },
+    });
+    const long = Array.from({ length: 400 }, (_, i) => `line ${i} of a long page`);
+    const { tools } = fakeTools(["Project Falcon budget", ...long]);
+    const reader = createScreenReader({
+      dataDir: home,
+      tools,
+      never: (id) => maskTermsOf(readForm(home, id)),
+      log: () => {},
+    });
+    reader.add({ sessionId, eventId: "e1", at: 1, tabId: 4, takenAt: 2, image: JPEG });
+    await reader.idle();
+    const line = JSON.parse(readFileSync(join(home, "recordings", sessionId, "screen.jsonl"), "utf8"));
+    expect(line.text).not.toContain("Falcon");
+    expect(line.text.length).toBeGreaterThan(2_000);
+    expect(line.text.length).toBeLessThanOrEqual(8_000);
+    expect(line).toMatchObject({ tabId: 4, takenAt: 2 });
   });
 });

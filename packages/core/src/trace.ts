@@ -17,16 +17,20 @@ export const TRACE_EVENTS = [
   "paste",
   "submit",
   "key",
+  "select_text", // text you selected (dragging, or a double or triple click): the selection, not a click
+  "effect", // what a click or an Enter did, 700 ms later (of: the cid of that event)
   // browser, from the extension's background worker
   "navigate",
   "tab_open",
   "tab_close",
   "tab_switch", // you brought another tab to the front (its url: the page it shows)
+  "window_focus", // you brought another Chrome window to the front
   "download",
   // Mac, from the daemon's filesystem watcher (FSEvents)
   "fs_create",
   "fs_move",
   "fs_rename",
+  "fs_remove", // a file vanished and appeared nowhere watched (deleted, or moved to the Trash)
   // Mac apps, from Shadow.app through the Accessibility API (apps/mac). Chrome is left to the extension.
   "app_activate", // you switched to an app
   "app_click", // a control pressed, described by its AX element
@@ -64,6 +68,41 @@ export const AxElement = z.object({
 });
 export type AxElement = z.infer<typeof AxElement>;
 
+// What a click or an Enter did, watched for 700 ms (apps/extension/src/effect.ts). `changed` counts what changed near
+// the target beyond the page's own churn: "none" is a click that did nothing (a container, a reading click).
+export const Effect = z.object({
+  changed: z.enum(["none", "small", "large"]),
+  navigated: z.boolean().optional(),
+  expanded: z.boolean().optional(),
+  opened: z.enum(["menu", "dialog", "listbox"]).optional(),
+  // A field that had text before an Enter and is empty after: a chat message sent.
+  emptied: z.boolean().optional(),
+});
+export type Effect = z.infer<typeof Effect>;
+
+// Where the element sits in a list of same-shaped items: "the top job" is index 0 of the jobs list.
+export const ListPosition = z.object({
+  container: z.custom<ElementDescriptor>((v) => typeof v === "object" && v !== null),
+  index: z.number().int().min(0),
+  count: z.number().int().min(1),
+  itemText: z.string().optional(),
+});
+export type ListPosition = z.infer<typeof ListPosition>;
+
+// Where a click landed, in the viewport's CSS pixels, with the device pixel ratio and the element's box: evidence to
+// find the words and the part of the picture around it. Never used to find the element again.
+export const Point = z.object({
+  x: z.number(),
+  y: z.number(),
+  dpr: z.number(),
+  box: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }),
+});
+export type Point = z.infer<typeof Point>;
+
+// A Google Sheets cell, from the page's Name Box and formula bar (apps/extension/src/adapters/google-sheets.ts).
+export const Cell = z.object({ ref: z.string(), value: z.string().optional(), sheet: z.string().optional() });
+export type Cell = z.infer<typeof Cell>;
+
 export const TraceEvent = z.object({
   id: z.string(),
   sessionId: z.string(),
@@ -89,6 +128,8 @@ export const TraceEvent = z.object({
   toPath: z.string().optional(),
   // navigate: chrome.webNavigation transitionType (typed, link, form_submit, reload, ...).
   transition: z.string().optional(),
+  // navigate: the browser's Back or Forward (webNavigation's forward_back qualifier).
+  back: z.boolean().optional(),
   // tab_open: the tab that opened this one.
   openerTabId: z.number().optional(),
   // The recorded selectors resolved back to this same element when it was described.
@@ -102,6 +143,25 @@ export const TraceEvent = z.object({
   pasted: z.boolean().optional(),
   // copy: context for drawn apps, e.g. a Google Sheet's header row and the copied cell's row.
   context: z.record(z.string(), z.unknown()).optional(),
+  // The page's own id for an event, so a later effect can say which click it describes.
+  cid: z.string().optional(),
+  // effect: the cid of the click or key this is the effect of.
+  of: z.string().optional(),
+  effect: Effect.optional(),
+  list: ListPosition.optional(),
+  point: Point.optional(),
+  cell: Cell.optional(),
+  // copy: how it was made. button: a page's Copy button (navigator.clipboard.writeText, caught in the page's world).
+  via: z.enum(["keyboard", "menu", "button"]).optional(),
+  // click: with ⌘ or Ctrl, or the middle button: the link opens in a new tab.
+  newTab: z.boolean().optional(),
+  // click: made by the page's own code (element.click(), e.g. GitHub's g i shortcut clicking the Issues tab), not by
+  // you: the browser marks it untrusted. The keys or click that caused it are the step.
+  synthetic: z.boolean().optional(),
+  windowId: z.number().optional(),
+  // tab_open: the tab's title; preexisting: it was already open when Record was pressed.
+  title: z.string().optional(),
+  preexisting: z.boolean().optional(),
   // Mac apps (app_*): the app, the element, the menu path, the shortcut's modifiers, which mouse button.
   app: z.object({ id: z.string(), name: z.string().optional() }).optional(),
   element: AxElement.optional(),

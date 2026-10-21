@@ -61,6 +61,8 @@ export async function startDaemon(options: {
   api?: { call(method: string, params: unknown): Promise<unknown> };
   // A screenshot of the recording going on (record.shot), for screen.ts. Without it, screenshots are dropped.
   onShot?(shot: Extract<Message, { type: "record.shot" }>): void;
+  // A picture not taken after an event, and why (record.shot_skip), for the recording's ledger.
+  onShotSkip?(skip: Extract<Message, { type: "record.shot_skip" }>): void;
 }): Promise<Daemon> {
   const log = options.log ?? (() => {});
   const extensions = new Set<Connection>();
@@ -154,6 +156,9 @@ export async function startDaemon(options: {
           // Only for the recording going on (or just stopped: shots still on their way), and only when its form
           // allowed screenshots.
           if (recording && message.sessionId === recording.sessionId && consent?.screen) options.onShot?.(message);
+          break;
+        case "record.shot_skip":
+          if (recording && message.sessionId === recording.sessionId && consent?.screen) options.onShotSkip?.(message);
           break;
         case "api.call": {
           const reply = (result: { ok: boolean; value?: unknown; error?: string }) =>

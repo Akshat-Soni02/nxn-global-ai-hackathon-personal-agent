@@ -123,6 +123,8 @@ export interface Question {
   default?: string;
   step?: string;
   draft?: unknown;
+  // The recording the question is about: the Record screen shows only its questions.
+  sessionId?: string;
 }
 
 // Recording (record-control.ts), as the window's Record screen gets it from `recording`.
@@ -156,4 +158,30 @@ export interface RecordingView {
   last?: { sessionId: string; outcome: "saved" | "empty" | "failed"; skillId?: string; text: string };
   // Whether Shadow.app is running (it shows the form in its window).
   macApp: boolean;
+  // Whether pictures can be read and masked (Shadow.app's tools): when not, the Record screen says so before recording.
+  screenReady: boolean;
+  // What is happening while a recording becomes a workflow, in plain words, oldest first.
+  progress: { at: number; line: string }[];
+}
+// A design's review (skills/<id>/review.json; built by packages/recorder/src/design/v2/review.ts), as the window reads
+// it. Declared here, not imported: the recorder package needs Node, and the window's code must not load it. record.ts
+// hands the recorder's Review to writeReview, which takes this one, so the two can't drift apart unnoticed.
+export interface Review {
+  skillId: string;
+  version: number;
+  summary: string;
+  notes: {
+    step: string;
+    change: "added" | "removed" | "changed" | "moved";
+    what: string;
+    why?: string;
+    unverified?: boolean;
+  }[];
+  said: { quote: string; steps: string[]; notBuilt?: string }[];
+  notTested: string[];
+  gaps: string[];
+  cadence?: string;
+  made?: string[];
+  notAsked?: string[];
+  reviewed: boolean;
 }

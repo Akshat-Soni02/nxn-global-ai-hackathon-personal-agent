@@ -4,6 +4,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { isAction, Skill, triggerOf } from "@shadow/core";
 import { createDecoder, encode } from "@shadow/ipc";
+import { fakeLlm } from "@shadow/llm";
+import { scriptedDesigner } from "@shadow/recorder";
 import { afterEach, describe, expect, it } from "vitest";
 import { chooseFiles, cleanPath, givenInputs, splitArgs } from "./choose-file.ts";
 import { type Daemon, startDaemon } from "./daemon.ts";
@@ -11,7 +13,7 @@ import { classify, type FsChange, ignored, watchDirsFromEnv, watchFiles } from "
 import { readState, writeState } from "./lifecycle.ts";
 import { locateFile, locateFiles } from "./locate-file.ts";
 import { finishRecording } from "./record.ts";
-import { writeForm } from "./recording-store.ts";
+import { recordingDir, writeForm } from "./recording-store.ts";
 import { findSkills, loadSkill, saveSkill, versions } from "./skill-store.ts";
 import { appendTrace, readTrace, tracePath } from "./trace-store.ts";
 
@@ -71,6 +73,16 @@ describe("skill store", () => {
 });
 
 describe("file changes", () => {
+  it("reports a file that vanished and appeared nowhere watched, and not a temporary one", () => {
+    expect(
+      classify([
+        { kind: "vanish", path: "/Users/me/Downloads/OldInstaller-1.2.dmg", at: 1, ino: 7 },
+        { kind: "appear", path: "/Users/me/Downloads/tmp.txt", at: 2 },
+        { kind: "vanish", path: "/Users/me/Downloads/tmp.txt", at: 3 },
+      ]),
+    ).toEqual([{ event: "fs_remove", path: "/Users/me/Downloads/OldInstaller-1.2.dmg", at: 1 }]);
+  });
+
   it("classifies FSEvents observations into create, move and rename, ignoring temporary files", () => {
     const at = 1;
     expect(
@@ -343,6 +355,225 @@ describe("record end to end", () => {
     ]);
     expect(readState(home, first.skill.id).state).toBe("live");
     expect(versions(home, first.skill.id)).toEqual([1, 2]);
+  });
+
+  it("keeps the id the daemon gave the recording, whatever the design does", async () => {
+    const home = temp();
+    saveSkill(
+      home,
+      Skill.parse({
+        id: "someone-elses-workflow",
+        version: 1,
+        name: "other",
+        description: { goal: "other" },
+        steps: [
+          { id: "start", type: "trigger", intent: "by hand" },
+          { id: "s1", type: "action", intent: "Open it", channel: "web", action: "navigate", args: { url: PAGE } },
+        ],
+      }),
+    );
+    const sessionId = "s-label";
+    writeForm(home, sessionId, {
+      goal: "Upload this month's invoice",
+      changes: [],
+      constants: [],
+      never: [],
+      when: [{ type: "manual" }],
+      consent: { screen: false, microphone: false, pictures: false },
+    });
+    appendTrace(home, {
+      id: "e1",
+      sessionId,
+      at: 1000,
+      event: "click",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: upload,
+    });
+    appendTrace(home, {
+      id: "e2",
+      sessionId,
+      at: 6000,
+      event: "file",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: upload,
+      file: { name: "invoice-0923.pdf", size: 10, type: "application/pdf" },
+    });
+    appendTrace(home, {
+      id: "e3",
+      sessionId,
+      at: 9000,
+      event: "click",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: submit,
+    });
+    const llm = fakeLlm(scriptedDesigner());
+    const saved = await finishRecording(sessionId, {
+      dataDir: home,
+      llm,
+      log: () => {},
+      design: { protocol: "tools" },
+      prompter: { ask: async () => "" },
+    });
+    expect(saved?.skill.id).not.toBe("someone-elses-workflow");
+    expect(saved?.skill.id).toMatch(/-[a-z0-9]{6}$/);
+    expect(saved?.skill.name).toBe("Upload this month's invoice");
+    expect(versions(home, "someone-elses-workflow")).toEqual([1]);
+  });
+
+  it("keeps the whole system prompt the design agent was sent in design.json", async () => {
+    const home = temp();
+    const sessionId = "s-system";
+    writeForm(home, sessionId, {
+      goal: "Upload this month's invoice",
+      changes: [],
+      constants: [],
+      never: [],
+      when: [{ type: "manual" }],
+      consent: { screen: false, microphone: false, pictures: false },
+    });
+    appendTrace(home, {
+      id: "e1",
+      sessionId,
+      at: 1000,
+      event: "click",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: upload,
+    });
+    appendTrace(home, {
+      id: "e2",
+      sessionId,
+      at: 6000,
+      event: "file",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: upload,
+      file: { name: "invoice-0923.pdf", size: 10, type: "application/pdf" },
+    });
+    appendTrace(home, {
+      id: "e3",
+      sessionId,
+      at: 9000,
+      event: "click",
+      tabId: 1,
+      frameId: 0,
+      url: PAGE,
+      target: submit,
+    });
+    const llm = fakeLlm(scriptedDesigner());
+    await finishRecording(sessionId, {
+      dataDir: home,
+      llm,
+      log: () => {},
+      design: { protocol: "tools" },
+      prompter: { ask: async () => "" },
+    });
+    const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
+    expect(kept.system).toContain("You are Shadow's design agent");
+    expect(kept.task).toMatchObject({ cadence: { kind: "manual" } });
+    expect(Array.isArray(kept.transcript)).toBe(true);
+  });
+
+  it("saves the recording when the model writes no task model: the plain list, and why, in design.json", async () => {
+    const home = temp();
+    const sessionId = "s-no-task";
+    const asked: string[] = [];
+    writeForm(home, sessionId, {
+      goal: "Upload this month's invoice",
+      changes: [],
+      constants: [],
+      never: [],
+      when: [{ type: "manual" }],
+      consent: { screen: false, microphone: false, pictures: false },
+    });
+    const file = { name: "invoice-0923.pdf", size: 10, type: "application/pdf" };
+    const at = { sessionId, tabId: 1, frameId: 0, url: PAGE };
+    appendTrace(home, { id: "e1", at: 1000, event: "click", target: upload, ...at });
+    appendTrace(home, { id: "e2", at: 6000, event: "file", target: upload, file, ...at });
+    appendTrace(home, { id: "e3", at: 9000, event: "click", target: submit, ...at });
+    const saved = await finishRecording(sessionId, {
+      dataDir: home,
+      llm: fakeLlm(() => "not a task model"),
+      log: () => {},
+      design: { protocol: "tools" },
+      prompter: {
+        ask: async (q) => {
+          asked.push(q.id);
+          return "";
+        },
+      },
+    });
+    expect(saved?.skill.steps.length).toBeGreaterThan(1);
+    // Code's own questions are still asked when the design stops before asking them (which file next time?).
+    expect(asked.some((id) => id.startsWith("file-"))).toBe(true);
+    const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
+    expect(kept.kind).toBe("kept");
+    expect(kept.reason).toMatch(/couldn't understand/);
+  });
+});
+
+describe("questions the recording answers (spec 2.10)", () => {
+  it("doesn't ask which file next time when you said the newest one", async () => {
+    const home = temp();
+    const sessionId = "said-newest";
+    mkdirSync(recordingDir(home, sessionId), { recursive: true });
+    const add = (id: string, at: number, body: Record<string, unknown>) =>
+      appendTrace(home, { id, sessionId, at, tabId: 1, frameId: 0, url: PAGE, ...body } as Parameters<
+        typeof appendTrace
+      >[1]);
+    add("e1", 1_000, { event: "click", target: upload });
+    add("e2", 6_000, {
+      event: "file",
+      target: upload,
+      file: { name: "invoice-0923.pdf", size: 10, type: "application/pdf" },
+    });
+    add("e3", 9_000, { event: "click", target: submit });
+    writeFileSync(
+      join(recordingDir(home, sessionId), "transcript.jsonl"),
+      `${JSON.stringify({ at: 2_000, until: 4_000, text: "I always upload the latest invoice." })}\n`,
+    );
+    const asked: string[] = [];
+    const logs: string[] = [];
+    await finishRecording(sessionId, {
+      dataDir: home,
+      log: (...a: unknown[]) => logs.push(a.join(" ")),
+      prompter: {
+        ask: async (q) => {
+          asked.push(q.id);
+          return "";
+        },
+      },
+    });
+    expect(asked).not.toContain("file-invoice");
+    expect(logs.join("\n")).toContain('answered from what you said ("I always upload the latest invoice.")');
+  });
+
+  it("writes the evidence package into the recording's folder when it stops (spec 2.14)", async () => {
+    const home = temp();
+    const sessionId = "with-evidence";
+    mkdirSync(recordingDir(home, sessionId), { recursive: true });
+    const add = (id: string, at: number, body: Record<string, unknown>) =>
+      appendTrace(home, { id, sessionId, at, tabId: 1, frameId: 0, url: PAGE, ...body } as Parameters<
+        typeof appendTrace
+      >[1]);
+    add("e1", 1_000, { event: "click", target: upload });
+    add("e2", 6_000, {
+      event: "file",
+      target: upload,
+      file: { name: "invoice-0923.pdf", size: 10, type: "application/pdf" },
+    });
+    add("e3", 9_000, { event: "click", target: submit });
+    await finishRecording(sessionId, { dataDir: home, log: () => {}, prompter: { ask: async () => "" } });
+    const evidence = JSON.parse(readFileSync(join(recordingDir(home, sessionId), "evidence.json"), "utf8"));
+    expect(evidence.steps.map((s: { id: string }) => s.id)).toEqual(["s1", "s2", "s3"]);
   });
 });
 

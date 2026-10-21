@@ -12,6 +12,7 @@ import { createDecoder, encode } from "@shadow/ipc";
 import { fakeLlm } from "@shadow/llm";
 import type { RunDeps } from "@shadow/player";
 import { createRepairer, runWithRecovery } from "@shadow/player/repair";
+import { scriptedDesigner } from "@shadow/recorder";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApi } from "./api.ts";
 import { type Daemon, startDaemon } from "./daemon.ts";
@@ -85,8 +86,8 @@ describe("the whole loop on a scratch daemon", () => {
     const socketPath = join(temp(), "d.sock");
     daemon = await startDaemon({ socketPath, dataDir: home, watchDirs: [], drainMs: 50 });
 
-    // The model, scripted: the design agent (native tools), the one AI that reads the recording, finishes at once.
-    const llm = fakeLlm(() => ({ toolCalls: [{ name: "finish", arguments: { summary: "Kept as recorded" } }] }));
+    // The model, scripted: design agent v2 writes a quiet task model, then finishes at once (native tools).
+    const llm = fakeLlm(scriptedDesigner());
     const log = () => {};
     let saved: { skill: { id: string } } | undefined;
     const control = createRecordControl({
@@ -94,7 +95,13 @@ describe("the whole loop on a scratch daemon", () => {
       daemon,
       ask: async () => "",
       finish: async (sessionId) => {
-        saved = await finishRecording(sessionId, { dataDir: home, llm, prompter: { ask: async () => "" }, log });
+        saved = await finishRecording(sessionId, {
+          dataDir: home,
+          llm,
+          prompter: { ask: async () => "" },
+          log,
+          design: { protocol: "tools" },
+        });
         return saved;
       },
       log,
@@ -214,6 +221,9 @@ describe("the whole loop on a scratch daemon", () => {
     );
 
     // Go live: the Frequency from the form is the trigger, so the checks pass.
+    // The design is reviewed first: Go live waits for Looks right, whatever was saved on top of it (the edit, v2).
+    expect(() => service.goLive(id)).toThrow(/Looks right/);
+    expect(service.looksRight(id)?.reviewed).toBe(true);
     expect(service.goLive(id).state).toBe("live");
 
     // 8-9 Run, by hand, with this time's file: the Documents tab is missing (drift), the ladder waits longer and

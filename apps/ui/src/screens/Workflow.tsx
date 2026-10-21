@@ -1,12 +1,13 @@
 // One workflow: what it is for, its steps as a tree, its versions (who made each and why), and its runs.
 import type { Skill } from "@shadow/core";
-import type { RunRow, WorkflowSummary } from "@shadow/daemon/src/types.ts";
+import type { Review, RunRow, WorkflowSummary } from "@shadow/daemon/src/types.ts";
 import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading, StateChip, StatusChip } from "../components.tsx";
 import { FrequencyPicker } from "../FrequencyPicker.tsx";
 import { ago, duration, money, when } from "../format.ts";
 import { describe } from "../frequency.ts";
+import { badgesOf } from "../review.ts";
 import { WorkflowTree } from "../WorkflowTree.tsx";
 import { Editor } from "./Editor.tsx";
 
@@ -17,6 +18,8 @@ export function Workflow({ id }: { id: string }) {
   const workflow = useQuery<{ id: string; versions: number[]; latest: Skill } | null>("workflow", { id });
   const summary = useQuery<WorkflowSummary[]>("workflows");
   const runs = useQuery<RunRow[]>("runs", { skillId: id, limit: 20 });
+  // What the design changed, and whether you said it looks right (Go live waits for that).
+  const review = useQuery<Review | null>("review", { id });
   const [picking, setPicking] = useState(false);
   const [editing, setEditing] = useState(false);
   if (workflow.data === null) return <p className="error">No workflow {id}.</p>;
@@ -27,6 +30,7 @@ export function Workflow({ id }: { id: string }) {
   const history = [...latest.history].reverse();
   const mine = summary.data?.find((w) => w.id === id);
   const state = mine?.state;
+  const needsLook = Boolean(review.data && !review.data.reviewed && review.data.version <= latest.version);
 
   return (
     <>
@@ -53,6 +57,10 @@ export function Workflow({ id }: { id: string }) {
             )}
             {state?.state === "live" ? (
               <Action run={() => session.call("pause", { id })}>Pause</Action>
+            ) : needsLook && state?.state !== "paused" ? (
+              <button type="button" className="button" disabled title="Look at what the design changed first">
+                Go live
+              </button>
             ) : (
               <Action run={() => session.call(state?.state === "paused" ? "resume" : "goLive", { id })}>
                 {state?.state === "paused" ? "Resume" : "Go live"}
@@ -116,6 +124,16 @@ export function Workflow({ id }: { id: string }) {
           <p>{triggers.map(describe).join(", or ")}</p>
         )}
       </section>
+
+      {review.data && !review.data.reviewed ? (
+        <ReviewCard
+          review={review.data}
+          onLooksRight={async () => {
+            await session.call("looksRight", { id });
+            review.reload();
+          }}
+        />
+      ) : null}
 
       {editing ? (
         <Editor
@@ -187,4 +205,65 @@ export function Workflow({ id }: { id: string }) {
       </section>
     </>
   );
+}
+
+// The review after a design (spec 4.3): every change with its why, what you said and what was built for it, what
+// wasn't tested, and how it was made. Go live waits for Looks right.
+function ReviewCard({ review, onLooksRight }: { review: Review; onLooksRight: () => Promise<unknown> }) {
+  const list = (title: string, items: string[]) =>
+    items.length > 0 ? (
+      <>
+        <h3>{title}</h3>
+        <ul>
+          {items.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      </>
+    ) : null;
+  return (
+    <section className="section review" aria-label="What the design changed">
+      <h2>Check what was built</h2>
+      <p>{review.summary}</p>
+      {review.cadence ? <p className="muted">Runs: {review.cadence}</p> : null}
+      <ul className="review-notes">
+        {badgesOf(review).map((b) => (
+          <li key={`${b.step}-${b.label}`}>
+            <span className={`review-badge review-badge-${b.label.toLowerCase()}`}>{b.label}</span>{" "}
+            <code>{b.step}</code> {b.why ?? ""}
+            {b.untested ? <span className="review-badge review-badge-untested">Not tested</span> : null}
+          </li>
+        ))}
+      </ul>
+      {list(
+        "What you said → what was built",
+        review.said.map((s) => `“${s.quote}” → ${s.notBuilt ? `not built: ${s.notBuilt}` : s.steps.join(", ")}`),
+      )}
+      {list("Not tested", review.notTested)}
+      {list("Not asked (each took its default)", review.notAsked ?? [])}
+      {list("Still to check", review.gaps)}
+      {review.made?.length ? (
+        <details>
+          <summary>How this was made</summary>
+          <ol>
+            {keyed(review.made).map(({ key, line }) => (
+              <li key={key}>{line}</li>
+            ))}
+          </ol>
+        </details>
+      ) : null}
+      <Action run={onLooksRight}>Looks right</Action>
+    </section>
+  );
+}
+
+// The feed's lines can repeat ("Testing it in the automation window"): each is keyed by its text and how many times
+// it came before.
+function keyed(lines: string[]): { key: string; line: string }[] {
+  const seen = new Map<string, number>();
+  return lines.map((line) => {
+    const n = (seen.get(line) ?? 0) + 1;
+    seen.set(line, n);
+    return { key: `${line}#${n}`, line };
+  });
 }

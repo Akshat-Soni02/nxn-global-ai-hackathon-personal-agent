@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { type ActionStep, Skill } from "@shadow/core";
 import { type RunDeps, type RunOutcome, runSkill } from "@shadow/player";
 import { describe, expect, it } from "vitest";
+import { writeReview } from "./review-store.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
 import { saveSkill } from "./skill-store.ts";
 import { openStore } from "./store.ts";
@@ -231,7 +232,63 @@ describe("the daemon as a service", () => {
   });
 });
 
+describe("one automation window", () => {
+  it("queues work that needs the window to itself (the design's test run) with the runs, never alongside", async () => {
+    const { open } = setup([write("s1")]);
+    const { service } = open();
+    const order: string[] = [];
+    const first = service.exclusive(async () => {
+      order.push("test run starts");
+      await new Promise((r) => setTimeout(r, 10));
+      order.push("test run ends");
+      return 1;
+    });
+    const second = service.exclusive(async () => {
+      order.push("next starts");
+      return 2;
+    });
+    expect(await Promise.all([first, second])).toEqual([1, 2]);
+    expect(order).toEqual(["test run starts", "test run ends", "next starts"]);
+  });
+});
+
 describe("the workflow lifecycle", () => {
+  it("keeps waiting for Looks right when a later version (a new Frequency) is saved on top of the design", () => {
+    const { open, dataDir } = setup([write("s1")]);
+    const { service } = open();
+    writeReview(dataDir, {
+      skillId: "report",
+      version: 1,
+      summary: "x",
+      notes: [],
+      said: [],
+      notTested: [],
+      gaps: [],
+      reviewed: false,
+    });
+    service.setTrigger("report", [{ type: "manual" }]);
+    expect(() => service.goLive("report")).toThrow(/Looks right/);
+  });
+
+  it("waits for Looks right before a designed workflow goes live", () => {
+    const { open, dataDir } = setup([write("s1")]);
+    const { service } = open();
+    const review = {
+      skillId: "report",
+      version: 1,
+      summary: "x",
+      notes: [],
+      said: [],
+      notTested: [],
+      gaps: [],
+      reviewed: false,
+    };
+    writeReview(dataDir, review);
+    expect(() => service.goLive("report")).toThrow(/Looks right/);
+    service.looksRight("report");
+    expect(service.goLive("report")).toMatchObject({ state: "live" });
+  });
+
   const failing = async (): Promise<RunOutcome> => ({
     status: "failed",
     vars: {},

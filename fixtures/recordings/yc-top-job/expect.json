@@ -1,0 +1,13 @@
+[
+  { "kind": "trigger", "type": "schedule", "why": "every morning" },
+  { "kind": "write_kept", "action": "web.type", "value": "\\{\\{", "why": "the copied title is pasted" },
+  { "kind": "no_text_only_target", "why": "the job is found by more than its text" },
+  { "kind": "max_questions", "n": 2, "why": "which sheet and which row are recorded" },
+  {
+    "kind": "write_kept",
+    "action": "web.type",
+    "value": "next_empty_row",
+    "why": "writes go to the next empty row, not A5",
+    "expectedToFail": true
+  }
+]

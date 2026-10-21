@@ -41,7 +41,8 @@ import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
 import { finishRecording } from "./record.ts";
 import { createRecordControl, type RecordControl } from "./record-control.ts";
-import { readConsent, readForm, sweepRecordings } from "./recording-store.ts";
+import { maskTermsOf, readConsent, readForm, recordingDir, sweepRecordings } from "./recording-store.ts";
+import { rehearse } from "./rehearse.ts";
 import { runSkillOn } from "./runner.ts";
 import { createScreenReader, type ScreenReader, screenToolsFrom } from "./screen.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
@@ -92,6 +93,7 @@ const daemon = await startDaemon({
     if (event === "wake") onWake();
   },
   onShot: (shot) => screen?.add(shot),
+  onShotSkip: (skip) => screen?.skip(skip),
   api: { call: (method, params) => (api ? api.call(method, params) : Promise.reject(new Error("not ready"))) },
 });
 // Development mode: a daemon started in a terminal stops when the terminal closes. The LaunchAgent (pnpm
@@ -200,15 +202,18 @@ const prompter: Prompter = {
       // A design-agent question is shown on the draft, next to its step.
       step: about?.step,
       draft: about?.draft,
+      // The recording being turned into a workflow: the Record screen shows only its questions.
+      sessionId: record?.view().sessionId,
     }),
 };
 // Screenshots (when the form allowed them): their words are read and masked on the Mac by Shadow.app's binary, and
 // only the masked words are kept (screen.ts). Packaged, the app is the bundle the daemon runs inside.
 const macBinary = join(macApp, "Contents/MacOS/Shadow");
+const screenTools = screenToolsFrom(macBinary);
 screen = createScreenReader({
   dataDir: home,
-  tools: screenToolsFrom(macBinary),
-  never: (sessionId) => readForm(home, sessionId)?.never ?? [],
+  tools: screenTools,
+  never: (sessionId) => maskTermsOf(readForm(home, sessionId)),
   log,
 });
 const screenReader = screen;
@@ -226,16 +231,21 @@ record = createRecordControl({
   dataDir: home,
   daemon,
   ask: (question) => service.ask(question),
-  finish: async (sessionId) => {
-    // Every screenshot is read and masked, and the narration turned into text, before the recording becomes a workflow.
-    await screenReader.idle();
-    await transcribeRecording({
-      dataDir: home,
-      sessionId,
-      transcribe,
-      never: readForm(home, sessionId)?.never ?? [],
-      log,
-    });
+  screenReady: () => screenTools !== undefined,
+  finish: async (sessionId, progress) => {
+    // Every screenshot is read and masked, and the narration turned into text, before the recording becomes a workflow:
+    // both at the same time (both run in Shadow.app, on the Mac).
+    progress("Reading the words on your screen and turning your voice into text");
+    await Promise.all([
+      screenReader.idle(),
+      transcribeRecording({
+        dataDir: home,
+        sessionId,
+        transcribe,
+        never: maskTermsOf(readForm(home, sessionId)),
+        log,
+      }),
+    ]);
     return finishRecording(sessionId, {
       dataDir: home,
       prompter,
@@ -244,6 +254,22 @@ record = createRecordControl({
       locate: { searchDirs: defaultSearchDirs(watchDirs) },
       meter: usage,
       describer,
+      // The design agent's safe test run: in the automation window, its log next to the recording.
+      // Queued with the runs: one leg at a time in the automation window.
+      rehearse: (skill, effects, onLine, recorded) =>
+        service.exclusive(() =>
+          rehearse(daemon, skill, {
+            effects,
+            recorded,
+            hooks: { data, llm },
+            logDir: recordingDir(home, sessionId),
+            onLine: (line) => {
+              onLine(line);
+              progress(line);
+            },
+          }),
+        ),
+      progress,
       log,
     });
   },

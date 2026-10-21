@@ -45,6 +45,15 @@ describe("requests", () => {
     const llm = fakeLlm([{ text: "", finishReason: "length" }]);
     await expect(llm.generate({ profile: "smart", user: "x" })).rejects.toThrow(/whole token budget/);
   });
+
+  it("keeps the model's reasoning apart from its answer: the server's field and any <think> block", async () => {
+    const llm = fakeLlm([{ text: "<think>the newest email is the first row</think>ok", reasoning: "Step 1: read." }]);
+    const reply = await llm.generate({ profile: "smart", user: "hi" });
+    expect(reply.text).toBe("ok");
+    expect(reply.reasoning).toBe("Step 1: read.\nthe newest email is the first row");
+    const plain = await fakeLlm(["just this"]).generate({ profile: "fast", user: "hi" });
+    expect(plain.reasoning).toBeUndefined();
+  });
 });
 
 describe("structured output", () => {

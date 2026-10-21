@@ -4,6 +4,7 @@
 import {
   type ActionStep,
   type AxElement,
+  BUILT_INS,
   type Check,
   type Description,
   type Input,
@@ -290,13 +291,14 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
     case "press":
       return {
         id,
-        intent: `Press ${step.value ?? "Enter"} in ${what}`,
+        intent: step.sends ? "Send the message (Enter)" : `Press ${step.value ?? "Enter"} in ${what}`,
         channel: "web",
         action: "press",
         target,
-        args: { key: step.value ?? "Enter" },
+        args: { key: step.value ?? "Enter", ...(step.modifiers?.length ? { modifiers: step.modifiers } : {}) },
         check: leadsTo,
-        requires_approval: isRisky(step),
+        // An Enter that emptied a chat box sent it (spec 2.8): it waits for your OK, like a Send button.
+        requires_approval: isRisky(step) || step.sends === true,
       };
     case "upload": {
       // The page never knew the file's path, so the file is always an input, chosen again at run time.
@@ -365,7 +367,7 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
         files.set(to, moved);
         return {
           id,
-          intent: `Move ${basename(from)} to ${folder}`,
+          intent: step.trashed ? `Move ${basename(from)} to the Trash` : `Move ${basename(from)} to ${folder}`,
           channel: "fs",
           action: "move",
           // The trailing "/" makes it a folder for fs.move (fs-channel.ts); without it the file would be renamed to it.
@@ -508,7 +510,7 @@ function addInput(inputs: Record<string, Input>, raw: string, input: Input): str
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .replace(/^(\d)/, "input_$1") || "input";
-  let name = base === "today" ? "today_input" : base;
+  let name = base in BUILT_INS ? `${base}_input` : base;
   for (let n = 2; name in inputs; n++) name = `${base}_${n}`;
   inputs[name] = input;
   return name;
@@ -582,7 +584,8 @@ function pathOf(url: string | undefined): string {
 // Where a link click took you, when that is where the link points (same site and path): the link's own address,
 // not a script behind it.
 function linkDestination(step: NormalisedStep): string | undefined {
-  const href = step.target?.attrs?.href;
+  // The address kept apart from the locator (describe.ts keeps it even with ids in it), else the attribute.
+  const href = step.target?.href ?? step.target?.attrs?.href;
   if (!step.navigatesTo || step.checked !== undefined || step.target?.role !== "link" || !href) return undefined;
   try {
     const link = new URL(href, step.url);

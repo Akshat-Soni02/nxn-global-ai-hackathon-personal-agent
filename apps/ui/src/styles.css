@@ -799,6 +799,26 @@ nav a.active .badge {
 .goalbox-space {
   flex: 1;
 }
+/* Private words: folded under the bar, never required. */
+.goalbox-private {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.goalbox-private summary {
+  cursor: pointer;
+}
+.goalbox-private input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
 .chip {
   display: inline-flex;
   align-items: center;
@@ -1357,4 +1377,45 @@ button.wf-arm-label:focus-visible {
 .wf-pick:hover .wf-title,
 button.wf-arm-label:hover {
   text-decoration: underline;
+}
+.progress-feed {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted, #6b6b73);
+}
+.progress-feed li:last-child {
+  color: inherit;
+}
+.review-notes {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.review-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid currentColor;
+}
+.review-badge-added {
+  color: #1a7f37;
+}
+.review-badge-changed {
+  color: #9a6700;
+}
+.review-badge-removed {
+  color: #cf222e;
+}
+.review-badge-moved {
+  color: #6e7781;
+}
+.review-badge-untested {
+  color: #8250df;
+  margin-left: 6px;
 }

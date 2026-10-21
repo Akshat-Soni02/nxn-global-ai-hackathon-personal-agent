@@ -98,6 +98,8 @@ interface Env {
   resume?: ResumeState;
   // Action and llm steps still allowed (maxSteps), shared by the whole run.
   stepsLeft?: { n: number };
+  // Action steps that acted (not only read), counted across the whole run.
+  acted: { n: number };
   signal?: AbortSignal;
 }
 
@@ -119,6 +121,7 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
     log,
     at: "",
     stepsLeft: options.maxSteps === undefined ? undefined : { n: options.maxSteps },
+    acted: { n: 0 },
     signal: options.signal,
   };
   // One namespace at the top: the trigger's inputs, then every output as steps produce it. A resumed run starts
@@ -175,6 +178,16 @@ export async function runSkill(skill: Skill, deps: RunDeps, options: RunOptions)
         error: `success check failed: ${JSON.stringify(check)}`,
       });
     }
+  }
+  // Ran to the end, but no step acted and nothing checks the result: it did nothing. Saying "succeeded" there hid a
+  // design that had lost its work (reports/oct19-two-recordings.md, B: "succeeded" in 3 ms). A resumed run may have
+  // acted before it paused, and a walk-through's acting steps may have been skipped by you: neither is judged here.
+  if (!options.resume && !deps.walk && env.acted.n === 0 && checks.length === 0) {
+    return end({
+      status: "nothing_to_do",
+      vars,
+      error: "nothing was done: no step acted, and the workflow has no success check",
+    });
   }
   return end({ status: "succeeded", vars });
 }
@@ -381,6 +394,9 @@ async function runLeaf(
     return fail(result.error ?? "check failed");
   }
 
+  // A step acted, or an llm step produced a result (a summary, a pick): the run did something. Reading or finding on
+  // its own is preparation: one fs.find that "succeeded" in 3 ms had done nothing (reports/oct19-two-recordings.md).
+  if ((isAction(resolved) && walkActs(resolved)) || isLlm(resolved)) env.acted.n++;
   const output = resolved.output;
   if (output) {
     // The value must fit the declared type; text that means a number or date is converted ("1,234" → 1234).

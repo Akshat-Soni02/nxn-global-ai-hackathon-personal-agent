@@ -68,9 +68,14 @@ export function notesByStep(steps: NormalisedStep[], notes: Note[]): string[][] 
   return out;
 }
 
-// The narration in order, each piece with the recorded steps (numbered from 1) it was said over: "before step 1",
-// "step 4", or "steps 4-7" when the person kept talking while they acted. Pages opened again (anchors) are skipped.
-export function narrationOf(steps: NormalisedStep[], notes: Note[]): { during: string; said: string }[] {
+// The narration in order, each piece with the steps it was said over. With the draft's ids (spec 2.9): "s4", or
+// "s4–s7" when the person kept talking while they acted, so it matches the draft the agent edits. Without them the
+// recorded steps are numbered from 1: "before step 1", "step 4", "steps 4-7". Pages opened again (anchors) are skipped.
+export function narrationOf(
+  steps: NormalisedStep[],
+  notes: Note[],
+  ids?: string[][],
+): { during: string; said: string }[] {
   const marks = anchors(steps);
   return notes
     .filter((n) => n.kind === "said" && n.text.trim())
@@ -78,8 +83,14 @@ export function narrationOf(steps: NormalisedStep[], notes: Note[]): { during: s
     .map((note) => {
       const from = stepAt(steps, note.at, marks);
       const to = Math.max(from, stepAt(steps, note.until ?? note.at, marks));
-      const during =
-        from < 0 && to < 0
+      const name = (i: number) => ids?.[i]?.[0] ?? `step ${i + 1}`;
+      const during = ids
+        ? from < 0 && to < 0
+          ? "before the first step"
+          : from === to
+            ? name(from)
+            : `${name(Math.max(from, 0))}–${ids[to]?.at(-1) ?? name(to)}`
+        : from < 0 && to < 0
           ? "before step 1"
           : from === to
             ? `step ${from + 1}`

@@ -4,10 +4,10 @@
 // lines and the known secret fields are blacked out, and that blacked-out picture goes to the vision model once, to be
 // described (describe_step_screenshot in the design agent, describe_screen in the repair agent). Nothing leaves without the consent, and
 // never unmasked; the working copy is deleted as soon as the model has answered.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, sep } from "node:path";
-import { describeImage, type Llm } from "@shadow/llm";
+import { dirname, join, sep } from "node:path";
+import { describeImage, type Llm, type UsageMeter } from "@shadow/llm";
 import { type Box, maskLines } from "@shadow/recorder";
 import type { Consent } from "./recording-store.ts";
 import type { ScreenTools } from "./screen.ts";
@@ -26,8 +26,9 @@ export interface ScreenDescriber {
     question: string,
     never: string[],
   ): Promise<Described>;
-  // A picture a recording already masked (screen.ts, shots/<event>.jpg): described as it is.
-  describeMasked(path: string, question: string): Promise<string>;
+  // A picture a recording already masked (screen.ts, shots/<event>.jpg): described as it is. The same picture and
+  // question are described once: answers are kept in <data>/cache/vision, so designing a recording again costs nothing.
+  describeMasked(path: string, question: string, meter?: UsageMeter): Promise<string>;
   // Whether a picture may be sent right now (the consent, and a model to send it to).
   allowed(): boolean;
   // A fresh path for a picture Shadow.app should save (under the data folder, mode 0700).
@@ -93,10 +94,22 @@ export function createScreenDescriber(options: {
       }
     },
 
-    async describeMasked(path, question) {
+    async describeMasked(path, question, meter) {
       const llm = allowed();
       if (!existsSync(path)) throw new Error("no picture was kept for that step");
-      return describeImage(llm, { dataUrl: dataUrl(path), question, consented: true });
+      const picture = readFileSync(path);
+      const key = createHash("sha256").update(picture).update("\n").update(question).digest("hex");
+      const cached = join(options.dataDir, "cache", "vision", `${key}.txt`);
+      if (existsSync(cached)) return readFileSync(cached, "utf8");
+      const text = await describeImage(llm, {
+        dataUrl: `data:image/jpeg;base64,${picture.toString("base64")}`,
+        question,
+        consented: true,
+        meter,
+      });
+      mkdirSync(dirname(cached), { recursive: true, mode: 0o700 });
+      writeFileSync(cached, text, { mode: 0o600 });
+      return text;
     },
   };
 }

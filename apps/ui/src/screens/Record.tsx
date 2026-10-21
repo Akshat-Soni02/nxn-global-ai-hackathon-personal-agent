@@ -5,9 +5,11 @@
 // anything still unclear is asked after Stop.
 import type { Skill, Trigger } from "@shadow/core";
 import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
+import { progressOf, questionsFor } from "../questions.ts";
+import { savedSince } from "../review.ts";
 import { Question } from "./Inbox.tsx";
 
 // `again`: a workflow's id, to record that task again: the box starts filled in from it, and the recording becomes
@@ -15,9 +17,21 @@ import { Question } from "./Inbox.tsx";
 export function Record({ again }: { again?: string }) {
   const { data, error } = useQuery<RecordingView>("recording");
   const inbox = useQuery<InboxItem[]>("inbox", { open: true });
+  // After Stop, the workflow it saved opens (H24): only one saved since this screen opened. `seen` is the last
+  // recording when the screen first had its data (null until then), so an older one never opens.
+  const seen = useRef<string | undefined | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    if (seen.current === null) {
+      seen.current = data.last?.sessionId;
+      return;
+    }
+    const saved = savedSince(seen.current, data.last);
+    if (saved) location.hash = `#/workflows/${saved}`;
+  }, [data]);
   if (!data) return <Loading error={error} />;
   // Questions outside a run: the form's (from the terminal) and the ones about this recording.
-  const questions = (inbox.data ?? []).filter((i) => i.kind === "question").reverse();
+  const questions = questionsFor(inbox.data ?? [], data.sessionId);
 
   return (
     <>
@@ -31,9 +45,9 @@ export function Record({ again }: { again?: string }) {
       </header>
       {data.phase === "idle" ? (
         again ? (
-          <AgainForm again={again} consent={data.consent} last={data.last} />
+          <AgainForm again={again} consent={data.consent} last={data.last} screenReady={data.screenReady} />
         ) : (
-          <GoalBox consent={data.consent} last={data.last} />
+          <GoalBox consent={data.consent} last={data.last} screenReady={data.screenReady} />
         )
       ) : null}
       {data.phase === "describing" ? <p>Answer the questions below (or in the terminal) to start recording.</p> : null}
@@ -42,6 +56,13 @@ export function Record({ again }: { again?: string }) {
         <section className="section">
           <h2>Turning your recording into a workflow…</h2>
           <p className="muted">{data.form?.goal}</p>
+          {progressOf(data).length > 0 ? (
+            <ol className="progress-feed" aria-live="polite">
+              {progressOf(data).map((p) => (
+                <li key={`${p.at}-${p.line}`}>{p.line}</li>
+              ))}
+            </ol>
+          ) : null}
         </section>
       ) : null}
       {data.phase !== "idle" && questions.length > 0 ? (
@@ -99,10 +120,12 @@ function AgainForm({
   again,
   consent,
   last,
+  screenReady,
 }: {
   again: string;
   consent: RecordingView["consent"];
   last: RecordingView["last"];
+  screenReady?: boolean;
 }) {
   const workflow = useQuery<{ id: string; versions: number[]; latest: Skill } | null>("workflow", { id: again });
   if (workflow.data === null) return <p className="error">No workflow {again}.</p>;
@@ -119,6 +142,7 @@ function AgainForm({
       <GoalBox
         consent={consent}
         last={last}
+        screenReady={screenReady}
         again={again}
         initial={{ ...latest.description, when: when.find((t) => t.type !== "manual") ?? when[0] }}
       />
@@ -137,11 +161,13 @@ interface Initial {
 function GoalBox({
   consent,
   last,
+  screenReady,
   again,
   initial,
 }: {
   consent: RecordingView["consent"];
   last: RecordingView["last"];
+  screenReady?: boolean;
   again?: string;
   initial?: Initial;
 }) {
@@ -150,6 +176,8 @@ function GoalBox({
   const [screen, setScreen] = useState(consent.screen);
   const [microphone, setMicrophone] = useState(consent.microphone);
   const [pictures, setPictures] = useState(consent.pictures);
+  // Names and codes to hide from the model (optional, folded): masked like the Never words.
+  const [privateWords, setPrivateWords] = useState("");
   // Only the goal before recording. How often it runs, what changes, what stays and what it must never do come from
   // what is said and shown, and are set after Stop (the design agent, the editor). Recorded again: what the workflow
   // already says stays as it is.
@@ -165,6 +193,10 @@ function GoalBox({
           }
         : {}),
       consent: { screen, microphone, pictures: screen && pictures },
+      private: privateWords
+        .split(/[,\n]/)
+        .map((w) => w.trim())
+        .filter(Boolean),
       ...(again ? { again } : {}),
     });
 
@@ -206,9 +238,25 @@ function GoalBox({
             <span className="dot rec" /> {again ? "Record again" : "Record"}
           </Action>
         </div>
+        <details className="goalbox-private">
+          <summary>Private words (optional)</summary>
+          <input
+            type="text"
+            value={privateWords}
+            onChange={(e) => setPrivateWords(e.target.value)}
+            aria-label="Private words"
+            placeholder="Names or codes to hide from the model, comma-separated: Project Falcon, ACME-2231"
+          />
+        </details>
       </form>
 
       <p className="muted small goalbox-note">{consentNote(screen, microphone, screen && pictures)}</p>
+      {screen && screenReady === false ? (
+        <p className="error small">
+          Pictures can't be read right now: Shadow.app needs updating (pnpm setup:mac). The words on your screen won't
+          be recorded until it is.
+        </p>
+      ) : null}
       <p className="muted small">
         Say how often it runs and the rules you follow while you record ("every morning", "skip the ones already in the
         sheet"). Anything still unclear is asked after you stop.

@@ -15,7 +15,7 @@ export interface FsObservation {
 }
 
 export interface FsChange {
-  event: "fs_create" | "fs_move" | "fs_rename";
+  event: "fs_create" | "fs_move" | "fs_rename" | "fs_remove";
   path: string;
   toPath?: string;
   at: number;
@@ -38,7 +38,9 @@ export function ignored(path: string): boolean {
 
 // One settled batch -> what happened. A file that vanished from one place and appeared in another (same inode, or
 // same name) was moved, or renamed if it stayed in the same folder. Anything else that appeared was created.
-// Deletions are not steps (moving to the Trash is a delete as far as a skill is concerned), so they are dropped.
+// A file that vanished and appeared nowhere watched is reported as fs_remove: deleted, or moved to the Trash (hidden, and
+// guarded by macOS). It is a step only right after Finder's Move to Trash (normalise.ts); apps delete their own files
+// all day.
 export function classify(batch: FsObservation[]): FsChange[] {
   const seen = batch.filter((o) => !ignored(o.path));
   const vanished = seen.filter((o) => o.kind === "vanish");
@@ -73,6 +75,12 @@ export function classify(batch: FsObservation[]): FsChange[] {
     } else if (!changes.some((c) => c.event === "fs_create" && c.path === appeared.path)) {
       changes.push({ event: "fs_create", path: appeared.path, at: appeared.at });
     }
+  }
+  for (const gone of vanished) {
+    if (used.has(gone)) continue;
+    // Appeared and vanished in the same batch: a temporary file, not a deletion.
+    if (seen.some((o) => o.kind === "appear" && o.path === gone.path)) continue;
+    changes.push({ event: "fs_remove", path: gone.path, at: gone.at });
   }
   return changes.sort((a, b) => a.at - b.at);
 }

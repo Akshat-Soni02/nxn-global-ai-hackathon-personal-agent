@@ -41,6 +41,8 @@ final class Recorder {
     "com.apple.keychainaccess", "com.apple.Passwords", "com.1password.1password", "com.agilebits.onepassword7",
     "com.bitwarden.desktop", "com.lastpass.LastPass", "org.keepassxc.keepassxc", "com.dashlane.dashlanephonefinal",
     "com.apple.SecurityAgent", "com.apple.loginwindow",
+    // macOS's own permission prompts (Shadow asking for Screen Recording or Accessibility): never part of a task
+    "com.apple.accessibility.universalAccessAuthWarn", "com.apple.UserNotificationCenter",
     // terminals
     "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "com.mitchellh.ghostty",
     "net.kovidgoyal.kitty", "org.alacritty", "co.zeit.hyper",
@@ -144,9 +146,24 @@ final class Recorder {
   func recordClick(_ hit: AXUIElement, button: String = "left") {
     guard running else { return }
     let app = AX.app(pid: AX.pid(hit))
+    // Finder is recorded by what it did to files, except Move to Trash: a deleted file leaves nothing to see, so the
+    // daemon pairs this with the file that vanished (normalise.ts, fs_remove).
+    if let app, app.id == "com.apple.finder" {
+      let item = AX.actionableAncestor(hit)
+      if AX.role(item) == "AXMenuItem", (AX.describe(item)["title"] as? String) == "Move to Trash" {
+        emit(["event": "app_menu", "at": now(), "app": appJSON(app), "menu": AX.menuBarPath(item) ?? ["Move to Trash"]])
+      }
+      return
+    }
     guard recorded(app), let app else { return }
     flushTyping()
     let el = AX.actionableAncestor(hit)
+    // Shadow's own permission requests open System Settings at Privacy & Security: not part of the task.
+    if app.id == "com.apple.systempreferences" || app.id == "com.apple.Settings",
+      (AX.describe(el)["window"] as? String)?.contains("Privacy") == true
+    {
+      return
+    }
     switch AX.role(el) {
     case "AXMenuBarItem", "AXMenuBar":
       return // opening a menu: the item you then choose is the step
@@ -205,7 +222,15 @@ final class Recorder {
   }
 
   func recordKey(_ key: String, modifiers: [String]) {
-    guard running, let app = frontApp(), recorded(app) else { return }
+    guard running, let app = frontApp() else { return }
+    // ⌘⌫ in Finder moves the selection to the Trash: reported so the daemon can pair it with the file that vanished.
+    if app.id == "com.apple.finder" {
+      if key == "Delete" && modifiers == ["cmd"] {
+        emit(["event": "app_key", "at": now(), "app": appJSON(app), "value": key, "modifiers": modifiers])
+      }
+      return
+    }
+    guard recorded(app) else { return }
     flushTyping()
     emit(["event": "app_key", "at": now(), "app": appJSON(app), "value": key, "modifiers": modifiers])
   }

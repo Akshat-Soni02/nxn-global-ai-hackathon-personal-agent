@@ -1,0 +1,16 @@
+{
+  "goal": "Log my hours on the timesheet",
+  "changes": [],
+  "constants": [],
+  "never": [],
+  "when": [
+    {
+      "type": "manual"
+    }
+  ],
+  "consent": {
+    "screen": false,
+    "microphone": true,
+    "pictures": false
+  }
+}

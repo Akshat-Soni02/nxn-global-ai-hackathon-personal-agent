@@ -1,0 +1,28 @@
+[
+  {
+    "kind": "write_kept",
+    "action": "web.select",
+    "value": "NX-202",
+    "why": "the project is always NX-202"
+  },
+  {
+    "kind": "write_kept",
+    "action": "web.type",
+    "why": "the hours are typed"
+  },
+  {
+    "kind": "trigger",
+    "type": "manual",
+    "why": "only when I start it"
+  },
+  {
+    "kind": "not_asked",
+    "pattern": "project",
+    "why": "they said the project is always NX-202"
+  },
+  {
+    "kind": "max_questions",
+    "n": 1,
+    "why": "at most: how many hours"
+  }
+]

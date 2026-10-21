@@ -2,8 +2,11 @@
 // meaning. Listeners run in the capture phase, so a page that stops propagation can't hide an event from us.
 // Only `import type` from @shadow/core here: a runtime import would bundle zod into every frame of every page.
 import type { ElementDescriptor, TraceEvent } from "@shadow/core";
-import { rowsOf, sheetExportUrl } from "@shadow/player/csv";
-import { actionableTarget, describeElement, hasVerifiedSelector } from "./describe.ts";
+import { parseCsv, sheetExportUrl } from "@shadow/player/csv";
+import { columnOfCell, isSheet, readCell, rowOfCell } from "./adapters/google-sheets.ts";
+import { actionableTarget, describeElement, hasVerifiedSelector, listPosition } from "./describe.ts";
+import { watchEffects } from "./effect.ts";
+import { CANVAS_EDITORS, modifiersOf, SingleKeys, shortcut } from "./keys.ts";
 
 export type PageEvent = Pick<
   TraceEvent,
@@ -19,6 +22,16 @@ export type PageEvent = Pick<
   | "drawn"
   | "pasted"
   | "context"
+  | "list"
+  | "point"
+  | "via"
+  | "cid"
+  | "newTab"
+  | "synthetic"
+  | "cell"
+  | "modifiers"
+  | "of"
+  | "effect"
 > & {
   at?: number; // set when the event is sent later than it happened (a copy waits for the sheet's context)
   target?: ElementDescriptor;
@@ -75,7 +88,7 @@ export function startCapture(
   options: CaptureOptions = {},
 ): () => void {
   // Described at pointerdown, sent at click: by click time the page may have re-rendered or removed the element.
-  let pending: { hit: EventTarget | undefined; el: Element; target: ElementDescriptor } | undefined;
+  let pending: { hit: EventTarget | undefined; el: Element; target: ElementDescriptor; pressedAt: number } | undefined;
   let lastClick: { el: Element; at: number } | undefined;
   let lastEnter: { form: Element | null; at: number } | undefined;
   // Drags. A pointer drag is a press on one element and a release elsewhere (most kanban boards); an HTML5 drag
@@ -89,27 +102,85 @@ export function startCapture(
 
   const send = (event: PageEvent["event"], el: Element, extra: Partial<PageEvent> = {}, target = describeElement(el)) =>
     emit({ event, target, echo: hasVerifiedSelector(target), ...extra });
+  let lastCopyKey = Number.NEGATIVE_INFINITY; // when ⌘C / Ctrl+C was last pressed: a copy right after it was by keyboard
+  const listOf = (el: Element): Partial<PageEvent> => {
+    const list = listPosition(el);
+    return list ? { list } : {};
+  };
+  // Where a click landed, as evidence for the picture taken after it (top frame only: the picture is its viewport).
+  const pointOf = (e: MouseEvent, el: Element): Partial<PageEvent> => {
+    const win = doc.defaultView;
+    if (!win || win !== win.top) return {};
+    const r = el.getBoundingClientRect();
+    return {
+      point: {
+        x: Math.round(e.clientX),
+        y: Math.round(e.clientY),
+        dpr: win.devicePixelRatio || 1,
+        box: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
+      },
+    };
+  };
+  // Selecting text, to copy it or to read it, is the event; never what was selected in a password field.
+  const sendSelection = () => {
+    const selected = selectionOf(doc);
+    if (!selected || isSecret(selected.el)) return;
+    send("select_text", selected.el, { value: selected.text, ...listOf(selected.el) });
+  };
+
+  const inSheet = () => isSheet(doc.location?.href ?? "");
+  const cellNow = (): Partial<PageEvent> => {
+    const cell = inSheet() ? readCell(doc) : undefined;
+    return cell ? { cell } : {};
+  };
+  // The cell a value is being typed into, read at its first key: by the time the value is sent (Enter, leaving the
+  // cell), Sheets has already moved the selection on.
+  const typingCell = new WeakMap<Element, PageEvent["cell"]>();
 
   // Many keystrokes become one "type" event with the field's final value.
   const flushTyping = (el: Element) => {
     if (!dirty.has(el)) return;
     dirty.delete(el);
+    const cell = typingCell.get(el);
+    typingCell.delete(el);
+    const where = cell ? { cell } : {};
     const value = fieldValue(el);
     if (sent.get(el) === value) return;
     sent.set(el, value);
-    if (isSecret(el)) send("type", el, { secret: true });
+    if (isSecret(el)) send("type", el, { secret: true, ...where });
     else if (pasted.has(el)) {
       pasted.delete(el);
-      send("type", el, { pasted: true }); // filled from what was copied ({{vars.x}}), never stored
-    } else send("type", el, { value });
+      send("type", el, { pasted: true, ...where }); // filled from what was copied ({{vars.x}}), never stored
+    } else send("type", el, { value, ...where });
   };
+
+  // What each click and Enter did (effect.ts): observed only while a recording is open.
+  const effects = watchEffects(doc);
+  // Sent as its own event 700 ms later: a click that navigates away is gone by then, and its effect is the navigation
+  // the browser reports.
+  const watchAfter = (el: Element, cid: string, since?: number) =>
+    effects.watch(
+      el,
+      (effect) => {
+        if (isRecording()) emit({ event: "effect", of: cid, effect });
+      },
+      since,
+    );
+
+  // Single-key shortcuts (Gmail's e), held a second so a burst of typing is never recorded (keys.ts).
+  const singles = new SingleKeys((key, at, el) => {
+    if (isRecording() && el.isConnected) send("key", el, { value: key, at });
+  });
 
   const listeners: [string, (event: Event) => void][] = [
     [
       "pointerdown",
       (e) => {
         const el = actionableTarget(e);
-        pending = el ? { hit: e.composedPath()[0], el, target: describeElement(el) } : undefined;
+        // When the pointer went down: a menu that opens on mousedown (Gmail's toolbar) is part of what the click did.
+        pending = el
+          ? { hit: e.composedPath()[0], el, target: describeElement(el), pressedAt: effects.clock() }
+          : undefined;
         const m = e as MouseEvent;
         pressed = el ? { el, x: m.clientX, y: m.clientY } : undefined;
       },
@@ -122,7 +193,13 @@ export function startCapture(
         if (!start) return;
         const m = e as MouseEvent;
         if (Math.hypot(m.clientX - start.x, m.clientY - start.y) < 10) return; // a click
-        if (doc.getSelection()?.toString()) return; // selecting text (to copy it), not dragging
+        if (doc.getSelection()?.toString().trim()) {
+          // Selecting text: the selection is the event, not a drag, and not the click the browser fires next on
+          // whatever holds both ends of it. That click became a step replay could never find (section-study §R1).
+          suppressClickUntil = e.timeStamp + 100;
+          sendSelection();
+          return;
+        }
         const from = start.el;
         if (editableField(from) || from.localName === "canvas" || (from as HTMLInputElement).type === "range") return;
         // What is under the pointer, skipping the dragged element (libraries often move it along with the pointer).
@@ -158,6 +235,11 @@ export function startCapture(
         // Keyboard "clicks" (Enter or Space on a button) have no pointerdown, so describe now.
         const el = fresh?.el ?? actionableTarget(e);
         if (!el || e.timeStamp <= suppressClickUntil) return;
+        // A double or triple click selects a word or a line: that selection is the event.
+        if ((e as MouseEvent).detail >= 2 && doc.getSelection()?.toString().trim()) {
+          sendSelection();
+          return;
+        }
         // Enter in a form field makes the browser click the form's submit button (implicit submission, measured in
         // Chrome on fixtures/pages/timesheet.html). The Enter is the step; replaying both would submit twice.
         const implicit = lastEnter && e.timeStamp - lastEnter.at < 100 && el.closest("form") === lastEnter.form;
@@ -172,7 +254,36 @@ export function startCapture(
         const drawn =
           el.localName === "canvas" ||
           (!target.role && !target.name && !target.text && box.width * box.height >= DRAWN_AREA);
-        send("click", el, drawn ? { drawn: true } : {}, target);
+        const cid = newId();
+        const opensTab = (e as MouseEvent).metaKey || (e as MouseEvent).ctrlKey;
+        // The page's own code clicked (no pointer went down, and the browser marks the event untrusted).
+        const synthetic = !e.isTrusted && !fresh;
+        const extras = {
+          ...(drawn ? { drawn: true } : {}),
+          ...(opensTab ? { newTab: true } : {}),
+          ...(synthetic ? { synthetic: true } : {}),
+          cid,
+          ...pointOf(e as MouseEvent, el),
+          // A drawn area's place is its cell or point: the page's own panes around it are not a list.
+          ...(drawn ? {} : listOf(el)),
+        };
+        if (drawn && inSheet()) {
+          // Sheets moves its Name Box to the clicked cell just after the click: read it then, keeping the click's time.
+          const at = Date.now();
+          setTimeout(() => {
+            if (isRecording()) send("click", el, { ...extras, at, ...cellNow() }, target);
+          }, 150);
+        } else send("click", el, extras, target);
+        watchAfter(el, cid, fresh?.pressedAt);
+      },
+    ],
+    [
+      // The middle button opens a link in a new tab and fires no click.
+      "auxclick",
+      (e) => {
+        if ((e as MouseEvent).button !== 1) return;
+        const el = actionableTarget(e);
+        if (el) send("click", el, { newTab: true, cid: newId(), ...listOf(el) });
       },
     ],
     [
@@ -180,6 +291,7 @@ export function startCapture(
       (e) => {
         const el = editableField(e.composedPath()[0]);
         if (el) dirty.add(el);
+        if (el && inSheet() && !typingCell.has(el)) typingCell.set(el, readCell(doc));
       },
     ],
     [
@@ -229,18 +341,39 @@ export function startCapture(
     [
       "keydown",
       (e) => {
-        const key = (e as KeyboardEvent).key;
-        if (key !== "Enter" && key !== "Escape" && key !== "Tab") return;
+        const k = e as KeyboardEvent;
+        const key = k.key;
         const hit = e.composedPath()[0];
         const el = hit instanceof Element ? hit : doc.activeElement;
         const field = editableField(hit);
+        const mods = modifiersOf(k);
+        if ((k.metaKey || k.ctrlKey) && key.toLowerCase() === "c") lastCopyKey = Date.now();
+        if (shortcut(key, mods)) {
+          if (field) flushTyping(field); // the value reaches the trace before the key that sends it
+          // Never a key pressed in a password or one-time-code field: its characters are the secret.
+          if (!el || isSecret(el) || (field && isSecret(field))) return;
+          const cid = newId();
+          send("key", el, { value: key.length === 1 ? key.toLowerCase() : key, modifiers: mods, cid });
+          if (key === "Enter") watchAfter(field ?? el, cid);
+          return;
+        }
+        if (key.length === 1 && mods.length === 0 && !field) {
+          if (el && !CANVAS_EDITORS.test(doc.location?.href ?? "")) singles.press(key, Date.now(), el);
+          return;
+        }
+        if (key !== "Enter" && key !== "Escape" && key !== "Tab") return;
         // The value must reach the trace before the key that submits it.
         if (field) flushTyping(field);
-        // Tab only moves focus: the next step targets its own field. Enter in a textarea is a newline.
-        if (!el || key === "Tab" || el.closest(CLICKABLE)) return;
+        // Tab only moves focus: the next step targets its own field. Enter in a textarea is a newline. Enter on a
+        // button or link is its click (recorded as one); Escape on one closes its menu, and is recorded.
+        if (!el || key === "Tab" || (key === "Enter" && el.closest(CLICKABLE))) return;
         if (key === "Enter" && el.localName === "textarea") return;
+        // Shift+Enter in a field is a newline (chat boxes): replayed as Enter it would send the message.
+        if (key === "Enter" && k.shiftKey && field) return;
         if (key === "Enter") lastEnter = { form: el.closest("form"), at: e.timeStamp };
-        send("key", el, { value: key });
+        const cid = newId();
+        send("key", el, { value: key, cid });
+        if (key === "Enter") watchAfter(field ?? el, cid);
       },
     ],
     [
@@ -249,8 +382,9 @@ export function startCapture(
         const field = editableField(e.composedPath()[0]) ?? (doc.activeElement && editableField(doc.activeElement));
         if (!field) return;
         pasted.add(field);
+        if (inSheet() && !typingCell.has(field)) typingCell.set(field, readCell(doc));
         dirty.add(field);
-        send("paste", field, { pasted: true });
+        send("paste", field, { pasted: true, ...cellNow() });
       },
     ],
     [
@@ -289,7 +423,11 @@ export function startCapture(
     for (const [type, handler] of listeners) {
       if (only && !only.has(type)) continue;
       const wrapped = (event: Event) => {
-        if (!isRecording()) return;
+        if (!isRecording()) {
+          effects.pause(); // the recording ended: stop watching this page
+          return;
+        }
+        effects.start(); // a recording is open: watch the page's changes (from its first event here)
         try {
           if (event.composedPath().some(isOwnUi)) return;
           for (const node of event.composedPath()) {
@@ -309,6 +447,8 @@ export function startCapture(
   };
 
   listen(doc);
+  stops.push(() => effects.stop());
+  stops.push(() => singles.stop());
 
   // copy is read last (bubble phase on the window), after the page's own handler: apps that draw their content
   // (Google Sheets) put the copied value on the clipboard themselves.
@@ -323,9 +463,10 @@ export function startCapture(
       .trim()
       .slice(0, COPY_LIMIT);
     if (!text) return;
-    const anchor = doc.getSelection()?.anchorNode;
-    const selected = anchor && (anchor.nodeType === 1 ? (anchor as Element) : anchor.parentElement);
-    const el = (selected && selected !== doc.body ? selected : undefined) ?? doc.activeElement ?? doc.body;
+    const selected = selectionOf(doc);
+    const el = selected?.el ?? doc.activeElement ?? doc.body;
+    const via: PageEvent["via"] = Date.now() - lastCopyKey < 1_000 ? "keyboard" : "menu";
+    lastCopyKey = Number.NEGATIVE_INFINITY; // one ⌘C, one copy
     // Copied out of a password or one-time-code field: recorded that it happened, never what was copied.
     if (isSecret(el)) {
       send("copy", el, { at, secret: true });
@@ -333,35 +474,84 @@ export function startCapture(
     }
     const sheet = sheetExportUrl(doc.location?.href ?? "");
     if (!sheet || !options.fetchSheet) {
-      send("copy", el, { at, value: text });
+      send("copy", el, { at, value: text, via, ...listOf(el) });
       return;
     }
     // Context for the compiler: the sheet's header and the row the copied cell is in, so it can write a rule such as
-    // "Amount of the row whose Date is today" instead of a fixed cell.
+    // "Amount of the row whose Date is today" instead of a fixed cell. The cell is read now, before the export arrives.
+    const cell = readCell(doc);
     options
       .fetchSheet(sheet)
       .then((csv) => {
-        const rows = rowsOf(csv);
-        const index = rows.findIndex((row) => Object.values(row).includes(text));
-        const row = rows[index];
-        const column = row && Object.keys(row).find((k) => row[k] === text);
+        const table = parseCsv(csv);
+        const header = (table[0] ?? []).map((h) => h.trim());
+        const line = cell ? rowOfCell(cell.ref) : undefined;
+        // The row of the cell you copied (the Name Box), not "the first cell equal to the copied text": a value that
+        // appears twice (4,928 two weeks running) picked the wrong row.
+        const cells =
+          line !== undefined ? table[line - 1] : table.find((r, i) => i > 0 && r.some((c) => c.trim() === text));
+        const row = cells && Object.fromEntries(header.map((name, i) => [name, (cells[i] ?? "").trim()]));
+        const index = cell ? columnOfCell(cell.ref) : undefined;
+        const column =
+          (index !== undefined ? header[index] : undefined) ?? (row && Object.keys(row).find((k) => row[k] === text));
         send("copy", el, {
           at,
           value: text,
+          via,
           drawn: true,
-          context: { sheet, header: Object.keys(rows[0] ?? {}), row, column, rowIndex: index, rows: rows.length },
+          ...(cell ? { cell } : {}),
+          context: {
+            sheet,
+            header,
+            row,
+            column,
+            rowIndex: line !== undefined ? line - 2 : table.indexOf(cells ?? []) - 1,
+            rows: Math.max(0, table.length - 1),
+          },
         });
       })
-      .catch(() => send("copy", el, { at, value: text, drawn: true, context: { sheet } }));
+      .catch(() => send("copy", el, { at, value: text, via, drawn: true, context: { sheet } }));
   };
   const win = doc.defaultView;
   win?.addEventListener("copy", onCopy);
   stops.push(() => win?.removeEventListener("copy", onCopy));
 
+  // A copy made by a page's Copy button (clipboard-hook.ts posts it from the page's world). Only from this window,
+  // and only the shape the hook sends; tied to the button clicked just before it.
+  const onHookCopy = (event: MessageEvent) => {
+    if (!isRecording() || event.source !== win) return;
+    const data = event.data as { __shadowCopy?: unknown; text?: unknown } | null;
+    if (data?.__shadowCopy !== true || typeof data.text !== "string") return;
+    const text = data.text.trim().slice(0, COPY_LIMIT);
+    if (!text) return;
+    const el = lastClick?.el.isConnected ? lastClick.el : (doc.activeElement ?? doc.body);
+    if (isSecret(el)) return;
+    send("copy", el, { at: Date.now(), value: text, via: "button" });
+  };
+  win?.addEventListener("message", onHookCopy);
+  stops.push(() => win?.removeEventListener("message", onHookCopy));
+
   return () => {
     for (const stop of stops) stop();
   };
 }
+
+// The selected text and the smallest element holding all of it: the heading you copied a company name from, not the
+// card around it, nor whatever element the selection happened to start in.
+function selectionOf(doc: Document): { text: string; el: Element } | undefined {
+  const sel = doc.getSelection();
+  const text = sel?.toString().trim().slice(0, COPY_LIMIT);
+  if (!sel || !text || sel.rangeCount === 0) return undefined;
+  // Text selected in a field: the field holds it. A selection inside an <input> has the field's parent as its common
+  // ancestor, so a password or one-time-code field would not be recognised as secret.
+  const active = doc.activeElement;
+  if (active && (active.localName === "input" || active.localName === "textarea")) return { text, el: active };
+  const common = sel.getRangeAt(0).commonAncestorContainer;
+  const el = common.nodeType === 1 ? (common as Element) : common.parentElement;
+  return el && el !== doc.body && el !== doc.documentElement ? { text, el } : undefined;
+}
+
+const newId = (): string => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 const fileInfo = (f: File) => ({ name: f.name, size: f.size, type: f.type, lastModified: f.lastModified });
 

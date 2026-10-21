@@ -10,6 +10,8 @@ export type FakeReply =
       toolCalls?: { name: string; arguments: unknown }[];
       usage?: { input: number; output: number };
       finishReason?: string;
+      // The model's reasoning, sent as the API's reasoning_content.
+      reasoning?: string;
       // Answer with an HTTP error instead (429 to test retries, 400 to test a rejected response_format).
       status?: number;
       error?: string;
@@ -44,6 +46,7 @@ export function fakeLlm(
           finish_reason: reply.finishReason ?? "stop",
           message: {
             content: reply.text ?? "",
+            reasoning_content: reply.reasoning,
             tool_calls: reply.toolCalls?.map((c, i) => ({
               id: `call_${requests.length}_${i}`,
               type: "function",

@@ -61,6 +61,29 @@ const invoices = () => ({
 });
 
 describe("skill schema", () => {
+  it("lets an action say which tab it runs in", () => {
+    const skill = Skill.parse({
+      id: "t",
+      name: "t",
+      version: 1,
+      description: { goal: "g" },
+      steps: [
+        { id: "start", type: "trigger", intent: "by hand" },
+        {
+          id: "s1",
+          type: "action",
+          intent: "open the sheet",
+          channel: "web",
+          action: "navigate",
+          tab: "KPI Sheet",
+          args: { url: "https://docs.google.com/" },
+        },
+      ],
+    });
+    const step = skill.steps[1];
+    expect(step && "tab" in step ? step.tab : undefined).toBe("KPI Sheet");
+  });
+
   for (const file of readdirSync(skillsDir).filter((f) => f.endsWith(".json"))) {
     it(`accepts ${file}`, () => {
       expect(issues(JSON.parse(readFileSync(join(skillsDir, file), "utf8")))).toEqual([]);

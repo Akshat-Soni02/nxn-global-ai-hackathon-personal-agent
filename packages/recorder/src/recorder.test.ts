@@ -1,7 +1,7 @@
-import { type ActionStep, type ElementDescriptor, Skill, type TraceEvent, triggerOf } from "@shadow/core";
+import { type ActionStep, type ElementDescriptor, isOutward, Skill, type TraceEvent, triggerOf } from "@shadow/core";
 import { describe, expect, it, vi } from "vitest";
 import { requireApprovals } from "./approvals.ts";
-import { type Chat, compile, extractJson, labelDraft, type Question } from "./compile.ts";
+import { compile, extractJson, labelDraft, type Question, stepsForModel } from "./compile.ts";
 import { applyAnswer, drill } from "./drill.ts";
 import { normalise } from "./normalise.ts";
 
@@ -61,31 +61,6 @@ const uploadTrace = (): TraceEvent[] => {
     ev("click", 8_000, { target: submitButton }),
   ];
 };
-
-// What Nemotron is asked to add on top of the skeleton.
-const goodAnswer = {
-  id: "upload-invoice",
-  intent: "Upload the newest invoice PDF to the vendor portal",
-  inputs: {
-    invoice: {
-      type: { type: "file" },
-      description: "Newest invoice PDF in Downloads",
-      resolve: { dir: "~/Downloads", glob: "invoice-*.pdf", pick: "newest" },
-    },
-  },
-  when: [{ type: "folder_watch", dir: "~/Downloads", glob: "invoice-*.pdf" }],
-  success: [{ text_visible: "Upload complete" }],
-  steps: [
-    { id: "s1", intent: "Open the portal's uploads page" },
-    { id: "s2", intent: "Attach the invoice", check: { text_visible: "{{invoice.name}}" } },
-    { id: "s3", intent: "Submit the upload", on_fail: { retries: 2, fallback: "agent" } },
-  ],
-  questions: [],
-};
-const replies =
-  (...answers: string[]): Chat =>
-  async () =>
-    answers.shift() ?? "{}";
 
 describe("normalise", () => {
   it("reopens a page you switched back to in another tab, but not when a page changes its own address", () => {
@@ -338,19 +313,14 @@ describe("drag inside a page", () => {
     selectors: { css: "#done-a" },
   };
 
-  it("becomes a drag step whose destination code copies from the recording", async () => {
-    const trace = [ev("drag", 0, { target: card, to: done, native: true })];
-    const steps = normalise(trace);
+  it("becomes a drag step whose target and destination code copies from the recording", async () => {
+    const steps = normalise([ev("drag", 0, { target: card, to: done, native: true })]);
     expect(steps.map((s) => s.kind)).toEqual(["navigate", "drag"]);
-    const moved = {
-      steps: [{ id: "s2", intent: "Mark the report done", args: { to: { role: "region", name: "Archive" } } }],
-    };
-    const { skill } = await compile(steps, { chat: replies(JSON.stringify(moved)) });
+    const { skill } = await compile(steps);
     expect(acts(skill)[1]).toMatchObject({
       action: "drag",
-      intent: "Mark the report done",
       target: { role: "listitem", fallbacks: ["#card-a"] },
-      args: { to: { role: "region", name: "Done", fallbacks: ["#done-a"] } }, // not the model's "Archive"
+      args: { to: { role: "region", name: "Done", fallbacks: ["#done-a"] } },
     });
   });
 });
@@ -403,35 +373,6 @@ describe("copy, paste and drawn apps", () => {
       default: "the row whose Date is that day's date",
     });
     expect(JSON.stringify(result.skill)).not.toContain("Globex"); // only the rule, not the row, is saved
-  });
-
-  it("offers a per-run llm step only with a reason, shows its cost, and can keep the rule instead", async () => {
-    const answer = {
-      steps: [
-        { id: "s3", ai: { instruction: "Amount of today's row", output: "number", reason: "dates are free text" } },
-      ],
-    };
-    const result = await compile(normalise(sheetTrace()), { chat: replies(JSON.stringify(answer)), pricePerMTok: 2 });
-    // The rule stays until the drill decides; the question carries both steps.
-    expect(acts(result.skill)[2]).toMatchObject({ channel: "data", action: "pick" });
-    const ai = result.questions[0] as Question;
-    expect(ai.text).toMatch(/s3 asks the model on every run, about \d+ tokens .*Why: dates are free text/);
-    expect(ai.appliesTo).toBe("steps.s3");
-    const kept = applyAnswer(result.skill, ai, "1");
-    expect(kept.ok && acts(kept.skill)[2]).toMatchObject({
-      type: "llm",
-      instruction: "Amount of today's row",
-      inputs: ["{{sheet_1}}"],
-      output: { name: "copied_1", type: { type: "number" } },
-    });
-    const declined = applyAnswer(result.skill, ai, "2");
-    expect(declined.ok && acts(declined.skill)[2]).toMatchObject({
-      type: "action",
-      action: "pick",
-      args: { from: "{{sheet_1}}", where: { Date: shown }, column: "Amount" },
-    });
-    // The rule's own question still edits the rule, for when it is kept.
-    expect(result.questions[1]?.appliesTo).toBe("steps.s3.args.where");
   });
 
   it("keeps a cheap AI step without asking, and asks only when a run would cost more than a cent", async () => {
@@ -493,74 +434,20 @@ describe("compile", () => {
     expect(Skill.safeParse(result.skill).success).toBe(true);
     expect(acts(result.skill).map((s) => s.action)).toEqual(["navigate", "upload", "click"]);
     expect(acts(result.skill)[2]?.requires_approval).toBe(true); // "Submit" is risky
-    expect(result.questions.map((q) => q.appliesTo)).toEqual([
-      "steps.start.inputs.invoice.resolve",
-      "steps.start.inputs.invoice.resolve.dir",
-      "description.goal",
-    ]);
-  });
-
-  it("merges a model answer by step id: words from the model, targets from the recording", async () => {
-    const reply = `<think>The user uploaded an invoice.</think>\n\`\`\`json\n${JSON.stringify(goodAnswer)}\n\`\`\``;
-    const { skill, model, attempts } = await compile(normalise(uploadTrace()), { chat: replies(reply) });
-    expect([model, attempts]).toEqual(["nemotron", 1]);
-    expect(acts(skill).map((s) => [s.action, s.intent])).toEqual([
-      ["navigate", "Open the portal's uploads page"],
-      ["upload", "Attach the invoice"],
-      ["click", "Submit the upload"],
-    ]);
-    expect(acts(skill)[1]?.target).toMatchObject({
+    // Targets and values from the recording: the upload's control, and the file as an input.
+    expect(acts(result.skill)[1]?.target).toMatchObject({
       role: "button",
       name: "Upload invoice",
       near: "Documents",
       fallbacks: ["input[type=file][name=invoice]", "//section[h2='Documents']//input[@type='file']"],
     });
-    expect(acts(skill)[1]?.args).toEqual({ file: "{{invoice}}" });
-    expect(acts(skill)[0]?.args).toEqual({ url: PAGE });
-    expect(acts(skill)[2]?.requires_approval).toBe(true);
-    expect(inputsOf(skill)).toEqual(goodAnswer.inputs);
-    expect(skill.success).toEqual(goodAnswer.success);
-  });
-
-  it("sends schema errors back and accepts the corrected answer", async () => {
-    const chat = vi.fn(replies(JSON.stringify({ ...goodAnswer, id: "Upload Invoice!" }), JSON.stringify(goodAnswer)));
-    const result = await compile(normalise(uploadTrace()), { chat });
-    expect(result.attempts).toBe(2);
-    expect(chat.mock.calls[1]?.[0].at(-1)?.content).toMatch(/That JSON was rejected:[\s\S]*id/);
-  });
-
-  it("rejects templates that name an undeclared input", async () => {
-    const typo = { ...goodAnswer, steps: [{ id: "s2", check: { text_visible: "{{invoce.name}}" } }] };
-    const chat = vi.fn(replies(JSON.stringify(typo), JSON.stringify(goodAnswer)));
-    const result = await compile(normalise(uploadTrace()), { chat });
-    expect(chat.mock.calls[1]?.[0].at(-1)?.content).toMatch(
-      /\{\{invoce\.name\}\} uses invoce, which is not declared by an earlier step/,
-    );
-    expect(result.attempts).toBe(2);
-  });
-
-  it("never lets the model remove an approval or leave the recorded site", async () => {
-    const sneaky = {
-      ...goodAnswer,
-      steps: [
-        { id: "s1", args: { url: "https://evil.example/upload" } },
-        { id: "s3", requires_approval: false },
-      ],
-    };
-    const { skill } = await compile(normalise(uploadTrace()), { chat: replies(JSON.stringify(sneaky)) });
-    expect(acts(skill)[0]?.args.url).toBe(PAGE);
-    expect(acts(skill)[2]?.requires_approval).toBe(true);
-  });
-
-  it("keeps the code-only skill when the model is unreachable or never valid", async () => {
-    const down = await compile(normalise(uploadTrace()), {
-      chat: async () => {
-        throw new Error("503");
-      },
-    });
-    expect([down.model, down.warnings[0]]).toEqual(["none", "Model call failed: 503"]);
-    const junk = await compile(normalise(uploadTrace()), { chat: replies("no json", "still none", "nope") });
-    expect([junk.model, junk.attempts]).toEqual(["none", 3]);
+    expect(acts(result.skill)[1]?.args).toEqual({ file: "{{invoice}}" });
+    expect(acts(result.skill)[0]?.args).toEqual({ url: PAGE });
+    expect(result.questions.map((q) => q.appliesTo)).toEqual([
+      "steps.start.inputs.invoice.resolve",
+      "steps.start.inputs.invoice.resolve.dir",
+      "description.goal",
+    ]);
   });
 
   it("extracts JSON from think blocks and fences", () => {
@@ -590,37 +477,6 @@ describe("contract with the player (packages/core/src/skill.ts args table)", () 
       ["navigate", { url: PAGE }],
       ["select", { option: "NX-101" }],
       ["type", { text: "38", clear: true }],
-    ]);
-  });
-
-  it("keeps a typed value as the default of the input the model makes from it", async () => {
-    const answer = {
-      inputs: { hours: { type: { type: "number" }, description: "Hours worked this week" } },
-      steps: [{ id: "s3", args: { text: "{{hours}}" } }],
-    };
-    const { skill } = await compile(normalise(formTrace()), { chat: replies(JSON.stringify(answer)) });
-    expect(inputsOf(skill).hours).toEqual({
-      type: { type: "number" },
-      description: "Hours worked this week",
-      default: 38,
-    });
-    expect(acts(skill)[2]?.args).toEqual({ text: "{{hours}}", clear: true });
-  });
-
-  it("sends back undeclared variables and outputs an action cannot produce, then takes the fixed reply", async () => {
-    const undeclared = { steps: [{ id: "s2", args: { option: "{{code}}" } }] };
-    const noValue = { steps: [{ id: "s2", save_as: "code" }] }; // a select produces no value
-    const fixed = { steps: [{ id: "s2", intent: "Choose the project" }] };
-    const chat = vi.fn(replies(JSON.stringify(undeclared), JSON.stringify(noValue), JSON.stringify(fixed)));
-    const result = await compile(normalise(formTrace()), { chat });
-    // compile keeps one conversation: the feedback after each rejected reply, in order.
-    const feedback = (chat.mock.calls[0]?.[0] ?? []).filter((m) => m.role === "user").slice(1);
-    expect(feedback[0]?.content).toMatch(/\{\{code\}\} uses code, which is not declared by an earlier step/);
-    expect(feedback[1]?.content).toMatch(/web\.select produces no value/);
-    expect([result.model, result.attempts, acts(result.skill)[1]?.intent]).toEqual([
-      "nemotron",
-      3,
-      "Choose the project",
     ]);
   });
 });
@@ -832,45 +688,16 @@ describe("the description form", () => {
     whenFixed: true,
   };
 
-  it("sets how often it runs from the model when the form didn't fix it; keeps the goal", async () => {
-    const chat: Chat = async () =>
-      JSON.stringify({ when: [{ type: "schedule", cron: "0 9 * * *", missed: "run_once" }] });
-    const fresh = { description: { ...form.description, never: [] }, when: [{ type: "manual" as const }] };
-    const result = await compile(normalise(uploadTrace()), { chat, form: fresh });
-    expect(triggerOf(result.skill).when).toEqual([{ type: "schedule", cron: "0 9 * * *", missed: "run_once" }]);
-    expect(result.skill.description.goal).toBe(form.description.goal);
-  });
-
-  it("is read by the model and kept as written: no answer changes the goal or the Frequency", async () => {
-    const seen: string[] = [];
-    const chat: Chat = async (messages) => {
-      seen.push(messages.map((m) => m.content).join("\n"));
-      return JSON.stringify({
-        intent: "Upload an invoice",
-        when: [{ type: "manual" }],
-        questions: [
-          { id: "q-when", text: "Run it monthly?", appliesTo: "steps.start.when" },
-          { id: "q-goal", text: "What is it for?", appliesTo: "description.goal" },
-          { id: "q-ok", text: "Approve the submit?", appliesTo: "steps.s3.requires_approval" },
-        ],
-      });
-    };
-    const result = await compile(normalise(uploadTrace()), { chat, form });
-    expect(seen[0]).toContain('"never":["archive anything"]');
-    expect(seen[0]).toContain('"frequency":[{"type":"schedule"');
-    expect(result.skill.description).toEqual(form.description);
-    expect(triggerOf(result.skill).when).toEqual(form.when);
-    expect(result.skill.name).toBe("Upload an invoice");
-    expect(result.questions.map((q) => q.id)).not.toContain("q-when");
-    expect(result.questions.map((q) => q.id)).not.toContain("q-goal");
-    expect(result.questions.map((q) => q.id)).toContain("q-ok");
-  });
-
   it("names the workflow after the goal, and asks no goal question, when there is no model", async () => {
     const result = await compile(normalise(uploadTrace()), { form });
     expect(result.skill.name).toBe("The month's invoice is uploaded");
     expect(result.skill.description.never).toEqual(["archive anything"]);
     expect(result.questions.map((q) => q.id)).not.toContain("intent");
+    // The form is the user's: copied as it is, and never asked about.
+    expect(result.skill.description).toEqual(form.description);
+    expect(triggerOf(result.skill).when).toEqual(form.when);
+    expect(result.questions.map((q) => q.appliesTo)).not.toContain("steps.start.when");
+    expect(result.questions.map((q) => q.appliesTo)).not.toContain("description.goal");
   });
 
   it("turns approval on, in code, for steps that send or delete and for steps matching Never", async () => {
@@ -885,5 +712,122 @@ describe("the description form", () => {
     const { skill: approved, added } = requireApprovals(skill);
     expect(added).toEqual([acts(skill)[1]?.id]);
     expect(acts(approved).map((s) => s.requires_approval)).toEqual([false, true, true]);
+  });
+
+  it("asks before ⌘Enter or Ctrl+Enter, which send in mail and chat, whoever added the step", () => {
+    const press = (id: string, modifiers?: string[]) => ({
+      id,
+      type: "action",
+      intent: "press",
+      channel: "web",
+      action: "press",
+      target: { role: "textbox", name: "Message Body" },
+      args: { key: "Enter", ...(modifiers ? { modifiers } : {}) },
+    });
+    const skill = Skill.parse({
+      id: "mail",
+      version: 1,
+      name: "mail",
+      description: { goal: "reply" },
+      steps: [
+        { id: "start", type: "trigger", intent: "by hand" },
+        press("s1", ["cmd"]),
+        press("s2", ["ctrl"]),
+        press("s3", ["shift"]),
+        press("s4"),
+      ],
+    });
+    expect(requireApprovals(skill).added).toEqual(["s1", "s2"]);
+  });
+
+  it("asks before ⌘Return in a Mac app too: Mail and Outlook send with it", () => {
+    const key = (id: string, modifiers: string[]) => ({
+      id,
+      type: "action",
+      intent: id,
+      channel: "ax",
+      action: "key",
+      args: { app: "com.microsoft.Outlook", key: "Return", modifiers },
+    });
+    const skill = Skill.parse({
+      id: "mac",
+      version: 1,
+      name: "mac",
+      description: { goal: "reply" },
+      steps: [{ id: "start", type: "trigger", intent: "by hand" }, key("s1", ["cmd"]), key("s2", [])],
+    });
+    expect(requireApprovals(skill).added).toEqual(["s1"]);
+  });
+});
+
+describe("old and new traces", () => {
+  it("normalise the same when the new events are added: they only add evidence", () => {
+    const old = [ev("navigate", 0, { url: PAGE }), ev("click", 1_000, { target: submitButton })];
+    const extra = [
+      ...old,
+      ev("effect", 1_700, { of: "c1", effect: { changed: "small" } }),
+      ev("window_focus", 2_000, { windowId: 2 }),
+      ev("select_text", 2_500, { value: "x", target: submitButton }),
+    ];
+    expect(normalise(extra).map((s) => s.kind)).toEqual(normalise(old).map((s) => s.kind));
+  });
+});
+
+describe("links with ids in their address", () => {
+  it("become opening that page, since the address is kept apart from what replay matches", async () => {
+    const link = {
+      tag: "a",
+      url: PAGE,
+      role: "link",
+      name: "Eventual",
+      href: "https://www.ycombinator.com/companies/eventual/jobs/7421",
+      fallbacks: [],
+      selectors: {},
+    };
+    const steps = normalise([
+      ev("navigate", 0, { url: PAGE }),
+      ev("click", 1_000, { target: link }),
+      ev("navigate", 1_500, { url: "https://www.ycombinator.com/companies/eventual/jobs/7421", transition: "link" }),
+    ]);
+    const { skill } = await compile(steps, {});
+    expect(acts(skill).map((s) => [s.action, s.args.url])).toContainEqual([
+      "navigate",
+      "https://www.ycombinator.com/companies/eventual/jobs/7421",
+    ]);
+  });
+});
+
+describe("Move to Trash in Finder", () => {
+  it("is a move to the Trash that waits for approval; other deletions are not steps", async () => {
+    const finder = { id: "com.apple.finder", name: "Finder" };
+    const steps = normalise([
+      ev("fs_remove", 500, { path: "/Users/me/Library/Caches/x.db" }), // an app deleting its own file
+      { id: "m1", sessionId: "s", at: T0 + 1_000, event: "app_menu", app: finder, menu: ["File", "Move to Trash"] },
+      ev("fs_remove", 1_400, { path: "/Users/me/Downloads/OldInstaller-1.2.dmg" }),
+    ]);
+    expect(steps.map((s) => [s.kind, s.trashed])).toEqual([["fs_move", true]]);
+    const { skill } = await compile(steps, {});
+    const trash = acts(skill).find((s) => s.channel === "fs");
+    expect(trash).toMatchObject({ action: "move", args: { to: "~/.Trash/" } });
+    expect(isOutward(trash as ActionStep)).toBe(true); // approval is added by requireApprovals
+    expect(trash?.intent).toMatch(/to the Trash/);
+  });
+});
+
+describe("the compile view", () => {
+  it("masks keys and private words in what was typed or copied before the model reads it", () => {
+    const steps = normalise([
+      ev("navigate", 0, { url: PAGE }),
+      ev("copy", 1_000, { value: "sk-proj-abcdefghijklmnopqrstuvwx12345678 for ACME-2231", target: submitButton }),
+    ]);
+    const view = JSON.stringify(
+      stepsForModel(
+        steps,
+        steps.map(() => []),
+        ["ACME-2231"],
+      ),
+    );
+    expect(view).not.toContain("ACME-2231");
+    expect(view).not.toContain("sk-proj-abcdefgh");
   });
 });

@@ -24,6 +24,9 @@ export interface Shot {
   masks?: Box[];
   // From Shadow.app: the file it saved in the recording's folder.
   path?: string;
+  // The tab it is of, and when it was taken (a queued picture may be taken a moment after its event).
+  tabId?: number;
+  takenAt?: number;
 }
 
 // Reading words in a picture and blacking out boxes: Shadow.app's command-line modes, or a stand-in in tests.
@@ -59,8 +62,15 @@ export function screenToolsFrom(binary: string): ScreenTools | undefined {
 
 export interface ScreenReader {
   add(shot: Shot): void;
+  // A picture that was not taken, and why: written to the ledger at once.
+  skip(entry: { sessionId: string; eventId: string; at: number; reason: string }): void;
   // Resolves once every picture added so far is done (before a recording is turned into a workflow).
   idle(): Promise<void>;
+}
+
+// One line per event that should have a picture: taken, or why not. A missing picture is never silent (spec 1.15).
+function ledger(dir: string, line: Record<string, unknown>): void {
+  appendFileSync(join(dir, "shots.jsonl"), `${JSON.stringify(line)}\n`, { mode: 0o600 });
 }
 
 export function createScreenReader(options: {
@@ -94,6 +104,7 @@ export function createScreenReader(options: {
 
     if (!tools) {
       rmSync(file, { force: true });
+      ledger(dir, { eventId: shot.eventId, at: shot.at, outcome: "no-tools" });
       if (!warned) log("screenshots need Shadow.app to read and mask them (pnpm setup:mac): not kept");
       warned = true;
       return;
@@ -101,23 +112,46 @@ export function createScreenReader(options: {
     try {
       const masked = maskLines(await tools.read(file), options.never(shot.sessionId));
       await tools.blackOut(file, [...masked.boxes, ...(shot.masks ?? [])]);
-      const text = masked.lines
-        .map((l) => l.text.trim())
-        .filter(Boolean)
-        .join("\n")
-        .slice(0, 2_000);
-      if (text) {
-        appendFileSync(join(dir, "screen.jsonl"), `${JSON.stringify({ at: shot.at, eventId: shot.eventId, text })}\n`, {
-          mode: 0o600,
+      // Every masked line with its place on the picture, up to 8,000 characters: the words around a click are found by
+      // position (the click point), and a control low on a long page is no longer cut off at 2,000 characters.
+      let total = 0;
+      const lines = masked.lines
+        .map((l) => ({ text: l.text.trim(), box: l.box }))
+        .filter((l) => l.text)
+        .filter((l) => {
+          total += l.text.length + 1;
+          return total <= 8_000;
         });
+      if (lines.length > 0) {
+        const line = {
+          at: shot.at,
+          eventId: shot.eventId,
+          ...(shot.tabId !== undefined ? { tabId: shot.tabId } : {}),
+          ...(shot.takenAt !== undefined ? { takenAt: shot.takenAt } : {}),
+          text: lines.map((l) => l.text).join("\n"),
+          lines,
+        };
+        appendFileSync(join(dir, "screen.jsonl"), `${JSON.stringify(line)}\n`, { mode: 0o600 });
       }
+      ledger(dir, { eventId: shot.eventId, at: shot.at, outcome: "taken" });
     } catch (error) {
       rmSync(file, { force: true });
+      ledger(dir, {
+        eventId: shot.eventId,
+        at: shot.at,
+        outcome: "deleted",
+        reason: (error as Error).message.slice(0, 200),
+      });
       log("a screenshot couldn't be read or masked, so it was deleted:", (error as Error).message);
     }
   }
 
   return {
+    skip({ sessionId, eventId, at, reason }) {
+      if (!/^[\w-]+$/.test(eventId)) return;
+      const dir = recordingDir(dataDir, sessionId);
+      if (existsSync(dir)) ledger(dir, { eventId, at, outcome: "skipped", reason });
+    },
     add(shot) {
       queue = queue.then(() => handle(shot)).catch((error: Error) => log("screenshot:", error.message));
     },

@@ -1,0 +1,16 @@
+{
+  "goal": "Post the Play Store stats reports to our Chat space every month",
+  "changes": [],
+  "constants": [],
+  "never": [],
+  "when": [
+    {
+      "type": "manual"
+    }
+  ],
+  "consent": {
+    "screen": false,
+    "microphone": true,
+    "pictures": false
+  }
+}

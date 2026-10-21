@@ -24,7 +24,7 @@ Everything here is from the code as of commit `07ebf30` (Oct 13, 2026). File pat
 | Edit operations | `packages/core/src/edit.ts` | The only way anything changes a workflow |
 | Workflow schema | `packages/core/src/skill.ts`, `vars.ts`, `check.ts` | Steps, locators, checks, inputs, variables |
 | Repair rules | `packages/core/src/guard.ts` | `isOutward`, `neverMatch`, `repairViolations` |
-| Design agent | `packages/recorder/src/design/design.ts`, `tools.ts` | Prompt, tools, `designViolations` |
+| Design agent (v2) | `packages/recorder/src/design/v2/*.ts` | Task model, prompt, tools, guardrails (`rules.ts`), the finish gate (`gate.ts`), the orchestrator |
 | Repair agent | `packages/player/src/repair/*.ts` | Classify, ladder, report, tools, guard, verify, recover |
 | Daemon wiring | `apps/daemon/src/record.ts` (design), `runner.ts` + `main.ts` (repair), `describe.ts` (pictures) | Where the agents meet the real world |
 | Memory | `packages/memory/src/sqlite.ts` | SQLite + FTS5 |
