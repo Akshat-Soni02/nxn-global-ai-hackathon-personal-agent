@@ -1,7 +1,8 @@
 // Design agent v2 (spec, Phase 3): the stages that turn a recording's plain list into the workflow the user meant, on
-// one budget (≤ $0.25 and ≤ 40 model calls, pictures' captions included):
+// one budget (≤ $0.25, pictures' captions included; no cap on calls, but STUCK ends one that goes nowhere):
 //   1 understand    one structured call: the evidence → the task model (understand.ts)
-//   2 build         the tools (tools.ts), several calls a turn; code's proposals are accepted by id
+//   2 plan, build   one call plans every change and code makes them; then the tools (tools.ts), several calls a turn,
+//                   repair what the plan left; code's proposals are accepted by id
 //   3–4 test, fix   the safe test run inside the same episode (the test tool, and once before done)
 //   5 ask           code's open questions and the agent's, in one batch: only what the evidence can't answer
 //   6 apply         a short episode with the answers, tested again if it changed
@@ -12,6 +13,7 @@ import { type AgentEvent, type Protocol, runAgent } from "@shadow/agent";
 import { applyEdits, type EditInput, isAction, isLlm, isLoop, Skill, type StepInput, walkSteps } from "@shadow/core";
 import { type Llm, type Usage, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
+import { z } from "zod";
 import { requireApprovals } from "../../approvals.ts";
 import type { Question } from "../../compile.ts";
 import { applyAnswer, type Prompter } from "../../drill.ts";
@@ -23,7 +25,7 @@ import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
 import { gate, lostWork, runProblems, unmadeProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
-import { BUILD } from "./prompt.ts";
+import { BUILD, PLAN } from "./prompt.ts";
 import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
 import { type ChangeNote, changeNotes, type RecordingFacts } from "./rules.ts";
 import { newSession, type QueuedQuestion, type SessionV2 } from "./session.ts";
@@ -162,6 +164,24 @@ export function progressOf(output: string): boolean | undefined {
   return undefined;
 }
 
+// Plan, then apply (step 5): the changes a plan may hold (looking, testing, asking and finishing are the episode's), and
+// the reply that holds them. Each tool's input is checked by the tool itself, as in the episode.
+const PLANNED = new Set([
+  "accept",
+  "reject",
+  "remove",
+  "restore",
+  "add",
+  "change",
+  "move",
+  "loop",
+  "branch",
+  "ai_step",
+  "trigger",
+  "input",
+]);
+const PlanReply = z.object({ calls: z.array(z.object({ tool: z.string(), input: z.looseObject({}) })).max(60) });
+
 const cadenceText = (task: TaskModel) =>
   task.cadence.kind === "manual" ? "when you start it" : (task.cadence.quote ?? task.cadence.kind);
 
@@ -267,6 +287,69 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     return o.kind === "error" ? `it failed: ${o.error}` : "it was stopped";
   };
 
+  // One call writes every change it will make; code makes them in order, through the same tools (and guardrails) as
+  // the episode; the episode then starts from what each did, so it repairs instead of building one change per reply
+  // (checkpoints 5–6: 17 of 18 designs sent one). No plan, or a failed call: the episode builds as before.
+  const plan = async (message: string): Promise<string[] | undefined> => {
+    const tools = new Map(
+      designToolsV2(session)
+        .filter((t) => PLANNED.has(t.name))
+        .map((t) => [t.name, t]),
+    );
+    const catalogue = [...tools.values()].map(
+      (t) =>
+        `- ${t.name}: ${t.description}\n  input: ${JSON.stringify(z.toJSONSchema(t.input as z.ZodType, { io: "input" }))}`,
+    );
+    let calls: z.infer<typeof PlanReply>["calls"];
+    try {
+      const reply = await options.llm.generate({
+        profile: "smart",
+        system: PLAN,
+        user: [message, "", "# The tools a plan can use", ...catalogue].join("\n"),
+        schema: PlanReply,
+        schemaName: "plan",
+        meter,
+        signal: options.signal,
+      });
+      calls = reply.value?.calls ?? [];
+    } catch {
+      return undefined;
+    }
+    if (calls.length === 0) return undefined;
+    say(`Planned ${calls.length} change(s): making them`);
+    const emit = (event: AgentEvent) => {
+      transcript.push(event);
+      options.onEvent?.(event);
+    };
+    const lines: string[] = [];
+    for (const [i, call] of calls.entries()) {
+      const sent = JSON.stringify(call.input);
+      const t = tools.get(call.tool);
+      const parsed = t?.input.safeParse(t.prepare ? t.prepare(call.input) : call.input);
+      if (!t || !parsed?.success) {
+        const error = !t
+          ? `not made: a plan holds only ${[...tools.keys()].join(", ")}`
+          : `invalid input: ${parsed?.error?.issues.map((x) => `${x.path.join(".") || "input"}: ${x.message}`).join("; ")}`;
+        emit({ type: "invalid", turn: 0, tool: call.tool, error, input: sent });
+        lines.push(`${i + 1}. ${call.tool} ${sent} → ${error}`);
+        continue;
+      }
+      emit({ type: "call", turn: 0, tool: t.name, input: parsed.data });
+      let output: string;
+      try {
+        const result = await t.run(parsed.data, { turn: 0, signal: options.signal });
+        // The workflow each change returns is left out: the message shows it once, as it ended.
+        const { workflow: _, ...rest } = (result.output ?? {}) as Record<string, unknown>;
+        output = typeof result.output === "string" ? result.output : JSON.stringify(rest);
+      } catch (error) {
+        output = `${t.name} failed: ${(error as Error).message}`;
+      }
+      emit({ type: "result", turn: 0, tool: t.name, output, ms: 0 });
+      lines.push(`${i + 1}. ${t.name} ${sent} → ${output}`);
+    }
+    return lines;
+  };
+
   try {
     session.proposals = new Map(options.evidence.proposals.map((p) => [p.id, p]));
     session.dropped = droppedOf(options.evidence);
@@ -339,6 +422,19 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // email, a Never or private word), and page names hold tab titles.
     const masked = (text: string) => maskText(text, session.maskTerms ?? []).text;
     firstMessage = masked(buildMessage(theTask, options.evidence, session, seen));
+    const applied = await plan(firstMessage);
+    if (applied) {
+      firstMessage = masked(
+        [
+          buildMessage(theTask, options.evidence, session, seen),
+          "",
+          "# Your plan, applied: each change, and what it did (the workflow above is after them)",
+          ...applied,
+          "",
+          "Repair what was refused or invalid, build what is still missing, then test, then done.",
+        ].join("\n"),
+      );
+    }
     let stopped = await episode(firstMessage);
     // A failed reply (Checkpoint 5: D2's 33rd turn thought past the token cap) ends an episode, not the design: once
     // more, from the workflow as it got to, on what is left of the budget.

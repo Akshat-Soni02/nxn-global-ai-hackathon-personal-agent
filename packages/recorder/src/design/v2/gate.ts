@@ -9,6 +9,7 @@ import { dirname } from "node:path";
 import {
   type Check,
   isAction,
+  isLlm,
   isOutward,
   type Locator,
   type Skill,
@@ -208,6 +209,22 @@ const tabless = (steps: Step[]): string[] => {
 // The work the user showed (what they typed, chose, moved or sent: a step that needed approval sent something) still
 // happens: kept (in a loop counts), or its removal explained for the review. A workflow that keeps none of it isn't
 // what they meant, whatever reason each removal was given (Oct 19: the Play Store run kept one step of the recording).
+// The steps that ran in the test but got nothing: a read of an empty control, an AI step that answered nothing. The
+// runner counts them as done (checkpoint 6: D's read got "" three times and an AI step made up an article from it).
+export function emptyIn(skill: Skill, test: TestReport | undefined): string[] {
+  const steps = new Map([...walkSteps(skill.steps)].map(({ step }) => [step.id, step]));
+  const empty = (v: unknown) =>
+    v == null ||
+    (typeof v === "string" && !v.trim()) ||
+    (Array.isArray(v) && v.length === 0) ||
+    (typeof v === "object" && Object.keys(v).length === 0);
+  return (test?.steps ?? []).flatMap((t) => {
+    const step = steps.get(t.id);
+    const makes = step && (isLlm(step) || (isAction(step) && step.output));
+    return t.status === "done" && makes && empty(t.value) ? [t.id] : [];
+  });
+}
+
 export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string, string>): string[] {
   const now = new Set([...walkSteps(workflow.steps)].map(({ step }) => step.id));
   // The same action on the same control (by role and name) is that work kept, though the step is new (Checkpoint 5:
@@ -292,6 +309,13 @@ export function gate(input: GateInput): string[] {
         ? "the test run didn't find it"
         : `it failed in the test run (${step.error ?? "no reason given"})`;
     problems.push(`${step.id}: ${what}: fix it, or explain why it will work in a real run`);
+  }
+
+  for (const id of emptyIn(workflow, test)) {
+    if (sinceTest.has(id)) continue;
+    problems.push(
+      `${id}: it got nothing in the test run (an empty value): fix what it reads, or explain why a real run will have one`,
+    );
   }
 
   const notRun = /^not run: (.*)/.exec(test?.outcome ?? "")?.[1];

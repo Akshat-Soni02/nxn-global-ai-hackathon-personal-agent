@@ -222,6 +222,38 @@ describe("design agent v2, stage by stage", () => {
     expect([...walkSteps(out.skill.steps)].length).toBe([...walkSteps(skill.steps)].length);
   });
 
+  describe("plan, then apply (step 5: one call plans every change; the episode repairs what it left)", () => {
+    const plan = [
+      { tool: "trigger", input: { when: { schedule: "0 9 * * *" }, why: "every day" } },
+      { tool: "remove", input: { steps: ["s99"], why: "x" } }, // no such step: refused, and said so
+      { tool: "test", input: {} }, // not a change: the episode tests
+    ];
+    it("makes the planned changes, then starts the episode from what each did", async () => {
+      const llm = fakeLlm(scriptedDesigner([done("x")], task, plan));
+      const { options } = await setup({ llm });
+      const lines: string[] = [];
+      const out = await designV2({ ...options, onProgress: (l) => lines.push(l) });
+      expect(out.kind).toBe("designed");
+      expect(out.skill.steps[0]).toMatchObject({ type: "trigger", when: [{ type: "schedule", cron: "0 9 * * *" }] });
+      expect(lines).toContain("Planned 3 change(s): making them");
+      expect(out.firstMessage).toContain("# Your plan, applied");
+      expect(out.firstMessage).toMatch(/1\. trigger .* → \{"ok":true/);
+      expect(out.firstMessage).toMatch(/2\. remove .* → \{"ok":false,"problems":\["no step s99/);
+      expect(out.firstMessage).toMatch(/3\. test \{\} → not made: a plan holds only/);
+      // The plan's changes are in the transcript (design.json) and the feed, as the episode's are.
+      expect(out.transcript.some((e) => e.type === "call" && e.tool === "trigger" && e.turn === 0)).toBe(true);
+      // Three calls: understand, plan, and the episode's done (the plan made what the episode would have).
+      expect(out.usage.calls).toBe(3);
+    });
+    it("builds as before when the plan call fails", async () => {
+      const llm = fakeLlm(scriptedDesigner([done("x")], task, "not a plan"));
+      const { options } = await setup({ llm });
+      const out = await designV2(options);
+      expect(out.kind).toBe("designed");
+      expect(out.firstMessage).not.toContain("# Your plan, applied");
+    });
+  });
+
   it("tells a change that moved the workflow on from one that went nowhere", () => {
     expect(progressOf('{"ok":true,"workflow":"…"}')).toBe(true);
     expect(progressOf('{"ok":true,"note":"nothing changed: the workflow is exactly as it was"}')).toBe(false);
@@ -375,7 +407,7 @@ describe("what Checkpoint 4 kept that it shouldn't have", () => {
     });
     const { options, skill } = await setup({
       llm: fakeLlm(scriptedDesigner([ask, restore, look, look], task)),
-      budget: { costUsd: 0.25, calls: 3 },
+      budget: { costUsd: 0.25, calls: 4 }, // understand, plan (none), ask, restore
     });
     const printAll = { tag: "div", url: MAIL, text: "Print all", fallbacks: [], selectors: {} };
     const noise = [

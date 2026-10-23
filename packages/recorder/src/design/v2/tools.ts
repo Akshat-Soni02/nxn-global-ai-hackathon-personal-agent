@@ -22,7 +22,7 @@ import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
 import { maskText } from "../../mask.ts";
 import { DoneReport } from "./contracts.ts";
-import { isCron, roleAlone, stepProblems } from "./gate.ts";
+import { emptyIn, isCron, roleAlone, stepProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { maySend, refusals } from "./rules.ts";
 import { MAX_DONE_REFUSALS, MAX_TESTS, type SessionV2 } from "./session.ts";
@@ -622,6 +622,8 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       not_found: why("not_found"),
       failed: why("failed"),
       not_reached: ids("not_reached"),
+      // Ran, but got nothing: what a later step uses would be empty (code's check, not the runner's).
+      empty: emptyIn(session.draft, report),
       // What each step read or worked out, short (Checkpoint 5: D's AI step took the image caption for the title, and the
       // test said only that a check failed). Page text: shown as data.
       values: Object.fromEntries(

@@ -1,7 +1,7 @@
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
-import { gate, roleAlone, runProblems, unmadeProblems } from "./gate.ts";
+import { emptyIn, gate, roleAlone, runProblems, unmadeProblems } from "./gate.ts";
 
 const CHAT = "https://chat.google.com/room/X";
 const SHEET = "https://docs.google.com/spreadsheets/d/S/edit";
@@ -393,6 +393,41 @@ describe("what live D showed", () => {
       ),
     ]);
     expect(runProblems(w).join()).toMatch(/s2: its check still looks for "\/wiki\/Thuggee"/);
+  });
+});
+
+describe("what the test run's values show (step 5: code checks them)", () => {
+  const w = skill([
+    act("s1", "web", "navigate", { url: "https://en.wikipedia.org/wiki/Main_Page" }),
+    act("s2", "web", "extract", {}, { output: { name: "title", type: { type: "text" } } }),
+    {
+      id: "ai1",
+      type: "llm",
+      intent: "pick",
+      instruction: "the article's title",
+      inputs: ["{{title}}"],
+      output: { name: "article", type: { type: "text" } },
+    },
+  ]);
+  const ran = (s2: unknown, ai1: unknown) => ({
+    outcome: "succeeded",
+    steps: [
+      { id: "s1", path: "s1", status: "done" as const },
+      { id: "s2", path: "s2", status: "done" as const, value: s2 },
+      { id: "ai1", path: "ai1", status: "done" as const, value: ai1 },
+    ],
+  });
+  it('finds a read or AI step that ran but got nothing (checkpoint 6: D\'s read got "" three times)', () => {
+    expect(emptyIn(w, ran("", "Thuggee"))).toEqual(["s2"]);
+    expect(emptyIn(w, ran("Thuggee", "  "))).toEqual(["ai1"]);
+    expect(emptyIn(w, ran(["a"], []))).toEqual(["ai1"]);
+    expect(emptyIn(w, ran("Thuggee", "Thuggee"))).toEqual([]);
+  });
+  it("sends it back to the agent unless a reason was given after the test", () => {
+    const problems = gate(input(w, { test: ran("", "x"), sinceTest: new Map() }));
+    expect(problems.join("\n")).toMatch(/s2: it got nothing in the test run/);
+    const explained = gate(input(w, { test: ran("", "x"), sinceTest: new Map([["s2", "logged in it isn't empty"]]) }));
+    expect(explained.join("\n")).not.toMatch(/got nothing/);
   });
 });
 

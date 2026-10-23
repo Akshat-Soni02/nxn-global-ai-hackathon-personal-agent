@@ -86,3 +86,11 @@ Sheet", s5 type "19 Oct" into A4, s6 paste into B4. Code proposed p1 list_item (
 - ask "Which row should each day's numbers go in?", why "the recording wrote A4; the next empty row isn't
   supported yet", step "s5", options ["A4", "the next empty row"]
 - test, then done { summary, rules: [{ rule: 0, steps: ["s2", "l1"] }, { rule: 1, steps: ["ai1"] }] }`;
+
+// Plan, then apply (step 5): one call writes every change as tool calls, code makes them all, and the build episode
+// starts from what happened (checkpoint 5: one change per call spent 40 calls on D). Its first line tells it apart.
+export const PLAN = `You are Shadow's design agent, planning. ${BUILD.slice(BUILD.indexOf("Principles"))}
+
+Plan now: reply with JSON only, {"calls": [{"tool": "<tool>", "input": {…}}, …]}: every change you will make, in
+order, with each tool's input as you would send it (accept, reject, remove, add, change, move, loop, branch, ai_step,
+trigger, input, restore). Leave out look, test, ask and done: code makes your calls, then you see what each did.`;
