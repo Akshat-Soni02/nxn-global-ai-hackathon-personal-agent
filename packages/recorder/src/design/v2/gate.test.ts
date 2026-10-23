@@ -309,3 +309,26 @@ describe("what the re-designs after the fixes showed (round 2)", () => {
     ).not.toMatch(/gone/);
   });
 });
+
+describe("what round 3 showed", () => {
+  it("takes the trigger by the name the outline shows it under (B: fifteen calls looking for a step trigger)", () => {
+    const ok = skill(
+      [
+        act("s1", "web", "navigate", { url: CHAT }),
+        act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+        act("s3", "web", "type", { text: "Date - {{today|D MMM}}" }),
+        act("s4", "web", "press", { key: "Enter" }),
+      ],
+      [{ type: "schedule", cron: "0 9 1 * *" }],
+    );
+    const problems = gate(
+      input(ok, {
+        done: done([
+          { rule: 0, steps: ["trigger", "s2"] },
+          { rule: 1, steps: ["s3"] },
+        ]),
+      }),
+    );
+    expect(problems.join("\n")).not.toMatch(/no step trigger/);
+  });
+});

@@ -259,7 +259,11 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // email, a Never or private word), and page names hold tab titles.
     const masked = (text: string) => maskText(text, session.maskTerms ?? []).text;
     firstMessage = masked(buildMessage(theTask, options.evidence, session, seen));
-    const stopped = await episode(firstMessage);
+    let stopped = await episode(firstMessage);
+    // A failed reply (Checkpoint 5: D2's 33rd turn thought past the token cap) ends an episode, not the design: once
+    // more, from the workflow as it got to, on what is left of the budget.
+    if (stopped?.startsWith("it failed"))
+      stopped = await episode(masked(buildMessage(theTask, options.evidence, session, seen)));
     if (stopped) return kept(stopped);
 
     // 5: the questions left, in one batch.

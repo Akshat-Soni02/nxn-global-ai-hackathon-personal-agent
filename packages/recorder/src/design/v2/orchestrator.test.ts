@@ -289,3 +289,18 @@ describe("what Checkpoint 4 kept that it shouldn't have", () => {
     expect(out.skipped).toContain("Which sheet tab should it use?");
   });
 });
+
+describe("what round 3 showed", () => {
+  it("carries on from where it got to when a reply is cut off at the token cap (D2's 33rd turn)", async () => {
+    const cut = { text: "", finishReason: "length" };
+    const script = [
+      call("trigger", { when: { schedule: "0 9 * * *" }, why: "every day" }),
+      cut,
+      done("runs every day"),
+    ];
+    const { options } = await setup({ llm: fakeLlm(scriptedDesigner(script, task)) });
+    const out = await designV2(options);
+    expect(out.kind).toBe("designed");
+    expect(JSON.stringify(out.skill.steps[0])).toContain("0 9 * * *");
+  });
+});

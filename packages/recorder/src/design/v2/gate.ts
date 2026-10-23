@@ -162,7 +162,8 @@ export function gate(input: GateInput): string[] {
       );
       return;
     }
-    const missing = said.not_built ? [] : said.steps.filter((id) => !now.has(id));
+    // The trigger by the word the outline shows it under (Checkpoint 5: B looked for a step "trigger" for 15 calls).
+    const missing = said.not_built ? [] : said.steps.filter((id) => !now.has(id === "trigger" ? "start" : id));
     if (missing.length > 0) problems.push(`rule ${i} "${rule.quote}": no step ${missing.join(", ")} in the workflow`);
   });
 
