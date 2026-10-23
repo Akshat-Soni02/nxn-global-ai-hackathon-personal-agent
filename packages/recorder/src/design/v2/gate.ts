@@ -123,8 +123,41 @@ export function runProblems(skill: Skill): string[] {
   const schedules = triggerOf(skill)
     .when.filter((w) => w.type === "schedule" && !isCron(w.cron))
     .map((w) => `its schedule "${(w as { cron: string }).cron}" isn't a fixed cron: e.g. "0 9 * * 5"`);
-  return [...inputs, ...schedules, ...[...walkSteps(skill.steps)].flatMap(({ step }) => stepProblems(step))];
+  const steps = [...walkSteps(skill.steps)].map(({ step }) => step);
+  return [...inputs, ...schedules, ...steps.flatMap(stepProblems), ...steps.flatMap(stale), ...tabless(steps)];
 }
+
+// A check that still holds the recorded page or file on a step that now uses a {{value}} fails next time. A run problem,
+// so a kept draft is judged by it too (Checkpoint 5: D kept s2 opening {{featured_title}} but checking /wiki/Thuggee).
+const stale = (step: Step): string[] => {
+  if (!isAction(step)) return [];
+  const literal = step.check?.url_matches ?? step.check?.file_exists;
+  const args = JSON.stringify([step.args.url, step.args.to, step.args.from]);
+  return literal && !literal.includes("{{") && args.includes("{{")
+    ? [
+        `${step.id}: its check still looks for "${literal}" but the step now uses a {{value}}: change the check or remove it`,
+      ]
+    : [];
+};
+
+// A web step with no tab runs in the window's first tab (Checkpoint 5: D's s1 opened the Main Page in tab "API", and the
+// read after it read a page the test run had left in the first tab): after a page opened in a named tab, its steps
+// name that tab too.
+const tabless = (steps: Step[]): string[] => {
+  let opened: { id: string; tab: string } | undefined;
+  return steps.flatMap((step) => {
+    if (!isAction(step) || step.channel !== "web") return [];
+    if (step.action === "navigate") {
+      opened = step.tab ? { id: step.id, tab: step.tab } : undefined;
+      return [];
+    }
+    return opened && !step.tab
+      ? [
+          `${step.id} runs in the window's first tab, but ${opened.id} opened its page in tab "${opened.tab}": give it tab "${opened.tab}" too`,
+        ]
+      : [];
+  });
+};
 
 // The work the user showed (what they typed, chose, moved or sent: a step that needed approval sent something) still
 // happens: kept (in a loop counts), or its removal explained for the review. A workflow that keeps none of it isn't
@@ -201,14 +234,6 @@ export function gate(input: GateInput): string[] {
     if (step.channel === "web" && step.action === "navigate") page = String(step.args.url ?? "");
     judge(step.id, step.wait);
     judge(step.id, step.check);
-    // A check that still holds the recorded page or file on a step that now uses a {{value}} fails next time.
-    const literal = step.check?.url_matches ?? step.check?.file_exists;
-    const args = JSON.stringify([step.args.url, step.args.to, step.args.from]);
-    if (literal && !literal.includes("{{") && args.includes("{{")) {
-      problems.push(
-        `${step.id}: its check still looks for "${literal}" but the step now uses a {{value}}: change the check or remove it`,
-      );
-    }
   }
   for (const check of workflow.success) judge("success", check);
 

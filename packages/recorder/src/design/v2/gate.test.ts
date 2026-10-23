@@ -1,7 +1,7 @@
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
-import { gate, roleAlone } from "./gate.ts";
+import { gate, roleAlone, runProblems } from "./gate.ts";
 
 const CHAT = "https://chat.google.com/room/X";
 const SHEET = "https://docs.google.com/spreadsheets/d/S/edit";
@@ -349,5 +349,34 @@ describe("what live C showed", () => {
     expect(read({ role: "cell", fallbacks: [] }, { all: true })).toEqual([]);
     expect(read({ role: "main", fallbacks: [] })).toEqual([]);
     expect(read({ role: "cell", name: "94.89", fallbacks: [] })).toEqual([]);
+  });
+});
+
+describe("what live D showed", () => {
+  const nav = (id: string, url: string, tab?: string) => ({
+    ...act(id, "web", "navigate", { url }),
+    ...(tab ? { tab } : {}),
+  });
+  it("says a step with no tab, after a page opened in a named tab, acts in another tab", () => {
+    const w = skill([nav("s1", "https://en.wikipedia.org/wiki/Main_Page", "API"), act("s9", "web", "extract")]);
+    expect(runProblems(w).join()).toMatch(/s9 runs in the window's first tab, but s1 opened its page in tab "API"/);
+    const same = skill([
+      nav("s1", "https://en.wikipedia.org/wiki/Main_Page", "API"),
+      { ...act("s9", "web", "extract"), tab: "API" },
+    ]);
+    expect(runProblems(same)).toEqual([]);
+  });
+
+  it("counts a check still holding the recorded page as a run problem, so a kept draft is judged by it too", () => {
+    const w = skill([
+      act(
+        "s2",
+        "web",
+        "navigate",
+        { url: "https://en.wikipedia.org/wiki/{{today}}" },
+        { check: { url_matches: "/wiki/Thuggee" } },
+      ),
+    ]);
+    expect(runProblems(w).join()).toMatch(/s2: its check still looks for "\/wiki\/Thuggee"/);
   });
 });
