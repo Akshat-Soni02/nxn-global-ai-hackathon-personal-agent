@@ -314,3 +314,17 @@ describe("what round 3's re-design of A showed", () => {
     expect(out.asked.map((a) => a.question)).not.toContain("What time each morning should it run?");
   });
 });
+
+describe("what live A showed", () => {
+  it("keeps the recorded steps when it finishes only because the gate stopped refusing, with your work lost", async () => {
+    const removeAll = call("remove", { steps: ["s2", "s3", "s4", "s5"], why: "x" });
+    const giveUp = call("done", { summary: "can't", rules: [{ rule: 0, not_built: "no selectors" }] });
+    const { options, skill } = await setup({
+      llm: fakeLlm(scriptedDesigner([removeAll, giveUp, giveUp, giveUp], task)),
+    });
+    const out = await designV2(options);
+    expect(out.kind).toBe("kept");
+    expect(out.reason).toMatch(/lost work you showed/);
+    expect([...walkSteps(out.skill.steps)].length).toBe([...walkSteps(skill.steps)].length);
+  });
+});

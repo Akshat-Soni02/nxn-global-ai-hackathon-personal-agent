@@ -170,14 +170,19 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   });
   // What it reached is kept, unless it had lost work the user showed or has steps the runner can't run that the
   // recording didn't (the gate never saw it; Checkpoint 4: C kept reads with no control): then the plain list.
-  const kept = (reason: string) => {
-    let why = reason;
-    const lost = lostWork(options.skill, session.draft, session.whys).length > 0;
+  // What makes a draft worse than the recording: your work lost, or steps that can't run (the recording's own aside).
+  const worse = () => {
     const recorded = new Set(runProblems(finalOf(options.skill)));
     const broken = runProblems(finalOf(session.draft)).filter((p) => !recorded.has(p));
-    if (lost || broken.length > 0) {
+    if (lostWork(options.skill, session.draft, session.whys).length > 0) return "had lost work you showed";
+    return broken.length > 0 ? `has steps that can't run (${broken[0]})` : undefined;
+  };
+  const kept = (reason: string) => {
+    let why = reason;
+    const bad = worse();
+    if (bad) {
       session.draft = options.skill;
-      why = `${reason}; what it reached ${lost ? "had lost work you showed" : `has steps that can't run (${broken[0]})`}, so the recorded steps were kept`;
+      why = `${reason}; what it reached ${bad}, so the recorded steps were kept`;
     }
     // Its own questions it never got to ask are listed in the review, never lost.
     if (!reachedQuestions) skipped.push(...session.questions.map((q) => q.text));
@@ -320,6 +325,9 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         if (after) return kept(`it stopped while putting your answers in: ${after}`);
       }
     }
+    // Finished only because the gate stopped refusing (twice): no better than a stopped design when it lost your work or
+    // can't run (Checkpoint 5: live A saved three page opens, every write removed).
+    if (session.gaps.length > 0 && worse()) return kept("it finished with what the finish gate had refused twice");
     say(session.gaps.length > 0 ? `Done, with ${session.gaps.length} thing(s) for you to check` : "Done");
     return outcome({ kind: "designed", summary: done?.summary });
   } catch (error) {
