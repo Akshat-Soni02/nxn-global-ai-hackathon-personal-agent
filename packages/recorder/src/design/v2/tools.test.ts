@@ -694,3 +694,39 @@ describe("what live C showed", () => {
     expect(JSON.stringify(out.output)).toMatch(/nothing changed/);
   });
 });
+
+describe("what live D showed", () => {
+  it("says a page opened by its address has no control: add a click and remove it (D: 15 changes that did nothing)", async () => {
+    const out = await run(session(), "change", {
+      step: "s1",
+      target: { near: "From today's featured article" },
+      why: "x",
+    });
+    expect(JSON.stringify(out.output)).toMatch(/s1 opens a page by its address.*add .*click.*remove s1/);
+  });
+
+  it("takes do with its channel in front (web.read, web.read_all) as the plain verb", async () => {
+    const s = session();
+    const out = await run(s, "add", { step: { do: "web.read_all", intent: "the page", save_as: "page" }, after: "s1" });
+    expect(out.output.ok).toBe(true);
+    expect(JSON.stringify(findStep(s.draft, "s4"))).toContain('"action":"extract"');
+  });
+
+  it("says what an AI step with no inputs needs: the text it reads", async () => {
+    const out = await run(session(), "add", {
+      step: { do: "ai_step", intent: "pick", instruction: "the featured article", inputs: [], output: { name: "x" } },
+      after: "s1",
+    });
+    expect(JSON.stringify(out.output)).toMatch(/read the page first/);
+  });
+});
+
+describe("what live D showed about repeats", () => {
+  it("counts a change that changed nothing, sent again as it was, as a repeat", async () => {
+    const s = session();
+    const change = designToolsV2(s).find((t) => t.name === "change") as AnyTool<DoneReport>;
+    const input = change.input.parse({ step: "s3", intent: "type the subject", why: "again" });
+    await change.run(input, { turn: 1 });
+    expect(JSON.stringify((await change.run(input, { turn: 2 })).output)).toMatch(/sent this exact call before/);
+  });
+});

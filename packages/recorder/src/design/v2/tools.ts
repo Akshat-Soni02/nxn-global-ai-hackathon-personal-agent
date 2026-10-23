@@ -275,7 +275,12 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     const { do: verb, intent, target, tab, save_as: named, args, output, ...rest } = spec;
     // A result named the way ai_step names it, { output: { name } } (D2): saved, never sent as an arg.
     const save_as = named ?? (output as { name?: string } | undefined)?.name;
-    const pair = DO[verb] ?? (/^(web|fs|data|ax)\.\w+$/.test(verb) ? (verb.split(".") as [string, string]) : undefined);
+    // "web.read" is read, as the model writes it (Checkpoint 5: D's web.read and web.read_all were refused).
+    const plain = verb.replace(/^(web|fs|data|ax)\./, "");
+    const pair =
+      DO[verb] ??
+      DO[plain] ??
+      (/^(web|fs|data|ax)\.\w+$/.test(verb) ? (verb.split(".") as [string, string]) : undefined);
     if (!pair) {
       return {
         error: `"${verb}" is not something a step can do. Use one of: ${Object.keys(DO).join(", ")} (or channel.action, such as web.click). To repeat steps use loop; to decide use branch; to work something out from text use ai_step`,
@@ -457,7 +462,12 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       after: z.string(),
       intent: z.string().min(1),
       instruction: z.string().min(1),
-      inputs: z.array(z.string()).min(1),
+      inputs: z
+        .array(z.string())
+        .min(
+          1,
+          'give it the text it reads: read the page first (read with no target, save_as: "page"), then ["{{page}}"]',
+        ),
       output: z.object({
         name: z.string().min(1),
         type: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
@@ -787,6 +797,16 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
             });
           // A read with no control reads the whole page (Checkpoint 5: C couldn't take a read's control away, and eight
           // changes "to read the whole page" kept reading { role: "cell" }).
+          // A page opened by its address has no control (Checkpoint 5: D gave s2 a control 15 times, changing nothing).
+          if (target && step.action === "navigate")
+            return {
+              output: {
+                ok: false,
+                problems: [
+                  `${id} opens a page by its address and has no control: to click a link instead, add { do: "click", target } after the step before it and remove ${id}; to open an address an earlier step read, change its args.url to that {{value}}`,
+                ],
+              },
+            };
           if (target === null) {
             if (step.action !== "extract")
               return { output: { ok: false, problems: [`${id}: only a read can do without a control`] } };
@@ -964,8 +984,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         return { output: hide({ ok: false, problems: [again] }) };
       }
       const result = await t.run(input, ctx);
-      const out = result.output as { ok?: boolean; problems?: string[]; refused?: string[] } | undefined;
+      const out = result.output as { ok?: boolean; problems?: string[]; refused?: string[]; note?: string } | undefined;
       if (out?.ok === false) failed.set(key, [...(out.problems ?? []), ...(out.refused ?? [])].join("; "));
+      // A change that changed nothing changes nothing again (Checkpoint 5: C and D sent the same no-op 8 and 15 times).
+      if (out?.note?.startsWith("nothing changed")) failed.set(key, out.note);
       return { ...result, output: hide(result.output) };
     },
   }));
