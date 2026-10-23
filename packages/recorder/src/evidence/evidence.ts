@@ -48,6 +48,8 @@ export interface Evidence {
   proposals: Proposal[];
   said: { at: number; until?: number; text: string }[];
   timeline: TimelineLine[];
+  // Files that appeared with nothing recorded making them (~-paths): a step must make each next time (gate.ts).
+  unmade?: string[];
 }
 export interface EvidenceInput {
   trace: TraceEvent[];
@@ -149,6 +151,9 @@ export function buildEvidence(input: EvidenceInput): Evidence {
         recordedOn,
       }),
       said: input.said,
+      unmade: input.steps.flatMap((s) =>
+        s.kind === "file_appeared" && s.path ? [s.path.replace(/^\/Users\/[^/]+/, "~")] : [],
+      ),
       timeline: timelineOf({
         start,
         steps: input.steps,

@@ -19,6 +19,8 @@ export interface Review {
   made?: string[];
   // Questions not asked (another one changed the same step, or past five): each took its default.
   notAsked?: string[];
+  // Why it can't do the task yet: the page shows this instead of "Looks right", and it can't go live (checkpoint 6).
+  cantRun?: string[];
   reviewed: boolean;
 }
 
@@ -43,8 +45,9 @@ export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] =
   return {
     skillId: skill.id,
     version: skill.version,
-    summary:
-      design.kind === "designed"
+    summary: design.cantRun?.length
+      ? `Can't run yet: ${design.cantRun[0]}`
+      : design.kind === "designed"
         ? // The agent's own words, said as such: Checkpoint 4's described a branch that wasn't there. The notes are code's.
           design.summary
           ? `In the agent's words: "${design.summary}". The changes below are what it really did.`
@@ -57,6 +60,7 @@ export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] =
     ...(cadence ? { cadence } : {}),
     ...(made.length > 0 ? { made } : {}),
     ...(design.skipped.length > 0 ? { notAsked: design.skipped } : {}),
+    ...(design.cantRun?.length ? { cantRun: design.cantRun } : {}),
     reviewed: false,
   };
 }

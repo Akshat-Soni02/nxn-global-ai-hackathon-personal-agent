@@ -8,6 +8,7 @@ import { normaliseAll } from "../../normalise.ts";
 import type { TestReport } from "./contracts.ts";
 import { scriptedDesigner } from "./fake.ts";
 import { type DesignV2Options, designV2, progressOf } from "./orchestrator.ts";
+import { reviewOf } from "./review.ts";
 
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
 const SHEET = "https://docs.google.com/spreadsheets/d/SHEET-ID/edit";
@@ -228,6 +229,14 @@ describe("design agent v2, stage by stage", () => {
     expect(progressOf('{"refused":"not finished yet"}')).toBe(false);
     expect(progressOf('<untrusted_data>\n{"id":"s1"}\n</untrusted_data>')).toBeUndefined();
     expect(progressOf("start  trigger  when: manual")).toBeUndefined();
+  });
+
+  it("says it can't run yet when the recording shows a file no step makes (checkpoint 6)", async () => {
+    const { options } = await setup({ llm: fakeLlm(scriptedDesigner([done("x")], { ...task, rules: [] })) });
+    const unmade = ["~/Desktop/Reading/23 Oct - Thuggee.pdf"];
+    const out = await designV2({ ...options, evidence: { ...options.evidence, unmade } });
+    expect(out.cantRun?.[0]).toMatch(/no step makes a file in ~\/Desktop\/Reading/);
+    expect(reviewOf(out, out.skill).summary).toMatch(/^Can't run yet: /);
   });
 
   it("keeps the plain list when the evidence can't be read", async () => {

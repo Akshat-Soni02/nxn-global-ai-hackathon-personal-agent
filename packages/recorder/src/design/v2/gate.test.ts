@@ -1,7 +1,7 @@
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
-import { gate, roleAlone, runProblems } from "./gate.ts";
+import { gate, roleAlone, runProblems, unmadeProblems } from "./gate.ts";
 
 const CHAT = "https://chat.google.com/room/X";
 const SHEET = "https://docs.google.com/spreadsheets/d/S/edit";
@@ -417,5 +417,24 @@ describe("what live D showed, again", () => {
       ]);
     expect(runProblems(rename("~/Downloads/23 Oct - Thuggee.pdf"))).toEqual([]);
     expect(runProblems(rename("~/Downloads/{{today|D MMM}}.pdf")).join()).toMatch(/s7: its check still looks for/);
+  });
+});
+
+describe("a file the recording shows appearing with nothing recorded making it (checkpoint 6)", () => {
+  const pdf = "~/Desktop/Reading/23 Oct - Thuggee.pdf";
+  const open = act("s1", "web", "navigate", { url: "https://en.wikipedia.org/wiki/Main_Page" });
+  it("is a problem until some step makes a file in that folder", () => {
+    expect(unmadeProblems(skill([open]), [pdf]).join()).toMatch(
+      /~\/Desktop\/Reading\/23 Oct - Thuggee.pdf appeared in the recording, but no step makes a file in ~\/Desktop\/Reading/,
+    );
+    const saved = {
+      ...act("s3", "web", "save_pdf", { dir: "~/Desktop/Reading", name: "{{today|D MMM}} - x.pdf" }),
+      target: undefined,
+    };
+    expect(unmadeProblems(skill([open, saved]), [pdf])).toEqual([]);
+    const moved = act("s4", "fs", "move", { from: "~/Downloads/x.pdf", to: "~/Desktop/Reading/" });
+    expect(unmadeProblems(skill([open, moved]), [pdf])).toEqual([]);
+    const elsewhere = { ...saved, args: { dir: "~/Documents", name: "x.pdf" } };
+    expect(unmadeProblems(skill([open, elsewhere]), [pdf])).toHaveLength(1);
   });
 });

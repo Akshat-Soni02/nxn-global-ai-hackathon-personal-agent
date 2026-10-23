@@ -289,6 +289,26 @@ describe("the workflow lifecycle", () => {
     expect(service.goLive("report")).toMatchObject({ state: "live" });
   });
 
+  it("never goes live while its design says it can't do the task yet (checkpoint 6)", () => {
+    const { open, dataDir } = setup([write("s1")]);
+    const { service } = open();
+    const cantRun = [
+      "~/Desktop/Reading/23 Oct - Thuggee.pdf appeared in the recording, but no step makes a file there",
+    ];
+    writeReview(dataDir, {
+      skillId: "report",
+      version: 1,
+      summary: "x",
+      notes: [],
+      said: [],
+      notTested: [],
+      gaps: [],
+      cantRun,
+      reviewed: true,
+    });
+    expect(() => service.goLive("report")).toThrow(/it can't do the task yet: .*no step makes a file there/);
+  });
+
   const failing = async (): Promise<RunOutcome> => ({
     status: "failed",
     vars: {},

@@ -183,5 +183,7 @@ export interface Review {
   cadence?: string;
   made?: string[];
   notAsked?: string[];
+  // Why it can't do the task yet: shown instead of "Looks right", and it can't go live.
+  cantRun?: string[];
   reviewed: boolean;
 }

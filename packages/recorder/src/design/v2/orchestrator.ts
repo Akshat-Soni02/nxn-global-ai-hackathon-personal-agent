@@ -21,7 +21,7 @@ import { plainChecks } from "../../plain-checks.ts";
 import { skeletonOf, skillInput } from "../../skeleton.ts";
 import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
-import { gate, lostWork, runProblems } from "./gate.ts";
+import { gate, lostWork, runProblems, unmadeProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { BUILD } from "./prompt.ts";
 import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
@@ -78,6 +78,9 @@ export interface DesignV2Outcome {
   pending: Question[];
   // Questions not asked (another one changes the same step, or past MAX_QUESTIONS): they took their defaults.
   skipped: string[];
+  // Why the saved workflow can't do the task yet (a file the recording shows that no step makes): the review says so
+  // instead of offering "Looks right" (checkpoint 6).
+  cantRun?: string[];
   system: string;
   // What the agent was first told (the build message) and the plain list it started from (F16).
   firstMessage?: string;
@@ -168,10 +171,12 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   let reachedQuestions = false;
   let firstMessage: string | undefined;
 
+  const unmade = (options.evidence as { unmade?: string[] } | undefined)?.unmade ?? [];
   const outcome = (
     extra: { kind: "designed"; summary?: string } | { kind: "kept"; reason: string },
   ): DesignV2Outcome => ({
     ...extra,
+    ...(unmadeProblems(session.draft, unmade).length > 0 ? { cantRun: unmadeProblems(session.draft, unmade) } : {}),
     skill: finalOf(session.draft),
     task,
     done,
@@ -304,6 +309,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         sinceTest: session.sinceTest,
         said: [options.evidence.goal, ...options.evidence.said.map((s) => s.text)],
         unattended: options.unattended,
+        unmade,
       });
     };
     const test = options.test;

@@ -4,6 +4,8 @@
 // it runs as often as they said. Each problem is a sentence the agent reads and fixes (twice at most; then it is saved
 // with the gaps listed for the user). Oct 19: the agent finished with all 20 recorded steps removed, and with checks
 // for text never on screen.
+
+import { dirname } from "node:path";
 import {
   type Check,
   isAction,
@@ -16,6 +18,7 @@ import {
 } from "@shadow/core";
 import { MASK } from "../../mask.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
+import { expand, withDates } from "./places.ts";
 
 // Actions that change something the user cares about: what they typed, chose, uploaded or moved.
 const WRITES = new Set([
@@ -55,6 +58,36 @@ export interface GateInput {
   said?: string[];
   // What an unattended run still needs (the daemon's go-live checks).
   unattended?: (skill: Skill) => string[];
+  // Files the recording shows appearing with nothing recorded making them (evidence.unmade).
+  unmade?: string[];
+}
+
+// A file the recording shows appearing with nothing recorded making it (checkpoint 6: a PDF saved through the
+// browser's print dialog) is made by some step next time, in that folder; else the workflow can't do the task, and says
+// so instead of offering "Looks right".
+export function unmadeProblems(skill: Skill, unmade: string[]): string[] {
+  const folders = [...walkSteps(skill.steps)].flatMap(({ step }) => {
+    if (!isAction(step)) return [];
+    const key = `${step.channel}.${step.action}`;
+    const a = step.args;
+    const place =
+      key === "web.save_pdf"
+        ? `${a.dir}/`
+        : ["fs.move", "fs.copy", "fs.rename"].includes(key)
+          ? a.to
+          : key === "fs.write"
+            ? a.path
+            : undefined;
+    if (typeof place !== "string" || !/^[~/]/.test(place)) return [];
+    const where = String(withDates(place));
+    return [expand(where.endsWith("/") ? where : dirname(where))];
+  });
+  return unmade
+    .filter((path) => !folders.includes(expand(dirname(path))))
+    .map(
+      (path) =>
+        `${path} appeared in the recording, but no step makes a file in ${dirname(path)}: build what made it (a page printed to PDF is save_pdf; a download is a click on the page's own control), or say in done why it can't be built`,
+    );
 }
 
 const norm = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
@@ -202,7 +235,7 @@ export function gate(input: GateInput): string[] {
   const { recorded, workflow, task, done, test, appeared, explained } = input;
   const sinceTest = input.sinceTest ?? explained;
   const now = new Map<string, Step>([...walkSteps(workflow.steps)].map(({ step }) => [step.id, step]));
-  const problems = lostWork(recorded, workflow, explained);
+  const problems = [...lostWork(recorded, workflow, explained), ...unmadeProblems(workflow, input.unmade ?? [])];
 
   // Every rule they said or wrote: built by steps that exist, or explained.
   task.rules.forEach((rule, i) => {
