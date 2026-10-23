@@ -130,6 +130,10 @@ const typeFrom = (t: unknown): unknown => {
     : t;
 };
 
+// A question about the time of day it runs: never asked, 9:00 is the default (Checkpoint 5: A, B and D2 asked it; D2
+// made it an input), and the review shows the time so it can be changed.
+export const isTimeOfDay = (question: string) => /\b(what|which) time\b|\btime of day\b|\bwhat hour\b/i.test(question);
+
 export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   const ids = () => [...walkSteps(session.draft.steps)].map(({ step }) => step.id);
   const known = (id: string) => ids().includes(id);
@@ -505,6 +509,15 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     prepare: unstring,
     run: ({ question, why, step, options, default: fallback, confirm }) => {
       if (step !== "start" && !known(step)) return { output: { ok: false, problems: [unknown(step)] } };
+      if (isTimeOfDay(question))
+        return {
+          output: {
+            ok: false,
+            problems: [
+              'a time they didn\'t say is 9:00: set it in the trigger (trigger { when: { schedule: "0 9 * * 1" } }), never ask it',
+            ],
+          },
+        };
       const seen = session.evidence?.about(question) ?? [];
       if (seen.length > 0 && !confirm) {
         return {

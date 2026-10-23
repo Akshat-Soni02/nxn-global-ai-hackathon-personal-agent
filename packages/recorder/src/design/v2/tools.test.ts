@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { DoneReport, EvidenceView, Proposal } from "./contracts.ts";
 import { withFields } from "./orchestrator.ts";
 import { newSession, type SessionV2 } from "./session.ts";
-import { designToolsV2, unstring } from "./tools.ts";
+import { designToolsV2, isTimeOfDay, unstring } from "./tools.ts";
 
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
 const recorded = Skill.parse({
@@ -657,5 +657,17 @@ describe("before round 3 spends: what the model resends, and what the run's mode
     const again = JSON.stringify((await add.run(input, { turn: 2 })).output);
     expect(first).not.toMatch(/sent this exact call before/);
     expect(again).toMatch(/sent this exact call before.*uses story/);
+  });
+});
+
+describe("what round 3's re-design of A showed", () => {
+  it("never asks the time of day: a time they didn't say is 9:00 (A, B and D2 asked it)", async () => {
+    const s = session();
+    for (const question of ["What time each morning should it run?", "At what time on Monday?", "What time of day?"]) {
+      const out = await run(s, "ask", { question, why: "w", step: "start", confirm: true });
+      expect(JSON.stringify(out.output)).toMatch(/9:00/);
+    }
+    expect(s.questions).toEqual([]);
+    expect(isTimeOfDay("Which row should the numbers go in?")).toBe(false);
   });
 });

@@ -27,7 +27,7 @@ import { BUILD } from "./prompt.ts";
 import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
 import { type ChangeNote, changeNotes, type RecordingFacts } from "./rules.ts";
 import { newSession, type QueuedQuestion, type SessionV2 } from "./session.ts";
-import { designToolsV2 } from "./tools.ts";
+import { designToolsV2, isTimeOfDay } from "./tools.ts";
 import { understand } from "./understand.ts";
 
 export interface DesignV2Options {
@@ -238,6 +238,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // The task model's unknowns: what the evidence speaks to goes to the agent with the evidence; the rest are queued.
     const seen: string[] = [];
     for (const u of theTask.unknowns) {
+      if (isTimeOfDay(u.question)) continue;
       const about = view.about(u.question);
       if (about.length > 0) {
         seen.push(

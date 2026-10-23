@@ -304,3 +304,13 @@ describe("what round 3 showed", () => {
     expect(JSON.stringify(out.skill.steps[0])).toContain("0 9 * * *");
   });
 });
+
+describe("what round 3's re-design of A showed", () => {
+  it("never queues the task model's question about the time of day", async () => {
+    const timed = { ...task, unknowns: [{ question: "What time each morning should it run?", why: "a schedule" }] };
+    const { options, asked } = await setup({ llm: fakeLlm(scriptedDesigner([done("runs")], timed)) });
+    const out = await designV2(options);
+    expect(asked.map((q) => q.text)).not.toContain("What time each morning should it run?");
+    expect(out.asked.map((a) => a.question)).not.toContain("What time each morning should it run?");
+  });
+});
