@@ -367,6 +367,21 @@ describe("what live D showed", () => {
     expect(runProblems(same)).toEqual([]);
   });
 
+  it("says a step that names a tab no step opened a page in acts on a blank tab (checkpoint 6: D's read got nothing)", () => {
+    const w = skill([
+      nav("s1", "https://en.wikipedia.org/wiki/Main_Page"),
+      { ...act("s4", "web", "extract"), tab: "Wikipedia, the free encyclopedia" },
+    ]);
+    expect(runProblems(w).join()).toMatch(
+      /s4: no earlier step opens a page in tab "Wikipedia, the free encyclopedia", so it would act on a blank tab/,
+    );
+    const main = skill([
+      nav("s1", "https://en.wikipedia.org/wiki/Main_Page"),
+      { ...act("s4", "web", "extract"), tab: "main" },
+    ]);
+    expect(runProblems(main)).toEqual([]);
+  });
+
   it("counts a check still holding the recorded page as a run problem, so a kept draft is judged by it too", () => {
     const w = skill([
       act(

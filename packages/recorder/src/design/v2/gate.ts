@@ -149,11 +149,20 @@ const stale = (step: Step): string[] => {
 // name that tab too.
 const tabless = (steps: Step[]): string[] => {
   let opened: { id: string; tab: string } | undefined;
+  const tabs = new Set(["main"]); // tabs a page was opened in
   return steps.flatMap((step) => {
     if (!isAction(step) || step.channel !== "web") return [];
     if (step.action === "navigate") {
       opened = step.tab ? { id: step.id, tab: step.tab } : undefined;
+      if (step.tab) tabs.add(step.tab);
       return [];
+    }
+    // A tab is made the first time a step names it, empty (checkpoint 6: D's read named the recorded tab while the page
+    // had opened in the first one, read nothing, and its AI step made an article up).
+    if (step.tab && !tabs.has(step.tab)) {
+      return [
+        `${step.id}: no earlier step opens a page in tab "${step.tab}", so it would act on a blank tab: leave its tab out to stay on the page the steps before it opened`,
+      ];
     }
     return opened && !step.tab
       ? [

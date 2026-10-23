@@ -71,7 +71,18 @@ export async function fsChannel(step: Step, ctx: RunContext): Promise<StepResult
       // With timeout_ms, wait for at least one match (e.g. a download finishing). Otherwise look once.
       await poll(search, step.timeout_ms ?? 0);
       if (pick === "all") return { ok: true, value: found.map(fileValue) };
-      if (!found[0]) return { ok: false, error: `no file matches ${a.glob} in ${a.dir}` };
+      if (!found[0]) {
+        // Files from before the run don't count, so say they are there (checkpoint 6: "no file matches *.pdf" with
+        // yesterday's PDF in the folder).
+        const older = since !== undefined ? await findFiles(str(a.dir, "dir"), str(a.glob, "glob")) : [];
+        const names = older.slice(0, 3).map((f) => basename(f));
+        return {
+          ok: false,
+          error: older.length
+            ? `no new file matches ${a.glob} in ${a.dir} since the run started (older ones there: ${names.join(", ")})`
+            : `no file matches ${a.glob} in ${a.dir}`,
+        };
+      }
       return { ok: true, value: fileValue(found[0]) };
     }
     case "move":

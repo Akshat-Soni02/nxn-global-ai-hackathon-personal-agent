@@ -85,11 +85,30 @@ export function dateIn(text: string, on: Date): { text: string; template: string
   return undefined;
 }
 
+// The argument that names a file a step makes.
+const FILE_NAME_ARG: Record<string, string> = { "web.save_pdf": "name", "fs.rename": "to" };
+
 function dates(input: ProposalInput): Found[] {
   const found: Found[] = [];
   input.steps.forEach((s, i) => {
     const id = firstId(input, i);
     const step = id ? findStep(input.skill, id) : undefined;
+    // A file named with the day (Print → Save as PDF as "23 Oct - Thuggee.pdf", a rename to "23 Oct.pdf"): named with
+    // the day it runs (checkpoint 6).
+    const field = step && isAction(step) ? FILE_NAME_ARG[`${step.channel}.${step.action}`] : undefined;
+    const named = field && step && isAction(step) ? step.args[field] : undefined;
+    const dated = typeof named === "string" ? dateIn(named, input.recordedOn) : undefined;
+    if (id && field && dated && step && isAction(step)) {
+      found.push({
+        kind: "date",
+        summary: `${id} names the file "${named}", ${dated.says}: ${dated.text} next time`,
+        steps: [id],
+        evidence: s.events,
+        edits: [{ op: "set", step: id, field: "args", value: { ...step.args, [field]: dated.text } }],
+        runnable: true,
+      });
+      return;
+    }
     const date = typed(s) ? dateIn(s.value as string, input.recordedOn) : undefined;
     // Only where the draft still types the recorded text (an input or a copy may already make it change).
     if (!id || !date || !step || !isAction(step) || step.args.text !== s.value) return;

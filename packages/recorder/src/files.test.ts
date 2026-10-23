@@ -1,10 +1,11 @@
 // What made a file (checkpoint 6: Rushil printed the featured article to PDF with Chrome's print dialog, saved it
 // straight into ~/Desktop/Reading, and the PDF was blamed on the click 39 s before it, then dropped from the evidence).
-import type { ElementDescriptor, TraceEvent } from "@shadow/core";
+import { type ElementDescriptor, Skill, type TraceEvent } from "@shadow/core";
 import { describe, expect, it } from "vitest";
+import { proposalsOf } from "./evidence/proposals.ts";
 import { describeStep, timelineOf } from "./evidence/timeline.ts";
 import { normaliseAll } from "./normalise.ts";
-import { skeletonOf } from "./skeleton.ts";
+import { skeletonOf, skillInput } from "./skeleton.ts";
 
 const T0 = 1_792_779_148_000;
 const MAIN = "https://en.wikipedia.org/wiki/Main_Page";
@@ -145,5 +146,30 @@ describe("what made a file", () => {
     }).map((l) => l.text);
     expect(lines.at(-2)).toContain("s3 act: save the page");
     expect(lines.at(-1)).toContain("n4 act: a file appeared");
+  });
+
+  it("a file named with the day it was recorded is named with the day it runs", () => {
+    const steps = normaliseAll(printed()).steps;
+    const { draft, idsByStep } = skeletonOf(steps);
+    const proposals = proposalsOf({
+      steps,
+      skill: Skill.parse(skillInput(draft)),
+      idsByStep,
+      goal: "Every day, save today's featured article as a PDF named with today's date",
+      said: [],
+      recordedOn: new Date(2026, 9, 23, 12),
+    });
+    const date = proposals.find((p) => p.kind === "date");
+    expect(date?.summary).toBe(
+      's3 names the file "23 Oct - Thuggee.pdf", the day it was recorded: {{today|D MMM}} - Thuggee.pdf next time',
+    );
+    expect(date?.edits).toEqual([
+      {
+        op: "set",
+        step: "s3",
+        field: "args",
+        value: { dir: "~/Desktop/Reading", name: "{{today|D MMM}} - Thuggee.pdf" },
+      },
+    ]);
   });
 });
