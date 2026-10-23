@@ -24,9 +24,17 @@ export function outlineOf(skill: Skill): string {
       const pad = "  ".repeat(depth);
       const approval = step.requires_approval ? "  [approval]" : "";
       if (step.type === "action") {
-        const target = step.target
-          ? `  on ${step.target.role ?? "element"} "${step.target.name ?? step.target.label ?? step.target.text ?? "?"}"`
-          : "";
+        // A read of the whole page says so (Checkpoint 5: shown as on element "?", D's agent took it for a broken read
+        // and re-added it 10 times); a control known only by its selector shows the selector.
+        const t = step.target;
+        const named = t && (t.role || t.name || t.label || t.text);
+        const target = !t
+          ? ""
+          : named
+            ? `  on ${t.role ?? "element"} "${t.name ?? t.label ?? t.text ?? "?"}"`
+            : t.fallbacks.join() === "main,body"
+              ? "  reads the whole page"
+              : `  on ${t.fallbacks[0] ?? "?"}`;
         const args = Object.keys(step.args).length > 0 ? `  args ${clip(JSON.stringify(step.args), 160)}` : "";
         const out = step.output ? `  → ${step.output.name} (${typeText(step.output.type)})` : "";
         lines.push(

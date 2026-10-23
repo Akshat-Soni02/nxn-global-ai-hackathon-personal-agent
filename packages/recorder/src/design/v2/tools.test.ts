@@ -749,3 +749,11 @@ describe("what live D's last try showed", () => {
     expect(out.untrusted).toBe(true);
   });
 });
+
+describe("what live D's last try showed", () => {
+  it("shows a whole-page read as one, not as a control it can't name (D re-added the same read 10 times)", async () => {
+    const out = await run(session(), "add", { step: { do: "read", intent: "the page", save_as: "page" }, after: "s1" });
+    expect(String(out.output.workflow)).toMatch(/s4 {2}web\.extract {2}"the page" {2}reads the whole page/);
+    expect(String(out.output.workflow)).not.toMatch(/element "\?"/);
+  });
+});
