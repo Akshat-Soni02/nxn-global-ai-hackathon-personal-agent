@@ -869,5 +869,7 @@ describe("a file is followed from step to step", () => {
       ["rename", { from: "{{downloaded_1}}", to: "~/Downloads/23 Oct - Thuggee.pdf" }, "renamed_1"],
       ["move", { from: "{{renamed_1}}", to: "~/Reading/" }, undefined],
     ]);
+    // Live D: looked once, 1 ms after the click, before the PDF existed. The runner waits for a match with timeout_ms.
+    expect(acts(skill).find((s) => s.action === "find")?.timeout_ms).toBe(60_000);
   });
 });

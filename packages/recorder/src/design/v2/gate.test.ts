@@ -380,3 +380,27 @@ describe("what live D showed", () => {
     expect(runProblems(w).join()).toMatch(/s2: its check still looks for "\/wiki\/Thuggee"/);
   });
 });
+
+describe("what live D showed, again", () => {
+  it("judges a check by the value it checks: the plain list's rename to a fixed name isn't stale", () => {
+    const rename = (to: string) =>
+      skill([
+        act(
+          "s6",
+          "fs",
+          "find",
+          { dir: "~/Downloads", glob: "*.pdf", pick: "newest" },
+          { output: { name: "downloaded_1", type: { type: "file" } } },
+        ),
+        act(
+          "s7",
+          "fs",
+          "rename",
+          { from: "{{downloaded_1}}", to },
+          { check: { file_exists: "~/Downloads/23 Oct - Thuggee.pdf" } },
+        ),
+      ]);
+    expect(runProblems(rename("~/Downloads/23 Oct - Thuggee.pdf"))).toEqual([]);
+    expect(runProblems(rename("~/Downloads/{{today|D MMM}}.pdf")).join()).toMatch(/s7: its check still looks for/);
+  });
+});

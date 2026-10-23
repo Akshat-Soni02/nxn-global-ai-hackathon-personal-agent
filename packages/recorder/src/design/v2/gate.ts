@@ -131,9 +131,11 @@ export function runProblems(skill: Skill): string[] {
 // so a kept draft is judged by it too (Checkpoint 5: D kept s2 opening {{featured_title}} but checking /wiki/Thuggee).
 const stale = (step: Step): string[] => {
   if (!isAction(step)) return [];
+  // Each check against the value it checks: the page opened, or where the file goes (live D: the plain list's rename
+  // reads {{downloaded_1}} but goes to a fixed name, and its check is right).
   const literal = step.check?.url_matches ?? step.check?.file_exists;
-  const args = JSON.stringify([step.args.url, step.args.to, step.args.from]);
-  return literal && !literal.includes("{{") && args.includes("{{")
+  const checked = String((step.check?.url_matches !== undefined ? step.args.url : step.args.to) ?? "");
+  return literal && !literal.includes("{{") && checked.includes("{{")
     ? [
         `${step.id}: its check still looks for "${literal}" but the step now uses a {{value}}: change the check or remove it`,
       ]

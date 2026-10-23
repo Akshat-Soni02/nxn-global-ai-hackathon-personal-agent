@@ -130,3 +130,14 @@ describe("the test run", () => {
     expect(report.steps[2]?.error).toBe("target not found");
   });
 });
+
+describe("what live D showed", () => {
+  it("only outlines finding a file this run makes: a test run never downloads it", () => {
+    const find = (args: Record<string, unknown>) =>
+      ActionStep.parse({ id: "s6", type: "action", intent: "find", channel: "fs", action: "find", args });
+    const made = rehearsalChoice(find({ dir: "~/Downloads", glob: "*.pdf", since_run_start: true }), undefined, 0);
+    expect(made.choice).toBe("skip");
+    expect(made.why).toMatch(/a file this run makes/);
+    expect(rehearsalChoice(find({ dir: "~/Downloads", glob: "*.pdf" }), undefined, 0).choice).toBe("do");
+  });
+});

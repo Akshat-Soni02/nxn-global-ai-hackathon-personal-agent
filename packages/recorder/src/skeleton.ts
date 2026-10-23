@@ -100,6 +100,8 @@ export function skeletonOf(steps: NormalisedStep[]): Skeleton {
           pick: "newest",
           since_run_start: true,
         },
+        // Waits for the download to land (Checkpoint 5: live D looked once, 1 ms after the click, and found nothing).
+        timeout_ms: 60_000,
         output: { name, type: FILE },
       });
     }
