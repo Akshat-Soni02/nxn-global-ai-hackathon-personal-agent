@@ -231,3 +231,39 @@ describe("noise, removed and listed with its reason (spec 2.2)", () => {
     expect(noise[0]?.what).toBe("clicked cell C3"); // said once: not "a click on a drawn grid: a click on a drawn grid"
   });
 });
+
+describe("a paste takes the copy made before it", () => {
+  // Checkpoint 4 (A): the field's type event comes when it is left, after the next copy, so both fields got the second.
+  it("ties each paste to the copy that was newest when it was pasted, not when the field was left", () => {
+    const title = el("textbox", "Title", { tag: "input" });
+    const value = el("textbox", "Value", { tag: "input" });
+    const steps = normalise([
+      start(),
+      ev("copy", 4_600, { value: "Local Wikipedia", target: el("link", "Local Wikipedia") }),
+      ev("paste", 6_800, { target: title, pasted: true }),
+      ev("copy", 9_100, { value: "343 points", target: el("text", "343 points") }),
+      ev("type", 10_700, { target: title, pasted: true }),
+      ev("paste", 11_200, { target: value, pasted: true }),
+      ev("type", 12_100, { target: value, pasted: true }),
+    ]);
+    const copies = steps.filter((s) => s.kind === "copy").map((s) => s.events.at(-1));
+    const typed = steps.filter((s) => s.kind === "type");
+    expect(typed.map((s) => s.fromCopy)).toEqual(copies);
+  });
+});
+
+describe("pages opened in two tabs", () => {
+  // Checkpoint 4 (A): a second tab opened 1.5 s after the first page was merged into it as a redirect, so the first
+  // page (Hacker News) was lost and step 1 opened the notes page.
+  it("keeps a page opened in another tab soon after as its own step", () => {
+    const steps = normalise([
+      ev("navigate", 0, { tabId: 1, url: "https://news.ycombinator.com/", transition: "typed" }),
+      ev("tab_open", 1_500, { tabId: 2, url: "about:blank" }),
+      ev("navigate", 1_530, { tabId: 2, url: "http://localhost:5173/notes.html", transition: "typed" }),
+    ]);
+    expect(steps.filter((s) => s.kind === "navigate").map((s) => [s.tabId, s.url, s.navigatesTo])).toEqual([
+      [1, "https://news.ycombinator.com/", undefined],
+      [2, "http://localhost:5173/notes.html", undefined],
+    ]);
+  });
+});

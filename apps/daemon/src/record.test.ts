@@ -123,6 +123,24 @@ describe("file changes", () => {
   });
 });
 
+// Checkpoint 4: the watched folder sat inside ~/.claude, and every file in it was ignored as "hidden".
+it.runIf(process.platform === "darwin")(
+  "records files in a watched folder that is itself inside a hidden folder",
+  async () => {
+    const dir = join(temp(), ".hidden", "watched");
+    mkdirSync(dir, { recursive: true });
+    const changes: FsChange[] = [];
+    const watcher = watchFiles([dir], (c) => changes.push(c), { log: () => {}, settleMs: 150 });
+    await new Promise((r) => setTimeout(r, 200));
+    writeFileSync(join(dir, "report.pdf"), "x");
+    writeFileSync(join(dir, ".DS_Store"), "x");
+    for (let i = 0; i < 40 && changes.length < 1; i++) await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 300));
+    watcher.close();
+    expect(changes.map((c) => [c.event, c.path])).toEqual([["fs_create", join(dir, "report.pdf")]]);
+  },
+);
+
 describe("which folders are watched", () => {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

@@ -45,7 +45,8 @@ export function tabsOf(
     const tab = seen.get(e.tabId) ?? { id: e.tabId, name: "" };
     const url = e.url && /^(https?|file):/.test(e.url) ? e.url : undefined;
     if (e.event === "tab_open") {
-      tab.title ??= e.title;
+      // A blank tab's title ("about:blank", "New Tab") says nothing: the tab is named from the page it goes to.
+      if (url) tab.title ??= e.title;
       if (e.preexisting) tab.preexisting = true;
       if (e.openerTabId !== undefined) tab.openedBy ??= e.openerTabId;
       if (e.windowId !== undefined) tab.windowId ??= e.windowId;
