@@ -3,6 +3,7 @@
 // known gap is marked expectedToFail, so a run that hits it reads as ⚠, not as a regression.
 import { isAction, isLoop, type Skill, triggerOf, walkSteps } from "@shadow/core";
 import { z } from "zod";
+import { runProblems } from "../design/v2/gate.ts";
 
 const common = { why: z.string(), expectedToFail: z.boolean().optional() };
 export const Expectation = z.discriminatedUnion("kind", [
@@ -15,6 +16,9 @@ export const Expectation = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("max_questions"), n: z.number().int().min(0), ...common }),
   // No question asked of the user matched this (a regex, case-insensitive).
   z.object({ kind: z.literal("not_asked"), pattern: z.string(), ...common }),
+  // The step-runner can run every step (gate.ts runProblems). Always checked: Checkpoint 4's B and C passed every
+  // other check and couldn't run.
+  z.object({ kind: z.literal("runs"), ...common }),
 ]);
 export type Expectation = z.infer<typeof Expectation>;
 export const Expectations = z.array(Expectation);
@@ -26,7 +30,10 @@ export interface Verdict {
 }
 
 export function checkExpectations(skill: Skill, asked: string[], expectations: Expectation[]): Verdict[] {
-  return expectations.map((e) => verdictOf(e, skill, asked));
+  const all = expectations.some((e) => e.kind === "runs")
+    ? expectations
+    : [...expectations, { kind: "runs" as const, why: "the step-runner can run every step" }];
+  return all.map((e) => verdictOf(e, skill, asked));
 }
 
 function verdictOf(e: Expectation, skill: Skill, asked: string[]): Verdict {
@@ -40,7 +47,8 @@ function verdictOf(e: Expectation, skill: Skill, asked: string[]): Verdict {
       return { expectation: e, ok: Boolean(hit), detail };
     }
     case "uses_today": {
-      const hit = actions.find((a) => JSON.stringify(a.args).includes("{{today"));
+      // The built-in only ({{today}}, {{today|D MMM}}, {{today-1}}): an input named today_date isn't today's date.
+      const hit = actions.find((a) => /\{\{today[|+\-}]/.test(JSON.stringify(a.args)));
       return { expectation: e, ok: Boolean(hit), detail: hit ? hit.id : "no step uses {{today}}" };
     }
     case "write_kept": {
@@ -68,6 +76,10 @@ function verdictOf(e: Expectation, skill: Skill, asked: string[]): Verdict {
     }
     case "max_questions":
       return { expectation: e, ok: asked.length <= e.n, detail: `${asked.length} asked` };
+    case "runs": {
+      const problems = runProblems(skill);
+      return { expectation: e, ok: problems.length === 0, detail: problems[0] ?? "every step can run" };
+    }
     case "not_asked": {
       const pattern = new RegExp(e.pattern, "i");
       const hit = asked.find((q) => pattern.test(q));

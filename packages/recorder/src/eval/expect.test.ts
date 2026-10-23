@@ -68,8 +68,58 @@ describe("checkExpectations", () => {
       ["max_questions", false],
       ["not_asked", false],
       ["has_loop", false],
+      ["runs", false], // s5 is found only by its text: replay can't run it
     ]);
     expect(verdicts[3]?.detail).toContain("s5");
     expect(verdicts[7]?.expectation.expectedToFail).toBe(true);
+  });
+});
+
+describe("what Checkpoint 4 showed the bench couldn't tell", () => {
+  const withInput = (text: string, target: unknown) =>
+    Skill.parse({
+      id: "w",
+      name: "w",
+      version: 1,
+      description: { goal: "note the rate" },
+      steps: [
+        {
+          id: "start",
+          type: "trigger",
+          intent: "by hand",
+          inputs: { today_date: { type: { type: "text" }, default: "23 Oct" } },
+        },
+        { id: "s1", type: "action", intent: "read the rate", channel: "web", action: "extract", target, args: {} },
+        {
+          id: "s2",
+          type: "action",
+          intent: "type the date",
+          channel: "web",
+          action: "type",
+          target: { role: "textbox", name: "Date", fallbacks: [] },
+          args: { text },
+        },
+      ],
+    });
+
+  it("counts only the built-in date as today's date, not an input named today_date", () => {
+    const [named] = checkExpectations(
+      withInput("{{today_date}}", { role: "main", fallbacks: [] }),
+      [],
+      [{ kind: "uses_today", why: "x" }],
+    );
+    expect(named?.ok).toBe(false);
+    const [real] = checkExpectations(
+      withInput("{{today|D MMM}}", { role: "main", fallbacks: [] }),
+      [],
+      [{ kind: "uses_today", why: "x" }],
+    );
+    expect(real?.ok).toBe(true);
+  });
+
+  it("always says whether the workflow can run at all, whatever the list asks", () => {
+    const verdicts = checkExpectations(withInput("{{today}}", { near: "Indian Rupee", fallbacks: [] }), [], []);
+    expect(verdicts.map((v) => [v.expectation.kind, v.ok])).toEqual([["runs", false]]);
+    expect(verdicts[0]?.detail).toMatch(/s1: replay can't find its control/);
   });
 });
