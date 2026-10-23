@@ -586,6 +586,13 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       not_found: why("not_found"),
       failed: why("failed"),
       not_reached: ids("not_reached"),
+      // What each step read or worked out, short (Checkpoint 5: D's AI step took the image caption for the title, and the
+      // test said only that a check failed). Page text: shown as data.
+      values: Object.fromEntries(
+        report.steps
+          .filter((s) => s.value !== undefined)
+          .map((s) => [s.id, (typeof s.value === "string" ? s.value : JSON.stringify(s.value)).slice(0, 160)]),
+      ),
     };
   };
 
@@ -932,7 +939,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       description:
         "Test the workflow in the automation window, safely: it opens pages and reads, and only outlines what would type, send or change something. Returns what it did, found, couldn't find, and why",
       input: z.object({}),
-      run: async () => ({ output: await test() }),
+      run: async () => ({ output: await test(), untrusted: true }),
     }),
     done,
   ];

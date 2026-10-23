@@ -730,3 +730,22 @@ describe("what live D showed about repeats", () => {
     expect(JSON.stringify((await change.run(input, { turn: 2 })).output)).toMatch(/sent this exact call before/);
   });
 });
+
+describe("what live D's last try showed", () => {
+  it("shows what each step read or worked out, as page data, so a wrong AI pick can be seen in the test", async () => {
+    const report = {
+      outcome: "failed: check did not hold",
+      steps: [
+        { id: "s9", path: "s9", status: "done" as const, value: `Main Page ${"x".repeat(400)}` },
+        { id: "ai1", path: "ai1", status: "done" as const, value: "Thugs about to strangle a traveller" },
+        { id: "s2", path: "s2", status: "failed" as const, error: "check did not hold" },
+      ],
+    };
+    const s = session({ runTest: async () => report });
+    const t = designToolsV2(s).find((x) => x.name === "test") as AnyTool<DoneReport>;
+    const out = (await t.run({}, { turn: 1 })) as { output: { values: Record<string, string> }; untrusted?: boolean };
+    expect(out.output.values.ai1).toBe("Thugs about to strangle a traveller");
+    expect(out.output.values.s9?.length).toBeLessThanOrEqual(161);
+    expect(out.untrusted).toBe(true);
+  });
+});
