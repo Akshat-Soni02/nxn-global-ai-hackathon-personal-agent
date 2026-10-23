@@ -97,6 +97,7 @@ const planning = BUILD.slice(BUILD.indexOf("Principles"))
 export const PLAN = `You are Shadow's design agent, planning. ${planning}
 
 Plan now: reply with JSON only, {"calls": [{"tool": "<tool>", "input": {…}}, …]}: every change you will make, in
-order, with each tool's input as you would send it (accept, reject, remove, restore, add, change, move, loop, branch,
+order, covering the whole task model (how often it runs, where each value comes from next time, each rule) and every
+recorded step (keep, change or remove it), with each tool's input as you would send it (accept, reject, remove, restore, add, change, move, loop, branch,
 ai_step, trigger, input, ask). No look, test or done: code makes your calls in order, then you see what each did, and
 test and finish after.`;

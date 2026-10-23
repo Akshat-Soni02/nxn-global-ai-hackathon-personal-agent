@@ -611,7 +611,21 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
     const out = await run(session(), "look", { step: "trigger" });
     expect(String(out.output)).toMatch(/the trigger is start/);
     const bare = await run(session(), "change", { step: "start", why: "every Friday" });
-    expect(JSON.stringify(bare.output)).toMatch(/trigger \{ when/);
+    expect(JSON.stringify(bare.output)).toMatch(/set with the trigger tool: call trigger with \{ when/);
+  });
+
+  it("takes how often it runs sent to change, by the trigger's id or the word trigger (the D eval, 24 Oct)", async () => {
+    for (const step of ["start", "trigger"]) {
+      const s = session();
+      const out = await run(s, "change", { step, when: { schedule: "0 9 * * *" }, why: "every day" });
+      expect(out.output.ok).toBe(true);
+      expect(s.draft.steps[0]).toMatchObject({ when: [{ type: "schedule", cron: "0 9 * * *" }] });
+    }
+  });
+
+  it("says which fields a tool left out, never drops them unseen", async () => {
+    const out = await run(session(), "remove", { steps: ["s2"], why: "x", when: "now" });
+    expect(String(out.output.ignored)).toMatch(/^when: not remove's \(it takes steps, why\); left out/);
   });
 });
 

@@ -556,7 +556,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
           output: {
             ok: false,
             problems: [
-              'a time they didn\'t say is 9:00: set it in the trigger (trigger { when: { schedule: "0 9 * * 1" } }), never ask it',
+              'a time they didn\'t say is 9:00: set it with the trigger tool ({ when: { schedule: "0 9 * * *" } } is every day at 9:00), never ask it',
             ],
           },
         };
@@ -800,10 +800,14 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
           .regex(/^[a-z][a-z0-9_]*$/)
           .optional(),
         page: z.string().optional(),
+        // How often it runs, sent to change (the D eval, 24 Oct: five calls with a when that was dropped unseen).
+        when: z.unknown().optional(),
         why: Why,
       }),
       prepare: unstring,
-      run: ({ step: id, intent, args: given, target, tab, check, wait, save_as, page, why }) => {
+      run: ({ step: named, intent, args: given, target, tab, check, wait, save_as, page, when: sent, why }) => {
+        const trigger = session.draft.steps.find((s) => s.type === "trigger")?.id;
+        const id = named === "trigger" && !known(named) && trigger ? trigger : named;
         const url = page === undefined ? undefined : session.pages.get(page);
         if (page !== undefined && !url) {
           return {
@@ -819,7 +823,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         const edits: EditInput[] = [];
         let unverified = false;
         // How often it runs is the trigger's: a change to it that says when is one (Checkpoint 4: nine calls on this).
-        const when = args?.when ?? args?.schedule ?? args?.cron;
+        const when = sent ?? args?.when ?? args?.schedule ?? args?.cron;
         if (step.type === "trigger" && when !== undefined) return setWhen(when, why);
         if (intent) edits.push({ op: "set", step: id, field: "intent", value: intent });
         if (!isAction(step) && (args || target || tab || check || wait || save_as)) {
@@ -881,7 +885,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
               ok: false,
               problems: [
                 step.type === "trigger"
-                  ? 'say how often it runs: trigger { when: { schedule: "0 9 * * 1" } } (B and E sent change with no when)'
+                  ? 'how often it runs is set with the trigger tool: call trigger with { when: { schedule: "0 9 * * *" } } (every day at 9:00)'
                   : "say what to change: intent, args, page, target, tab, check, wait or save_as",
               ],
             },
@@ -1018,8 +1022,20 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   // A call sent again as it was, on the same workflow, fails the same way (Checkpoint 5: A sent one add 20 times; B, D2
   // and E resent theirs 3 or 4 times): said so, so the model changes the call instead of sending it again.
   const failed = new Map<string, string>();
+  // A field a tool doesn't have is dropped by its schema without a word, so the model sends it again and again (the D
+  // eval, 24 Oct: change { step: "start", when } five times). Said with the result, with the fields it has.
+  let ignored: string[] = [];
   return tools.map((t) => ({
     ...t,
+    prepare: (raw: unknown) => {
+      const input = t.prepare ? t.prepare(raw) : raw;
+      const shape = (t.input as { shape?: Record<string, unknown> }).shape;
+      ignored =
+        shape && input && typeof input === "object" && !Array.isArray(input)
+          ? Object.keys(input).filter((k) => !(k in shape))
+          : [];
+      return input;
+    },
     run: async (input: unknown, ctx: ToolContext) => {
       const key = `${t.name} ${JSON.stringify(input)} ${JSON.stringify(session.draft.steps)}`;
       const before = failed.get(key);
@@ -1032,7 +1048,15 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       if (out?.ok === false) failed.set(key, [...(out.problems ?? []), ...(out.refused ?? [])].join("; "));
       // A change that changed nothing changes nothing again (Checkpoint 5: C and D sent the same no-op 8 and 15 times).
       if (out?.note?.startsWith("nothing changed")) failed.set(key, out.note);
-      return { ...result, output: hide(result.output) };
+      const shape = (t.input as { shape?: Record<string, unknown> }).shape ?? {};
+      const said =
+        ignored.length > 0 && out && typeof out === "object"
+          ? {
+              ...out,
+              ignored: `${ignored.join(", ")}: not ${t.name}'s (it takes ${Object.keys(shape).join(", ")}); left out`,
+            }
+          : result.output;
+      return { ...result, output: hide(said) };
     },
   }));
 }

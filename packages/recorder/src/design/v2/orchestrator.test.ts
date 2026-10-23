@@ -207,18 +207,19 @@ describe("design agent v2, stage by stage", () => {
 
   it("with no cap on calls, stops a design that isn't getting anywhere (checkpoint 6: D's loops)", async () => {
     const nowhere = call("remove", { steps: ["s99"], why: "x" }); // no such step: refused every time
-    const { options, skill } = await setup({
-      llm: fakeLlm(
-        scriptedDesigner(
-          Array.from({ length: 30 }, () => nowhere),
-          task,
-        ),
+    const llm = fakeLlm(
+      scriptedDesigner(
+        Array.from({ length: 30 }, () => nowhere),
+        task,
       ),
-    });
+    );
+    const { options, skill } = await setup({ llm });
     const out = await designV2(options);
     expect(out.kind).toBe("kept");
     expect(out.reason).toMatch(/stopped getting anywhere: 5 changes in a row/);
-    expect(out.usage.calls).toBeLessThan(10);
+    // Understand, plan, five calls, then once more from a fresh start that shows them (five more), and no further.
+    expect(out.usage.calls).toBe(12);
+    expect(JSON.stringify(llm.requests.at(-5))).toMatch(/Your last 5 calls went nowhere.*remove .*s99.* no step s99/);
     expect([...walkSteps(out.skill.steps)].length).toBe([...walkSteps(skill.steps)].length);
   });
 

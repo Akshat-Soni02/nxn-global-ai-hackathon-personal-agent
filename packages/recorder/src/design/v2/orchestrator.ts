@@ -256,7 +256,9 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   };
 
   // One episode of the agent loop on what is left of the budget: build/test/fix, or putting the answers in. With no cap
-  // on calls, it also ends when the agent stops getting anywhere (STUCK changes in a row went nowhere).
+  // on calls, it also ends when the agent stops getting anywhere (STUCK changes in a row went nowhere): those calls and
+  // what they got are kept, for a fresh start that shows them.
+  let nowhere: string[] = [];
   const episode = async (message: string): Promise<string | undefined> => {
     const left = remaining(meter, budget);
     if (left.calls === 0 || left.costUsd === 0) return "its budget was used up";
@@ -264,6 +266,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     const forward = () => stop.abort();
     options.signal?.addEventListener("abort", forward, { once: true });
     let stuck = 0;
+    let sent = "";
+    nowhere = [];
     const run = await runAgent<DoneReport>({
       llm: options.llm,
       profile: "smart",
@@ -278,9 +282,20 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
       onEvent: (event) => {
         transcript.push(event);
         options.onEvent?.(event);
+        if (event.type === "call") sent = `${event.tool} ${JSON.stringify(event.input)}`;
         const moved = event.type === "invalid" ? false : event.type === "result" ? progressOf(event.output) : undefined;
-        if (moved === true) stuck = 0;
-        if (moved === false && ++stuck >= STUCK) stop.abort();
+        if (moved === true) {
+          stuck = 0;
+          nowhere = [];
+        }
+        if (moved === false) {
+          nowhere.push(
+            event.type === "invalid"
+              ? `${event.tool ?? "?"} ${event.input ?? ""} → ${event.error}`
+              : `${sent} → ${(event as { output: string }).output}`,
+          );
+          if (++stuck >= STUCK) stop.abort();
+        }
       },
     }).finally(() => options.signal?.removeEventListener("abort", forward));
     if (stuck >= STUCK && !options.signal?.aborted)
@@ -444,6 +459,21 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // more, from the workflow as it got to, on what is left of the budget.
     if (stopped?.startsWith("it failed"))
       stopped = await episode(masked(buildMessage(theTask, options.evidence, session, seen)));
+    // Stuck: once more from a fresh start, which shows what went nowhere (a long run of the same call feeds itself; the
+    // D eval, 24 Oct, reasoned the same paragraph five times).
+    if (stopped?.startsWith("it stopped getting anywhere")) {
+      const went = nowhere.map((n) => `- ${n.slice(0, 400)}`);
+      stopped = await episode(
+        masked(
+          [
+            buildMessage(theTask, options.evidence, session, seen),
+            "",
+            `# Your last ${went.length} calls went nowhere: do something different (another tool, other values), or done with why`,
+            ...went,
+          ].join("\n"),
+        ),
+      );
+    }
     if (stopped) return kept(stopped);
 
     // 5: the questions left, in one batch.
