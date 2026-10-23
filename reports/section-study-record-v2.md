@@ -14,8 +14,10 @@ The design sections, like `section-study.md`'s, skip "Edge cases handled" and "N
 Problems seen.
 
 Replay and recovery (P, X) are not covered here; they are as in `section-study.md`, plus the few hooks record needed
-(§0.4). What changed, commit by commit, is in [`record-v2-changes.md`](record-v2-changes.md). Code is as of
-`feat/record-v2` at `16f313f` (Oct 20).
+(§0.4). What changed, commit by commit, is in [`record-v2-changes.md`](record-v2-changes.md). Code was described as
+of `feat/record-v2` at `16f313f` (Oct 20). **Updated Oct 23 for step 4** (`d519c90`, PR #15): each section's
+"Problems seen" has rows for what checkpoint 4 and 5 found, with where each stands; the causes and tests are in
+[`record-v2-deep-dive.md`](record-v2-deep-dive.md).
 
 **What moved since `section-study.md`:**
 - **R8** is now the one timeline and the evidence package the agent reads (`evidence.json`).
@@ -31,12 +33,16 @@ Replay and recovery (P, X) are not covered here; they are as in `section-study.m
 - **[6]** [`../testing/checkpoint-3.md`](../testing/checkpoint-3.md), Oct 20: design agent v2 on the real model, four test recordings
 - **[7]** the final code review of Plan 3, Oct 20 (its fixes: `7fc3bf8`..`77ebde9`)
 - **[8]** the exploration of the code on Oct 19, in the spec ([`2026-10-19-record-v2-design.md`](../docs/superpowers/specs/2026-10-19-record-v2-design.md)): problems no report saw, numbered H1–H24
+- **[9]** [`../testing/checkpoint-4.md`](../testing/checkpoint-4.md), Oct 23: five tasks (A–E) on real sites, designed on the real model, run
+- **[10]** the step-4 re-designs on the real model, Oct 23 ([`record-v2-deep-dive.md`](record-v2-deep-dive.md))
+- **[11]** [`../testing/checkpoint-5.md`](../testing/checkpoint-5.md), Oct 23: the same tasks re-recorded live after the fixes
 
 **Status marks:**
 - **fixed (live):** seen working in a real recording or run;
 - **fixed (tests):** built and tested, not yet seen live;
 - **partly;**
-- **open:** with its number in [`record-v2-changes.md` § Failures to fix](record-v2-changes.md#failures-to-fix), F1–F13.
+- **open:** with its number in [`record-v2-changes.md` § Failures to fix](record-v2-changes.md#failures-to-fix) (F1–F13) or
+  [`record-v2-deep-dive.md`](record-v2-deep-dive.md) (F17–F61).
 
 ---
 
@@ -52,14 +58,18 @@ The new shape:
 | # | Was (`section-study.md` §0) | Now | Where it stands |
 |---|---|---|---|
 | 1 | **A step is remembered by things that don't come back:** container text, Google's per-session ids, no list position, no sheet cell | Selections are their own event, so they are no longer container clicks. Google ids are dropped and link addresses kept. List position and the sheet cell are recorded. Nameless links get a name (§R1, §R10) | **partly**: capture fixed (live [4]). The replay matcher still doesn't use text, `near` or list position (F8, Akshat) |
-| 2 | **Generalising is left to one model, with unreliable tools** | Code finds the patterns and prepares the change (proposals). The agent writes down what the task is, then accepts proposals by id with tools that forgive syntax slips (§R10, D2, D3) | **partly**: real runs [6]: timesheet and Play Store right; KPI built no loop (F2); YC lost half its calls to tool syntax (F3) |
-| 3 | **Nothing checks that the result does the task** | A finish gate in code (D7), a safe test run in the automation window (D5), "nothing to do" for a run that did nothing, and a review with Looks right before Go live | **partly**: built and tested. The gate checks structure, not meaning (F2, F5), and takes the model's word on frequency (F1) |
+| 2 | **Generalising is left to one model, with unreliable tools** | Code finds the patterns and prepares the change (proposals). The agent writes down what the task is, then accepts proposals by id with tools that forgive syntax slips (§R10, D2, D3) | **partly**: real runs [6]: timesheet and Play Store right; KPI built no loop (F2); YC lost half its calls to tool syntax (F3). Oct 23 [11]: B and C generalise ("the newest video", "today's rate") and run end to end; A's re-design builds its loop; longer tasks (A live, D) still run out of calls |
+| 3 | **Nothing checks that the result does the task** | A finish gate in code (D7), a safe test run in the automation window (D5), "nothing to do" for a run that did nothing, and a review with Looks right before Go live | **partly**: built, and seen live [11]. Frequency is now checked from your words (F1 fixed), and a design that lost your work or can't run is never saved over the recording (F27, F61). The gate still checks that a rule's steps exist, not what they do (F2, F5) |
 | 4 | **Replay has no timeouts and one tab** | Every DevTools call times out (15 s, 30 s to navigate), and a hang counts as an environment problem. Steps can name the tab they run in | Timeouts **fixed (tests)**. Tabs **partly**: a run waiting for approval closes its named tabs (F6); the rule for steps without a tab is open (F7) |
 | 5 | **What the agents did can't be reconstructed** | The model's reasoning, rejected calls' input, the full prompt, the task model, every change with its reason, the test report and the transcript are kept in `design.json` (D8) | **fixed (live)** [6] |
 
 **What's left is judgement.** Code now catches structural mistakes: lost work, invented checks, missing approvals,
 unvisited sites. What it can't catch is a model that misreads the task: "every month" written down as "by hand", or
 "the newest email" built as "this email". Those are F1 and F2.
+
+**Oct 23:** F1 is now caught by code. What checkpoint 5 left is still judgement: on longer tasks the agent gives up or
+runs out of its 40 calls, and nothing checks what an AI step answers at run time (D's took an image caption for an
+article title).
 
 ---
 
@@ -203,6 +213,7 @@ Stop   ─► R6 read and mask the pictures  ║  R7 transcribe          (at the
 | A page's own Copy button lost (H15) | [8] | **fixed (live)** [4]: GitHub (`ab77c72`) |
 | ⌘-click and middle-click lost (H17) | [8] | **fixed (tests)** |
 | Found live: Gmail's hovered row wasn't part of its list; a "Saved" status line read as no change; a link in a table cell was "item 0 of 4 cells"; paragraphs counted as a list; names borrowed from far away ("Table", "Contents") | [4] | **fixed (live)** [4] (`99a0bf7`, `2754463`, `4ec5c1e`, `e2bdf00`) |
+| A copied story title had no selector: Hacker News nests its story table, and the selector path stopped at 6 levels | [9] A | **fixed (live [11])** (`cf92fa2`) |
 
 **Where:** `apps/extension/src/capture.ts`, `describe.ts`, `effect.ts`, `keys.ts`, `clipboard-hook.ts`, `content.ts`,
 `background.ts`, `adapters/google-sheets.ts`; `packages/core/src/trace.ts`, `descriptor.ts`.
@@ -256,6 +267,7 @@ Stop   ─► R6 read and mask the pictures  ║  R7 transcribe          (at the
 | A tab open before Record had no known address | [8] | **fixed (live)** [4] (`a2c8081`) |
 | Replay rebuilt every switch by reloading the page | [2], [3] | **partly:** named tabs are built. A run waiting for approval closes them (F6). The rule for a step with no tab is open (F7) |
 | After a click that opened a new tab, replay ran the next steps in the old tab | [4] | **partly:** the click is linked to its tab (`opensTab`, §R9); replay uses it only if the agent names the tab |
+| A blank tab that went to Hacker News was named "about:blank" | [9] A | **fixed (tests)** (`42f9a6a`) |
 
 **Where:** `apps/extension/src/background.ts`, `tab-registry.ts`, `replay.ts`, `tab-map.ts`; `packages/recorder/src/evidence/tabs.ts`.
 
@@ -388,6 +400,7 @@ Downloads come from the extension. A picked or dropped file is found on disk by 
 |---|---|---|
 | Deletions weren't recorded (K3) | [8] | **fixed (tests)** (`0c38bf6`): needs `pnpm setup:mac` |
 | [3B]'s download, file arrival and drop | [3B] | ✅ captured correctly (unchanged) |
+| A watched folder inside a hidden folder (`~/.claude/…`) recorded nothing (F24) | [9] D | **fixed (tests)** (`42f9a6a`) |
 
 **Where:** `apps/daemon/src/fs-watch.ts`, `locate-file.ts`; `packages/recorder/src/normalise.ts` (Trash pairing);
 `packages/core/src/guard.ts`.
@@ -704,6 +717,8 @@ Each step now also keeps:
 | Repetition not recognised | study R9 | **partly:** proposed in §R10, but not when the groups differ [5] |
 | The Drive detour kept | [1], [2] R5 | **fixed (tests):** an "open directly" proposal |
 | Back recorded as a typed address; page clicks after keys became steps | [4] | **fixed (tests):** `back`; `afterKeys` noise |
+| A paste took the copy made before the field was left, not before the paste: Title and Value both got the points (F17) | [9] A | **fixed (live [11])** (`42f9a6a`) |
+| A page opened in another tab within 3 s was merged into the first tab's page, so Hacker News was lost (F18) | [9] A | **fixed (live [11])** (`42f9a6a`) |
 
 **Where:** `packages/recorder/src/normalise.ts`.
 
@@ -807,6 +822,10 @@ Each step now also keeps:
 | "Which file next time?" asked after "all the reports" (H2) | [3B] | **partly:** not asked when several files were used [6]; still asked when one was (F13) |
 | The KPI pattern isn't proposed as a repeat | [5] | **open:** part of F2 |
 | **"The newest" answered "ask me each time"; "all" can't answer the file question** | this file | **open** (F13) |
+| A downloaded file wasn't linked to its rename and move; the move kept the recorded name (F23) | [9] D2 | **fixed (live [11])** (`42f9a6a`) |
+| "Find the downloaded file" looked once, 1 ms after the click, before the PDF existed (F53) | [11] D | **fixed (live [11])**: it waits up to 60 s (`f89a0e9`) |
+| List item, repeat, all files and constant proposals carried no change, though the agent was told they were prepared (F20) | [9] A | **fixed (tests)**: accepting one says "build it yourself, and how" (`e1c45dd`) |
+| "Open directly" offered to fix today's video or article in place (F21) | [9] B, D | **fixed (tests)**: only for a page that never changes (`e1c45dd`) |
 
 **Where:** `packages/recorder/src/compile.ts`, `skeleton.ts`, `locator.ts`, `approvals.ts`;
 `packages/recorder/src/evidence/classes.ts`, `flow.ts`, `proposals.ts`, `answers.ts`, `pages.ts`;
@@ -865,6 +884,7 @@ designV2()
 | 15–22k tokens re-sent every turn | [3] | **fixed**: sent once; real designs cost $0.012–0.124 [6] |
 | The build and answers messages, page names and memory weren't masked; quotes unwrapped | [7] C2 | **fixed** (`430d7a3`) |
 | No worked example of common shapes | [1] | **fixed**, but the real KPI run didn't follow it [6] (F2) |
+| The prompt's own worked example looped over an AI step declared as one value (F37) | [10] | **fixed (tests)** (`f8c4215`) |
 
 **Where:** `design/v2/orchestrator.ts` (`buildMessage`, `answersMessage`), `prompt.ts`, `understand.ts`; `evidence/evidence.ts`.
 
@@ -894,6 +914,7 @@ designV2()
 | Invented checks, literal values (`label_steps`) | [2] D3, [3] D4 | **removed** with the stage; checks are judged by the gate (D7) |
 | **Cadence written as "manual" while quoting "every day" / "every month"** | [6] KPI, Play Store | **open** (F1) |
 | The email subject taken as a typed value, not "the newest in the list" | [6] KPI | **open** (F2) |
+| Asked the time of day though nobody gave one (A, B, D2, C) | [10], [11] | **fixed (live [11])**: never queued or asked; 9:00 (`7e59721`) |
 
 **Where:** `design/v2/understand.ts`, `prompt.ts` (`UNDERSTAND`), `contracts.ts` (`TaskModel`).
 
@@ -940,7 +961,12 @@ Five old names answer as aliases: `wrap_in_loop`, `wrap_in_branch`, `add_llm_ste
 | An empty loop instead of `wrap_in_loop` | [3B] | **fixed** |
 | `save_as` on an inserted step ignored | [3B] | **fixed** |
 | `describe_step_screenshot` never called | [2], [3] | **removed**: code captions pictures before the agent starts (§R8) |
-| **YC: 20 of 40 calls refused:**<br>- ids as one string `"s2, s3"`;<br>- a removal blocked by a later `{{var}}`, without saying which step to change;<br>- `add {do: "ai_step"}`;<br>- an AI step's output type as a word;<br>- `{{s6}}` (a step id) as a variable | [6] YC | **open** (F3) |
+| **YC: 20 of 40 calls refused:**<br>- ids as one string `"s2, s3"`;<br>- a removal blocked by a later `{{var}}`, without saying which step to change;<br>- `add {do: "ai_step"}`;<br>- an AI step's output type as a word;<br>- `{{s6}}` (a step id) as a variable | [6] YC | **fixed** (`e1c45dd`, `f8c4215`): ids split, the blocking step named, `add {do: "ai_step"}` handed on, types as words, `{{s6}}` read as its output |
+| A read with no control couldn't run, so "read the page, let an AI step pick" failed (F25) | [9] B, C, D | **fixed (live [11])** (`e1c45dd`) |
+| The tools accepted steps the runner can't run: a control found only `near` a label, `fs.find {folder, pattern}`, a role alone (F28, F50) | [9], [11] C | **fixed (live [11])** (`e1c45dd`, `306e724`) |
+| A step using `{{story.title}}` couldn't be added before its loop; AI step types refused; 40 calls gone, twice (F35–F37) | [10] A | **fixed (re-design [10])** (`f8c4215`) |
+| The same failing call resent up to 20 times; changes that changed nothing looked done (F43, F49) | [10], [11] C | **fixed (live [11])** (`fa5bf58`, `306e724`) |
+| A page-open step given a control 15 times; `web.read` refused; a whole-page read shown as `element "?"` and re-added 10 times (F56–F60) | [11] D | **fixed (tests)** (`4674a5c`, `edd1241`) |
 
 **Where:** `design/v2/tools.ts`, `session.ts`, `outline.ts`; `packages/agent/src/{agent,tool}.ts`.
 
@@ -978,6 +1004,7 @@ Five old names answer as aliases: `wrap_in_loop`, `wrap_in_branch`, `add_llm_ste
 | A send could be removed and re-added without approval | [7] C3 | **fixed** (`2b6b15d`) |
 | Uploads and watched folders not checked against recorded folders | [7] C4 | **fixed** (`2b6b15d`) |
 | A `{{variable}}` inside a path is checked only when designed, not when run | [7] | **open** (F10, player) |
+| A control the agent gave by role alone (`{ role: "cell" }`), and a schedule `"{{cron_expr}}"`, were accepted | [10] E, [11] C | **fixed (tests)** (`306e724`, `1a3f17a`) |
 
 **Where:** `design/v2/rules.ts`, `places.ts`; `packages/recorder/src/approvals.ts`; `packages/core/src/guard.ts`.
 
@@ -1008,11 +1035,14 @@ Five old names answer as aliases: `wrap_in_loop`, `wrap_in_branch`, `add_llm_ste
 
 | Problem | Where | Status |
 |---|---|---|
-| Nothing tested the result before saving | [3B] | **fixed (tests)**: not yet run live (checkpoint 3, step 2) |
+| Nothing tested the result before saving | [3B] | **fixed (live [9], [11])**: it ran live and found real faults |
 | Chrome not connected → a 30 s wait and a "failed" step the agent then "fixed" | [7] I1 | **fixed** (`feec1cc`) |
 | Links the agent invented were clicked for real | [7] I10 | **fixed** (`546d010`) |
 | It shared the window with a scheduled run | [7] I7 | **fixed** (`77ebde9`) |
 | A step with no tab runs in the first tab while highlights look in the last one used | [7] I6 | **open** (F7, Akshat) |
+| It ran live for the first time and found real faults, but they were saved anyway (F26) | [9] B | **fixed (live [11])**: only reasons given after the test explain a failure (`753b83b`) |
+| It looked for a file only a real run would download (F54) | [11] D | **fixed (tests)** (`f89a0e9`) |
+| The agent saw "check failed", not the AI step's wrong answer (F59) | [11] D | **fixed (tests)**: it sees each step's value (`389bf90`) |
 
 **Where:** `packages/player/src/rehearse.ts`; `apps/daemon/src/rehearse.ts`, `main.ts`, `service.ts` (`exclusive`).
 
@@ -1043,6 +1073,7 @@ Five old names answer as aliases: `wrap_in_loop`, `wrap_in_branch`, `add_llm_ste
 | **Asked what the recording already answered** (it overrode the evidence check with `confirm`) | [6] KPI, YC | **open** (F4) |
 | Code answers "which file next time?" with "ask me each time" after "the newest", and can't answer it from "all the reports" | this file (§R10) | **open** (F13) |
 | A question waits for ever | [2] D2 | **open** (F12) |
+| The file answer matched option values, so "the newest" picked "ask me each time" (F13) | [6] | **partly** (`753b83b`): words only; "all of them" still not offered |
 
 **Where:** `design/v2/questions.ts`, `orchestrator.ts`; `evidence/answers.ts`; `apps/ui/src/questions.ts`, `screens/Record.tsx`, `Inbox.tsx`.
 
@@ -1087,12 +1118,15 @@ Five old names answer as aliases: `wrap_in_loop`, `wrap_in_branch`, `add_llm_ste
 | Problem | Where | Status |
 |---|---|---|
 | `finish` accepted a workflow that no longer did the task (B: one `fs.find`) | [3B] | **fixed** (gate) |
-| Every stated rule unbuilt, accepted | [3A] | **partly**: the gate checks the named steps exist, not what they do (F2) |
+| Every stated rule unbuilt, accepted | [3A] | **partly**: the gate checks the named steps exist, not what they do (F2). Since `1a3f17a` a "the newest / top 3 / not already done" rule said not built is turned back with how to build it |
 | Summaries describing changes never made | [1]–[3] | **fixed**: the review is built by code from the real changes |
 | A stopped draft could keep a workflow with your work removed | [7] I3 | **fixed** (`fdaa488`) |
 | Schedules ran an unreviewed design; a later version lifted the wait | [7] I8 | **fixed** (`feec1cc`) |
-| **The gate takes the task model's word on how often it runs** | [6] KPI, Play Store | **open** (F1) |
+| **The gate takes the task model's word on how often it runs** | [6] KPI, Play Store | **fixed (live [11])** (F1, `753b83b`): frequency words in the goal or what was said require a schedule |
 | A removed step that opened the sheet left a paste on the Gmail page; the gate doesn't check pages | [6] KPI | **open** (F5) |
+| A kept draft could still be worse than the recording: steps that can't run, stale checks, a step in the wrong tab (F27, F51, F52, F55) | [9] C, [11] D | **fixed (live [11])** (`753b83b`, `45e0ebe`, `f89a0e9`) |
+| After 2 refusals, a design with all your work removed was saved (F61) | [11] A | **fixed (tests)** (`e64161d`) |
+| A rule's claimed steps aren't checked against what they do: A's re-design claims "skip ones already saved" with no step reading the list | [10] A | **open** |
 
 **Where:** `design/v2/gate.ts`, `review.ts`, `orchestrator.ts`; `apps/daemon/src/review-store.ts`, `service.ts`, `triggers.ts`; `apps/ui/src/screens/Workflow.tsx`.
 
@@ -1118,6 +1152,9 @@ Five old names answer as aliases: `wrap_in_loop`, `wrap_in_branch`, `add_llm_ste
 | Near the $0.10 cap | [3] | **fixed**: real designs cost $0.012–0.124 [6] |
 | The test run's AI calls are counted on the daemon's meter, not the design's | [7] | **open** (minor) |
 | Stage 1 can make 4 calls, and isn't checked against the cost left | [7] | **open** (minor) |
+| A reply cut off at the token cap ended the design (F41) | [10] D2 | **fixed (tests)**: one more episode (`f8c4215`) |
+| `design.json` didn't keep the first message or the plain list (F16) | — | **fixed** (`753b83b`) |
+| Longer tasks run out of the 40 calls (A live, D in 4 of 5 tries) | [11] | **open** |
 
 **Where:** `design/v2/budget.ts`, `progress.ts`, `orchestrator.ts`; `packages/agent/src/agent.ts`; `packages/llm/src/{client,vision,usage}.ts`; `apps/daemon/src/record.ts` (`keepDesign`).
 
@@ -1125,26 +1162,26 @@ Five old names answer as aliases: `wrap_in_loop`, `wrap_in_branch`, `add_llm_ste
 
 ## Appendix: problems by section, open only
 
-F-numbers are in [`record-v2-changes.md` § Failures to fix](record-v2-changes.md#failures-to-fix). "Akshat" marks the
-replay side.
+As of Oct 23, after step 4. F-numbers are in [`record-v2-changes.md` § Failures to fix](record-v2-changes.md#failures-to-fix)
+(F1–F13) and [`record-v2-deep-dive.md`](record-v2-deep-dive.md) (F17–F61). "Akshat" marks the replay side.
 
 | Section | Open problems |
 |---|---|
-| §0 fundamentals | the model's judgement: how often it runs (F1), "the newest" not built (F2); replay doesn't use list position or text (F8, Akshat) |
-| R1 web capture | Shift + a key outside fields; a middle click has no point or effect; no right click, hover or scroll; a textarea or rich-text editor is never secret; Sheets ids checked live once |
-| R2 tabs | named tabs closed while a run waits for approval (F6, Akshat); a step with no tab (F7, Akshat); new tabs have no title; automation tabs unknown after the background restarts |
+| §0 fundamentals | the model's judgement on longer tasks: it gives up or runs out of calls (A live, D); "the newest" built only when the model builds it (F2); replay doesn't use list position or text (F8, Akshat) |
+| R1 web capture | Shift + a key outside fields; a middle click has no point or effect; no right click, hover or scroll; a textarea or rich-text editor is never secret; Sheets ids checked live once; on a canvas the click and typing land on the panel on top (F22: needs the connector or vision rung) |
+| R2 tabs | named tabs closed while a run waits for approval (F6, Akshat); a step with no tab (F7, Akshat; the gate now flags one after a page opened in a named tab); new tabs have no title; automation tabs unknown after the background restarts |
 | R3 Mac-app capture | nameless elements such as Numbers cells (F11); the Privacy skip covers clicks only; "Privacy" and "Move to Trash" in English only; no permission check when you press Record |
 | R4 files | any file vanishing within 5 s of a Move to Trash counts as trashed; other deletions are neither steps nor listed; folders; moves between watched folders |
 | R5 pictures: capture | no ledger line for Mac skips or automation tabs; nothing blacked out in iframes; boxes measured before the picture is taken |
-| R6 pictures: reading | `screenReady` checked once, at daemon start; Mac pictures get no field boxes; Private words under 3 characters or with symbols |
+| R6 pictures: reading | `screenReady` checked once, at daemon start; Mac pictures get no field boxes; Private words under 3 characters or with symbols; captions time out at 90 s each, so a recording with Pictures on can take over 10 minutes to compile [11] E |
 | R8 timeline | a caption cut short by the 400-token cap (Akshat); scrolled-in lines count as appeared; Mac steps accept any tab's pictures |
-| R9 normalise | some drops have no noise line; reading clicks stay steps (classed `reveal`); no writing to a cell (F9, Akshat) |
-| R10 first draft | a repeat whose groups differ isn't proposed (F2); the locator ignores `href` and list position (F8, Akshat); ⌘Enter in Google editors needs approval; the file question answered wrongly from the recording (F13) |
-| D1 given | the worked example wasn't followed on KPI (F2) |
-| D2 understand | cadence written as "manual" while quoting "every day" (F1); a subject taken as typed, not "the newest" (F2) |
-| D3 tools | YC: 20 of 40 calls refused for syntax (F3) |
+| R9 normalise | some drops have no noise line; reading clicks stay steps (classed `reveal`); a click that went to a page becomes "open this address", which the agent can't turn back into a click (it must add one); no writing to a cell (F9, Akshat) |
+| R10 first draft | a repeat whose groups differ isn't proposed (F2); list places wrong on tables and grids (F19); the locator ignores `href` and list position (F8, Akshat); ⌘Enter in Google editors needs approval; "all of them" can't answer the file question (F13) |
+| D1 given | — |
+| D2 understand | cadence sometimes written as "manual" while quoting "every day" (now caught by the gate, F1) |
+| D3 tools | — (the agent still makes slips, but each is refused with what to do) |
 | D4 rules | a `{{variable}}` in a file path is checked only when designed (F10, Akshat) |
-| D5 test run | not yet run live; a step with no tab (F7, Akshat) |
-| D6 questions | re-asks what the recording answered (F4); no timeout (F12); the wrong file answer (F13) |
-| D7 finish gate | takes the model's word on how often it runs (F1); checks that a rule's steps exist, not what they do (F2); doesn't check which page a write runs on (F5) |
-| D8 budget | the test run's AI calls count on the daemon's meter; stage 1 can make 4 calls |
+| D5 test run | a step after a file this run would download says "has no value yet" (the runner fills values before it skips a step, Akshat); a step with no tab (F7, Akshat) |
+| D6 questions | re-asks with `confirm` what the recording may answer (F4, partly); no timeout (F12) |
+| D7 finish gate | checks that a rule's steps exist, not what they do (F2; A's skip rule); doesn't check which page a write runs on (F5); nothing checks an AI step's answer at run time (D's caption) |
+| D8 budget | longer tasks run out of the 40 calls; the test run's AI calls count on the daemon's meter; stage 1 can make 4 calls |

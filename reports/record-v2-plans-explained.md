@@ -1,4 +1,4 @@
-# Plans 1–3 and checkpoints 1–3, explained piece by piece
+# Plans 1–3, checkpoints 1–5 and the step-4 fixes, explained piece by piece
 
 **Why this file.** Record v2 was built in three plans, each followed by a live check (a *checkpoint*). The summaries so
 far said things like "a new way to score designs" or "rules stated vs rules built" without saying what they are, where
@@ -73,6 +73,11 @@ they live, or who uses them. This file does that for every piece. Each piece get
 | Oct 20 | **Plan 3** (14 tasks): design agent v2, the progress feed, the review | §7 |
 | Oct 20 | **Checkpoint 3, step 1**: design agent v2 on the real model, on the 4 test recordings | §8 |
 | Oct 21 | PR #14 merged into `main` by Akshat | — |
+| Oct 22 | Rushil's questions answered; a 5-step plan; these docs and [`record-examples.md`](../testing/record-examples.md) | — |
+| Oct 23 | **Checkpoint 4**: five everyday tasks recorded on real sites, designed on the real model, run | §11 |
+| Oct 23 | **Step 4**: every failure traced to its cause and fixed (F17–F61) | §12 |
+| Oct 23 | **Checkpoint 5**: the same five tasks re-designed and re-recorded live | §13 |
+| Oct 23 | PR #15 opened | — |
 | waiting | **Checkpoint 3, steps 2–3**: Rushil's own recordings; the test plan's verdict table | not done |
 
 ---
@@ -111,6 +116,8 @@ recording again.
    | `not_asked` | no question matched a pattern | "which file": they said "all the reports" |
 
    A check marked `expectedToFail` is a known gap (writing to the next empty row isn't built), so it shows ⚠, not ✗.
+   **Since Oct 23 there's an eighth, `runs`,** added to every run whatever the list says: it passes only when the
+   step-runner can run every step (checkpoint 4 showed B and C passing every check and not running).
 3. **`pnpm design:eval <folder>`** (`scripts/design-eval.ts`) does what Stop does on that folder: evidence → design
    agent → saved workflow. It then prints ✓/✗ for each check, and `design.json` and the workflow land in a scratch
    folder.
@@ -284,8 +291,8 @@ Use this table with it.
 |---|---|---|
 | R8 narration | `design.json → prompt.task` ("What they said…") | `evidence.json → said` and `timeline` (each line with the step ids it was said over) |
 | R9 normalise | `design.json → prompt.task` ("The recording…") | `evidence.json → steps` (each with its class) and `noise` |
-| R10 first draft | the first tool result, or the outline before `label_steps` | not saved as a file (F16). `evidence.json → steps` has each step, and the review shows what changed from it |
-| D1 what it was given | `design.json → prompt.system`, `prompt.task` | `evidence.json` (the input to 7a). `design.json → system` holds the build instructions; the understand instructions are `UNDERSTAND` in `design/v2/prompt.ts` |
+| R10 first draft | the first tool result, or the outline before `label_steps` | `design.json → plain`, the plain list it started from (kept since Oct 23, F16). `evidence.json → steps` has each step, and the review shows what changed from it |
+| D1 what it was given | `design.json → prompt.system`, `prompt.task` | `evidence.json` (the input to 7a). `design.json → firstMessage` is the build agent's first message (since Oct 23); `design.json → system` holds the build instructions; the understand instructions are `UNDERSTAND` in `design/v2/prompt.ts` |
 | D2 `label_steps` | its first call | gone. `design.json → task`, the task model (careful: in v2 `task` means the task model, not the prompt) |
 | D3 tools | each call | `design.json → transcript`: `call`, `result`, `refused`, `invalid` events |
 | D4 rules stated vs built | the form, the narration, `v1.json` | `design.json → task.rules` against `done.rules`; the review's "What you said → what was built" |
@@ -300,12 +307,138 @@ Use this table with it.
 
 ## 10. Never tested yet
 
-- **Design agent v2 on a real recording:** every real-model run so far used the 4 hand-written ones.
-- **The safe test run in Chrome.**
-- **A person answering the question batch:** Enter was used every time.
-- **The progress feed, the review page and Looks right in the app,** on a real recording.
-- **Capture with your voice on a real task of yours.** Checkpoint 1 had no voice.
-- **Mac-app capture after `pnpm setup:mac`:** Move to Trash, prompts skipped.
+Written Oct 22; the marks are as of Oct 23.
+- ~~**Design agent v2 on a real recording.**~~ Done: checkpoints 4 and 5 (§11, §13).
+- ~~**The safe test run in Chrome.**~~ Done, live, in checkpoints 4 and 5: it found real faults.
+- **A person answering the question batch:** partly. I answered D's, D2's and E's in checkpoint 4; you haven't yet.
+- **The progress feed, the review page and Looks right in the app,** on a real recording: not yet. The live runs used
+  the daemon's API, not the window.
+- **Capture with your voice on a real task of yours:** not yet. Checkpoints 4 and 5 had no voice.
+- **Mac-app capture after `pnpm setup:mac`:** not yet.
 
-The next step does these: 5 recordings made by me on public sites, plus KPI, YC and Play Store recorded by you with
-voice. The results go in `testing/checkpoint-4.md`.
+What's left of this list needs your recordings (KPI, YC, Play Store, with voice) on your Mac.
+
+---
+
+## 11. Checkpoint 4 (Oct 23): five everyday tasks on real sites
+
+**What it was:** tasks A–E from [`record-examples.md`](../testing/record-examples.md), recorded by me on real public
+sites in an isolated test browser:
+- A, Hacker News's top 3 stories;
+- B, YouTube's newest video;
+- C, today's dollar-to-rupee rate;
+- D, Wikipedia's featured article as a PDF;
+- E, an Excalidraw note.
+
+Each was designed on the real model at Stop and then started with **Run now**. No voice, so the goal carried the
+rules.
+
+**Result:** none of the five saved workflows did its task. Every cause was on the record side: a paste wired to the
+wrong copy, the first page lost, a read the runner can't run, a renamed file followed by its old name, a broken draft
+kept. They were numbered F17–F34.
+
+**Where:** [`testing/checkpoint-4.md`](../testing/checkpoint-4.md); copies of each recording in
+`~/shadow-tests/checkpoint-4/` (not in git).
+
+---
+
+## 12. Step 4 (Oct 23): the fixes, piece by piece
+
+Every fix started as a failing test built from the real trace's shape, with the fewest lines and no per-app code.
+The full list (cause, fix, commit, test for each F) is [`record-v2-deep-dive.md`](record-v2-deep-dive.md). The pieces:
+
+### 12.1 Capture and the first draft (② ④ ⑤)
+- **Before:** both fields of a note got the second copied value; a page opened in a second tab merged into the first
+  tab's page; a rename was followed by its recorded name.
+- **Built:**
+  - each paste takes the copy made just before it;
+  - a page opened in another tab is its own step;
+  - a download adds "find the file it saved", which waits up to 60 s;
+  - a rename's new name becomes a value later steps use;
+  - a copied element keeps a selector on pages that nest tables.
+- **Where:** `normalise.ts`, `skeleton.ts`, `evidence/tabs.ts`, `apps/daemon/src/fs-watch.ts`,
+  `apps/extension/src/describe.ts`.
+- **Used at:** ④ and ⑤.
+- **Example:** live D: click Download, then "find the newest `.pdf` saved since the run started" (it waited for the
+  file), then rename to `23 Oct - Thuggee.pdf`, then move into Reading.
+- **Tested by:** unit tests, and live in checkpoint 5.
+
+### 12.2 What the runner can run (⑦ 7b, 7f)
+- **Before:** the agent's tools checked a step's shape, not whether the step-runner could run it. A read with no
+  control, a control found only "near Indian Rupee", or `{{today}}` as an input default all got saved.
+- **Built:** `stepProblems` and `runProblems` hold what the runner needs: each action's values, and a control it can
+  find. `add` and `change` refuse a new step that fails it and say what's needed. The finish gate refuses a workflow
+  with such a step, a stale check, or a step in the wrong tab.
+- **Where:** `design/v2/gate.ts`, `design/v2/tools.ts`.
+- **Used at:** 7b (each edit) and 7f (finish).
+- **Example:** live C's first try read `{ role: "cell" }`, which matches every cell. Now it's refused: "a role alone
+  matches every cell on the page".
+- **Tested by:** unit tests, plus the bench's `runs` check.
+
+### 12.3 Reading the page, and loops (⑦ 7b)
+- **Before:** "read the page, let an AI step pick the newest" failed: a read needed a control, and a step using
+  `{{story.title}}` couldn't be added before the loop that declares `story`.
+- **Built:**
+  - a read with no control reads the page's main part;
+  - a loop can make new steps inside it;
+  - looping over an AI step's answer makes it a list;
+  - the model's ways of writing a type are taken.
+- **Where:** `design/v2/tools.ts`.
+- **Used at:** 7b.
+- **Example:** live B: read the channel page, then an AI step picks the newest video's title and views, then type them.
+  Live C: an AI step picks the rupee rate out of the whole table's text.
+- **Tested by:** unit tests; live in checkpoint 5 (B and C did their task).
+
+### 12.4 The finish gate, and never losing a recording (⑦ 7f, ⑧)
+- **Before:**
+  - a failed test counted as explained by any reason the agent had given;
+  - a stopped design was kept even when it couldn't run;
+  - after two refusals, a design was saved with its gaps, even with all your work removed.
+- **Built:**
+  - only reasons given after the test explain it;
+  - a test that couldn't start is a problem;
+  - frequency words in the goal require a schedule;
+  - a "the newest / top 3" rule left unbuilt is turned back with how to build it;
+  - a stopped design, or one let past the gate, keeps the recorded steps when it lost your work or can't run.
+- **Where:** `design/v2/gate.ts`, `design/v2/orchestrator.ts`.
+- **Used at:** 7f and ⑧.
+- **Example:** live A's last try removed every save. It's now saved as the recorded steps, not as three page opens.
+- **Tested by:** unit tests; live once (D's last try kept the recorded steps).
+
+### 12.5 The agent sees more, and wastes less (⑦)
+- **Before:** the agent resent a failing call up to 20 times, and the test run showed only that a check failed, not
+  what an AI step had answered.
+- **Built:**
+  - a call sent again exactly as it failed is answered "you sent this before";
+  - a change that changed nothing says so;
+  - the test run shows each step's value;
+  - the time of day is never asked (9:00);
+  - a reply cut off at the token cap gets one more episode.
+- **Where:** `design/v2/tools.ts`, `orchestrator.ts`, `prompt.ts`.
+- **Used at:** 7b to 7d.
+- **Example:** live D's AI step took the Main Page's image caption as the article's title. The test now shows that
+  answer to the agent.
+- **Tested by:** unit tests; the repeat answer was seen live.
+
+---
+
+## 13. Checkpoint 5 (Oct 23): the same five tasks, after the fixes
+
+**What it was:** two ways.
+1. Checkpoint 4's own recordings, designed again on the real model after each round of fixes (three rounds).
+2. Each task recorded again live, designed at Stop, and started with Run now. What it saved was checked on the page or
+   in the folder.
+
+**Result:**
+
+| Task | Live result |
+|---|---|
+| B (the newest video) | ✓ does its task end to end |
+| C (today's rupee rate) | ✓ does its task end to end |
+| A (top 3) | ✗ re-design builds the loop; the live design gave up (fixed since: the recorded steps are kept) |
+| D (Wikipedia PDF) | ✗ the agent ran out of calls in 4 of 5 tries; stopped after its last try, as you asked |
+| E (Excalidraw) | ✗ the canvas gap (F22): needs a connector or vision |
+
+**Cost:** $2.93 for the whole checkpoint. The ledger stands at $4.34 of $5.
+
+**Where:** [`testing/checkpoint-5.md`](../testing/checkpoint-5.md).

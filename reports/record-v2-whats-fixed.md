@@ -67,8 +67,8 @@ The design-agent tables also give the matching section of
 | # | The problem, in one line | Example from the reports | What it does now | Status | How we know |
 |---|---|---|---|---|---|
 | 1 | A step was remembered by things that don't come back | Selecting a company name stored the whole block's text, `"EventualBuilding the AI data engine…"`, as the click target; Google's per-session ids (`19fml5:17`) were kept | Capture keeps what does come back:<br>- selecting text is its own event;<br>- Google ids are dropped;<br>- each link keeps its address;<br>- a list item keeps its place ("item 1 of 20");<br>- a sheet click keeps its cell (`B3`) | **Partly.** Capture is fixed. Replay can't yet *use* list place or text to find a step (Akshat, F8) | live capture |
-| 2 | Turning "what I did" into "what I meant" was left to one model | Typed "15 Oct" stayed "15 Oct"; "the top job" stayed one fixed address | Code finds the patterns first and prepares the change (proposals). The agent writes a **task model** (what the task is) and then accepts or rejects the proposals | **Partly.** On the real model, timesheet passed every check; Play Store missed how often it runs (F1); KPI built no loop and YC lost half its calls (F2, F3) | real model |
-| 3 | Nothing checked that the result does the task | Play Store: the old agent deleted all 20 steps and "finished"; a run that did nothing said "succeeded" | **Finish gate** (code) before saving. **Safe test run** in the automation window. **Review page** with "Looks right" before Go live. An empty run says "nothing to do" | **Done (tests).** The test run has never run live. The gate trusts the model on how often it runs (F1) | unit tests; real model |
+| 2 | Turning "what I did" into "what I meant" was left to one model | Typed "15 Oct" stayed "15 Oct"; "the top job" stayed one fixed address | Code finds the patterns first and prepares the change (proposals). The agent writes a **task model** (what the task is) and then accepts or rejects the proposals | **Partly.** On the real model, timesheet passed every check; Play Store missed how often it runs (F1); KPI built no loop and YC lost half its calls (F2, F3). **Oct 23:** B and C generalise and run end to end; longer tasks still run out of calls (checkpoint 5) | real model; live runs |
+| 3 | Nothing checked that the result does the task | Play Store: the old agent deleted all 20 steps and "finished"; a run that did nothing said "succeeded" | **Finish gate** (code) before saving. **Safe test run** in the automation window. **Review page** with "Looks right" before Go live. An empty run says "nothing to do" | **Done (live).** The test run ran live in checkpoints 4 and 5; the gate now checks how often it runs from your words (F1 fixed) | unit tests; real model; live runs |
 | 4 | Replay had no timeouts and only one tab | Chrome calls hung 35–50 s; a 3-tab recording was squashed into one tab | Every Chrome call times out (15 s; 30 s to open a page). A step can name its tab ("KPI Sheet") | Timeouts **Done (tests).** Tabs **Partly**: tabs close while a run waits for your OK (F6, Akshat) | unit tests |
 | 5 | You couldn't see what the agent did | No reasoning kept; refused calls lost | `design.json` keeps:<br>- the task model;<br>- every decision and change with its reason;<br>- the test report and the questions;<br>- the model's reasoning;<br>- refused calls | **Done (live),** with one gap: it doesn't keep the agent's first message, stage 1's reasoning, or the plain list (F16) | real model |
 
@@ -196,7 +196,7 @@ The design-agent tables also give the matching section of
 | Changes sent as text; steps missing their type | Read anyway; a step is written by what it does | **Done (live)** | real model |
 | An empty loop | `loop` needs the steps | **Done (tests)** | unit tests |
 | The picture tool was never used | Removed: code captions every picture first | **Done (live)** | real evidence |
-| *New:* YC, 20 of 40 calls refused for small syntax slips | — | **Open** (F3) | real model |
+| *New:* YC, 20 of 40 calls refused for small syntax slips | — | **Done (tests)** (F3, step 4): every slip is forgiven or refused with what to do | real model; unit tests |
 
 ### D4 · The rules (test plan D8)
 
@@ -210,7 +210,7 @@ The design-agent tables also give the matching section of
 
 | The problem | Now | Status | How we know |
 |---|---|---|---|
-| Asking what the recording already answered | Code answers "which file / which row" from what you said | **Partly:** the file answer can be wrong (F13); the agent still re-asks (F4) | real model |
+| Asking what the recording already answered | Code answers "which file / which row" from what you said | **Partly:** the file answer is matched by words now (F13, step 4), but "all of them" isn't offered; the time of day is never asked; the agent can still re-ask with `confirm` (F4) | real model; live runs |
 | Asked one by one, every recording's questions shown | One batch on the Record screen, next to each step; Enter sends; "You decide" takes the default; at most 5 | **Done (tests)** | unit tests |
 | A question can wait for ever | Unchanged | **Open** (F12) | — |
 
@@ -219,10 +219,10 @@ The design-agent tables also give the matching section of
 | The problem | Now | Status | How we know |
 |---|---|---|---|
 | "Finished" with a workflow that no longer does the task | The finish gate wants:<br>- your work kept;<br>- every rule you said built or explained;<br>- real checks;<br>- test failures explained;<br>- defaults for unattended runs;<br>- the frequency you said.<br>Refused twice at most, then saved with the gaps listed | **Done (tests)** | unit tests |
-| Rules you said, never built | Each rule needs steps or a reason | **Partly:** KPI's "newest" was claimed built by one fixed click (F2) | real model |
-| Nothing tried the workflow | Safe test run: opens pages and reads; only points at buttons, typing and sending | **Done (tests):** never run live | unit tests |
+| Rules you said, never built | Each rule needs steps or a reason | **Partly:** KPI's "newest" was claimed built by one fixed click (F2). Since step 4 such a rule left unbuilt is turned back with how to build it; the gate still doesn't check what a rule's steps do | real model |
+| Nothing tried the workflow | Safe test run: opens pages and reads; only points at buttons, typing and sending | **Done (live):** ran in checkpoints 4 and 5 | unit tests; live runs |
 | Summaries described changes never made | A review page built by code from the real changes; Go live waits for "Looks right" | **Done (tests)** | unit tests |
-| "Every day" → a schedule | Regressed: the model wrote "manual" while quoting "every day" | **Open** (F1) | real model |
+| "Every day" → a schedule | Regressed: the model wrote "manual" while quoting "every day" | **Done (live)** (F1, step 4): frequency words in your goal or what you said require a schedule; B, C and D got one | real model; live runs |
 
 ### D7 · Budget and record-keeping (test plan D5, D10)
 
@@ -231,7 +231,7 @@ The design-agent tables also give the matching section of
 | No reasoning kept | Kept for every build turn | **Done (live)** | real model |
 | Refused calls lost | Kept | **Done (live)** | real model |
 | Picture reading not counted | Counted and cached; on the design's budget | **Done (tests)** | unit tests |
-| Close to the $0.10 limit | $0.25 and 40 calls on one meter | **Partly:** YC still hit the 40-call cap (F3) | real model |
+| Close to the $0.10 limit | $0.25 and 40 calls on one meter | **Partly:** YC hit the 40-call cap (F3, now fixed); in checkpoint 5, A live and D still ran out of calls | real model; live runs |
 
 ---
 

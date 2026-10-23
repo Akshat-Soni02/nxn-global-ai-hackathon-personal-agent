@@ -597,7 +597,6 @@ describe("before round 3 spends: what the model resends, and what the run's mode
     await run(s, "add", { step: { do: "read", intent: "read the page", save_as: "page" }, after: "s1" });
     return s;
   };
-  const typeOf = (s: SessionV2, id: string) => (findStep(s.draft, id) as { output: { type: unknown } }).output.type;
   const fields = { type: "object", fields: { title: { type: "text" }, points: { type: "text" } } };
 
   it("asks the run's model for the fields the loop reads ({{story.title}}), not any object", async () => {
