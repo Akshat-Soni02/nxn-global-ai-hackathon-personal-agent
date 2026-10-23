@@ -9,7 +9,7 @@
 // A recording is never lost: no task model, a used-up budget, an error or a stop keeps the last valid draft (else the
 // plain list, with the answers code found in what was said already in it).
 import { type AgentEvent, type Protocol, runAgent } from "@shadow/agent";
-import { Skill, type StepInput } from "@shadow/core";
+import { applyEdits, type EditInput, isLlm, isLoop, Skill, type StepInput, walkSteps } from "@shadow/core";
 import { type Llm, type Usage, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import { requireApprovals } from "../../approvals.ts";
@@ -101,7 +101,29 @@ export function droppedOf(evidence: Evidence): SessionV2["dropped"] {
 }
 
 // The workflow as saved: url checks as the player reads them, and approval wherever a step acts outward.
-const finalOf = (draft: Skill) => requireApprovals(plainChecks(draft)).skill;
+const finalOf = (draft: Skill) => requireApprovals(plainChecks(withFields(draft))).skill;
+
+// An AI step's list of open objects gets the fields its loop reads ({{story.title}}), so the run's model is asked for
+// exactly those (Checkpoint 5: a bare "object" let it name them as it liked, and {{story.title}} would come out empty).
+// At save, not on each edit: a field read later must not be refused for missing from fields set earlier.
+export function withFields(skill: Skill): Skill {
+  const steps = [...walkSteps(skill.steps)].map(({ step }) => step);
+  const edits = steps.filter(isLoop).flatMap((loop): EditInput[] => {
+    const ai = steps.filter(isLlm).find((a) => `{{${a.output.name}}}` === loop.over);
+    const items = ai?.output.type.type === "list" ? ai.output.type.items : undefined;
+    if (!ai || items?.type !== "object" || items.fields) return [];
+    const read = JSON.stringify(loop.steps).matchAll(new RegExp(`\\{\\{${loop.item.name}\\.(\\w+)`, "g"));
+    const names = [...new Set([...read].map((m) => m[1] as string))];
+    if (names.length === 0) return [];
+    const type = { type: "object", fields: Object.fromEntries(names.map((n) => [n, { type: "text" }])) };
+    return [
+      { op: "set", step: ai.id, field: "output", value: { ...ai.output, type: { type: "list", items: type } } },
+      { op: "set", step: loop.id, field: "item", value: { ...loop.item, type } },
+    ];
+  });
+  const typed = edits.length > 0 ? applyEdits(skill, edits) : undefined;
+  return typed?.ok ? typed.skill : skill;
+}
 
 const cadenceText = (task: TaskModel) =>
   task.cadence.kind === "manual" ? "when you start it" : (task.cadence.quote ?? task.cadence.kind);

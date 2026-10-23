@@ -3,6 +3,7 @@ import { findStep, Skill, type StepInput } from "@shadow/core";
 import { fakeLlm } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
 import type { DoneReport, EvidenceView, Proposal } from "./contracts.ts";
+import { withFields } from "./orchestrator.ts";
 import { newSession, type SessionV2 } from "./session.ts";
 import { designToolsV2, unstring } from "./tools.ts";
 
@@ -587,5 +588,74 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
     expect(String(out.output)).toMatch(/the trigger is start/);
     const bare = await run(session(), "change", { step: "start", why: "every Friday" });
     expect(JSON.stringify(bare.output)).toMatch(/trigger \{ when/);
+  });
+});
+
+describe("before round 3 spends: what the model resends, and what the run's model is asked for", () => {
+  const withPage = async () => {
+    const s = session();
+    await run(s, "add", { step: { do: "read", intent: "read the page", save_as: "page" }, after: "s1" });
+    return s;
+  };
+  const typeOf = (s: SessionV2, id: string) => (findStep(s.draft, id) as { output: { type: unknown } }).output.type;
+  const fields = { type: "object", fields: { title: { type: "text" }, points: { type: "text" } } };
+
+  it("asks the run's model for the fields the loop reads ({{story.title}}), not any object", async () => {
+    const s = await withPage();
+    await run(s, "ai_step", {
+      after: "s4",
+      intent: "p",
+      instruction: "the top 3",
+      inputs: ["{{page}}"],
+      output: { name: "stories", type: "list" },
+    });
+    const looped = await run(s, "loop", {
+      over: "stories",
+      item: { name: "story" },
+      intent: "each",
+      after: "ai1",
+      steps: [
+        { do: "type", intent: "title", target: { like: "s3" }, args: { text: "{{story.title}}" } },
+        { do: "type", intent: "points", target: { like: "s3" }, args: { text: "{{story.points}}" } },
+      ],
+    });
+    expect(looped.output.ok).toBe(true);
+    const saved = withFields(s.draft);
+    expect((findStep(saved, "ai1") as { output: { type: unknown } }).output.type).toEqual({
+      type: "list",
+      items: fields,
+    });
+    expect((findStep(saved, "l1") as { item: { type: unknown } }).item.type).toEqual(fields);
+  });
+
+  it("also when the loop's steps read the fields after it was made", async () => {
+    const s = await withPage();
+    await run(s, "ai_step", {
+      after: "s4",
+      intent: "p",
+      instruction: "new ones",
+      inputs: ["{{page}}"],
+      output: { name: "new_emails", type: "list" },
+    });
+    await run(s, "loop", { steps: ["s2", "s3"], over: "new_emails", item: { name: "email" }, intent: "each" });
+    expect((await run(s, "change", { step: "s3", args: { text: "{{email.subject}}" } })).output.ok).toBe(true);
+    const saved = findStep(withFields(s.draft), "ai1") as { output: { type: unknown } };
+    expect(saved.output.type).toEqual({
+      type: "list",
+      items: { type: "object", fields: { subject: { type: "text" } } },
+    });
+  });
+
+  it("says a call sent again exactly as before fails the same way (A sent one add 20 times)", async () => {
+    const s = session();
+    const tools = designToolsV2(s);
+    const add = tools.find((t) => t.name === "add") as AnyTool<DoneReport>;
+    const input = add.input.parse({
+      step: { do: "type", intent: "t", target: { like: "s3" }, args: { text: "{{story.title}}" } },
+    });
+    const first = JSON.stringify((await add.run(input, { turn: 1 })).output);
+    const again = JSON.stringify((await add.run(input, { turn: 2 })).output);
+    expect(first).not.toMatch(/sent this exact call before/);
+    expect(again).toMatch(/sent this exact call before.*uses story/);
   });
 });

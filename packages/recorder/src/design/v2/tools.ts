@@ -927,10 +927,21 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         : value && typeof value === "object"
           ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, hide(v)]))
           : value;
+  // A call sent again as it was, on the same workflow, fails the same way (Checkpoint 5: A sent one add 20 times; B, D2
+  // and E resent theirs 3 or 4 times): said so, so the model changes the call instead of sending it again.
+  const failed = new Map<string, string>();
   return tools.map((t) => ({
     ...t,
     run: async (input: unknown, ctx: ToolContext) => {
+      const key = `${t.name} ${JSON.stringify(input)} ${JSON.stringify(session.draft.steps)}`;
+      const before = failed.get(key);
+      if (before) {
+        const again = `you sent this exact call before and it failed: ${before}. Sent again it fails the same way: change it (other values, another tool) or move on`;
+        return { output: hide({ ok: false, problems: [again] }) };
+      }
       const result = await t.run(input, ctx);
+      const out = result.output as { ok?: boolean; problems?: string[]; refused?: string[] } | undefined;
+      if (out?.ok === false) failed.set(key, [...(out.problems ?? []), ...(out.refused ?? [])].join("; "));
       return { ...result, output: hide(result.output) };
     },
   }));
