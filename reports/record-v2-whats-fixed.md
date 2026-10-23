@@ -22,9 +22,10 @@ The design-agent tables also give the matching section of
   - ready-made proposals ("type today's date", "item 1 of the list").
 - **The design agent was rebuilt.** It now writes down what the task is before changing anything, it has tools that
   forgive mistakes, and code (not the model) decides when it's done.
-- **The design agent has only been tried on 4 test recordings,** written by hand, never on a real one. On the real
-  model, the timesheet one passed every check; Play Store missed one (how often it runs); KPI and YC missed several
-  (F1–F5 below). The safe test run has never run live.
+- **The design agent was first tried on 4 hand-written test recordings** (Oct 20): the timesheet one passed every
+  check; Play Store missed one (how often it runs); KPI and YC missed several (F1–F5).
+- **On Oct 23 it ran on 5 real recordings** (public sites, recorded by Claude, no voice; checkpoint 4). The safe test
+  run ran live and found real faults, **but none of the five saved workflows did its task when run** (F17–F34).
 
 ## How to read the tables
 
@@ -229,7 +230,7 @@ The design-agent tables also give the matching section of
 
 ---
 
-## What's still broken (F1–F16)
+## What's still broken (F1–F34)
 
 **Seen on the real model** (checkpoint 3):
 
@@ -256,6 +257,30 @@ The design-agent tables also give the matching section of
 | F14 | *(new, Oct 22)* **Run now** in the app never asks which file: it takes the newest even after "ask me each time", and stops if a value has no default. Only the terminal's `run` asks | to decide (run side) |
 | F15 | *(new, Oct 22)* The **Never** list is empty for a new recording, so a spoken "never do X" is only a quoted rule, not a guard | record |
 | F16 | *(new, Oct 22)* `design.json` doesn't keep the agent's first message, stage 1's reasoning, or the plain list it started from | record |
+
+**Found in checkpoint 4** (Oct 23: five everyday tasks on real sites, designed on the real model, then run; details in
+[`testing/checkpoint-4.md`](../testing/checkpoint-4.md)). **None of the five saved workflows did its task when run.**
+
+| # | In plain words | Owner |
+|---|---|---|
+| F17 | A paste gets the copy made *before the field was left*, not before the paste: two fields both got the second copy | record |
+| F18 | The first page opened in a tab that was open before Record isn't a step | record |
+| F19 | List places are wrong on tables (a story's title and points counted as two items) and missed on YouTube's grid | record |
+| F20 | Accepting a "list item", "repeat", "all files" or "constant" proposal changes nothing, though the agent is told it does | record |
+| F21 | "Open directly" offers to hard-code the example ("this video") when the task says "the newest" | record |
+| F22 | Canvas apps: typing into a temporary text box isn't recorded; the canvas click is dropped | record |
+| F23 | A downloaded file isn't linked to the rename and move after it; the move keeps the recorded name | record |
+| F24 | A watched folder inside a hidden folder records nothing | record |
+| F25 | The workflow can't read a page's text (no target), so "read the page, let AI pick" fails | to decide (player) |
+| F26 | The finish gate lets broken workflows through (a reason given when adding a step counts as explaining its test failure; a test that never started counts; stale checks; rule→step mapping not checked) | record |
+| F27 | "Kept what it reached" can save a draft that can't run, worse than the recording | record |
+| F28 | The agent's tools accept steps the player can't run (wrong arguments, no target, `{{today}}` as an input) | record |
+| F29 | "The recording already answers this" is wrong both ways: real questions dropped, answered ones asked | record |
+| F30 | The agent's questions are lost when the design stops early | record |
+| F31 | The review shows the agent's words unchecked ("as per user preference" when nobody was asked) | record |
+| F32 | The agent burns its 40 calls on one step (13 changes to one step; 9 tries at setting the schedule) | record |
+| F33 | The safe test run: a step failed only inside it (unexplained); it can't start when an input needs a file the run downloads; it leaves tabs open | record |
+| F34 | The bench's checks pass workflows that can't run | record |
 
 ## Not checked live yet
 

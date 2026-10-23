@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- A stand-in for "my notes" or "my reading list" in the record tests (testing/record-examples.md, A–E): a few fields,
+     Save, and the rows saved so far (kept in this browser), so a workflow can read what is already there. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>My notes</title>
+  </head>
+  <body>
+    <h1>My notes</h1>
+    <form id="note">
+      <label>Title <input name="title" /></label>
+      <label>Value <input name="value" /></label>
+      <label>Date <input name="date" /></label>
+      <label>Currency
+        <select name="currency"><option value="">—</option><option>USD</option><option>EUR</option><option>INR</option></select>
+      </label>
+      <button type="submit">Save</button>
+    </form>
+    <p id="status" role="status"></p>
+    <table aria-label="Saved notes">
+      <thead><tr><th>Title</th><th>Value</th><th>Date</th><th>Currency</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <script>
+      const rows = JSON.parse(localStorage.getItem("notes") || "[]");
+      const show = () => {
+        document.getElementById("rows").replaceChildren(
+          ...rows.map((r) => {
+            const tr = document.createElement("tr");
+            for (const k of ["title", "value", "date", "currency"]) tr.insertCell().textContent = r[k] ?? "";
+            return tr;
+          }),
+        );
+      };
+      document.getElementById("note").addEventListener("submit", (e) => {
+        e.preventDefault();
+        rows.push(Object.fromEntries(new FormData(e.target)));
+        localStorage.setItem("notes", JSON.stringify(rows));
+        e.target.reset();
+        document.getElementById("status").textContent = "Saved";
+        show();
+      });
+      show();
+    </script>
+  </body>
+</html>

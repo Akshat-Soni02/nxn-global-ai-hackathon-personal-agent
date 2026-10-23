@@ -56,21 +56,22 @@ test what the Oct 17 exam found.
 
 - **Who:** anyone who keeps a reading list.
 - **Where:** `https://news.ycombinator.com` → `http://localhost:5173/notes.html`. No login; nothing sent.
-- **Goal to type:** "Every morning, save the top 3 Hacker News stories (title and link) to my reading list. Skip any
-  story that's already on the list."
+- **Goal to type:** "Every morning, save the top 3 Hacker News stories (title and points) to my reading list. Skip any
+  story that is already on the list."
 - **Do:**
   1. Record.
   2. Open Hacker News.
   3. For stories 1, 2 and 3:
      - select the title and copy it;
      - in the notes tab: Title ← paste;
-     - back on HN, copy the story's link (right-click → Copy link, or open it and copy the address);
+     - back on HN, select the story's points ("343 points") and copy them (the link was planned, but Playwright can't
+       use Chrome's right-click menu or address bar);
      - in notes: Value ← paste, Save.
   4. Stop.
 - **A correct workflow next time:**
   - `trigger` schedule ("every morning");
   - `has_loop` over the stories;
-  - `write_kept` web.type with `{{…}}`: the title and link come from the page, not "Show HN: …" as recorded;
+  - `write_kept` web.type with `{{…}}`: the title and points come from the page, not today's text as recorded;
   - "skip any already on the list" built as a read of the list plus a branch or an AI step, or said "not built" with
     why (the gate wants one of the two);
   - `max_questions` 1 (perhaps how many);
@@ -90,10 +91,10 @@ test what the Oct 17 exam found.
   count."
 - **Do:**
   1. Record.
-  2. Open the channel's Videos tab, which is newest first.
-  3. Select the first video's title and copy it.
+  2. On the channel's Videos tab (open before Record, newest first), click the first video.
+  3. On the video's page, select its title and copy it (a title inside a link can't be drag-selected).
   4. In notes: Title ← paste.
-  5. Back on YouTube, select the view count under it and copy it.
+  5. Back on the video's page, select the views ("23K views") and copy them.
   6. In notes: Value ← paste, Save.
   7. Stop.
 - **A correct workflow next time:**
@@ -121,7 +122,8 @@ test what the Oct 17 exam found.
   2. Open the rates table.
   3. Select the INR row's rate and copy it.
   4. In notes:
-     - Title: type today's date as you write it (e.g. "23 Oct");
+     - Title: type "USD to INR" (always the same);
+     - Date: type today's date as you write it (e.g. "23 Oct");
      - Value ← paste;
      - Currency: choose **USD** in the dropdown;
      - Save.
@@ -276,7 +278,8 @@ From the Oct 17 exam, test 5.
 
 ## Results
 
-Filled in step 3, in `testing/checkpoint-4.md`. For each task:
+A–E were run on Oct 23: see [`checkpoint-4.md`](checkpoint-4.md). None of the five saved workflows does its task when run;
+F17–F34 are what broke. F–L are still to record. For each task the results give:
 - the checks (✓ / ✗ / ⚠ known gap);
 - the cost;
 - the questions asked;

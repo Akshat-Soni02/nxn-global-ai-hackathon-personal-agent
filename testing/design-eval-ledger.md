@@ -15,3 +15,10 @@
 | 2026-10-20T10:55:19.651Z | timesheet | nvidia/nemotron-3-super-120b-a12b | $0.0228 | 5/5 |
 | 2026-10-20T10:58:40.457Z | yc-top-job | nvidia/nemotron-3-super-120b-a12b | $0.1235 | 3/5 |
 | 2026-10-20T10:59:11.969Z | playstore-to-chat | nvidia/nemotron-3-super-120b-a12b | $0.0122 | 5/6 |
+| 2026-10-23 | cp4 A Hacker News top 3 → notes (daemon Stop, design v2, test browser, test run live) | nemotron-3-super | $0.0528 | 3/5 checks; doesn't run (s2) |
+| 2026-10-23 | cp4 B YouTube newest video → notes (Pictures on: captions on the same meter) | nemotron-3-super + glm-5.3-flash | $0.1221 | 4/4 checks; doesn't run (s9) |
+| 2026-10-23 | cp4 C x-rates USD→INR → notes (ran out of calls, kept) | nemotron-3-super | $0.1513 | 6/6 checks; doesn't run (s10) |
+| 2026-10-23 | cp4 D Wikipedia PDF → Reading (file moves not captured: watch folder under ~/.claude) | nemotron-3-super | $0.0949 | 1/4 checks; not run |
+| 2026-10-23 | cp4 D2 same, watch folder in ~/shadow-tests (ran out of calls, kept) | nemotron-3-super | $0.1409 | 3/4 checks; fails before step 1 |
+| 2026-10-23 | cp4 E Excalidraw note (canvas probe; Pictures on) | nemotron-3-super + glm-5.3-flash | $0.0598 | 3/4 checks; fails before step 1 |
+| 2026-10-23 | cp4 Run now of A, B, C: replay's repair agent on each failure (B repaired to v2) | nemotron-3-super | $0.1499 | n/a (none ran through) |
