@@ -268,7 +268,7 @@ The design-agent tables also give the matching section of
 | F19 | List places are wrong on tables (a story's title and points counted as two items) and missed on YouTube's grid | record |
 | F20 | Accepting a "list item", "repeat", "all files" or "constant" proposal changes nothing, though the agent is told it does | record |
 | F21 | "Open directly" offers to hard-code the example ("this video") when the task says "the newest" | record |
-| F22 | Canvas apps: typing into a temporary text box isn't recorded; the canvas click is dropped | record |
+| F22 | Canvas apps: the click on the canvas is put on a toolbar and dropped (typing on a canvas not tested yet) | record |
 | F23 | A downloaded file isn't linked to the rename and move after it; the move keeps the recorded name | record |
 | F24 | A watched folder inside a hidden folder records nothing | record |
 | F25 | The workflow can't read a page's text (no target), so "read the page, let AI pick" fails | to decide (player) |
