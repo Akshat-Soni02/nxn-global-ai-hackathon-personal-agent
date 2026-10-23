@@ -31,7 +31,7 @@ folder.
 
 | Task | Checkpoint 4 | Now: design | Rules built | Schedule | Run now | Output correct | Calls, cost |
 |---|---|---|---|---|---|---|---|
-| **A** Hacker News: top 3 → notes, skip ones already saved | didn't run | saved past the gate with every save removed (F61, now fixed) | ✗ neither rule | every day 9:00 | ran, did nothing | ✗ | 9, $0.04 |
+| **A** Hacker News: top 3 → notes, skip ones already saved | didn't run | saved past the gate with every save removed (F61, now fixed); **re-run live: designed** | re-run: ✓ top 3 read and looped; "skip saved" built but missed one | every day 9:00 | re-run: **succeeded** | re-run: ✓ the live top 3 with points, ✗ one duplicate | 9, $0.04; re-run 23, $0.10 |
 | **B** YouTube: newest video's title and views → notes | didn't run | designed | ✓ read the channel page, an AI step picks the newest | Mondays 9:00 | **succeeded** | ✓ "Design and replicate voices with Gemini 3.8 Flash TTS", "23K" | 26, $0.07 |
 | **C** USD→INR rate, today's date, USD → notes | didn't run | designed (second try) | ✓ read the page, an AI step picks the rupee rate; today's date; USD fixed | weekdays 9:00 | **succeeded** | ✓ "USD to INR", 94.907545, 23 Oct, USD | 16, $0.05 |
 | **D** Wikipedia's featured article → PDF in Reading, named with the date | didn't run | last try: out of calls, so the recorded steps were kept | ✗ (the recording: always "Thuggee") | by hand | **succeeded** | ✗ saved "23 Oct - Thuggee (1).pdf" to Reading: today's article only by chance | 40, $0.16 |
@@ -39,7 +39,16 @@ folder.
 
 **In short: two of the five now do their task end to end when run (B and C).** In checkpoint 4, none did.
 - **A:** the re-design on round-3 code builds the right loop and can run. The live design gave up instead, and was saved past
-  the finish gate with every save removed. That hole is now fixed (F61); A wasn't run live again.
+  the finish gate with every save removed. That hole is now fixed (F61).
+  - **Re-run live on 23 Oct evening (at Rushil's ask, `cce8f0d`): A now does its task.** In 23 calls ($0.10) the agent
+    built:
+    1. read Hacker News and read the list;
+    2. one AI step picks the top 3, another filters out stories already saved;
+    3. a loop types the title and points and saves.
+    It runs daily at 9:00.
+  - Run now saved the current top 3 with live points.
+  - **But "skip ones already saved" missed one:** "Local Wikipedia…" was saved again, because its Hacker News title ends
+    "(edjefferson.com)" and the saved one doesn't. Nothing checks an AI step's answer.
 - **D:** every piece works on its own: the download chain ran (live D, fifth and last tries), and the design was right once
   (sixth try). But in 4 of the 5 tries that reached a design, the agent ran out of calls, and the one finished design failed because the run's AI
   step took the Main Page's image caption as the title. Each try's cause is fixed (F51–F60), but D was stopped after
