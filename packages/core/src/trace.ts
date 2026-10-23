@@ -19,6 +19,7 @@ export const TRACE_EVENTS = [
   "key",
   "select_text", // text you selected (dragging, or a double or triple click): the selection, not a click
   "effect", // what a click or an Enter did, 700 ms later (of: the cid of that event)
+  "print", // you printed the page (⌘P, File > Print): its dialog and the save panel are the browser's, not the page's
   // browser, from the extension's background worker
   "navigate",
   "tab_open",

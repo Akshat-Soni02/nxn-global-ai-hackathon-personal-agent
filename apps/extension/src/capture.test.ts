@@ -67,6 +67,15 @@ describe("capture", () => {
     expect(events.map((e) => [e.event, e.target?.name, e.echo])).toEqual([["click", "Upload invoice", true]]);
   });
 
+  it("records printing the page: the dialog is the browser's, so this is all a recording sees of it", () => {
+    load("upload.html");
+    document.title = "Thuggee - Wikipedia";
+    const { events, stop } = record();
+    window.dispatchEvent(new Event("beforeprint"));
+    stop();
+    expect(events.map((e) => [e.event, e.title])).toEqual([["print", "Thuggee - Wikipedia"]]);
+  });
+
   it("records a picked file by name only", () => {
     load("upload.html");
     const { events, stop } = record();

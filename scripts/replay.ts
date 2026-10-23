@@ -22,6 +22,7 @@ import {
   llmExecutor,
   poll,
   resolveInputs,
+  savePdf,
   scriptChannel,
 } from "../packages/player/src/node/index.ts";
 import { createRepairer, runWithRecovery } from "../packages/player/src/repair/index.ts";
@@ -106,7 +107,13 @@ let status = "failed";
 try {
   if (needsBrowser) await browser();
   const deps: Parameters<typeof runSkill>[1] = {
-    web: async (step) => executeWebStep(await browser(), step),
+    web: async (step) => {
+      const result = await executeWebStep(await browser(), step);
+      const pdf = (result.value as { pdf?: unknown } | undefined)?.pdf;
+      return result.ok && step.action === "save_pdf" && typeof pdf === "string"
+        ? { ok: true, value: await savePdf(step.args, pdf) }
+        : result;
+    },
     fs: fsChannel,
     script: flag("--no-scripts")
       ? async (step) => {

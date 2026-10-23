@@ -67,6 +67,7 @@ const NEEDS: Record<string, string[]> = {
   "web.type": ["text"],
   "web.select": ["option"],
   "web.press": ["key"],
+  "web.save_pdf": ["dir", "name"],
   "fs.find": ["dir", "glob"],
   "fs.move": ["from", "to"],
   "fs.copy": ["from", "to"],
@@ -98,7 +99,8 @@ export function stepProblems(step: Step): string[] {
   const problems =
     missing.length > 0 ? [`${step.id}: ${key} needs ${needs.join(" and ")} (missing ${missing.join(", ")})`] : [];
   const noControl =
-    ["web.navigate", "web.wait_for"].includes(key) || (key === "web.extract" && step.args.source === "google_sheet");
+    ["web.navigate", "web.wait_for", "web.save_pdf"].includes(key) ||
+    (key === "web.extract" && step.args.source === "google_sheet");
   // A key pressed on the page needs no control; one aimed at a control must be able to find it.
   if (step.channel === "web" && !noControl && (key !== "web.press" || step.target) && !findable(step.target)) {
     problems.push(

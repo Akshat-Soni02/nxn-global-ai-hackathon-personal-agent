@@ -67,6 +67,8 @@ export interface Skeleton {
   idsByStep: string[][];
   // What code can't decide and must ask: which row of a sheet, what a pasted value should be.
   questions: Question[];
+  // What the recording shows happening that no step can do: a file that appeared with nothing recorded making it.
+  gaps: string[];
 }
 
 export function skeletonOf(steps: NormalisedStep[]): Skeleton {
@@ -76,13 +78,22 @@ export function skeletonOf(steps: NormalisedStep[]): Skeleton {
   const questions: Question[] = [];
   const copies = new Map<string, string>(); // a copy event's id -> the variable its value is saved as
   const files = new Map<string, string>(); // a path a step left a file at -> how later steps refer to it
+  const gaps: string[] = [];
   for (const step of steps) {
     const first = out.length;
     const id = (k: number) => `s${first + k + 1}`;
+    // A file that appeared with nothing recorded making it can't be made again by a step (checkpoint 6: a "find the
+    // file" after it waited for a file no step makes): it is said, and left to the design agent.
+    if (step.kind === "file_appeared") {
+      const after = step.after !== undefined ? ` ${Math.round(step.after / 1000)} s after the step before it` : "";
+      gaps.push(`${tilde(step.path)} appeared${after}, and the recording doesn't show what made it`);
+    }
     const built =
       step.kind === "copy"
         ? copySteps(step, id, copies, questions)
-        : [toStep(step, id(0), { inputs, copies, questions, files })];
+        : step.kind === "file_appeared"
+          ? []
+          : [toStep(step, id(0), { inputs, copies, questions, files })];
     // A file this step downloaded is found again by the run that downloads it, so later steps on it never ask "which
     // file?" (Checkpoint 4: the rename after a download asked, with no option for "the file just downloaded").
     for (const path of step.produces ?? []) {
@@ -121,6 +132,7 @@ export function skeletonOf(steps: NormalisedStep[]): Skeleton {
     },
     idsByStep,
     questions,
+    gaps,
   };
 }
 
@@ -354,6 +366,23 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
     }
     case "copy":
       throw new Error("copy steps are built by copySteps");
+    case "file_appeared":
+      throw new Error("a file nothing recorded made is a gap, not a step");
+    case "save_pdf": {
+      // The browser's print dialog saved the page as a PDF: replay prints it straight to the same folder and name, and
+      // later steps on that file follow it by name ({{saved_1}}), as they follow a download.
+      const path = step.path ?? "";
+      const name = `saved_${[...files.values()].filter((v) => v.startsWith("{{saved_")).length + 1}`;
+      files.set(path, `{{${name}}}`);
+      return {
+        id,
+        intent: `Save the page as a PDF in ${tilde(dirname(path))}`,
+        channel: "web",
+        action: "save_pdf",
+        args: { dir: tilde(dirname(path)), name: basename(path) },
+        output: { name, type: FILE },
+      };
+    }
     case "fs_move":
     case "fs_rename": {
       // The file is found again at run time, as an upload's is: the newest file like it in the folder it was in

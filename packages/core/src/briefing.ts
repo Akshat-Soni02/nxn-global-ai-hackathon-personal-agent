@@ -30,6 +30,10 @@ export const ACTION_DOCS: Record<string, ActionDoc> = {
     args: '{ all?, limit?, each?, join? } (each: a template per element with {{text}} and {{href}}), or { source: "google_sheet" | "table" } for rows',
     output: "text; list of text with all (and no each); list of object for a source",
   },
+  "web.save_pdf": {
+    args: "{ dir, name }  prints the page to a PDF named name in dir (Print → Save as PDF, without its dialog)",
+    output: "file",
+  },
   "fs.find": {
     args: '{ dir, glob, pick: "newest" | "all", since_run_start? }',
     output: "file; list of file with pick: all",

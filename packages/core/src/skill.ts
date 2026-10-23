@@ -35,6 +35,8 @@
 //   web.extract   { all?, limit?, each?, join? }        each: per-element template using {{text}} and {{href}}
 //   web.extract   { source: "google_sheet" }            the open Google Sheet's rows (CSV export), as objects
 //   web.extract   { source: "table" }                   the target <table>'s rows, as objects keyed by header
+//   web.save_pdf  { dir, name }                         prints the page to a PDF in dir (name: a file name, never a
+//                                                       path; never overwrites): what Print → Save as PDF does
 //   fs.find       { dir, glob, pick: "newest" | "all", since_run_start? }   since_run_start ignores older files
 // A file input's resolve: { dir, glob, pick, ask?, accept?, max_mb? }. ask: false takes the newest match without
 // asking. accept ("image/*,.pdf", the HTML syntax) and max_mb say which files it takes: checked before the run.
@@ -65,7 +67,7 @@ export type Channel = z.infer<typeof Channel>;
 
 // Actions each channel supports. The recorder must only emit these; the player must implement all of them.
 export const ACTIONS = {
-  web: ["navigate", "click", "type", "select", "press", "upload", "drag", "wait_for", "extract"],
+  web: ["navigate", "click", "type", "select", "press", "upload", "drag", "wait_for", "extract", "save_pdf"],
   fs: ["find", "move", "copy", "rename", "read", "write"],
   script: ["applescript", "shortcut", "shell"],
   // A rule over rows saved by an earlier step. Judgement and text work are llm steps, not data actions.

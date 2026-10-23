@@ -123,6 +123,7 @@ function produces(step: ActionStep): VarType[] {
       return [FILE, listOf(FILE)];
     case "fs.rename":
     case "fs.write":
+    case "web.save_pdf":
       return [FILE];
     case "fs.read":
       return [TEXT];

@@ -54,6 +54,7 @@ const DO: Record<string, [string, string]> = {
   read_sheet: ["web", "extract"],
   wait: ["web", "wait_for"],
   upload: ["web", "upload"],
+  save_pdf: ["web", "save_pdf"],
   find_files: ["fs", "find"],
   read_file: ["fs", "read"],
   move_file: ["fs", "move"],

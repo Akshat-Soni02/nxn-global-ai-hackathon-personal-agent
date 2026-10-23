@@ -756,3 +756,27 @@ describe("what live D's last try showed", () => {
     expect(String(out.output.workflow)).not.toMatch(/element "\?"/);
   });
 });
+
+describe("save the page as a PDF (checkpoint 6)", () => {
+  const reading = `${process.env.HOME}/Desktop/Reading`;
+  const s = () => newSession(recorded, { pages: [MAIL], folders: [reading] });
+  const pdf = (dir: string) => ({
+    step: {
+      do: "save_pdf",
+      intent: "Save the page as a PDF",
+      args: { dir, name: "{{today|D MMM}} - KPIs.pdf" },
+    },
+    after: "s1",
+    why: "they printed the page to a PDF in Reading",
+  });
+
+  it("adds a step that prints the page to a PDF, named with today's date, in a folder the recording used", async () => {
+    const r = await run(s(), "add", pdf("~/Desktop/Reading"));
+    expect(r.output.ok).toBe(true);
+  });
+
+  it("keeps it out of folders the recording never used", async () => {
+    const r = await run(s(), "add", pdf("~/.ssh"));
+    expect(JSON.stringify(r.output)).toContain("may only reach");
+  });
+});

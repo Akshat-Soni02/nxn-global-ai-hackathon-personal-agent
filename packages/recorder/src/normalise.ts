@@ -22,6 +22,8 @@ export type StepKind =
   | "copy"
   | "fs_move"
   | "fs_rename"
+  | "save_pdf" // the page printed to a PDF (the browser's print dialog, then the file it saved)
+  | "file_appeared" // a file appeared that no recorded step made: said so, never blamed on the step before
   // Mac apps (Shadow.app, Accessibility API)
   | "app_open"
   | "app_press"
@@ -69,6 +71,8 @@ export interface NormalisedStep {
   back?: boolean;
   submits?: boolean; // it submitted a form
   produces?: string[]; // files that appeared because of it (downloads)
+  title?: string; // save_pdf: the printed page's title
+  after?: number; // file_appeared: how long after the step before it (ms)
   candidate?: ParamCandidate;
   // copy: what was copied, and for drawn apps (a Google Sheet) the header and row it came from.
   context?: Record<string, unknown>;
@@ -111,6 +115,7 @@ export const NOISE = {
   drawn: "a click on a drawn grid: its cell goes with the copy or typing after it",
   focus: "only put the cursor in a field: the typing after it is the step",
   nameless: "nothing to find it by again",
+  printed: "no PDF appeared in a folder Shadow watches after it: printed on paper, or saved somewhere else",
 } as const;
 const WATCH_MS = 700; // capture watches a click this long; a next action sooner mixes their effects
 const STEP_EVENTS = new Set(["click", "type", "select", "check", "file", "drop", "drag", "key", "navigate"]);
@@ -144,6 +149,12 @@ const FILE_APPS = new Set(["com.apple.finder"]);
 // Finder's Move to Trash (its menu item, or ⌘⌫), reported by Shadow.app: the file that vanishes right after it is a
 // trashed file, a step. Apps delete their own files all day, so a vanish without it is not.
 const TRASH_MS = 5_000;
+// A file belongs to the step before it only when something says that step made it (checkpoint 6: a PDF printed through
+// the browser's dialog was blamed on a click 39 s earlier): a download event for that path; a print, for a PDF that
+// appears within PRINT_MS; or a control that acts (Export, a Mac app's Save or menu) within MAKES_MS.
+const PRINT_MS = 10 * 60_000;
+const MAKES_MS = 15_000;
+const MAKERS = new Set<StepKind>(["press", "app_press", "app_key", "app_menu"]);
 const finderTrash = (e: TraceEvent) =>
   (e.event === "app_menu" && (e.menu ?? []).at(-1) === "Move to Trash") ||
   (e.event === "app_key" && /^(delete|backspace)$/i.test(e.value ?? "") && (e.modifiers ?? []).includes("cmd"));
@@ -194,6 +205,15 @@ export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; no
   // after the next copy (Checkpoint 4: both fields got the second copy).
   const pastes: { target?: ElementDescriptor; copy?: string }[] = [];
   let lastTrash: number | undefined;
+  // The page printed last, until a PDF appears for it; a print nothing came of is listed, not lost.
+  let lastPrint: TraceEvent | undefined;
+  const unprinted = (p: TraceEvent) =>
+    drop([p.id], p.at, p.tabId, `printed "${p.title ?? p.url ?? "the page"}"`, NOISE.printed);
+  // Files a download event names: that event says which step made them, whenever the watcher saw them.
+  const downloaded = new Set(events.flatMap((e) => (e.event === "download" && e.path ? [e.path] : [])));
+  const makesFiles = (s: Draft) =>
+    MAKERS.has(s.kind) ||
+    (s.kind === "click" && (ACTING_ROLES.has(s.target?.role ?? "") || ACTS.test(labelOf(s.target))));
   const base = (e: TraceEvent): Draft => ({
     kind: "click",
     at: e.at,
@@ -427,9 +447,33 @@ export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; no
         }
         break;
       }
-      case "download":
+      case "print":
+        if (lastPrint) unprinted(lastPrint);
+        lastPrint = e;
+        break;
+      case "download": {
+        if (!prev || !e.path) break;
+        if (!prev.produces?.includes(e.path)) prev.produces = [...(prev.produces ?? []), e.path];
+        // The watcher's own event for the same file, often a moment earlier, goes with it.
+        prev.events.push(e.id, ...events.filter((x) => x.event === "fs_create" && x.path === e.path).map((x) => x.id));
+        break;
+      }
       case "fs_create": {
-        if (prev && e.path && !prev.produces?.includes(e.path)) prev.produces = [...(prev.produces ?? []), e.path];
+        if (!e.path || downloaded.has(e.path)) break;
+        if (lastPrint && /\.pdf$/i.test(e.path) && e.at - lastPrint.at <= PRINT_MS) {
+          const title = lastPrint.title ? { title: lastPrint.title } : {};
+          steps.push({ ...base(lastPrint), kind: "save_pdf", target: undefined, path: e.path, ...title });
+          last()?.events.push(e.id);
+          lastPrint = undefined;
+          break;
+        }
+        if (prev && makesFiles(prev) && e.at - prev.at <= MAKES_MS) {
+          if (!prev.produces?.includes(e.path)) prev.produces = [...(prev.produces ?? []), e.path];
+          prev.events.push(e.id);
+          break;
+        }
+        const after = prev ? { after: e.at - prev.at } : {};
+        steps.push({ ...base(e), kind: "file_appeared", target: undefined, path: e.path, ...after });
         break;
       }
       case "fs_move":
@@ -484,6 +528,7 @@ export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; no
   }
 
   settleSelection();
+  if (lastPrint) unprinted(lastPrint);
   // Drawn clicks no copy explained can't be replayed by element: they are reported on the next step instead. Clicks
   // that changed nothing, only focused a field, or have nothing to find them by are left out too: each one listed.
   const kept: Draft[] = [];

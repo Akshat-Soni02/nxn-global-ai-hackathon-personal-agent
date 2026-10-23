@@ -41,6 +41,22 @@ async function moveFile(from: string, to: string): Promise<void> {
   }
 }
 
+// web.save_pdf's file: the extension printed the page (base64, from Page.printToPDF); it is written here, where files
+// live. The name is a file name only: a "/" in it (a title read from the page) can't take it out of the folder.
+export async function savePdf(args: Record<string, unknown>, data: string): Promise<ReturnType<typeof fileValue>> {
+  const dir = expandHome(str(args.dir, "dir"));
+  const raw =
+    str(args.name, "name")
+      .replace(/[/\\:]/g, "-")
+      .replace(/^\.+/, "")
+      .trim() || "page";
+  const name = /\.pdf$/i.test(raw) ? raw : `${raw}.pdf`;
+  await mkdir(dir, { recursive: true });
+  const target = freePath(join(dir, name));
+  await writeFile(target, Buffer.from(data, "base64"));
+  return fileValue(target);
+}
+
 export async function fsChannel(step: Step, ctx: RunContext): Promise<StepResult> {
   const a = step.args;
   switch (step.action) {
