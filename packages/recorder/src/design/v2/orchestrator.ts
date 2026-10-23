@@ -21,7 +21,7 @@ import { plainChecks } from "../../plain-checks.ts";
 import { skeletonOf, skillInput } from "../../skeleton.ts";
 import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
-import { gate, lostWork } from "./gate.ts";
+import { gate, lostWork, runProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { BUILD } from "./prompt.ts";
 import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
@@ -79,6 +79,9 @@ export interface DesignV2Outcome {
   // Questions not asked (another one changes the same step, or past MAX_QUESTIONS): they took their defaults.
   skipped: string[];
   system: string;
+  // What the agent was first told (the build message) and the plain list it started from (F16).
+  firstMessage?: string;
+  plain?: Skill;
   transcript: AgentEvent[];
   usage: Usage;
 }
@@ -120,6 +123,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   const answered: DesignV2Outcome["answered"] = [];
   const skipped: string[] = [];
   let reachedQuestions = false;
+  let firstMessage: string | undefined;
 
   const outcome = (
     extra: { kind: "designed"; summary?: string } | { kind: "kept"; reason: string },
@@ -137,16 +141,24 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     pending: reachedQuestions ? [] : openCodeQuestions(options.questions, options.skill, session.draft),
     skipped,
     system: BUILD,
+    ...(firstMessage ? { firstMessage } : {}),
+    plain: options.skill,
     transcript,
     usage: meter.usage,
   });
-  // What it reached is kept, unless it had lost work the user showed (the gate never saw it): then the plain list.
+  // What it reached is kept, unless it had lost work the user showed or has steps the runner can't run that the
+  // recording didn't (the gate never saw it; Checkpoint 4: C kept reads with no control): then the plain list.
   const kept = (reason: string) => {
     let why = reason;
-    if (lostWork(options.skill, session.draft, session.whys).length > 0) {
+    const lost = lostWork(options.skill, session.draft, session.whys).length > 0;
+    const recorded = new Set(runProblems(finalOf(options.skill)));
+    const broken = runProblems(finalOf(session.draft)).filter((p) => !recorded.has(p));
+    if (lost || broken.length > 0) {
       session.draft = options.skill;
-      why = `${reason}; what it reached had lost work you showed, so the recorded steps were kept`;
+      why = `${reason}; what it reached ${lost ? "had lost work you showed" : `has steps that can't run (${broken[0]})`}, so the recorded steps were kept`;
     }
+    // Its own questions it never got to ask are listed in the review, never lost.
+    if (!reachedQuestions) skipped.push(...session.questions.map((q) => q.text));
     say(`Kept what it reached: ${why}`);
     return outcome({ kind: "kept", reason: why });
   };
@@ -230,6 +242,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         test: session.lastTest,
         appeared: view.appeared(),
         explained: session.whys,
+        sinceTest: session.sinceTest,
+        said: [options.evidence.goal, ...options.evidence.said.map((s) => s.text)],
         unattended: options.unattended,
       });
     };
@@ -244,7 +258,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // Every message the agent reads is masked like the evidence: the outline holds recorded values (typed text, an
     // email, a Never or private word), and page names hold tab titles.
     const masked = (text: string) => maskText(text, session.maskTerms ?? []).text;
-    const stopped = await episode(masked(buildMessage(theTask, options.evidence, session, seen)));
+    firstMessage = masked(buildMessage(theTask, options.evidence, session, seen));
+    const stopped = await episode(firstMessage);
     if (stopped) return kept(stopped);
 
     // 5: the questions left, in one batch.

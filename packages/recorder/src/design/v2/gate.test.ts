@@ -197,3 +197,69 @@ describe("the finish gate", () => {
     expect(gate(input(wf)).join("\n")).toMatch(/open a page first/);
   });
 });
+
+describe("what Checkpoint 4 let through", () => {
+  const ok = skill(
+    [
+      act("s1", "web", "navigate", { url: CHAT }),
+      act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+      act("s3", "web", "type", { text: "Date - {{today|D MMM}}" }),
+      act("s4", "web", "press", { key: "Enter" }),
+    ],
+    [{ type: "schedule", cron: "0 9 1 * *" }],
+  );
+
+  it("a failed test step is explained only by a reason given after that test, not the one it was added with", () => {
+    const test = {
+      outcome: "failed: s3",
+      steps: [{ id: "s3", path: "s3", status: "failed" as const, error: "target not found" }],
+    };
+    const added = gate(input(ok, { test, explained: new Map([["s3", "type the date"]]), sinceTest: new Map() }));
+    expect(added.join("\n")).toMatch(/s3: it failed in the test run/);
+    const after = gate(
+      input(ok, { test, explained: new Map([["s3", "x"]]), sinceTest: new Map([["s3", "it needs the sign-in"]]) }),
+    );
+    expect(after.join("\n")).not.toMatch(/s3: it failed/);
+  });
+
+  it("a test run that couldn't start is a problem, unless Chrome isn't there", () => {
+    expect(gate(input(ok, { test: { outcome: "not run: input day has no value", steps: [] } })).join("\n")).toMatch(
+      /test run couldn't start.*input day has no value/,
+    );
+    expect(gate(input(ok, { test: { outcome: "not run: Chrome is not connected to Shadow", steps: [] } }))).toEqual([]);
+  });
+
+  it("a check that still holds the recorded page on a step that now opens a {{…}} page is a problem", () => {
+    const stale = skill(
+      [
+        act(
+          "s1",
+          "web",
+          "navigate",
+          { url: "https://en.wikipedia.org/wiki/{{today|D MMM}}" },
+          { check: { url_matches: "/wiki/Thuggee" } },
+        ),
+        act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+        act("s3", "web", "type", { text: "Date - {{today|D MMM}}" }),
+      ],
+      [{ type: "schedule", cron: "0 9 1 * *" }],
+    );
+    expect(gate(input(stale)).join("\n")).toMatch(/s1: its check still looks for "\/wiki\/Thuggee"/);
+  });
+
+  it("a step the runner can't run is a problem", () => {
+    const read = skill(
+      [...ok.steps.slice(1), act("s5", "web", "extract", {}, { target: { near: "Indian Rupee", fallbacks: [] } })],
+      [{ type: "schedule", cron: "0 9 1 * *" }],
+    );
+    expect(gate(input(read)).join("\n")).toMatch(/s5: replay can't find its control/);
+  });
+
+  it("how often it runs comes from what was said, whatever the task model wrote (F1)", () => {
+    const manual = skill(ok.steps.slice(1));
+    const problems = gate(
+      input(manual, { task: { ...task, cadence: { kind: "manual" } }, said: ["Every day I get these KPI emails"] }),
+    );
+    expect(problems.join("\n")).toMatch(/"Every day".*only runs when started by hand/);
+  });
+});

@@ -27,8 +27,8 @@ export function answerFromEvidence(
     const input = /\binputs\.([a-z0-9_]+)/.exec(question.appliesTo ?? "")?.[1] ?? "";
     const stems = input.split("_").filter((w) => /^[a-z]{3,}$/.test(w));
     return (
-      pick((o) => /\ball\b/i.test(optionText(o)), ALL) ??
-      pick((o) => /newest|latest/i.test(optionText(o)), newest(stems))
+      // By the words offered, not the stored values: "ask me each time" stores pick: "newest" (F13).
+      pick((o) => /\ball\b/i.test(o.label), ALL) ?? pick((o) => /newest|latest/i.test(o.label), newest(stems))
     );
   }
   if (question.id.startsWith("row-")) return pick((o) => optionText(o).includes("{{today"), TODAY);

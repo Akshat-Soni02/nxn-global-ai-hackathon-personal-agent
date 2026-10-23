@@ -24,6 +24,29 @@ describe("questions the recording answers", () => {
     expect(answerFromEvidence(file, said("Then I click upload."))).toBeUndefined();
   });
 
+  // F13: "ask me each time" stores pick: "newest" in its value, so "the newest" matched it first.
+  it("matches the options the first draft really offers by their words, not their stored values", () => {
+    const real: Question = {
+      id: "file-report",
+      text: "You used report-09.pdf for the upload. Next time, which file?",
+      appliesTo: "steps.start.inputs.report.resolve",
+      options: [
+        {
+          label: "ask me each time I run it",
+          value: { dir: "~/Downloads", glob: "report-*.pdf", pick: "newest", ask: true },
+        },
+        {
+          label: "the newest report-*.pdf in ~/Downloads",
+          value: { dir: "~/Downloads", glob: "report-*.pdf", pick: "newest" },
+        },
+        { label: "always report-09.pdf", value: { dir: "~/Downloads", glob: "report-09.pdf", pick: "newest" } },
+      ],
+    };
+    expect(answerFromEvidence(real, said("I always post the latest report."))?.answer).toBe(
+      "the newest report-*.pdf in ~/Downloads",
+    );
+  });
+
   it("takes 'the newest' as an answer only when it is said of the files, never of an email", () => {
     const mail = { goal: "Reply to the latest client email with the price list attached", said: [] };
     expect(answerFromEvidence(file, mail)).toBeUndefined();

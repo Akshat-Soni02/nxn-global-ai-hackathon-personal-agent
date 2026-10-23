@@ -29,6 +29,9 @@ const WRITES = new Set([
   "fs.write",
   "ax.set_value",
 ]);
+// How often, in words: "every day", "each working day", "every Monday", "daily", "weekdays", "monthly".
+const FREQUENCY =
+  /\b(?:every|each)\s+(?:working\s+)?(?:day|morning|evening|night|week|weekday|month|year|hour|monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b|\b(?:daily|weekly|monthly|hourly|weekdays)\b/i;
 // Apps that draw their content: no text check can see it (it isn't in the page's text).
 const CANVAS = /^https:\/\/docs\.google\.com\/(spreadsheets|document|presentation)\//;
 
@@ -41,8 +44,13 @@ export interface GateInput {
   test?: TestReport;
   // Every text that appeared on screen after an action, while recording or in the test run.
   appeared: Set<string>;
-  // Steps whose removal or test failure the agent explained (its tools' `why`): flagged for the user, not a problem.
+  // Steps whose removal the agent explained (its tools' `why`): flagged for the user, not a problem.
   explained: Map<string, string>;
+  // Reasons given since the last test run: only these explain a test failure, not the reason a step was added with
+  // (Checkpoint 4: a step added "to read the page" failed its test and was saved anyway). Default: explained.
+  sinceTest?: Map<string, string>;
+  // The goal and what was said: how often it runs is read from them too, not only from the task model (F1).
+  said?: string[];
   // What an unattended run still needs (the daemon's go-live checks).
   unattended?: (skill: Skill) => string[];
 }
@@ -117,6 +125,7 @@ export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string
 
 export function gate(input: GateInput): string[] {
   const { recorded, workflow, task, done, test, appeared, explained } = input;
+  const sinceTest = input.sinceTest ?? explained;
   const now = new Map<string, Step>([...walkSteps(workflow.steps)].map(({ step }) => [step.id, step]));
   const problems = lostWork(recorded, workflow, explained);
 
@@ -154,13 +163,21 @@ export function gate(input: GateInput): string[] {
     if (step.channel === "web" && step.action === "navigate") page = String(step.args.url ?? "");
     judge(step.id, step.wait);
     judge(step.id, step.check);
+    // A check that still holds the recorded page or file on a step that now uses a {{value}} fails next time.
+    const literal = step.check?.url_matches ?? step.check?.file_exists;
+    const args = JSON.stringify([step.args.url, step.args.to, step.args.from]);
+    if (literal && !literal.includes("{{") && args.includes("{{")) {
+      problems.push(
+        `${step.id}: its check still looks for "${literal}" but the step now uses a {{value}}: change the check or remove it`,
+      );
+    }
   }
   for (const check of workflow.success) judge("success", check);
 
   // The test run: every step it couldn't find or that failed is fixed, or explained.
   for (const step of test?.steps ?? []) {
     if (step.status !== "failed" && step.status !== "not_found") continue;
-    if (explained.has(step.id)) continue;
+    if (sinceTest.has(step.id)) continue;
     const what =
       step.status === "not_found"
         ? "the test run didn't find it"
@@ -168,12 +185,20 @@ export function gate(input: GateInput): string[] {
     problems.push(`${step.id}: ${what}: fix it, or explain why it will work in a real run`);
   }
 
+  const notRun = /^not run: (.*)/.exec(test?.outcome ?? "")?.[1];
+  if (notRun && !/Chrome is not connected|Shadow\.app is not running/.test(notRun)) {
+    problems.push(`the test run couldn't start (${notRun}): fix that, so it can run`);
+  }
+  problems.push(...runProblems(workflow));
   problems.push(...(input.unattended?.(workflow) ?? []));
 
-  // As often as they said.
-  if (task.cadence.kind !== "manual" && triggerOf(workflow).when.every((w) => w.type === "manual")) {
+  // As often as they said: the task model's cadence, or frequency words in the goal and what was said (F1: the model
+  // wrote "manual" while quoting "every day").
+  const spoken = (input.said ?? []).map((t) => FREQUENCY.exec(t)?.[0]).find(Boolean);
+  if ((task.cadence.kind !== "manual" || spoken) && triggerOf(workflow).when.every((w) => w.type === "manual")) {
+    const quote = spoken ?? task.cadence.quote;
     problems.push(
-      `they said ${task.cadence.quote ? `"${task.cadence.quote}"` : `it runs on a ${task.cadence.kind}`}, but it only runs when started by hand: set it with trigger`,
+      `they said ${quote ? `"${quote}"` : `it runs on a ${task.cadence.kind}`}, but it only runs when started by hand: set it with trigger`,
     );
   }
 

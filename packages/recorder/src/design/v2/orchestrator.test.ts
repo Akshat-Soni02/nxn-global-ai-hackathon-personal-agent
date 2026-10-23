@@ -109,6 +109,9 @@ describe("design agent v2, stage by stage", () => {
     expect(out.test).toEqual(tested); // tested on its own before done: the workflow had changed
     expect(out.notes).toEqual([]); // the trigger is shown from the task model, not as a note
     expect(lines[0]).toBe("Understanding the task from what you did and said");
+    // F16: design.json keeps what the agent was first told and the plain list it started from.
+    expect(out.firstMessage).toContain("# The task model you wrote");
+    expect(out.plain?.steps.length).toBe(options.skill.steps.length);
     expect(out.transcript.some((e) => e.type === "call" && e.tool === "trigger")).toBe(true);
   });
 
@@ -251,5 +254,38 @@ describe("design agent v2, stage by stage", () => {
     const out = await designV2(options);
     expect(asked.map((q) => q.text)).toContain("Which row should it write to?");
     expect(out.asked.map((a) => a.by)).toContain("agent");
+  });
+});
+
+describe("what Checkpoint 4 kept that it shouldn't have", () => {
+  it("keeps the recorded steps when a stopped design reached steps that can't run, and lists the questions it never asked", async () => {
+    const look = call("look", {});
+    const restore = call("restore", { step: "x1", why: "it opens the print view" });
+    const ask = call("ask", {
+      question: "Which sheet tab should it use?",
+      why: "two tabs",
+      step: "start",
+      confirm: true,
+    });
+    const { options, skill } = await setup({
+      llm: fakeLlm(scriptedDesigner([ask, restore, look, look], task)),
+      budget: { costUsd: 0.25, calls: 3 },
+    });
+    const printAll = { tag: "div", url: MAIL, text: "Print all", fallbacks: [], selectors: {} };
+    const noise = [
+      {
+        id: "x1",
+        what: 'clicked "Print all"',
+        why: "changed nothing",
+        at: 3_000,
+        events: ["z9"],
+        step: { kind: "click" as const, at: 3_000, tabId: 1, url: MAIL, target: printAll, events: ["z9"] },
+      },
+    ];
+    const out = await designV2({ ...options, evidence: { ...options.evidence, noise } });
+    expect(out.kind).toBe("kept");
+    expect(out.reason).toMatch(/can't run/);
+    expect([...walkSteps(out.skill.steps)].length).toBe([...walkSteps(skill.steps)].length);
+    expect(out.skipped).toContain("Which sheet tab should it use?");
   });
 });

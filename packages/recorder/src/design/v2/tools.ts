@@ -179,7 +179,11 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     );
     session.draft = marked.ok ? marked.skill : approved.skill;
     const added = [...approved.added, ...(marked.ok ? sending : [])];
-    for (const id of touched) if (why) session.whys.set(id, why);
+    for (const id of touched) {
+      if (!why) continue;
+      session.whys.set(id, why);
+      session.sinceTest.set(id, why);
+    }
     for (const id of unverified) session.unverified.add(id);
     return {
       output: {
@@ -455,6 +459,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     session.tests++;
     const report = await session.runTest();
     session.lastTest = report;
+    session.sinceTest = new Map();
     session.testedDraft = JSON.stringify(session.draft.steps);
     const ids = (status: string) => report.steps.filter((s) => s.status === status).map((s) => s.id);
     const why = (status: string) =>
