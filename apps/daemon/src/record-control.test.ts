@@ -339,7 +339,8 @@ describe("after Stop, with a model", () => {
           call("input", {
             name: "week",
             type: "text",
-            default: "{{today}}",
+            // A real value: a {{today}} default is refused (Checkpoint 4: the runner doesn't fill templates in defaults).
+            default: "2026-W41",
             about: "the ISO week",
             why: "a scheduled run logs the current week",
           }),
@@ -365,7 +366,7 @@ describe("after Stop, with a model", () => {
     });
     expect(asked).toEqual([{ id: "q1", step: "s2" }]);
     const skill = saved?.skill as Skill;
-    expect(triggerOf(skill).inputs.week?.default).toBe("{{today}}");
+    expect(triggerOf(skill).inputs.week?.default).toBe("2026-W41");
     // The history says what really changed, from the workflow, not the agent's own sentence.
     expect(skill.history[0]?.summary).toMatch(/^Recorded; .*input week added/);
     const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));

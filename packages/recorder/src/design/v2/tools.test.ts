@@ -3,8 +3,9 @@ import { findStep, Skill, type StepInput } from "@shadow/core";
 import { fakeLlm } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
 import type { DoneReport, EvidenceView, Proposal } from "./contracts.ts";
+import { withFields } from "./orchestrator.ts";
 import { newSession, type SessionV2 } from "./session.ts";
-import { designToolsV2, unstring } from "./tools.ts";
+import { designToolsV2, isTimeOfDay, unstring } from "./tools.ts";
 
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
 const recorded = Skill.parse({
@@ -348,5 +349,411 @@ describe("the tools", () => {
       expect.arrayContaining(["wrap_in_loop", "wrap_in_branch", "add_llm_step", "ask_user", "finish", "edit"]),
     );
     expect(String((await run(s, "edit", { edits: [] })).output.use)).toMatch(/add, change, remove, move, loop, branch/);
+  });
+});
+
+describe("steps the step-runner can run (Checkpoint 4)", () => {
+  const proposal = (id: string, kind: Proposal["kind"]): Proposal => ({
+    id,
+    kind,
+    summary: "s3 copied from item 1 of 20",
+    steps: ["s3"],
+    evidence: [],
+    edits: [],
+    runnable: true,
+  });
+
+  it("reads a whole page when a read has no control: the page's main part, else its body", async () => {
+    const s = session();
+    const out = await run(s, "add", {
+      step: { do: "read_all", intent: "read the page", save_as: "page" },
+      after: "s1",
+    });
+    expect(out.output.ok).toBe(true);
+    const added = findStep(s.draft, "s4") as { target?: unknown; args: Record<string, unknown> };
+    expect(added.target).toEqual({ fallbacks: ["main", "body"] });
+    expect(added.args.all).toBeUndefined();
+  });
+
+  it("refuses a step the runner can't run, saying what it needs", async () => {
+    const s = session();
+    const find = await run(s, "add", {
+      step: { do: "find_files", intent: "find it", folder: "~/Reading", pattern: "*.pdf" },
+    });
+    expect(JSON.stringify(find.output)).toMatch(/fs\.find needs dir and glob/);
+    const near = await run(s, "add", { step: { do: "click", intent: "the rate", target: { near: "Indian Rupee" } } });
+    expect(JSON.stringify(near.output)).toMatch(/can't find its control/);
+    const input = await run(s, "input", { name: "today_date", type: "text", default: "{{today}}", about: "today" });
+    expect(JSON.stringify(input.output)).toMatch(/use \{\{today\}\} in the step itself/);
+    expect(triggerInputs(s)).not.toHaveProperty("today_date");
+  });
+
+  it("says a proposal with nothing prepared is a note to build, not a change made", async () => {
+    const s = session({ proposals: new Map([["p1", proposal("p1", "list_item")]]) });
+    const out = await run(s, "accept", { proposal: "p1", why: "the newest" });
+    expect(JSON.stringify(out.output)).toMatch(/nothing prepared.*build it/i);
+  });
+
+  it("forgives what the real runs got wrong: ids in one string, how often through change, a step id as a variable", async () => {
+    const s = session();
+    expect((await run(s, "remove", { steps: "s2, s3", why: "noise" })).output.ok).toBe(true);
+    const t = session();
+    expect(
+      (await run(t, "change", { step: "start", args: { schedule: "0 8 * * *" }, why: "every day" })).output.ok,
+    ).toBe(true);
+    expect(JSON.stringify(t.draft.steps[0])).toContain("0 8 * * *");
+    const u = session();
+    await run(u, "add", { step: { do: "read", intent: "read the page", save_as: "subject" }, after: "s1" });
+    const ai = await run(u, "ai_step", {
+      after: "s4",
+      intent: "pick",
+      instruction: "the newest",
+      inputs: ["{{s4}}"],
+      output: { name: "newest", type: "text" },
+    });
+    expect(ai.output.ok).toBe(true);
+    expect(JSON.stringify(u.draft)).toContain('"inputs":["{{subject}}"]');
+  });
+});
+const triggerInputs = (s: SessionV2) => (s.draft.steps[0] as { inputs: Record<string, unknown> }).inputs;
+
+describe("what the re-designs after the fixes showed (round 2)", () => {
+  it("says how to use a list's item: put the step in a loop first", async () => {
+    const s = session();
+    const out = await run(s, "add", {
+      step: { do: "type", intent: "title", target: { like: "s3" }, text: "{{story.title}}" },
+      after: "s3",
+    });
+    expect(JSON.stringify(out.output)).toMatch(/loop/);
+  });
+
+  it("takes step lists as one string, with or without brackets", async () => {
+    expect((await run(session(), "remove", { steps: "[s2, s3]", why: "x" })).output.ok).toBe(true);
+    const looped = await run(session(), "loop", {
+      steps: "s2, s3",
+      over: "{{emails}}",
+      item: { name: "email" },
+      intent: "each email",
+      why: "each",
+    });
+    expect(looped.output.ok).toBe(true);
+  });
+
+  it("says plainly when a step to copy a control from has none", async () => {
+    const out = await run(session(), "add", { step: { do: "read_all", intent: "read", target: { like: "s1" } } });
+    expect(JSON.stringify(out.output)).toMatch(/s1 has no control to copy \(it opens a page\)/);
+  });
+
+  it("refuses a schedule that isn't a fixed time: a {{value}} can't be a cron", async () => {
+    const out = await run(session(), "trigger", { when: { schedule: "{{cron_expr}}" }, why: "friday" });
+    expect(JSON.stringify(out.output)).toMatch(/a schedule is a fixed cron/);
+  });
+});
+
+describe("what round 3 showed: A and B stuck on loops, AI step types and the trigger", () => {
+  const withPage = async () => {
+    const s = session();
+    await run(s, "add", { step: { do: "read", intent: "read the page", save_as: "page" }, after: "s1" });
+    return s;
+  };
+  const typeOf = (s: SessionV2, id: string) => (findStep(s.draft, id) as { output: { type: unknown } }).output.type;
+
+  it("makes a loop with new steps inside it: a step using {{story.title}} can't be added before its loop", async () => {
+    const s = await withPage();
+    await run(s, "ai_step", {
+      after: "s4",
+      intent: "pick",
+      instruction: "the top 3 stories",
+      inputs: ["{{page}}"],
+      output: { name: "stories", type: { title: "text", points: "text" } },
+    });
+    const out = await run(s, "loop", {
+      over: "stories",
+      item: { name: "story" },
+      intent: "each story",
+      after: "ai1",
+      steps: [
+        { do: "type", intent: "the title", target: { like: "s3" }, args: { text: "{{story.title}}" } },
+        {
+          do: "type",
+          intent: "the points",
+          target: { role: "textbox", name: "Value" },
+          args: { text: "{{story.points}}" },
+        },
+      ],
+      why: "each story, not these three",
+    });
+    expect(out.output.ok).toBe(true);
+    expect((findStep(s.draft, "l1") as { steps: { id: string }[] }).steps.map((x) => x.id)).toEqual(["s5", "s6"]);
+    expect(s.unverified.has("s6")).toBe(true);
+  });
+
+  it("takes the output types the model writes: list, { title: text }, list of text", async () => {
+    const cases: [unknown, unknown][] = [
+      ["list", { type: "list", items: { type: "object" } }],
+      [{ title: "text" }, { type: "object", fields: { title: { type: "text" } } }],
+      ["list of text", { type: "list", items: { type: "text" } }],
+      [
+        { type: "list", items: { title: "text" } },
+        { type: "list", items: { type: "object", fields: { title: { type: "text" } } } },
+      ],
+    ];
+    for (const [type, want] of cases) {
+      const s = await withPage();
+      const out = await run(s, "ai_step", {
+        after: "s4",
+        intent: "p",
+        instruction: "x",
+        inputs: ["{{page}}"],
+        output: { name: "picked", type },
+      });
+      expect(out.output.ok).toBe(true);
+      expect(typeOf(s, "ai1")).toEqual(want);
+    }
+  });
+
+  it("loops over what an ai_step returns even when it was declared as one value: the prompt's own example did", async () => {
+    const s = await withPage();
+    await run(s, "ai_step", {
+      after: "s4",
+      intent: "p",
+      instruction: "the new ones",
+      inputs: ["{{page}}"],
+      output: { name: "new_emails" },
+    });
+    const out = await run(s, "loop", {
+      steps: ["s2", "s3"],
+      over: "new_emails",
+      item: { name: "email" },
+      intent: "each",
+      why: "each",
+    });
+    expect(out.output.ok).toBe(true);
+    expect(typeOf(s, "ai1")).toEqual({ type: "list", items: { type: "object" } });
+  });
+
+  it("says which step saves a value when removing it leaves a step using it, not to loop it", async () => {
+    const s = session();
+    await run(s, "add", {
+      step: { do: "read", intent: "copy", target: { like: "s3" }, save_as: "copied_1" },
+      after: "s1",
+    });
+    await run(s, "change", { step: "s3", args: { text: "{{copied_1}}" } });
+    const out = JSON.stringify((await run(s, "remove", { steps: ["s4"], why: "x" })).output);
+    expect(out).toMatch(/s4 saves it/);
+    expect(out).not.toMatch(/loop/);
+  });
+
+  it("says what to do about a value nothing saves: a step that saves nothing, or a value to save first (D2)", async () => {
+    const s = session();
+    const ai = await run(s, "ai_step", {
+      after: "s1",
+      intent: "p",
+      instruction: "the title",
+      inputs: ["s1"],
+      output: { name: "title" },
+    });
+    expect(JSON.stringify(ai.output)).toMatch(/s1 saves nothing: read what you need/);
+    const changed = await run(s, "change", { step: "s3", args: { text: "{{article_title}}" } });
+    expect(JSON.stringify(changed.output)).toMatch(/nothing saves article_title yet/);
+    expect(JSON.stringify(changed.output)).not.toMatch(/loop/);
+  });
+
+  it("makes an AI step when add is given one, and saves what a step's output names (A, B, D2, E all sent these)", async () => {
+    const s = await withPage();
+    const ai = await run(s, "add", {
+      step: {
+        do: "ai_step",
+        intent: "pick",
+        instruction: "the top 3",
+        inputs: ["{{page}}"],
+        output: { name: "top", type: "list" },
+      },
+      after: "s4",
+      why: "the top 3 each day",
+    });
+    expect(ai.output.ok).toBe(true);
+    expect(typeOf(s, "ai1")).toEqual({ type: "list", items: { type: "object" } });
+    const read = await run(s, "add", {
+      step: { do: "read", intent: "the heading", output: { name: "heading" } },
+      after: "s1",
+    });
+    expect(read.output.ok).toBe(true);
+    expect(JSON.stringify(findStep(s.draft, "s5"))).toContain('"output":{"name":"heading"');
+    expect(JSON.stringify(findStep(s.draft, "s5"))).not.toContain('"args":{"output"');
+  });
+
+  it("says the trigger's id when asked for a step called trigger", async () => {
+    const out = await run(session(), "look", { step: "trigger" });
+    expect(String(out.output)).toMatch(/the trigger is start/);
+    const bare = await run(session(), "change", { step: "start", why: "every Friday" });
+    expect(JSON.stringify(bare.output)).toMatch(/trigger \{ when/);
+  });
+});
+
+describe("before round 3 spends: what the model resends, and what the run's model is asked for", () => {
+  const withPage = async () => {
+    const s = session();
+    await run(s, "add", { step: { do: "read", intent: "read the page", save_as: "page" }, after: "s1" });
+    return s;
+  };
+  const typeOf = (s: SessionV2, id: string) => (findStep(s.draft, id) as { output: { type: unknown } }).output.type;
+  const fields = { type: "object", fields: { title: { type: "text" }, points: { type: "text" } } };
+
+  it("asks the run's model for the fields the loop reads ({{story.title}}), not any object", async () => {
+    const s = await withPage();
+    await run(s, "ai_step", {
+      after: "s4",
+      intent: "p",
+      instruction: "the top 3",
+      inputs: ["{{page}}"],
+      output: { name: "stories", type: "list" },
+    });
+    const looped = await run(s, "loop", {
+      over: "stories",
+      item: { name: "story" },
+      intent: "each",
+      after: "ai1",
+      steps: [
+        { do: "type", intent: "title", target: { like: "s3" }, args: { text: "{{story.title}}" } },
+        { do: "type", intent: "points", target: { like: "s3" }, args: { text: "{{story.points}}" } },
+      ],
+    });
+    expect(looped.output.ok).toBe(true);
+    const saved = withFields(s.draft);
+    expect((findStep(saved, "ai1") as { output: { type: unknown } }).output.type).toEqual({
+      type: "list",
+      items: fields,
+    });
+    expect((findStep(saved, "l1") as { item: { type: unknown } }).item.type).toEqual(fields);
+  });
+
+  it("also when the loop's steps read the fields after it was made", async () => {
+    const s = await withPage();
+    await run(s, "ai_step", {
+      after: "s4",
+      intent: "p",
+      instruction: "new ones",
+      inputs: ["{{page}}"],
+      output: { name: "new_emails", type: "list" },
+    });
+    await run(s, "loop", { steps: ["s2", "s3"], over: "new_emails", item: { name: "email" }, intent: "each" });
+    expect((await run(s, "change", { step: "s3", args: { text: "{{email.subject}}" } })).output.ok).toBe(true);
+    const saved = findStep(withFields(s.draft), "ai1") as { output: { type: unknown } };
+    expect(saved.output.type).toEqual({
+      type: "list",
+      items: { type: "object", fields: { subject: { type: "text" } } },
+    });
+  });
+
+  it("says a call sent again exactly as before fails the same way (A sent one add 20 times)", async () => {
+    const s = session();
+    const tools = designToolsV2(s);
+    const add = tools.find((t) => t.name === "add") as AnyTool<DoneReport>;
+    const input = add.input.parse({
+      step: { do: "type", intent: "t", target: { like: "s3" }, args: { text: "{{story.title}}" } },
+    });
+    const first = JSON.stringify((await add.run(input, { turn: 1 })).output);
+    const again = JSON.stringify((await add.run(input, { turn: 2 })).output);
+    expect(first).not.toMatch(/sent this exact call before/);
+    expect(again).toMatch(/sent this exact call before.*uses story/);
+  });
+});
+
+describe("what round 3's re-design of A showed", () => {
+  it("never asks the time of day: a time they didn't say is 9:00 (A, B and D2 asked it)", async () => {
+    const s = session();
+    for (const question of ["What time each morning should it run?", "At what time on Monday?", "What time of day?"]) {
+      const out = await run(s, "ask", { question, why: "w", step: "start", confirm: true });
+      expect(JSON.stringify(out.output)).toMatch(/9:00/);
+    }
+    expect(s.questions).toEqual([]);
+    expect(isTimeOfDay("Which row should the numbers go in?")).toBe(false);
+  });
+});
+
+describe("what live C showed", () => {
+  it("lets a read drop its control to read the whole page (change target: null); nothing else can", async () => {
+    const s = session();
+    await run(s, "add", {
+      step: { do: "read", intent: "the rate", target: { like: "s3" }, save_as: "rate" },
+      after: "s1",
+    });
+    const out = await run(s, "change", { step: "s4", target: null, why: "the whole page" });
+    expect(out.output.ok).toBe(true);
+    expect((findStep(s.draft, "s4") as { target: unknown }).target).toEqual({ fallbacks: ["main", "body"] });
+    const cell = await run(s, "change", { step: "s4", target: { role: "cell" }, why: "near the rate" });
+    expect(JSON.stringify(cell.output)).toMatch(/a role alone matches every cell/);
+    const click = await run(s, "change", { step: "s3", target: null, why: "x" });
+    expect(JSON.stringify(click.output)).toMatch(/only a read can do without a control/);
+  });
+
+  it("says when a change changed nothing, so the model sees its change didn't take (C: 8 such changes)", async () => {
+    const s = session();
+    const out = await run(s, "change", { step: "s3", intent: "type the subject", why: "read the whole page" });
+    expect(JSON.stringify(out.output)).toMatch(/nothing changed/);
+  });
+});
+
+describe("what live D showed", () => {
+  it("says a page opened by its address has no control: add a click and remove it (D: 15 changes that did nothing)", async () => {
+    const out = await run(session(), "change", {
+      step: "s1",
+      target: { near: "From today's featured article" },
+      why: "x",
+    });
+    expect(JSON.stringify(out.output)).toMatch(/s1 opens a page by its address.*add .*click.*remove s1/);
+  });
+
+  it("takes do with its channel in front (web.read, web.read_all) as the plain verb", async () => {
+    const s = session();
+    const out = await run(s, "add", { step: { do: "web.read_all", intent: "the page", save_as: "page" }, after: "s1" });
+    expect(out.output.ok).toBe(true);
+    expect(JSON.stringify(findStep(s.draft, "s4"))).toContain('"action":"extract"');
+  });
+
+  it("says what an AI step with no inputs needs: the text it reads", async () => {
+    const out = await run(session(), "add", {
+      step: { do: "ai_step", intent: "pick", instruction: "the featured article", inputs: [], output: { name: "x" } },
+      after: "s1",
+    });
+    expect(JSON.stringify(out.output)).toMatch(/read the page first/);
+  });
+});
+
+describe("what live D showed about repeats", () => {
+  it("counts a change that changed nothing, sent again as it was, as a repeat", async () => {
+    const s = session();
+    const change = designToolsV2(s).find((t) => t.name === "change") as AnyTool<DoneReport>;
+    const input = change.input.parse({ step: "s3", intent: "type the subject", why: "again" });
+    await change.run(input, { turn: 1 });
+    expect(JSON.stringify((await change.run(input, { turn: 2 })).output)).toMatch(/sent this exact call before/);
+  });
+});
+
+describe("what live D's last try showed", () => {
+  it("shows what each step read or worked out, as page data, so a wrong AI pick can be seen in the test", async () => {
+    const report = {
+      outcome: "failed: check did not hold",
+      steps: [
+        { id: "s9", path: "s9", status: "done" as const, value: `Main Page ${"x".repeat(400)}` },
+        { id: "ai1", path: "ai1", status: "done" as const, value: "Thugs about to strangle a traveller" },
+        { id: "s2", path: "s2", status: "failed" as const, error: "check did not hold" },
+      ],
+    };
+    const s = session({ runTest: async () => report });
+    const t = designToolsV2(s).find((x) => x.name === "test") as AnyTool<DoneReport>;
+    const out = (await t.run({}, { turn: 1 })) as { output: { values: Record<string, string> }; untrusted?: boolean };
+    expect(out.output.values.ai1).toBe("Thugs about to strangle a traveller");
+    expect(out.output.values.s9?.length).toBeLessThanOrEqual(161);
+    expect(out.untrusted).toBe(true);
+  });
+});
+
+describe("what live D's last try showed", () => {
+  it("shows a whole-page read as one, not as a control it can't name (D re-added the same read 10 times)", async () => {
+    const out = await run(session(), "add", { step: { do: "read", intent: "the page", save_as: "page" }, after: "s1" });
+    expect(String(out.output.workflow)).toMatch(/s4 {2}web\.extract {2}"the page" {2}reads the whole page/);
+    expect(String(out.output.workflow)).not.toMatch(/element "\?"/);
   });
 });

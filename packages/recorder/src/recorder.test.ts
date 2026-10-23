@@ -831,3 +831,45 @@ describe("the compile view", () => {
     expect(view).not.toContain("sk-proj-abcdefgh");
   });
 });
+
+describe("a file is followed from step to step", () => {
+  // Checkpoint 4 (D2): the downloaded file became a "which file?" input, and the move after the rename kept the
+  // recorded name, so a dated rename next time left the move pointing at "23 Oct - Thuggee.pdf".
+  it("finds the file the download made, and the move follows the renamed file whatever its name", async () => {
+    const download: ElementDescriptor = {
+      tag: "button",
+      url: PAGE,
+      role: "button",
+      name: "Download",
+      fallbacks: [],
+      selectors: {},
+    };
+    const steps = normalise([
+      ev("navigate", 0, { transition: "typed" }),
+      ev("click", 1_000, { target: download }),
+      ev("download", 2_000, { path: "/Users/me/Downloads/Thuggee.pdf" }),
+      ev("fs_rename", 5_000, {
+        path: "/Users/me/Downloads/Thuggee.pdf",
+        toPath: "/Users/me/Downloads/23 Oct - Thuggee.pdf",
+      }),
+      ev("fs_move", 8_000, {
+        path: "/Users/me/Downloads/23 Oct - Thuggee.pdf",
+        toPath: "/Users/me/Reading/23 Oct - Thuggee.pdf",
+      }),
+    ]);
+    const { skill, questions } = await compile(steps, {});
+    expect(Object.keys(inputsOf(skill))).toEqual([]);
+    expect(questions.filter((q) => /which file/i.test(q.text))).toEqual([]);
+    expect(
+      acts(skill)
+        .filter((s) => s.channel === "fs")
+        .map((s) => [s.action, s.args, s.output?.name]),
+    ).toEqual([
+      ["find", { dir: "~/Downloads", glob: "*.pdf", pick: "newest", since_run_start: true }, "downloaded_1"],
+      ["rename", { from: "{{downloaded_1}}", to: "~/Downloads/23 Oct - Thuggee.pdf" }, "renamed_1"],
+      ["move", { from: "{{renamed_1}}", to: "~/Reading/" }, undefined],
+    ]);
+    // Live D: looked once, 1 ms after the click, before the PDF existed. The runner waits for a match with timeout_ms.
+    expect(acts(skill).find((s) => s.action === "find")?.timeout_ms).toBe(60_000);
+  });
+});

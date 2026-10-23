@@ -29,6 +29,8 @@ export interface SessionV2 {
   decisions: Map<string, { decision: "accept" | "reject"; why: string }>;
   dropped: Map<string, { step: StepInput; why: string; after: string }>;
   whys: Map<string, string>;
+  // The reasons given since the last test run: only these explain a step's test failure (gate.ts).
+  sinceTest: Map<string, string>;
   unverified: Set<string>;
   questions: QueuedQuestion[];
   evidence?: EvidenceView;
@@ -57,6 +59,7 @@ export function newSession(original: Skill, facts: RecordingFacts, extra: Partia
     decisions: new Map(),
     dropped: new Map(),
     whys: new Map(),
+    sinceTest: new Map(),
     unverified: new Set(),
     questions: [],
     pages: new Map(),

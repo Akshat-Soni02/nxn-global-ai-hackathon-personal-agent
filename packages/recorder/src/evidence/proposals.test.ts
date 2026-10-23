@@ -132,6 +132,8 @@ describe("other generalisations", () => {
     const open = proposals.find((p) => p.kind === "open_directly");
     expect(open?.steps).toEqual(["s1", "s2"]);
     expect(applyEdits(skill, open?.edits ?? []).ok).toBe(true);
+    // Checkpoint 4: for "the newest video" it would fix today's one in place; the agent is told when it fits.
+    expect(open?.summary).toMatch(/only if it is always this same page/i);
   });
 
   it("notes a value you said is always the same", async () => {

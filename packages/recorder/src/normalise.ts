@@ -190,6 +190,9 @@ export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; no
     selection = undefined;
   };
   let lastCopy: string | undefined;
+  // The copy that was newest when each field was pasted into: its type event comes only when the field is left, often
+  // after the next copy (Checkpoint 4: both fields got the second copy).
+  const pastes: { target?: ElementDescriptor; copy?: string }[] = [];
   let lastTrash: number | undefined;
   const base = (e: TraceEvent): Draft => ({
     kind: "click",
@@ -242,8 +245,13 @@ export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; no
             break;
           }
         }
-        // Redirects right after opening a page, and reloads of it, are the same step.
-        if (prev?.kind === "navigate" && (e.at - prev.at <= FOLLOW_MS || e.transition === "reload")) {
+        // Redirects right after opening a page, and reloads of it, are the same step: in the same tab only (Checkpoint
+        // 4: a second tab opened 1.5 s later was taken for a redirect, and the first page was lost).
+        if (
+          prev?.kind === "navigate" &&
+          prev.tabId === e.tabId &&
+          (e.at - prev.at <= FOLLOW_MS || e.transition === "reload")
+        ) {
           prev.navigatesTo = e.url;
           prev.events.push(e.id);
           break;
@@ -275,7 +283,8 @@ export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; no
       }
       case "type": {
         // A pasted value is not in the trace; it comes from the copy recorded before it, as {{vars.x}}.
-        const pastedFrom = e.pasted ? lastCopy : undefined;
+        const paste = e.pasted ? pastes.findLast((p) => sameTarget(p.target, e.target)) : undefined;
+        const pastedFrom = e.pasted ? (paste ? paste.copy : lastCopy) : undefined;
         if (prev?.kind === "type" && sameTarget(prev.target, e.target)) {
           prev.value = e.secret || e.pasted ? undefined : e.value; // the last value wins
           if (e.pasted) Object.assign(prev, { pasted: true, fromCopy: pastedFrom });
@@ -328,7 +337,8 @@ export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; no
         break;
       }
       case "paste":
-        break; // the type event that follows carries it (pasted: true)
+        pastes.push({ target: e.target, copy: lastCopy }); // the type event that follows carries it (pasted: true)
+        break;
       case "select": {
         const merged = takeFocusClick(e.target);
         steps.push({ ...base(e), kind: "select", value: e.value, events: [...merged, e.id] });

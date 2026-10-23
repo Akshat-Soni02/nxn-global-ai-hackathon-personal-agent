@@ -9,7 +9,7 @@
 // A recording is never lost: no task model, a used-up budget, an error or a stop keeps the last valid draft (else the
 // plain list, with the answers code found in what was said already in it).
 import { type AgentEvent, type Protocol, runAgent } from "@shadow/agent";
-import { Skill, type StepInput } from "@shadow/core";
+import { applyEdits, type EditInput, isLlm, isLoop, Skill, type StepInput, walkSteps } from "@shadow/core";
 import { type Llm, type Usage, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import { requireApprovals } from "../../approvals.ts";
@@ -21,13 +21,13 @@ import { plainChecks } from "../../plain-checks.ts";
 import { skeletonOf, skillInput } from "../../skeleton.ts";
 import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
-import { gate, lostWork } from "./gate.ts";
+import { gate, lostWork, runProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { BUILD } from "./prompt.ts";
 import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
 import { type ChangeNote, changeNotes, type RecordingFacts } from "./rules.ts";
 import { newSession, type QueuedQuestion, type SessionV2 } from "./session.ts";
-import { designToolsV2 } from "./tools.ts";
+import { designToolsV2, isTimeOfDay } from "./tools.ts";
 import { understand } from "./understand.ts";
 
 export interface DesignV2Options {
@@ -79,6 +79,9 @@ export interface DesignV2Outcome {
   // Questions not asked (another one changes the same step, or past MAX_QUESTIONS): they took their defaults.
   skipped: string[];
   system: string;
+  // What the agent was first told (the build message) and the plain list it started from (F16).
+  firstMessage?: string;
+  plain?: Skill;
   transcript: AgentEvent[];
   usage: Usage;
 }
@@ -98,7 +101,29 @@ export function droppedOf(evidence: Evidence): SessionV2["dropped"] {
 }
 
 // The workflow as saved: url checks as the player reads them, and approval wherever a step acts outward.
-const finalOf = (draft: Skill) => requireApprovals(plainChecks(draft)).skill;
+const finalOf = (draft: Skill) => requireApprovals(plainChecks(withFields(draft))).skill;
+
+// An AI step's list of open objects gets the fields its loop reads ({{story.title}}), so the run's model is asked for
+// exactly those (Checkpoint 5: a bare "object" let it name them as it liked, and {{story.title}} would come out empty).
+// At save, not on each edit: a field read later must not be refused for missing from fields set earlier.
+export function withFields(skill: Skill): Skill {
+  const steps = [...walkSteps(skill.steps)].map(({ step }) => step);
+  const edits = steps.filter(isLoop).flatMap((loop): EditInput[] => {
+    const ai = steps.filter(isLlm).find((a) => `{{${a.output.name}}}` === loop.over);
+    const items = ai?.output.type.type === "list" ? ai.output.type.items : undefined;
+    if (!ai || items?.type !== "object" || items.fields) return [];
+    const read = JSON.stringify(loop.steps).matchAll(new RegExp(`\\{\\{${loop.item.name}\\.(\\w+)`, "g"));
+    const names = [...new Set([...read].map((m) => m[1] as string))];
+    if (names.length === 0) return [];
+    const type = { type: "object", fields: Object.fromEntries(names.map((n) => [n, { type: "text" }])) };
+    return [
+      { op: "set", step: ai.id, field: "output", value: { ...ai.output, type: { type: "list", items: type } } },
+      { op: "set", step: loop.id, field: "item", value: { ...loop.item, type } },
+    ];
+  });
+  const typed = edits.length > 0 ? applyEdits(skill, edits) : undefined;
+  return typed?.ok ? typed.skill : skill;
+}
 
 const cadenceText = (task: TaskModel) =>
   task.cadence.kind === "manual" ? "when you start it" : (task.cadence.quote ?? task.cadence.kind);
@@ -120,6 +145,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   const answered: DesignV2Outcome["answered"] = [];
   const skipped: string[] = [];
   let reachedQuestions = false;
+  let firstMessage: string | undefined;
 
   const outcome = (
     extra: { kind: "designed"; summary?: string } | { kind: "kept"; reason: string },
@@ -137,16 +163,29 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     pending: reachedQuestions ? [] : openCodeQuestions(options.questions, options.skill, session.draft),
     skipped,
     system: BUILD,
+    ...(firstMessage ? { firstMessage } : {}),
+    plain: options.skill,
     transcript,
     usage: meter.usage,
   });
-  // What it reached is kept, unless it had lost work the user showed (the gate never saw it): then the plain list.
+  // What it reached is kept, unless it had lost work the user showed or has steps the runner can't run that the
+  // recording didn't (the gate never saw it; Checkpoint 4: C kept reads with no control): then the plain list.
+  // What makes a draft worse than the recording: your work lost, or steps that can't run (the recording's own aside).
+  const worse = () => {
+    const recorded = new Set(runProblems(finalOf(options.skill)));
+    const broken = runProblems(finalOf(session.draft)).filter((p) => !recorded.has(p));
+    if (lostWork(options.skill, session.draft, session.whys).length > 0) return "had lost work you showed";
+    return broken.length > 0 ? `has steps that can't run (${broken[0]})` : undefined;
+  };
   const kept = (reason: string) => {
     let why = reason;
-    if (lostWork(options.skill, session.draft, session.whys).length > 0) {
+    const bad = worse();
+    if (bad) {
       session.draft = options.skill;
-      why = `${reason}; what it reached had lost work you showed, so the recorded steps were kept`;
+      why = `${reason}; what it reached ${bad}, so the recorded steps were kept`;
     }
+    // Its own questions it never got to ask are listed in the review, never lost.
+    if (!reachedQuestions) skipped.push(...session.questions.map((q) => q.text));
     say(`Kept what it reached: ${why}`);
     return outcome({ kind: "kept", reason: why });
   };
@@ -204,6 +243,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // The task model's unknowns: what the evidence speaks to goes to the agent with the evidence; the rest are queued.
     const seen: string[] = [];
     for (const u of theTask.unknowns) {
+      if (isTimeOfDay(u.question)) continue;
       const about = view.about(u.question);
       if (about.length > 0) {
         seen.push(
@@ -230,6 +270,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         test: session.lastTest,
         appeared: view.appeared(),
         explained: session.whys,
+        sinceTest: session.sinceTest,
+        said: [options.evidence.goal, ...options.evidence.said.map((s) => s.text)],
         unattended: options.unattended,
       });
     };
@@ -244,7 +286,12 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // Every message the agent reads is masked like the evidence: the outline holds recorded values (typed text, an
     // email, a Never or private word), and page names hold tab titles.
     const masked = (text: string) => maskText(text, session.maskTerms ?? []).text;
-    const stopped = await episode(masked(buildMessage(theTask, options.evidence, session, seen)));
+    firstMessage = masked(buildMessage(theTask, options.evidence, session, seen));
+    let stopped = await episode(firstMessage);
+    // A failed reply (Checkpoint 5: D2's 33rd turn thought past the token cap) ends an episode, not the design: once
+    // more, from the workflow as it got to, on what is left of the budget.
+    if (stopped?.startsWith("it failed"))
+      stopped = await episode(masked(buildMessage(theTask, options.evidence, session, seen)));
     if (stopped) return kept(stopped);
 
     // 5: the questions left, in one batch.
@@ -278,6 +325,9 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         if (after) return kept(`it stopped while putting your answers in: ${after}`);
       }
     }
+    // Finished only because the gate stopped refusing (twice): no better than a stopped design when it lost your work or
+    // can't run (Checkpoint 5: live A saved three page opens, every write removed).
+    if (session.gaps.length > 0 && worse()) return kept("it finished with what the finish gate had refused twice");
     say(session.gaps.length > 0 ? `Done, with ${session.gaps.length} thing(s) for you to check` : "Done");
     return outcome({ kind: "designed", summary: done?.summary });
   } catch (error) {

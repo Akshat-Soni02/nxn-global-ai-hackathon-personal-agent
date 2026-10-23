@@ -45,7 +45,10 @@ export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] =
     version: skill.version,
     summary:
       design.kind === "designed"
-        ? (design.summary ?? "Designed")
+        ? // The agent's own words, said as such: Checkpoint 4's described a branch that wasn't there. The notes are code's.
+          design.summary
+          ? `In the agent's words: "${design.summary}". The changes below are what it really did.`
+          : "Designed"
         : `${design.notes.length > 0 ? "Kept what the design reached" : "Kept the recorded steps"}: ${design.reason}`,
     notes: design.notes,
     said,

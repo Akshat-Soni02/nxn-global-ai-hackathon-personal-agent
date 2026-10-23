@@ -42,7 +42,9 @@ export function ignored(path: string): boolean {
 // guarded by macOS). It is a step only right after Finder's Move to Trash (normalise.ts); apps delete their own files
 // all day.
 export function classify(batch: FsObservation[]): FsChange[] {
-  const seen = batch.filter((o) => !ignored(o.path));
+  // By the file's own name (temporary downloads, Finder's files): folders were filtered as the files arrived (watchFiles),
+  // by their names below the watched folder, which may itself sit inside a hidden one.
+  const seen = batch.filter((o) => !ignored(basename(o.path)));
   const vanished = seen.filter((o) => o.kind === "vanish");
   const used = new Set<FsObservation>();
   const changes: FsChange[] = [];
@@ -154,7 +156,8 @@ export function watchFiles(
       const watcher = watch(dir, { recursive: true }, (type, filename) => {
         if (!filename || type === "change") return; // content edits are not steps
         const path = join(dir, filename.toString());
-        if (ignored(path) || skipped(path)) return;
+        // Only names below the watched folder count: a watched folder may itself sit inside a hidden one (Checkpoint 4).
+        if (ignored(filename.toString()) || skipped(path)) return;
         let ino: number | undefined;
         try {
           const stat = statSync(path);

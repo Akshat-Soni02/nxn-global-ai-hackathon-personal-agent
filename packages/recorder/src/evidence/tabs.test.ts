@@ -45,3 +45,14 @@ describe("tab names", () => {
     expect(nameOf(2)).toBe("Searce Mail (2)");
   });
 });
+
+describe("a tab opened blank", () => {
+  // Checkpoint 4 (A): the tab was blank when Record started, so it was called "about:blank" though it held Hacker News.
+  it("is named from the page it went to, not the blank page's title", () => {
+    const trace = [
+      ev("tab_open", 1, { title: "about:blank", url: "about:blank", preexisting: true }),
+      { ...ev("navigate", 1, { url: "https://news.ycombinator.com/" }), id: "nav" },
+    ];
+    expect(tabsOf(trace, [at(1)]).nameOf(1)).toBe("news.ycombinator.com");
+  });
+});

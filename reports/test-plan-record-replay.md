@@ -6,6 +6,8 @@ How it's used: you record workflows from your own work (§1). I then go through 
 
 Code references are to `fix/record-refactoring` (`34c73ed`, Oct 15).
 
+**Since Record v2 (Oct 20):** some "where to look" pointers below name the old agent's files (`design.json → prompt.task`, `prompt.system`, `label_steps`). For where each one is now, see [`record-v2-plans-explained.md` §9](record-v2-plans-explained.md#9-where-to-look-now-the-test-plans-pointers-updated).
+
 ---
 
 ## 1. Recording your own workflows: what I need

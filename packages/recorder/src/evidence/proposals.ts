@@ -156,7 +156,7 @@ function openDirectly(input: ProposalInput): Found[] {
       ];
       found.push({
         kind: "open_directly",
-        summary: `${first}–${ids.at(-1)} go through ${j - i + 1} pages to reach ${shortUrl(url)}: open it directly${idLike(url) ? " (its address holds an id: it may differ next time)" : ""}`,
+        summary: `${first}–${ids.at(-1)} go through ${j - i + 1} pages to reach ${shortUrl(url)}: open it directly${idLike(url) ? " (its address holds an id: it may differ next time)" : ""}. Only if it is always this same page, not "the newest" or "today's" (Checkpoint 4: it would have fixed today's video in place)`,
         steps: ids,
         evidence: steps.slice(i, j + 1).flatMap((s) => s.events),
         edits,

@@ -238,7 +238,10 @@ function stableCss(el: Element): string | undefined {
 function structuralCss(el: Element): string | undefined {
   const parts: string[] = [];
   let node: Element | null = el;
-  for (let depth = 0; node && depth < 6; depth++) {
+  for (let depth = 0; node && depth < 12; depth++) {
+    // Six levels, and more while the path still matches another element (Checkpoint 4: the first Hacker News story's
+    // title matched a span in the page's header too, and was saved with no selector at all).
+    if (depth >= 6 && cssResolvesTo(parts.join(" > "), el)) break;
     if (node !== el && node.id && isIdent(node.id) && !GENERATED.test(node.id)) {
       parts.unshift(`#${node.id}`);
       break;

@@ -84,3 +84,20 @@ describe("listPosition", () => {
     expect(listPosition($("#a a"))).toBeUndefined();
   });
 });
+
+describe("a structural selector that is really this element's", () => {
+  // Checkpoint 4 (A): Hacker News nests its stories' table inside its layout table; six levels up, the first story's
+  // title path also matched a span in the header, so the copy was saved with no selector at all.
+  it("climbs past six levels while the path still matches something else", () => {
+    const row = (cells: string) => `<tr>${cells}</tr>`;
+    const nested = (inner: string) =>
+      `<table><tbody><tr><td><table><tbody>${inner}</tbody></table></td></tr></tbody></table>`;
+    document.body.innerHTML = `<center>${nested(row("<td></td><td></td><td><span>new | past</span></td>"))}${nested(
+      row("<td>1.</td><td></td><td><span>Local Wikipedia</span></td>"),
+    )}</center>`;
+    const title = document.querySelectorAll("span")[1] as Element;
+    const css = describeElement(title).selectors.css;
+    expect(css).toBeDefined();
+    expect(document.querySelectorAll(css as string)).toHaveLength(1);
+  });
+});

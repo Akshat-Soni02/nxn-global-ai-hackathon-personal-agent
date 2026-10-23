@@ -9,6 +9,7 @@
 | [13 · The whole picture](13-the-whole-picture.md) | Which programs run on your Mac (daemon, Shadow.app, extension, native host, window), how they talk, and how one approval travels end to end |
 | [14 · Record, replay and AI](14-shadow-end-to-end.md) | What happens when you record a task and when it runs, where the model is used, what is built, which files are created on your Mac, and which code does what |
 | [15 · Ten real-life tests](15-test-ideas.md) | Ten everyday tasks to try, in order, with a results table |
+| [16 · From Record to a saved workflow](16-record-to-workflow.png) | One picture of the record side as built in Record v2: each step numbered, every file it writes (`trace.jsonl` … `evidence.json`, `design.json`, `v1.json`, `review.json`), and the design agent's stages inside. It replaces the record half of 14, which predates v2. Editable: [`.excalidraw`](16-record-to-workflow.excalidraw) (open at excalidraw.com, menu → Open); also as [`.svg`](16-record-to-workflow.svg) |
 | [`examples.md`](../examples.md) | The real workflows the design is measured against |
 
 ## Words used everywhere

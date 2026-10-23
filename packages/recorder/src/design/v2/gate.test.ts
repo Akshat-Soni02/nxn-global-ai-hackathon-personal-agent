@@ -1,7 +1,7 @@
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
-import { gate } from "./gate.ts";
+import { gate, roleAlone, runProblems } from "./gate.ts";
 
 const CHAT = "https://chat.google.com/room/X";
 const SHEET = "https://docs.google.com/spreadsheets/d/S/edit";
@@ -195,5 +195,212 @@ describe("the finish gate", () => {
   it("wants a web workflow to open a page first: runs start on a blank window", () => {
     const wf = skill([act("s3", "web", "type", { text: "x" })]);
     expect(gate(input(wf)).join("\n")).toMatch(/open a page first/);
+  });
+});
+
+describe("what Checkpoint 4 let through", () => {
+  const ok = skill(
+    [
+      act("s1", "web", "navigate", { url: CHAT }),
+      act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+      act("s3", "web", "type", { text: "Date - {{today|D MMM}}" }),
+      act("s4", "web", "press", { key: "Enter" }),
+    ],
+    [{ type: "schedule", cron: "0 9 1 * *" }],
+  );
+
+  it("a failed test step is explained only by a reason given after that test, not the one it was added with", () => {
+    const test = {
+      outcome: "failed: s3",
+      steps: [{ id: "s3", path: "s3", status: "failed" as const, error: "target not found" }],
+    };
+    const added = gate(input(ok, { test, explained: new Map([["s3", "type the date"]]), sinceTest: new Map() }));
+    expect(added.join("\n")).toMatch(/s3: it failed in the test run/);
+    const after = gate(
+      input(ok, { test, explained: new Map([["s3", "x"]]), sinceTest: new Map([["s3", "it needs the sign-in"]]) }),
+    );
+    expect(after.join("\n")).not.toMatch(/s3: it failed/);
+  });
+
+  it("a test run that couldn't start is a problem, unless Chrome isn't there", () => {
+    expect(gate(input(ok, { test: { outcome: "not run: input day has no value", steps: [] } })).join("\n")).toMatch(
+      /test run couldn't start.*input day has no value/,
+    );
+    expect(gate(input(ok, { test: { outcome: "not run: Chrome is not connected to Shadow", steps: [] } }))).toEqual([]);
+  });
+
+  it("a check that still holds the recorded page on a step that now opens a {{…}} page is a problem", () => {
+    const stale = skill(
+      [
+        act(
+          "s1",
+          "web",
+          "navigate",
+          { url: "https://en.wikipedia.org/wiki/{{today|D MMM}}" },
+          { check: { url_matches: "/wiki/Thuggee" } },
+        ),
+        act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+        act("s3", "web", "type", { text: "Date - {{today|D MMM}}" }),
+      ],
+      [{ type: "schedule", cron: "0 9 1 * *" }],
+    );
+    expect(gate(input(stale)).join("\n")).toMatch(/s1: its check still looks for "\/wiki\/Thuggee"/);
+  });
+
+  it("a step the runner can't run is a problem", () => {
+    const read = skill(
+      [...ok.steps.slice(1), act("s5", "web", "extract", {}, { target: { near: "Indian Rupee", fallbacks: [] } })],
+      [{ type: "schedule", cron: "0 9 1 * *" }],
+    );
+    expect(gate(input(read)).join("\n")).toMatch(/s5: replay can't find its control/);
+  });
+
+  it("how often it runs comes from what was said, whatever the task model wrote (F1)", () => {
+    const manual = skill(ok.steps.slice(1));
+    const problems = gate(
+      input(manual, { task: { ...task, cadence: { kind: "manual" } }, said: ["Every day I get these KPI emails"] }),
+    );
+    expect(problems.join("\n")).toMatch(/"Every day".*only runs when started by hand/);
+  });
+});
+
+describe("what the re-designs after the fixes showed (round 2)", () => {
+  const ok = skill(
+    [
+      act("s1", "web", "navigate", { url: CHAT }),
+      act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+      act("s3", "web", "type", { text: "Date - {{today|D MMM}}" }),
+      act("s4", "web", "press", { key: "Enter" }),
+    ],
+    [{ type: "schedule", cron: "0 9 1 * *" }],
+  );
+  const pick = TaskModel.parse({ ...task, rules: [{ quote: "note the newest video", where: "goal" }] });
+
+  it("turns back a rule about picking what changes, said not to be built, with how to build it", () => {
+    const problems = gate(input(ok, { task: pick, done: done([{ rule: 0, not_built: "not enough selectors" }]) }));
+    expect(problems.join("\n")).toMatch(/rule 0 "note the newest video" isn't built: .*reading the page.*ai_step/);
+  });
+
+  it("counts a new step doing what a recorded write did, on the same control, as that work kept", () => {
+    const same = skill(
+      [
+        act("s1", "web", "navigate", { url: CHAT }),
+        act("s9", "web", "upload", { file: "~/Downloads/y.csv" }),
+        act("s10", "web", "type", { text: "Date - {{today|D MMM}}" }),
+        act("s4", "web", "press", { key: "Enter" }),
+      ].map((s) =>
+        s.id === "s9"
+          ? { ...s, target: { role: "textbox", name: "s2", fallbacks: [] } }
+          : s.id === "s10"
+            ? { ...s, target: { role: "textbox", name: "s3", fallbacks: [] } }
+            : s,
+      ),
+      [{ type: "schedule", cron: "0 9 1 * *" }],
+    );
+    expect(
+      gate(
+        input(same, {
+          explained: new Map([
+            ["s2", "a"],
+            ["s3", "b"],
+          ]),
+        }),
+      ).join("\n"),
+    ).not.toMatch(/gone/);
+  });
+});
+
+describe("what round 3 showed", () => {
+  it("takes the trigger by the name the outline shows it under (B: fifteen calls looking for a step trigger)", () => {
+    const ok = skill(
+      [
+        act("s1", "web", "navigate", { url: CHAT }),
+        act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+        act("s3", "web", "type", { text: "Date - {{today|D MMM}}" }),
+        act("s4", "web", "press", { key: "Enter" }),
+      ],
+      [{ type: "schedule", cron: "0 9 1 * *" }],
+    );
+    const problems = gate(
+      input(ok, {
+        done: done([
+          { rule: 0, steps: ["trigger", "s2"] },
+          { rule: 1, steps: ["s3"] },
+        ]),
+      }),
+    );
+    expect(problems.join("\n")).not.toMatch(/no step trigger/);
+  });
+});
+
+describe("what live C showed", () => {
+  it("refuses a control the agent gives by role alone, except to read them all or the main part", () => {
+    const read = (target: unknown, args: Record<string, unknown> = {}) =>
+      roleAlone({
+        id: "s2",
+        type: "action",
+        intent: "read",
+        channel: "web",
+        action: "extract",
+        args,
+        target,
+      } as never);
+    expect(read({ role: "cell", fallbacks: [] }).join()).toMatch(/a role alone matches every cell/);
+    expect(read({ role: "cell", fallbacks: [] }, { all: true })).toEqual([]);
+    expect(read({ role: "main", fallbacks: [] })).toEqual([]);
+    expect(read({ role: "cell", name: "94.89", fallbacks: [] })).toEqual([]);
+  });
+});
+
+describe("what live D showed", () => {
+  const nav = (id: string, url: string, tab?: string) => ({
+    ...act(id, "web", "navigate", { url }),
+    ...(tab ? { tab } : {}),
+  });
+  it("says a step with no tab, after a page opened in a named tab, acts in another tab", () => {
+    const w = skill([nav("s1", "https://en.wikipedia.org/wiki/Main_Page", "API"), act("s9", "web", "extract")]);
+    expect(runProblems(w).join()).toMatch(/s9 runs in the window's first tab, but s1 opened its page in tab "API"/);
+    const same = skill([
+      nav("s1", "https://en.wikipedia.org/wiki/Main_Page", "API"),
+      { ...act("s9", "web", "extract"), tab: "API" },
+    ]);
+    expect(runProblems(same)).toEqual([]);
+  });
+
+  it("counts a check still holding the recorded page as a run problem, so a kept draft is judged by it too", () => {
+    const w = skill([
+      act(
+        "s2",
+        "web",
+        "navigate",
+        { url: "https://en.wikipedia.org/wiki/{{today}}" },
+        { check: { url_matches: "/wiki/Thuggee" } },
+      ),
+    ]);
+    expect(runProblems(w).join()).toMatch(/s2: its check still looks for "\/wiki\/Thuggee"/);
+  });
+});
+
+describe("what live D showed, again", () => {
+  it("judges a check by the value it checks: the plain list's rename to a fixed name isn't stale", () => {
+    const rename = (to: string) =>
+      skill([
+        act(
+          "s6",
+          "fs",
+          "find",
+          { dir: "~/Downloads", glob: "*.pdf", pick: "newest" },
+          { output: { name: "downloaded_1", type: { type: "file" } } },
+        ),
+        act(
+          "s7",
+          "fs",
+          "rename",
+          { from: "{{downloaded_1}}", to },
+          { check: { file_exists: "~/Downloads/23 Oct - Thuggee.pdf" } },
+        ),
+      ]);
+    expect(runProblems(rename("~/Downloads/23 Oct - Thuggee.pdf"))).toEqual([]);
+    expect(runProblems(rename("~/Downloads/{{today|D MMM}}.pdf")).join()).toMatch(/s7: its check still looks for/);
   });
 });

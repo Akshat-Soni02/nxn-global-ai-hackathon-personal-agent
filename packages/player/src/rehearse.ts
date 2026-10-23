@@ -37,6 +37,8 @@ export function rehearsalChoice(
   }
   const key = `${step.channel}.${step.action}`;
   if (step.requires_approval || isOutward(step)) return { choice: "skip", why: "it needs your approval" };
+  // A test run downloads nothing, so a file this run makes is never there (Checkpoint 5: live D's find failed its test).
+  if (key === "fs.find" && step.args.since_run_start) return { choice: "skip", why: "it finds a file this run makes" };
   if (READS.has(key)) return { choice: "do", why: "it only reads or opens a page" };
   if (key !== "web.click") return { choice: "skip", why: "it would change something" };
   const words = [step.target?.name, step.target?.label, step.target?.text].filter(Boolean).join(" ");

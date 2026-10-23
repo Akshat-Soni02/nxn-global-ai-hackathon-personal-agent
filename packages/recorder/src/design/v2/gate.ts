@@ -4,7 +4,16 @@
 // it runs as often as they said. Each problem is a sentence the agent reads and fixes (twice at most; then it is saved
 // with the gaps listed for the user). Oct 19: the agent finished with all 20 recorded steps removed, and with checks
 // for text never on screen.
-import { type Check, isAction, isOutward, type Skill, type Step, triggerOf, walkSteps } from "@shadow/core";
+import {
+  type Check,
+  isAction,
+  isOutward,
+  type Locator,
+  type Skill,
+  type Step,
+  triggerOf,
+  walkSteps,
+} from "@shadow/core";
 import { MASK } from "../../mask.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
 
@@ -20,6 +29,11 @@ const WRITES = new Set([
   "fs.write",
   "ax.set_value",
 ]);
+// A rule about picking what changes each time: the newest, the top 3, the ones not already done.
+const PICK = /\b(?:newest|latest|most recent|top|new|not already|already (?:did|done|saved|on)|skip)\b/i;
+// How often, in words: "every day", "each working day", "every Monday", "daily", "weekdays", "monthly".
+const FREQUENCY =
+  /\b(?:every|each)\s+(?:working\s+)?(?:day|morning|evening|night|week|weekday|month|year|hour|monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b|\b(?:daily|weekly|monthly|hourly|weekdays)\b/i;
 // Apps that draw their content: no text check can see it (it isn't in the page's text).
 const CANVAS = /^https:\/\/docs\.google\.com\/(spreadsheets|document|presentation)\//;
 
@@ -32,26 +46,140 @@ export interface GateInput {
   test?: TestReport;
   // Every text that appeared on screen after an action, while recording or in the test run.
   appeared: Set<string>;
-  // Steps whose removal or test failure the agent explained (its tools' `why`): flagged for the user, not a problem.
+  // Steps whose removal the agent explained (its tools' `why`): flagged for the user, not a problem.
   explained: Map<string, string>;
+  // Reasons given since the last test run: only these explain a test failure, not the reason a step was added with
+  // (Checkpoint 4: a step added "to read the page" failed its test and was saved anyway). Default: explained.
+  sinceTest?: Map<string, string>;
+  // The goal and what was said: how often it runs is read from them too, not only from the task model (F1).
+  said?: string[];
   // What an unattended run still needs (the daemon's go-live checks).
   unattended?: (skill: Skill) => string[];
 }
 
 const norm = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
 
+// What the step-runner needs before it can run a step (packages/player): each action's values, and a control it can
+// find. Its matcher scores role and name, stored attributes and selectors; text and `near` alone it can't use.
+// Checkpoint 4: reads with no control, fs.find with {folder, pattern}, a control found only "near Indian Rupee".
+const NEEDS: Record<string, string[]> = {
+  "web.navigate": ["url"],
+  "web.type": ["text"],
+  "web.select": ["option"],
+  "web.press": ["key"],
+  "fs.find": ["dir", "glob"],
+  "fs.move": ["from", "to"],
+  "fs.copy": ["from", "to"],
+  "fs.rename": ["from", "to"],
+  "fs.read": ["path"],
+  "data.pick": ["from"],
+};
+const findable = (t: Locator | undefined) =>
+  Boolean(t && (t.role || Object.keys(t.attrs ?? {}).length > 0 || t.fallbacks.length > 0));
+
+// A control the agent writes by role alone matches every control with that role (Checkpoint 5: C read { role: "cell" }
+// on a table of 50 rates, and the test run found it ambiguous). It needs a name too, except to read them all or the
+// page's one main part. A recorded control is the test run's to judge: it may be the only one of its kind.
+export function roleAlone(step: Step): string[] {
+  if (!isAction(step) || step.channel !== "web" || !step.target?.role || step.target.name) return [];
+  const t = step.target;
+  if (Object.keys(t.attrs ?? {}).length > 0 || t.fallbacks.length > 0 || step.args.all === true || t.role === "main")
+    return [];
+  return [
+    `${step.id}: a role alone matches every ${t.role} on the page: give it a name too, copy a recorded control ({ like: "s3" }), or read the whole page (change: target: null)`,
+  ];
+}
+
+export function stepProblems(step: Step): string[] {
+  if (!isAction(step)) return [];
+  const key = `${step.channel}.${step.action}`;
+  const needs = NEEDS[key] ?? [];
+  const missing = needs.filter((k) => step.args[k] === undefined || step.args[k] === "");
+  const problems =
+    missing.length > 0 ? [`${step.id}: ${key} needs ${needs.join(" and ")} (missing ${missing.join(", ")})`] : [];
+  const noControl =
+    ["web.navigate", "web.wait_for"].includes(key) || (key === "web.extract" && step.args.source === "google_sheet");
+  // A key pressed on the page needs no control; one aimed at a control must be able to find it.
+  if (step.channel === "web" && !noControl && (key !== "web.press" || step.target) && !findable(step.target)) {
+    problems.push(
+      `${step.id}: replay can't find its control: give it a role and name ({ role: "button", name: "Save" }) or copy a recorded one ({ like: "s3" }). To read a whole page, read with no target (change: target: null)${key === "web.press" ? "; a key pressed on the page needs no target" : ""}`,
+    );
+  }
+  return problems;
+}
+
+// A cron the scheduler can read: five or six fields, no {{…}} (Checkpoint 5: E set "{{cron_expr}}").
+export const isCron = (cron?: string) =>
+  Boolean(cron && !cron.includes("{{") && /^\S+(\s+\S+){4,5}$/.test(cron.trim()));
+
+// Every step the runner can't run, and inputs it can't fill: a default is a value, never a {{…}} template.
+export function runProblems(skill: Skill): string[] {
+  const inputs = Object.entries(triggerOf(skill).inputs)
+    .filter(([, i]) => typeof i.default === "string" && i.default.includes("{{"))
+    .map(
+      ([name]) =>
+        `input ${name}: a default can't be a {{…}} value: use it in the step itself ({{today}}, {{today|D MMM}})`,
+    );
+  const schedules = triggerOf(skill)
+    .when.filter((w) => w.type === "schedule" && !isCron(w.cron))
+    .map((w) => `its schedule "${(w as { cron: string }).cron}" isn't a fixed cron: e.g. "0 9 * * 5"`);
+  const steps = [...walkSteps(skill.steps)].map(({ step }) => step);
+  return [...inputs, ...schedules, ...steps.flatMap(stepProblems), ...steps.flatMap(stale), ...tabless(steps)];
+}
+
+// A check that still holds the recorded page or file on a step that now uses a {{value}} fails next time. A run problem,
+// so a kept draft is judged by it too (Checkpoint 5: D kept s2 opening {{featured_title}} but checking /wiki/Thuggee).
+const stale = (step: Step): string[] => {
+  if (!isAction(step)) return [];
+  // Each check against the value it checks: the page opened, or where the file goes (live D: the plain list's rename
+  // reads {{downloaded_1}} but goes to a fixed name, and its check is right).
+  const literal = step.check?.url_matches ?? step.check?.file_exists;
+  const checked = String((step.check?.url_matches !== undefined ? step.args.url : step.args.to) ?? "");
+  return literal && !literal.includes("{{") && checked.includes("{{")
+    ? [
+        `${step.id}: its check still looks for "${literal}" but the step now uses a {{value}}: change the check or remove it`,
+      ]
+    : [];
+};
+
+// A web step with no tab runs in the window's first tab (Checkpoint 5: D's s1 opened the Main Page in tab "API", and the
+// read after it read a page the test run had left in the first tab): after a page opened in a named tab, its steps
+// name that tab too.
+const tabless = (steps: Step[]): string[] => {
+  let opened: { id: string; tab: string } | undefined;
+  return steps.flatMap((step) => {
+    if (!isAction(step) || step.channel !== "web") return [];
+    if (step.action === "navigate") {
+      opened = step.tab ? { id: step.id, tab: step.tab } : undefined;
+      return [];
+    }
+    return opened && !step.tab
+      ? [
+          `${step.id} runs in the window's first tab, but ${opened.id} opened its page in tab "${opened.tab}": give it tab "${opened.tab}" too`,
+        ]
+      : [];
+  });
+};
+
 // The work the user showed (what they typed, chose, moved or sent: a step that needed approval sent something) still
 // happens: kept (in a loop counts), or its removal explained for the review. A workflow that keeps none of it isn't
 // what they meant, whatever reason each removal was given (Oct 19: the Play Store run kept one step of the recording).
 export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string, string>): string[] {
   const now = new Set([...walkSteps(workflow.steps)].map(({ step }) => step.id));
+  // The same action on the same control (by role and name) is that work kept, though the step is new (Checkpoint 5:
+  // A rebuilt its pastes inside a loop and was told its work was gone).
+  const sig = (s: Step) =>
+    isAction(s) && s.target?.role && (s.target.name || s.target.label)
+      ? `${s.channel}.${s.action}|${s.target.role}|${s.target.name ?? s.target.label}`
+      : undefined;
+  const doing = new Set([...walkSteps(workflow.steps)].map(({ step }) => sig(step)).filter(Boolean));
   const problems: string[] = [];
   const shown = [...walkSteps(recorded.steps)]
     .map(({ step }) => step)
     .filter((s) => isAction(s) && (WRITES.has(`${s.channel}.${s.action}`) || isOutward(s) || s.requires_approval));
-  const noneKept = shown.length > 0 && shown.every((s) => !now.has(s.id));
+  const noneKept = shown.length > 0 && shown.every((s) => !now.has(s.id) && !doing.has(sig(s)));
   for (const step of shown) {
-    if (now.has(step.id) || (explained.has(step.id) && !noneKept)) continue;
+    if (now.has(step.id) || doing.has(sig(step)) || (explained.has(step.id) && !noneKept)) continue;
     problems.push(
       `${step.id} (${step.intent}) was work the user showed, and it is gone: keep it, repeat it in a loop, or remove it with a why the user will see${noneKept ? " (none of their work is left)" : ""}`,
     );
@@ -61,6 +189,7 @@ export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string
 
 export function gate(input: GateInput): string[] {
   const { recorded, workflow, task, done, test, appeared, explained } = input;
+  const sinceTest = input.sinceTest ?? explained;
   const now = new Map<string, Step>([...walkSteps(workflow.steps)].map(({ step }) => [step.id, step]));
   const problems = lostWork(recorded, workflow, explained);
 
@@ -73,7 +202,16 @@ export function gate(input: GateInput): string[] {
       );
       return;
     }
-    const missing = said.not_built ? [] : said.steps.filter((id) => !now.has(id));
+    // Picking what changes each time is what reading the page and an ai_step do (Checkpoint 5: B left "the newest
+    // video" unbuilt, saying the recording had no selectors for it).
+    if (said.not_built && PICK.test(rule.quote)) {
+      problems.push(
+        `rule ${i} "${rule.quote}" isn't built: what changes each time (the newest, the top 3, ones not already done) is built by reading the page (read with no target) and an ai_step that picks it, then a loop over what it returns. Build it, or say in not_built why that can't work`,
+      );
+      return;
+    }
+    // The trigger by the word the outline shows it under (Checkpoint 5: B looked for a step "trigger" for 15 calls).
+    const missing = said.not_built ? [] : said.steps.filter((id) => !now.has(id === "trigger" ? "start" : id));
     if (missing.length > 0) problems.push(`rule ${i} "${rule.quote}": no step ${missing.join(", ")} in the workflow`);
   });
 
@@ -104,7 +242,7 @@ export function gate(input: GateInput): string[] {
   // The test run: every step it couldn't find or that failed is fixed, or explained.
   for (const step of test?.steps ?? []) {
     if (step.status !== "failed" && step.status !== "not_found") continue;
-    if (explained.has(step.id)) continue;
+    if (sinceTest.has(step.id)) continue;
     const what =
       step.status === "not_found"
         ? "the test run didn't find it"
@@ -112,12 +250,20 @@ export function gate(input: GateInput): string[] {
     problems.push(`${step.id}: ${what}: fix it, or explain why it will work in a real run`);
   }
 
+  const notRun = /^not run: (.*)/.exec(test?.outcome ?? "")?.[1];
+  if (notRun && !/Chrome is not connected|Shadow\.app is not running/.test(notRun)) {
+    problems.push(`the test run couldn't start (${notRun}): fix that, so it can run`);
+  }
+  problems.push(...runProblems(workflow));
   problems.push(...(input.unattended?.(workflow) ?? []));
 
-  // As often as they said.
-  if (task.cadence.kind !== "manual" && triggerOf(workflow).when.every((w) => w.type === "manual")) {
+  // As often as they said: the task model's cadence, or frequency words in the goal and what was said (F1: the model
+  // wrote "manual" while quoting "every day").
+  const spoken = (input.said ?? []).map((t) => FREQUENCY.exec(t)?.[0]).find(Boolean);
+  if ((task.cadence.kind !== "manual" || spoken) && triggerOf(workflow).when.every((w) => w.type === "manual")) {
+    const quote = spoken ?? task.cadence.quote;
     problems.push(
-      `they said ${task.cadence.quote ? `"${task.cadence.quote}"` : `it runs on a ${task.cadence.kind}`}, but it only runs when started by hand: set it with trigger`,
+      `they said ${quote ? `"${quote}"` : `it runs on a ${task.cadence.kind}`}, but it only runs when started by hand: set it with trigger`,
     );
   }
 

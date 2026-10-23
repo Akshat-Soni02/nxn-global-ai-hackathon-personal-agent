@@ -8,7 +8,9 @@ import { type AnyTool, type ToolContext, tool } from "@shadow/agent";
 import {
   applyEdits,
   type EditInput,
+  findStep,
   isAction,
+  isLlm,
   type Locator,
   type Step,
   triggerOf,
@@ -20,6 +22,7 @@ import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
 import { maskText } from "../../mask.ts";
 import { DoneReport } from "./contracts.ts";
+import { isCron, roleAlone, stepProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { maySend, refusals } from "./rules.ts";
 import { MAX_DONE_REFUSALS, MAX_TESTS, type SessionV2 } from "./session.ts";
@@ -64,6 +67,15 @@ const DO: Record<string, [string, string]> = {
   key_in_app: ["ax", "key"],
 };
 
+// How to do what a proposal with nothing prepared describes (Checkpoint 4: accepting one changed nothing).
+const BUILD_IT: Record<string, string> = {
+  list_item:
+    "read the list or the page (read_all on the list, or read with no target) and let ai_step pick the item; loop over them if there are several",
+  repeat: "read the items (read_all, or read the page and ai_step), then loop over them",
+  all_files: "find_files with pick: all, then loop over the files",
+  constant: "keep the value as it is",
+};
+
 const LocatorSpec = z.object({
   role: z.string().optional(),
   name: z.string().optional(),
@@ -91,15 +103,46 @@ const StepSpec = z
 type StepSpec = z.infer<typeof StepSpec>;
 const Where = { after: z.string().optional(), before: z.string().optional(), into: z.string().optional() };
 const Why = z.string().default("");
+// Step ids as a list, or in one string ("s2, s3", "[s2, s3]"): the real runs sent all three.
+const split = (ids: string) => ids.split(/[\s,[\]"']+/).filter(Boolean);
+const Ids = z.union([z.string(), z.array(z.string())]).transform((s) => (Array.isArray(s) ? s : [s]).flatMap(split));
+// What a loop repeats: steps already there, or new steps made inside it (Checkpoint 5: a step using {{story.title}}
+// can't be added before the loop that declares story, so A spent 20 calls on it, twice).
+const Body = z
+  .union([z.string(), z.array(z.union([z.string(), StepSpec]))])
+  .transform((s) =>
+    (Array.isArray(s) ? s : [s]).flatMap((x): (string | StepSpec)[] => (typeof x === "string" ? split(x) : [x])),
+  );
+// The types the model writes (Checkpoint 5: "list", { title: "text" }, "list of text"), in core's own form.
+const typeFrom = (t: unknown): unknown => {
+  if (typeof t === "string") {
+    const list = /^list(?: of (.+?)s?)?$/.exec(t.trim());
+    const name = t.trim();
+    return list ? { type: "list", items: typeFrom(list[1] ?? "object") } : { type: name === "string" ? "text" : name };
+  }
+  if (Array.isArray(t)) return { type: "list", items: typeFrom(t[0] ?? "object") };
+  if (!t || typeof t !== "object") return { type: "text" };
+  const { type, items, fields } = t as { type?: unknown; items?: unknown; fields?: Record<string, unknown> };
+  if (type === "list") return { type, items: typeFrom(items ?? "object") };
+  const named = type === undefined ? (t as Record<string, unknown>) : type === "object" ? fields : undefined;
+  return named
+    ? { type: "object", fields: Object.fromEntries(Object.entries(named).map(([k, v]) => [k, typeFrom(v)])) }
+    : t;
+};
+
+// A question about the time of day it runs: never asked, 9:00 is the default (Checkpoint 5: A, B and D2 asked it; D2
+// made it an input), and the review shows the time so it can be changed.
+export const isTimeOfDay = (question: string) => /\b(what|which) time\b|\btime of day\b|\bwhat hour\b/i.test(question);
 
 export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   const ids = () => [...walkSteps(session.draft.steps)].map(({ step }) => step.id);
   const known = (id: string) => ids().includes(id);
-  const unknown = (id: string) => `no step ${id}. Steps: ${ids().join(", ")}`;
-  const nextId = (prefix: string) => {
+  const unknown = (id: string) =>
+    `no step ${id}${id === "trigger" ? " (the trigger is start)" : ""}. Steps: ${ids().join(", ")}`;
+  const nextId = (prefix: string, taken: string[] = []) => {
     // Never an id the recording had (a removed step keeps its id and its why for the review), nor one code left out.
     const recorded = [...walkSteps(session.original.steps)].map(({ step }) => step.id);
-    const used = new Set([...ids(), ...recorded, ...session.dropped.keys()]);
+    const used = new Set([...ids(), ...recorded, ...session.dropped.keys(), ...taken]);
     let n = 1;
     while (used.has(`${prefix}${n}`)) n++;
     return `${prefix}${n}`;
@@ -110,13 +153,59 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   const position = (where: { after?: string; before?: string; into?: string }) =>
     where.into ? { into: where.into } : where.before ? { before: where.before } : { after: where.after ?? lastTop() };
   const lastTop = () => session.draft.steps.at(-1)?.id ?? "start";
+  // How often it runs: "manual", a cron, { schedule }, { folder, glob }, or the trigger's own list.
+  const setWhen = (when: unknown, why: string) => {
+    const w = when as { schedule?: string; folder?: string; glob?: string };
+    const value =
+      when === "manual"
+        ? [{ type: "manual" }]
+        : typeof when === "string"
+          ? [{ type: "schedule", cron: when }]
+          : Array.isArray(when)
+            ? when
+            : w?.schedule
+              ? [{ type: "schedule", cron: w.schedule }]
+              : w?.folder
+                ? [{ type: "folder_watch", dir: w.folder, ...(w.glob ? { glob: w.glob } : {}) }]
+                : undefined;
+    if (!value)
+      return { output: { ok: false, problems: ['say when: "manual", { schedule: "0 9 * * *" } or { folder, glob }'] } };
+    const bad = (value as { type?: string; cron?: string }[]).find((x) => x.type === "schedule" && !isCron(x.cron));
+    if (bad)
+      return {
+        output: {
+          ok: false,
+          problems: [
+            `a schedule is a fixed cron (minute hour day month weekday, e.g. "0 9 * * 5"), never a {{value}}: "${bad.cron}"`,
+          ],
+        },
+      };
+    return apply([{ op: "set", step: "start", field: "when", value }], why, ["start"]);
+  };
 
   // Edits applied to the draft: they must parse and break no rule. Approval on outward steps is added here, by code.
   const apply = (edits: EditInput[], why: string, touched: string[], unverified: string[] = []) => {
     const result = applyEdits(session.draft, edits);
     if (!result.ok) return { output: { ok: false, problems: result.problems.map(hint) } };
+    // Said, so a change that didn't take isn't read as done (Checkpoint 5: C sent eight that changed nothing).
+    const unchanged = JSON.stringify(result.skill) === JSON.stringify(session.draft);
     const refused = refusals(session.original, result.skill, session.facts);
     if (refused.length > 0) return { output: { ok: false, refused } };
+    // A step it added or changed must be one the runner can run (Checkpoint 4: reads with no control, fs.find with
+    // {folder, pattern}). A recorded control it didn't touch is the gate's to judge, not a reason to refuse this edit.
+    const was = new Map([...walkSteps(session.draft.steps)].map(({ step }) => [step.id, step]));
+    const unrunnable = [...walkSteps(result.skill.steps)]
+      .map(({ step }) => step)
+      .filter((step) => touched.includes(step.id) && JSON.stringify(step) !== JSON.stringify(was.get(step.id)))
+      .flatMap((step) => {
+        const old = was.get(step.id) ?? session.dropped.get(step.id)?.step ?? findStep(session.original, step.id);
+        const same =
+          old && "target" in old && isAction(step) && JSON.stringify(old.target) === JSON.stringify(step.target);
+        return [...stepProblems(step), ...roleAlone(step)].filter(
+          (p) => !same || !/can't find its control|role alone/.test(p),
+        );
+      });
+    if (unrunnable.length > 0) return { output: { ok: false, problems: unrunnable } };
     const approved = requireApprovals(result.skill);
     // What it added or changed that may send (an Enter in a message box, a copy of a recorded send): approval too.
     const before = new Map([...walkSteps(session.draft.steps)].map(({ step }) => [step.id, JSON.stringify(step)]));
@@ -136,12 +225,17 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     );
     session.draft = marked.ok ? marked.skill : approved.skill;
     const added = [...approved.added, ...(marked.ok ? sending : [])];
-    for (const id of touched) if (why) session.whys.set(id, why);
+    for (const id of touched) {
+      if (!why) continue;
+      session.whys.set(id, why);
+      session.sinceTest.set(id, why);
+    }
     for (const id of unverified) session.unverified.add(id);
     return {
       output: {
         ok: true,
         ...(added.length > 0 ? { approval_added: added } : {}),
+        ...(unchanged ? { note: "nothing changed: the workflow is exactly as it was (its why is kept)" } : {}),
         workflow: outlineOf(session.draft),
       },
     };
@@ -154,6 +248,20 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     if (/^steps: .*(at least|too small)/i.test(problem)) {
       return `${problem}: a workflow keeps at least one step besides its trigger: remove fewer, or say in done why they go`;
     }
+    // A list's item used outside a loop (Checkpoint 5: 20 calls on "{{story.title}} uses story").
+    const item = /uses (\w+), which is not declared by an earlier step/.exec(problem)?.[1];
+    // Not a list's item: a value a step saves, and this edit removes or moves that step (Checkpoint 5: B's copied_1).
+    const saver = [...walkSteps(session.draft.steps)].find(({ step }) => "output" in step && step.output?.name === item)
+      ?.step.id;
+    if (saver) return `${problem}: ${saver} saves it: change the steps that use it first, or remove them too`;
+    // A step's id sent as a value, from a step that saves none (D2: an ai_step reading {{s1}}, a navigate).
+    if (item && known(item))
+      return `${problem}: ${item} saves nothing: read what you need first (read with no target reads the page; save_as: a name), then use {{that name}}`;
+    // Not an item either, as nothing reads a field of it (D2: {{article_title}} before the step that reads it).
+    if (item && !problem.includes(`{{${item}.`))
+      return `${problem}: nothing saves ${item} yet: first add the step that does (save_as on a read, or an ai_step's output name)`;
+    if (item)
+      return `${problem}: to use each item of a list, first put the steps that use it in a loop (loop: steps, over: "{{list}}", item: { name: "${item}" }); you can loop the recorded steps and then change their values, or add this step into a loop that has it (into: the loop's id)`;
     if (/steps.*(at least|too small)/i.test(problem))
       return `${problem}: give loop or branch the steps to repeat (steps: [ids])`;
     return problem;
@@ -164,8 +272,15 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     spec: StepSpec,
     id: string,
   ): { step: Record<string, unknown>; unverified: boolean } | { error: string } => {
-    const { do: verb, intent, target, tab, save_as, args, ...rest } = spec;
-    const pair = DO[verb] ?? (/^(web|fs|data|ax)\.\w+$/.test(verb) ? (verb.split(".") as [string, string]) : undefined);
+    const { do: verb, intent, target, tab, save_as: named, args, output, ...rest } = spec;
+    // A result named the way ai_step names it, { output: { name } } (D2): saved, never sent as an arg.
+    const save_as = named ?? (output as { name?: string } | undefined)?.name;
+    // "web.read" is read, as the model writes it (Checkpoint 5: D's web.read and web.read_all were refused).
+    const plain = verb.replace(/^(web|fs|data|ax)\./, "");
+    const pair =
+      DO[verb] ??
+      DO[plain] ??
+      (/^(web|fs|data|ax)\.\w+$/.test(verb) ? (verb.split(".") as [string, string]) : undefined);
     if (!pair) {
       return {
         error: `"${verb}" is not something a step can do. Use one of: ${Object.keys(DO).join(", ")} (or channel.action, such as web.click). To repeat steps use loop; to decide use branch; to work something out from text use ai_step`,
@@ -186,12 +301,21 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     let unverified = false;
     if (target && "like" in target) {
       const like = anyStep(target.like);
-      if (!like || !isAction(like) || !like.target)
-        return { error: `${target.like} has no control to copy: ${unknown(target.like)}` };
+      if (!like) return { error: unknown(target.like) };
+      if (!isAction(like) || !like.target)
+        return {
+          error: `${target.like} has no control to copy (${isAction(like) && like.action === "navigate" ? "it opens a page" : "it has none"}): to read a whole page, read with no target`,
+        };
       locator = like.target;
     } else if (target) {
       locator = { ...target, fallbacks: [] };
       unverified = true;
+    }
+    // A read with no control reads the page: its main part, else its body (Checkpoint 4: "read the page and let an AI
+    // step pick" failed three times with "extract needs a target").
+    if (action === "extract" && !locator && values.source === undefined) {
+      locator = { fallbacks: ["main", "body"] };
+      delete values.all;
     }
     const step: Record<string, unknown> = {
       id,
@@ -223,9 +347,11 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     name: "loop",
     kind: "edit",
     description:
-      'Repeat steps that sit next to each other for every item of a list an earlier step produces: over "{{list}}" (or its name), item { name } (used inside as {{name}}). The common shape: read a list, pick the items wanted (ai_step or a pick_row), loop over them',
+      'Repeat steps for every item of a list an earlier step produces: over "{{list}}" (or its name), item { name } (used inside as {{name}}). steps: ids of steps that sit next to each other, or new steps ({ do, intent, target, values }, as add takes) made inside it; with only new steps, say where (after or before). The common shape: read a list, pick the items wanted (ai_step or a pick_row), loop over them',
     input: z.object({
-      steps: z.array(z.string()),
+      steps: Body,
+      after: z.string().optional(),
+      before: z.string().optional(),
       over: z.string().min(1),
       item: z.object({ name: z.string().min(1), type: z.record(z.string(), z.unknown()).optional() }),
       intent: z.string().min(1),
@@ -233,16 +359,25 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       why: Why,
     }),
     prepare: unstring,
-    run: ({ steps, over, item, intent, on_item_fail, why }) => {
+    run: ({ steps, over, item, intent, on_item_fail, after, before, why }) => {
       if (steps.length === 0)
         return {
           output: { ok: false, problems: ["loop needs the steps to repeat (steps: [ids]): it moves them inside"] },
         };
-      const missing = steps.find((s) => !known(s));
+      const there = steps.filter((s): s is string => typeof s === "string");
+      const missing = [...there, after, before].find((s) => s && !known(s));
       if (missing) return { output: { ok: false, problems: [unknown(missing)] } };
       const id = nextId("l");
       const list = /^\{\{.*\}\}$/.test(over.trim()) ? over.trim() : `{{${over.trim()}}}`;
-      const type = item.type ?? itemType(list) ?? { type: "object" };
+      // Looping over what an ai_step returns makes it a list, whatever it was declared as (Checkpoint 5: "is a text,
+      // not a list", and no tool changes an ai_step's type; the prompt's own example declared none).
+      const ai = [...walkSteps(session.draft.steps)]
+        .map(({ step }) => step)
+        .filter(isLlm)
+        .find((st) => `{{${st.output.name}}}` === list.replace(/\s/g, ""));
+      const one = ai && ai.output.type.type !== "list" ? ai.output.type : undefined;
+      const listed = one && { type: "list", items: one.type === "text" ? { type: "object" } : one };
+      const type = listed?.items ?? itemType(list) ?? (item.type ? typeFrom(item.type) : { type: "object" });
       const shell = {
         id,
         type: "control",
@@ -253,13 +388,32 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         on_item_fail,
         steps: [],
       };
+      const made: string[] = [];
+      const unverified: string[] = [];
+      const inside: EditInput[] = [];
+      for (const s of steps) {
+        if (typeof s === "string") {
+          inside.push({ op: "move", step: s, to: { into: id } });
+          continue;
+        }
+        const built = compile(s, nextId("s", made));
+        if ("error" in built) return { output: { ok: false, problems: [built.error] } };
+        made.push(built.step.id as string);
+        if (built.unverified) unverified.push(built.step.id as string);
+        inside.push({ op: "insert", at: { into: id }, step: built.step });
+      }
+      const at = there[0] ? { before: there[0] } : position({ after, before });
       return apply(
         [
-          { op: "insert", at: { before: steps[0] as string }, step: shell },
-          ...steps.map((s): EditInput => ({ op: "move", step: s, to: { into: id } })),
+          ...(listed && ai
+            ? [{ op: "set", step: ai.id, field: "output", value: { ...ai.output, type: listed } } as EditInput]
+            : []),
+          { op: "insert", at, step: shell },
+          ...inside,
         ],
         why,
-        [id, ...steps],
+        [id, ...there, ...made],
+        unverified,
       );
     },
   });
@@ -270,7 +424,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     description:
       "Do steps that sit next to each other only when a condition holds: if { left, op, right } (equals, not_equals, contains, greater_than, less_than, exists, not_exists), else: steps for when it doesn't",
     input: z.object({
-      steps: z.array(z.string()),
+      steps: Ids,
       if: z.record(z.string(), z.unknown()),
       else: z.array(z.string()).optional(),
       intent: z.string().min(1),
@@ -308,15 +462,28 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       after: z.string(),
       intent: z.string().min(1),
       instruction: z.string().min(1),
-      inputs: z.array(z.string()).min(1),
-      output: z.object({ name: z.string().min(1), type: z.record(z.string(), z.unknown()).optional() }),
+      inputs: z
+        .array(z.string())
+        .min(
+          1,
+          'give it the text it reads: read the page first (read with no target, save_as: "page"), then ["{{page}}"]',
+        ),
+      output: z.object({
+        name: z.string().min(1),
+        type: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
+      }),
       why: Why,
     }),
     prepare: unstring,
     run: ({ after, intent, instruction, inputs, output, why }) => {
       if (!known(after)) return { output: { ok: false, problems: [unknown(after)] } };
       const id = nextId("ai");
-      const refs = inputs.map((i) => (/^\{\{.*\}\}$/.test(i.trim()) ? i.trim() : `{{${i.trim()}}}`));
+      // A step's id stands for what it saved ({{s6}} -> {{subject}}): the YC run sent one.
+      const saved = (i: string) => {
+        const step = findStep(session.draft, i.replace(/^\{\{|\}\}$/g, "").trim());
+        return step && "output" in step && step.output ? `{{${step.output.name}}}` : undefined;
+      };
+      const refs = inputs.map((i) => saved(i) ?? (/^\{\{.*\}\}$/.test(i.trim()) ? i.trim() : `{{${i.trim()}}}`));
       return apply(
         [
           {
@@ -328,7 +495,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
               intent,
               instruction,
               inputs: refs,
-              output: { name: output.name, type: output.type ?? { type: "text" } },
+              output: {
+                name: output.name,
+                type: output.type === undefined ? { type: "text" } : typeFrom(output.type),
+              },
             },
           },
         ],
@@ -354,6 +524,15 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     prepare: unstring,
     run: ({ question, why, step, options, default: fallback, confirm }) => {
       if (step !== "start" && !known(step)) return { output: { ok: false, problems: [unknown(step)] } };
+      if (isTimeOfDay(question))
+        return {
+          output: {
+            ok: false,
+            problems: [
+              'a time they didn\'t say is 9:00: set it in the trigger (trigger { when: { schedule: "0 9 * * 1" } }), never ask it',
+            ],
+          },
+        };
       const seen = session.evidence?.about(question) ?? [];
       if (seen.length > 0 && !confirm) {
         return {
@@ -395,6 +574,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     session.tests++;
     const report = await session.runTest();
     session.lastTest = report;
+    session.sinceTest = new Map();
     session.testedDraft = JSON.stringify(session.draft.steps);
     const ids = (status: string) => report.steps.filter((s) => s.status === status).map((s) => s.id);
     const why = (status: string) =>
@@ -406,6 +586,13 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       not_found: why("not_found"),
       failed: why("failed"),
       not_reached: ids("not_reached"),
+      // What each step read or worked out, short (Checkpoint 5: D's AI step took the image caption for the title, and the
+      // test said only that a check failed). Page text: shown as data.
+      values: Object.fromEntries(
+        report.steps
+          .filter((s) => s.value !== undefined)
+          .map((s) => [s.id, (typeof s.value === "string" ? s.value : JSON.stringify(s.value)).slice(0, 160)]),
+      ),
     };
   };
 
@@ -456,10 +643,13 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
           return { output: { ok: false, problems: [`${proposal} is decided already`] } };
         if (!p.runnable || p.edits.length === 0) {
           session.decisions.set(proposal, { decision: "accept", why });
+          // Checkpoint 4: "nothing to change" was read as done, and the steps still found today's items by their text.
           return {
             output: {
               ok: true,
-              note: p.runnable ? "nothing to change" : "noted for the review: replay can't do this yet",
+              note: p.runnable
+                ? `nothing prepared to apply: build it yourself: ${BUILD_IT[p.kind] ?? "with the tools"}`
+                : "noted for the review: replay can't do this yet",
             },
           };
         }
@@ -486,7 +676,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       description:
         "Remove steps that aren't part of the task (a click that changed nothing, a detour), with why: the user sees it",
       input: z.object({
-        steps: z.union([z.string(), z.array(z.string())]).transform((s) => (Array.isArray(s) ? s : [s])),
+        steps: Ids,
         why: Why,
       }),
       prepare: unstring,
@@ -528,9 +718,17 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         'Add any step: { do, intent, target?, values }. do: open, click, type, select, press, read, read_all, read_sheet, wait, upload, find_files, move_file, pick_row, open_app, press_in_app, type_in_app, menu (or channel.action). open takes page: a step that opened it or a tab name ("s1", "KPI Sheet"); code writes the address. target: { like: "s3" } for a control they used, or { role, name } for a new one (unverified until the test run finds it). Where: after, before or into',
       input: z.object({ step: StepSpec, ...Where, why: Why }),
       prepare: unstring,
-      run: ({ step, after, before, into, why }) => {
+      run: ({ step, after, before, into, why }, ctx) => {
         for (const id of [after, before, into])
           if (id && !known(id)) return { output: { ok: false, problems: [unknown(id)] } };
+        // An AI step sent to add (Checkpoint 5: A, B, D2 and E all did; D2's came back as an extract with an instruction).
+        if ("instruction" in step) {
+          const output = step.output ?? (step.save_as ? { name: step.save_as } : undefined);
+          const ai = aiStep.input.safeParse({ ...step, output, after: after ?? lastTop(), why });
+          if (!ai.success)
+            return { output: { ok: false, problems: ai.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`) } };
+          return aiStep.run(ai.data, ctx);
+        }
         const id = nextId("s");
         const built = compile(step, id);
         if ("error" in built) return { output: { ok: false, problems: [built.error] } };
@@ -551,7 +749,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         step: z.string(),
         intent: z.string().optional(),
         args: z.record(z.string(), z.unknown()).optional(),
-        target: TargetSpec.optional(),
+        target: TargetSpec.nullable().optional(),
         tab: z.string().optional(),
         check: z.record(z.string(), z.unknown()).optional(),
         wait: z.record(z.string(), z.unknown()).optional(),
@@ -578,6 +776,9 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         if (!step || !known(id)) return { output: { ok: false, problems: [unknown(id)] } };
         const edits: EditInput[] = [];
         let unverified = false;
+        // How often it runs is the trigger's: a change to it that says when is one (Checkpoint 4: nine calls on this).
+        const when = args?.when ?? args?.schedule ?? args?.cron;
+        if (step.type === "trigger" && when !== undefined) return setWhen(when, why);
         if (intent) edits.push({ op: "set", step: id, field: "intent", value: intent });
         if (!isAction(step) && (args || target || tab || check || wait || save_as)) {
           return {
@@ -601,7 +802,23 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
                 type: producedType({ ...step, args: { ...step.args, ...(args ?? {}) } } as never),
               },
             });
-          if (target) {
+          // A read with no control reads the whole page (Checkpoint 5: C couldn't take a read's control away, and eight
+          // changes "to read the whole page" kept reading { role: "cell" }).
+          // A page opened by its address has no control (Checkpoint 5: D gave s2 a control 15 times, changing nothing).
+          if (target && step.action === "navigate")
+            return {
+              output: {
+                ok: false,
+                problems: [
+                  `${id} opens a page by its address and has no control: to click a link instead, add { do: "click", target } after the step before it and remove ${id}; to open an address an earlier step read, change its args.url to that {{value}}`,
+                ],
+              },
+            };
+          if (target === null) {
+            if (step.action !== "extract")
+              return { output: { ok: false, problems: [`${id}: only a read can do without a control`] } };
+            edits.push({ op: "retarget", step: id, target: { fallbacks: ["main", "body"] } });
+          } else if (target) {
             if ("like" in target) {
               const like = anyStep(target.like);
               if (!like || !isAction(like) || !like.target)
@@ -625,7 +842,11 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
           return {
             output: {
               ok: false,
-              problems: ["say what to change: intent, args, page, target, tab, check, wait or save_as"],
+              problems: [
+                step.type === "trigger"
+                  ? 'say how often it runs: trigger { when: { schedule: "0 9 * * 1" } } (B and E sent change with no when)'
+                  : "say what to change: intent, args, page, target, tab, check, wait or save_as",
+              ],
             },
           };
         return apply(edits, why, [id], unverified ? [id] : []);
@@ -660,15 +881,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         why: Why,
       }),
       prepare: unstring,
-      run: ({ when, why }) => {
-        const value =
-          when === "manual"
-            ? [{ type: "manual" }]
-            : "schedule" in when
-              ? [{ type: "schedule", cron: when.schedule }]
-              : [{ type: "folder_watch", dir: when.folder, ...(when.glob ? { glob: when.glob } : {}) }];
-        return apply([{ op: "set", step: "start", field: "when", value }], why, ["start"]);
-      },
+      run: ({ when, why }) => setWhen(when, why),
     }),
     tool({
       name: "input",
@@ -684,6 +897,15 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       }),
       prepare: unstring,
       run: ({ name, type, default: value, about, why }) => {
+        if (typeof value === "string" && value.includes("{{"))
+          return {
+            output: {
+              ok: false,
+              problems: [
+                `a default can't be a {{…}} value: use {{today}} in the step itself ({{today|D MMM}}), no input needed`,
+              ],
+            },
+          };
         const inputs = {
           ...triggerOf(session.draft).inputs,
           [name]: { type: { type }, description: about, ...(value !== undefined ? { default: value } : {}) },
@@ -717,7 +939,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       description:
         "Test the workflow in the automation window, safely: it opens pages and reads, and only outlines what would type, send or change something. Returns what it did, found, couldn't find, and why",
       input: z.object({}),
-      run: async () => ({ output: await test() }),
+      run: async () => ({ output: await test(), untrusted: true }),
     }),
     done,
   ];
@@ -756,10 +978,23 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         : value && typeof value === "object"
           ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, hide(v)]))
           : value;
+  // A call sent again as it was, on the same workflow, fails the same way (Checkpoint 5: A sent one add 20 times; B, D2
+  // and E resent theirs 3 or 4 times): said so, so the model changes the call instead of sending it again.
+  const failed = new Map<string, string>();
   return tools.map((t) => ({
     ...t,
     run: async (input: unknown, ctx: ToolContext) => {
+      const key = `${t.name} ${JSON.stringify(input)} ${JSON.stringify(session.draft.steps)}`;
+      const before = failed.get(key);
+      if (before) {
+        const again = `you sent this exact call before and it failed: ${before}. Sent again it fails the same way: change it (other values, another tool) or move on`;
+        return { output: hide({ ok: false, problems: [again] }) };
+      }
       const result = await t.run(input, ctx);
+      const out = result.output as { ok?: boolean; problems?: string[]; refused?: string[]; note?: string } | undefined;
+      if (out?.ok === false) failed.set(key, [...(out.problems ?? []), ...(out.refused ?? [])].join("; "));
+      // A change that changed nothing changes nothing again (Checkpoint 5: C and D sent the same no-op 8 and 15 times).
+      if (out?.note?.startsWith("nothing changed")) failed.set(key, out.note);
       return { ...result, output: hide(result.output) };
     },
   }));

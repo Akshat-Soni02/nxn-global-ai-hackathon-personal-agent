@@ -83,6 +83,28 @@ export function skeletonOf(steps: NormalisedStep[]): Skeleton {
       step.kind === "copy"
         ? copySteps(step, id, copies, questions)
         : [toStep(step, id(0), { inputs, copies, questions, files })];
+    // A file this step downloaded is found again by the run that downloads it, so later steps on it never ask "which
+    // file?" (Checkpoint 4: the rename after a download asked, with no option for "the file just downloaded").
+    for (const path of step.produces ?? []) {
+      const name = `downloaded_${[...files.values()].filter((v) => v.startsWith("{{downloaded_")).length + 1}`;
+      const dot = basename(path).lastIndexOf(".");
+      files.set(path, `{{${name}}}`);
+      built.push({
+        id: id(built.length),
+        intent: `Find the file the download saved (like ${basename(path)})`,
+        channel: "fs",
+        action: "find",
+        args: {
+          dir: tilde(dirname(path)),
+          glob: dot > 0 ? `*${basename(path).slice(dot)}` : "*",
+          pick: "newest",
+          since_run_start: true,
+        },
+        // Waits for the download to land (Checkpoint 5: live D looked once, 1 ms after the click, and found nothing).
+        timeout_ms: 60_000,
+        output: { name, type: FILE },
+      });
+    }
     out.push(...built.map((s) => ({ ...s, type: "action" as const })));
     idsByStep.push(out.slice(first).map((s) => s.id));
   }
@@ -376,7 +398,9 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
         };
       }
       // The new name is kept as recorded: what it should be next time (a date in it, say) is for the model to decide.
-      files.set(to, tilde(to) ?? to);
+      // Later steps follow the renamed file by its output, so a new name next time doesn't leave them on the old one.
+      const renamed = `renamed_${[...files.values()].filter((v) => v.startsWith("{{renamed_")).length + 1}`;
+      files.set(to, `{{${renamed}}}`);
       return {
         id,
         intent: `Rename ${basename(from)} to ${basename(to)}`,
@@ -384,6 +408,7 @@ function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, f
         action: "rename",
         args: { from: source, to: tilde(to) },
         check: { file_exists: tilde(to) },
+        output: { name: renamed, type: FILE },
       };
     }
     // Mac apps: the Accessibility API acts on the control itself (AXPress, its value), never at a screen position.

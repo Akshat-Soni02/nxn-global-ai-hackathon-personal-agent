@@ -72,7 +72,7 @@ Code is as of `feat/record-v2` at `19cb94d` (Oct 20). The branch is not pushed o
 
 | Problem | Before | Now | Status |
 |---|---|---|---|
-| Shadow's own permission prompt and System Settings recorded as steps | Recorded | Skipped; Screen Recording is asked before recording starts (`0c38bf6`) | **fixed (tests)**: needs your `pnpm setup:mac` to see live |
+| Shadow's own permission prompt and System Settings recorded as steps | Recorded | Skipped. Shadow.app asks for Screen Recording when recording starts, if it isn't granted yet (`0c38bf6`) | **fixed (tests)**: needs your `pnpm setup:mac` to see live |
 | Nameless Accessibility elements (Numbers) | Dropped | Unchanged. Picture captions describe them only when Pictures is on | **open** |
 
 ## R4 · File capture
@@ -85,7 +85,7 @@ Code is as of `feat/record-v2` at `19cb94d` (Oct 20). The branch is not pushed o
 
 | Problem | Before | Now | Status |
 |---|---|---|---|
-| A burst of events lost pictures | The newest replaced the waiting one | A queue keeps up to three, the most telling first; a new tab is pictured when it shows (`c820e9a`) | **fixed (live)** |
+| A burst of events lost pictures | The newest replaced the waiting one | A queue keeps up to three; when it's full, the least telling is dropped. A new tab is pictured when it shows (`c820e9a`) | **fixed (live)** |
 | Pictures lost silently | One log line | `shots.jsonl` says for every event whether its picture was taken, and why not. The Record screen warns before recording if pictures can't be read (`c820e9a`, `c9f6248`) | **fixed (live)** |
 
 ## R6 · Screenshots: reading and masking
@@ -212,7 +212,7 @@ Everything else is allowed and kept with its reason for the review.
 
 | Problem | Before | Now | Status |
 |---|---|---|---|
-| Questions the recording already answered | Evidence check (PR #13) | Plus: code answers "which file / which row" from what you said (`aec37ed`) | **fixed (tests)** |
+| Questions the recording already answered | Evidence check (PR #13) | Plus: code answers "which file / which row" from what you said (`aec37ed`) | **partly**: the file answer is wrong (F13) |
 | Questions lost (the `id` misuse) | Lost | Fixed with the new tools | **fixed (live)** |
 | Asked one by one, without context, every recording's questions shown | — | One batch on the Record screen, next to each step; only this recording's; Enter sends; "You decide" takes the default; at most 5, the rest take their defaults and the review lists them (`0a058fb`, `fdaa488`) | **fixed (tests)** |
 | Code's questions dropped when a design stopped early | — | Kept for the drill (`fdaa488`) | **fixed (tests)** |
@@ -284,6 +284,7 @@ is being worked on now: on Oct 20, Rushil chose to list them rather than fix the
 | F10 | A file path with a `{{variable}}` is checked only when designed | No run-time check in the player | Check the allowed folders before a file is opened (`fs-channel.ts`) | Akshat |
 | F11 | Nameless Mac-app elements (Numbers cells) | No AX name (study R3) | Captions when Pictures is on; nothing else yet | record |
 | F12 | A question can wait for ever | No timeout (study D5) | A timeout that takes the default | record |
+| F13 | "You used X. Next time, which file?" is answered wrongly from what you said: "the newest" picks "ask me each time", and "all the reports" can't answer it. Your Play Store re-record (one report) will be asked it | `evidence/answers.ts` reads each option's stored value as well as its label, and the "ask me each time" value also holds `pick: "newest"`. No option says "all". Found Oct 20 while writing `section-study-record-v2.md` | Match on the labels only; offer "all files like X" as an option | record |
 
 ### Smaller items (Plan 3 review)
 

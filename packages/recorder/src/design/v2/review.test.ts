@@ -68,6 +68,10 @@ describe("what the review shows", () => {
     ]);
     expect(review.cadence).toBe("every day");
     expect(review.reviewed).toBe(false);
+    // Checkpoint 4 (D): the agent's summary described a branch that didn't exist; shown as its words, not as fact.
+    expect(review.summary).toBe(
+      'In the agent\'s words: "every new KPI email, each morning". The changes below are what it really did.',
+    );
   });
 
   it("lists what the test run didn't do, or that it didn't run, and why the recorded steps were kept", () => {
