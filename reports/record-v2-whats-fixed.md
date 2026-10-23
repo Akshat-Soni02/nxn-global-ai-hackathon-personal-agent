@@ -299,18 +299,21 @@ The causes and commits are in [the deep dive](record-v2-deep-dive.md); what the 
 | F17 a paste gets the copy made just before it | live A: each story's title and points went into Title and Value |
 | F18 the first page is a step | live A: step 1 opens Hacker News |
 | F23 a download is followed by its rename and move | live D: the run found the PDF it downloaded, renamed and moved it (with F53) |
-| F24 a watched folder inside a hidden folder | live D: the rename and move were recorded |
 | F25 a workflow can read a whole page | live B, C, D: read the page, then an AI step picks |
 | F1 "every day" is a schedule | live B (Mondays 9:00), C (weekdays 9:00), D (daily 9:00) whenever the design finished |
-| F26, F49 a failed test is no longer explained away by a change that did nothing | live C's second try |
-| F27 a stopped design that can't run keeps the recorded steps | live D: kept the recorded steps twice instead of a broken draft |
-| F28, F50 the agent can't save steps the runner can't run | live B and C ran every step |
-| F35–F37 the loop over an AI step's list | A's re-design built "read the page → AI picks the top 3 → loop: type, type, Save" |
-| F38, F42b the trigger by name; the time of day not asked | re-designs; live C asked nothing |
+| F43, F49 a call resent as it was, or a change that did nothing, is said so | live C's first try and D's last: "you sent this exact call before", "nothing changed". The agent sometimes kept going anyway |
+| F27 a stopped design that lost your work keeps the recorded steps | live D's last try |
+| F28 the agent can't save steps the runner can't run | live B and C ran every step |
+| F42b the time of day is never asked | live C: the question was refused with how to set 9:00 |
 | F53 a download is waited for | live D: the find waited for the PDF |
 
-**Fixed in code and tests, not yet seen in a live run:** F3, F13, F16, F20, F21, F30, F31, F32 (partly: the repeat
-guard F43), F34, F39–F41, F43, F44, F45–F48, F51, F52, F54–F61.
+**Seen working in a re-design on the real model, not in a live run:** F35–F37 (A's re-design built "read the page → an
+AI step picks the top 3 → a loop that types the title and points and saves"), F38 (the trigger by the name the outline
+shows), F45–F48.
+
+**Fixed in code and tests, not yet seen working on the real model:** F3, F13, F16, F20, F21, F24 (every live D run's
+watch folder was outside any hidden folder), F26 and F49's test path (no live run after the fix had a failed test to
+explain), F30, F31, F32 (partly: the repeat guard F43), F34, F39–F41, F44, F50, F51, F52, F54–F61.
 
 **Still open:**
 

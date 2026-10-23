@@ -35,7 +35,7 @@ folder.
 | **B** YouTube: newest video's title and views → notes | didn't run | designed | ✓ read the channel page, an AI step picks the newest | Mondays 9:00 | **succeeded** | ✓ "Design and replicate voices with Gemini 3.8 Flash TTS", "23K" | 26, $0.07 |
 | **C** USD→INR rate, today's date, USD → notes | didn't run | designed (second try) | ✓ read the page, an AI step picks the rupee rate; today's date; USD fixed | weekdays 9:00 | **succeeded** | ✓ "USD to INR", 94.907545, 23 Oct, USD | 16, $0.05 |
 | **D** Wikipedia's featured article → PDF in Reading, named with the date | didn't run | last try: out of calls, so the recorded steps were kept | ✗ (the recording: always "Thuggee") | by hand | **succeeded** | ✗ saved "23 Oct - Thuggee (1).pdf" to Reading: today's article only by chance | 40, $0.16 |
-| **E** Excalidraw: "Week of <date>" note | didn't run | designed; the safe test run passed | ✓ "Week of `{{today\|D MMM}}`" | Fridays 9:00 | failed at s4: where to type wasn't found | ✗ | 15, $0.04 |
+| **E** Excalidraw: "Week of <date>" note | didn't run | designed; the safe test run passed | partly: the date is `{{today\|D MMM}}`, but "top left" isn't built (it types where the board was clicked) | Fridays 9:00 | failed at s4: where to type wasn't found | ✗ | 15, $0.04 |
 
 **In short: two of the five now do their task end to end when run (B and C).** In checkpoint 4, none did.
 - **A:** the re-design on round-3 code builds the right loop and can run. The live design gave up instead, and was saved past
