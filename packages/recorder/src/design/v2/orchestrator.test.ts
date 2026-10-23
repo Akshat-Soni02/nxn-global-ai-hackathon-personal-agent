@@ -1,4 +1,4 @@
-import { isAction, type TraceEvent, walkSteps } from "@shadow/core";
+import { isAction, Skill, type TraceEvent, walkSteps } from "@shadow/core";
 import { fakeLlm, UsageMeter } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
 import { compile, type Question } from "../../compile.ts";
@@ -237,6 +237,77 @@ describe("design agent v2, stage by stage", () => {
     const out = await designV2({ ...options, evidence: { ...options.evidence, unmade } });
     expect(out.cantRun?.[0]).toMatch(/no step makes a file in ~\/Desktop\/Reading/);
     expect(reviewOf(out, out.skill).summary).toMatch(/^Can't run yet: /);
+  });
+
+  describe("the final check (Rushil, 24 Oct: keep-local changes; remove what the tests saved)", () => {
+    const withPdf = (skill: Skill) =>
+      Skill.parse({
+        ...skill,
+        steps: [
+          ...skill.steps,
+          {
+            id: "s9",
+            type: "action",
+            intent: "Save the page as a PDF",
+            channel: "web",
+            action: "save_pdf",
+            args: { dir: "~/Reading", name: "{{today|D MMM}} - KPIs.pdf" },
+            output: { name: "saved_1", type: { type: "file" } },
+          },
+        ],
+      });
+    const passed = { outcome: "succeeded", steps: [], made: ["24 Oct - KPIs.pdf"] };
+
+    it("runs a workflow that makes a file once for real, and the review says what it made and removed", async () => {
+      const { options, skill } = await setup({ llm: fakeLlm(scriptedDesigner([done("x")], task)) });
+      const runs: boolean[] = [];
+      const verify = async (_: Skill, twice: boolean) => {
+        runs.push(twice);
+        return passed;
+      };
+      const out = await designV2({ ...options, skill: withPdf(skill), verify });
+      expect(runs).toEqual([false]);
+      expect(out.checked?.made).toEqual(["24 Oct - KPIs.pdf"]);
+      expect(reviewOf(out, out.skill).checked).toBe(
+        "The final check ran it for real: it made 24 Oct - KPIs.pdf, then put it in the Trash",
+      );
+    });
+
+    it("sends a failure back to the agent once, then checks again", async () => {
+      const { options, skill } = await setup({ llm: fakeLlm(scriptedDesigner([done("x"), done("fixed")], task)) });
+      const failed = {
+        outcome: "failed: s9",
+        steps: [{ id: "s9", path: "s9", status: "failed" as const, error: "no page" }],
+      };
+      const reports = [failed, passed];
+      const out = await designV2({ ...options, skill: withPdf(skill), verify: async () => reports.shift() ?? passed });
+      expect(reports).toEqual([]);
+      expect(out.checked?.outcome).toBe("succeeded");
+    });
+
+    it("runs twice for a rule not to repeat, and says when the second run made the file again", async () => {
+      const skip = { ...task, rules: [{ quote: "skip ones already saved", where: "goal" }] };
+      const { options, skill } = await setup({ llm: fakeLlm(scriptedDesigner([done("x")], skip)) });
+      const out = await designV2({
+        ...options,
+        skill: withPdf(skill),
+        verify: async (_, twice) => ({ ...passed, ...(twice ? { again: ["24 Oct - KPIs (1).pdf"] } : {}) }),
+      });
+      expect(out.gaps.join()).toMatch(/a second run made 24 Oct - KPIs \(1\).pdf again/);
+    });
+
+    it("never runs it for real when the workflow makes no file", async () => {
+      const { options } = await setup({ llm: fakeLlm(scriptedDesigner([done("x")], task)) });
+      let called = false;
+      await designV2({
+        ...options,
+        verify: async () => {
+          called = true;
+          return passed;
+        },
+      });
+      expect(called).toBe(false);
+    });
   });
 
   it("keeps the plain list when the evidence can't be read", async () => {

@@ -185,5 +185,6 @@ export interface Review {
   notAsked?: string[];
   // Why it can't do the task yet: shown instead of "Looks right", and it can't go live.
   cantRun?: string[];
+  checked?: string;
   reviewed: boolean;
 }

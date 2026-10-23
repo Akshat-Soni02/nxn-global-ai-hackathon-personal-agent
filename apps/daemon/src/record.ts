@@ -120,6 +120,8 @@ export interface FinishOptions {
     effects: Map<string, Effect>,
     onLine: (line: string) => void,
     recorded: Set<string>,
+    // The final check: make the files for real, then put them in the Trash (twice: run it again too).
+    final?: { twice: boolean },
   ) => Promise<TestReport>;
   // Plain-language lines for the Record screen as the work goes on.
   progress?: (line: string) => void;
@@ -255,6 +257,9 @@ export async function finishRecording(
       unattended: unattendedGaps,
       test: rehearse
         ? (draft) => rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft))
+        : undefined,
+      verify: rehearse
+        ? (draft, twice) => rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft), { twice })
         : undefined,
       meter,
       onProgress: progress,

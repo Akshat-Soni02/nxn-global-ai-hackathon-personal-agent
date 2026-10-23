@@ -21,7 +21,18 @@ export interface Review {
   notAsked?: string[];
   // Why it can't do the task yet: the page shows this instead of "Looks right", and it can't go live (checkpoint 6).
   cantRun?: string[];
+  // What the final check did for real: the files it made and put in the Trash, or how it failed.
+  checked?: string;
   reviewed: boolean;
+}
+
+// The final check in a line: what it made (then put in the Trash), or where it failed.
+function checkedText(check: NonNullable<DesignV2Outcome["checked"]>): string {
+  if (check.outcome.startsWith("failed")) return `The final check ran it for real and it failed: ${check.outcome}`;
+  const made = check.made ?? [];
+  return made.length > 0
+    ? `The final check ran it for real: it made ${made.join(", ")}, then put ${made.length === 1 ? "it" : "them"} in the Trash`
+    : `The final check ran it for real: ${check.outcome}`;
 }
 
 export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] = []): Review {
@@ -61,6 +72,7 @@ export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] =
     ...(made.length > 0 ? { made } : {}),
     ...(design.skipped.length > 0 ? { notAsked: design.skipped } : {}),
     ...(design.cantRun?.length ? { cantRun: design.cantRun } : {}),
+    ...(design.checked ? { checked: checkedText(design.checked) } : {}),
     reviewed: false,
   };
 }

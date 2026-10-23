@@ -9,7 +9,7 @@
 // A recording is never lost: no task model, a used-up budget, an error or a stop keeps the last valid draft (else the
 // plain list, with the answers code found in what was said already in it).
 import { type AgentEvent, type Protocol, runAgent } from "@shadow/agent";
-import { applyEdits, type EditInput, isLlm, isLoop, Skill, type StepInput, walkSteps } from "@shadow/core";
+import { applyEdits, type EditInput, isAction, isLlm, isLoop, Skill, type StepInput, walkSteps } from "@shadow/core";
 import { type Llm, type Usage, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import { requireApprovals } from "../../approvals.ts";
@@ -48,6 +48,9 @@ export interface DesignV2Options {
   unattended?: (skill: Skill) => string[];
   // The safe test run (the daemon's rehearse). Without it the workflow is saved untested, and the review says so.
   test?: (skill: Skill) => Promise<TestReport>;
+  // The final check: the same run, with the files the workflow makes made for real, then put in the Trash (twice: it
+  // runs again, and a second run should make nothing new).
+  verify?: (skill: Skill, twice: boolean) => Promise<TestReport>;
   // The design's meter: the pictures' captions are already on it.
   meter?: UsageMeter;
   budget?: { costUsd: number; calls: number };
@@ -81,6 +84,8 @@ export interface DesignV2Outcome {
   // Why the saved workflow can't do the task yet (a file the recording shows that no step makes): the review says so
   // instead of offering "Looks right" (checkpoint 6).
   cantRun?: string[];
+  // The final check: what it made (then put in the Trash), and how it ended.
+  checked?: TestReport;
   system: string;
   // What the agent was first told (the build message) and the plain list it started from (F16).
   firstMessage?: string;
@@ -128,6 +133,14 @@ export function withFields(skill: Skill): Skill {
   return typed?.ok ? typed.skill : skill;
 }
 
+// A workflow that makes a file of its own (a page saved as PDF, a copy): the final check runs it for real.
+const makesFiles = (skill: Skill) =>
+  [...walkSteps(skill.steps)].some(
+    ({ step }) => isAction(step) && (step.action === "save_pdf" || (step.channel === "fs" && step.action === "copy")),
+  );
+// A rule that says not to do the same again: the final check runs twice to see it hold.
+const REPEATS = /\b(skip|already|only (the )?new|not (again|twice)|don'?t repeat|duplicates?)\b/i;
+
 // With no cap on calls (Rushil, 23 Oct), what ends a design that isn't getting anywhere: this many changes in a row that
 // were refused, malformed, or changed nothing (checkpoints 5–6: D re-added one read 10 times, changed one step 15 times
 // to no effect, and sent 6 malformed calls in a row).
@@ -169,6 +182,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   const answered: DesignV2Outcome["answered"] = [];
   const skipped: string[] = [];
   let reachedQuestions = false;
+  let checked: TestReport | undefined;
   let firstMessage: string | undefined;
 
   const unmade = (options.evidence as { unmade?: string[] } | undefined)?.unmade ?? [];
@@ -178,6 +192,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     ...extra,
     ...(unmadeProblems(session.draft, unmade).length > 0 ? { cantRun: unmadeProblems(session.draft, unmade) } : {}),
     skill: finalOf(session.draft),
+    ...(checked ? { checked } : {}),
     task,
     done,
     decisions: [...session.decisions].map(([proposal, d]) => ({ proposal, ...d })),
@@ -365,6 +380,37 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // Finished only because the gate stopped refusing (twice): no better than a stopped design when it lost your work or
     // can't run (Checkpoint 5: live A saved three page opens, every write removed).
     if (session.gaps.length > 0 && worse()) return kept("it finished with what the finish gate had refused twice");
+
+    // 7: the final check (Rushil, 24 Oct: keep-local changes, and remove what the tests saved). A workflow that makes a
+    // file runs once for real, with only its files made, then put in the Trash; a failure goes back to the agent once.
+    // A rule that says not to repeat ("skip ones already saved") runs it twice: the second run should make nothing new.
+    if (options.verify && makesFiles(session.draft)) {
+      const twice = theTask.rules.some((r) => REPEATS.test(r.quote));
+      say("Checking it for real: the files it makes are made, then put in the Trash");
+      checked = await options.verify(finalOf(session.draft), twice);
+      if (checked.outcome.startsWith("failed")) {
+        const failed = checked.steps.filter((s) => s.status === "failed").map((s) => `${s.id}: ${s.error}`);
+        session.refusedDone = 0;
+        const after = await episode(
+          masked(
+            [
+              `The final check ran the workflow for real (the files it makes were made, then put in the Trash), and it failed: ${failed.join("; ") || checked.outcome}. Fix it, then done again.`,
+              "",
+              "# The workflow now",
+              outlineOf(session.draft),
+            ].join("\n"),
+          ),
+        );
+        if (after) return kept(`it stopped while fixing what the final check found: ${after}`);
+        checked = await options.verify(finalOf(session.draft), twice);
+      }
+      if (checked.outcome.startsWith("failed")) session.gaps.push(`the final check failed: ${checked.outcome}`);
+      if (twice && checked.again?.length) {
+        session.gaps.push(
+          `a second run made ${checked.again.join(", ")} again: the rule not to repeat doesn't hold yet`,
+        );
+      }
+    }
     say(session.gaps.length > 0 ? `Done, with ${session.gaps.length} thing(s) for you to check` : "Done");
     return outcome({ kind: "designed", summary: done?.summary });
   } catch (error) {

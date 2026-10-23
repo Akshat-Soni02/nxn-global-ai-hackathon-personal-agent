@@ -1,6 +1,6 @@
 import { ActionStep, Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
-import { rehearsal, rehearsalChoice, rehearsalPlan } from "./rehearse.ts";
+import { madeHere, rehearsal, rehearsalChoice, rehearsalPlan } from "./rehearse.ts";
 import { runSkill } from "./run.ts";
 import type { RunDeps } from "./types.ts";
 
@@ -139,5 +139,44 @@ describe("what live D showed", () => {
     expect(made.choice).toBe("skip");
     expect(made.why).toMatch(/a file this run makes/);
     expect(rehearsalChoice(find({ dir: "~/Downloads", glob: "*.pdf" }), undefined, 0).choice).toBe("do");
+  });
+});
+
+describe("the final check makes files for real, and only files this run makes (checkpoint 6)", () => {
+  const step = (id: string, channel: string, action: string, args: Record<string, unknown>, output?: string) =>
+    ActionStep.parse({
+      id,
+      type: "action",
+      intent: `${action} ${id}`,
+      channel,
+      action,
+      args,
+      ...(output ? { output: { name: output, type: { type: "file" } } } : {}),
+    });
+  const save = step("s3", "web", "save_pdf", { dir: "~/Reading", name: "{{today|D MMM}} - x.pdf" }, "saved_1");
+  const moveMade = step("s4", "fs", "move", { from: "{{saved_1}}", to: "~/Archive/" }, "moved_1");
+  const moveTheirs = step("s5", "fs", "move", { from: "~/Downloads/report.pdf", to: "~/Archive/" });
+  const skill = Skill.parse({
+    id: "t",
+    name: "t",
+    version: 1,
+    description: { goal: "t" },
+    steps: [{ id: "start", type: "trigger", intent: "by hand" }, save, moveMade, moveTheirs],
+  });
+
+  it("knows which files this run makes: a saved PDF, and what moves or renames it", () => {
+    expect([...madeHere(skill)]).toEqual(["saved_1", "moved_1"]);
+  });
+
+  it("in the final check, saves the PDF and moves it; never moves a file that was there before", () => {
+    const made = madeHere(skill);
+    expect(rehearsalChoice(save, undefined, 0, true, made).choice).toBe("do");
+    expect(rehearsalChoice(moveMade, undefined, 0, true, made).choice).toBe("do");
+    expect(rehearsalChoice(moveTheirs, undefined, 0, true, made).choice).toBe("skip");
+  });
+
+  it("in a normal test run, makes no file at all", () => {
+    expect(rehearsalChoice(save, undefined, 0).choice).toBe("skip");
+    expect(rehearsalChoice(moveMade, undefined, 0).choice).toBe("skip");
   });
 });

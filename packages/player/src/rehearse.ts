@@ -28,6 +28,8 @@ export function rehearsalChoice(
   recordedEffect: RecordedEffect | undefined,
   llmSoFar: number,
   recorded = true,
+  // The final check (local mode): the files this run makes (madeHere). Without it, a test run makes no file.
+  made?: Set<string>,
 ): { choice: WalkChoice; why: string } {
   const effect = recorded ? recordedEffect : undefined;
   if (step.type === "llm") {
@@ -37,6 +39,11 @@ export function rehearsalChoice(
   }
   const key = `${step.channel}.${step.action}`;
   if (step.requires_approval || isOutward(step)) return { choice: "skip", why: "it needs your approval" };
+  // The final check makes the files this run makes, for real, so the outcome is seen; the daemon moves each to the Trash
+  // after it (Rushil, 24 Oct). Never a file that was there before, and never anything on a web page.
+  if (made && (key === "web.save_pdf" || (MAKES.has(key) && fromMade(step, made)))) {
+    return { choice: "do", why: "it makes a file (put in the Trash after the check)" };
+  }
   // A test run downloads nothing, so a file this run makes is never there (Checkpoint 5: live D's find failed its test).
   if (key === "fs.find" && step.args.since_run_start) return { choice: "skip", why: "it finds a file this run makes" };
   if (READS.has(key)) return { choice: "do", why: "it only reads or opens a page" };
@@ -54,6 +61,25 @@ export function rehearsalChoice(
   return { choice: "skip", why: "a button: it may change something" };
 }
 
+// File steps that make a file from another: done in the final check only when that file is one this run made.
+const MAKES = new Set(["fs.copy", "fs.move", "fs.rename"]);
+const fromMade = (step: ActionStep, made: Set<string>) =>
+  [...made].some((name) => new RegExp(`\\{\\{${name}(\\.\\w+)?\\}\\}`).test(String(step.args.from ?? "")));
+
+// The files a run makes itself, by the names later steps use: a page saved as PDF, a copy, and whatever moves or renames
+// one of those. A file found on disk is never one of them: it may be yours.
+export function madeHere(skill: Skill): Set<string> {
+  const made = new Set<string>();
+  for (const { step } of walkSteps(skill.steps)) {
+    if (!isAction(step) || !step.output) continue;
+    const key = `${step.channel}.${step.action}`;
+    if (key === "web.save_pdf" || (MAKES.has(key) && (key === "fs.copy" || fromMade(step, made)))) {
+      made.add(step.output.name);
+    }
+  }
+  return made;
+}
+
 // Mail apps mark a message read when it is opened: the test run says so before it opens one.
 const MAIL = /^https:\/\/(mail\.google\.com|outlook\.(live|office|office365)\.com)\//;
 
@@ -63,7 +89,10 @@ export function rehearsalPlan(
   effects: Map<string, RecordedEffect>,
   // The steps whose control is the one recorded, unchanged; without it, every step's is.
   recorded?: Set<string>,
+  // The final check: the files this run makes are made for real.
+  local = false,
 ): { does: string[]; outlines: string[]; warnings: string[] } {
+  const made = local ? madeHere(skill) : undefined;
   const does: string[] = [];
   const outlines: string[] = [];
   let llm = 0;
@@ -72,7 +101,7 @@ export function rehearsalPlan(
   for (const { step } of walkSteps(skill.steps)) {
     if (step.type !== "action" && step.type !== "llm") continue;
     if (isAction(step) && step.action === "navigate") page = String(step.args.url ?? "");
-    const { choice, why } = rehearsalChoice(step, effects.get(step.id), llm, !recorded || recorded.has(step.id));
+    const { choice, why } = rehearsalChoice(step, effects.get(step.id), llm, !recorded || recorded.has(step.id), made);
     if (choice === "do") {
       if (step.type === "llm") llm++;
       does.push(`${step.id} ${step.intent}`);
@@ -110,14 +139,23 @@ export function rehearsal(
   onLine?: (line: string) => void,
   // The steps whose control is the one recorded, unchanged; without it, every step's is.
   recorded?: Set<string>,
+  // The final check: the files this run makes are made for real.
+  local = false,
 ): Rehearsal {
+  const made = local ? madeHere(skill) : undefined;
   let llm = 0;
   const steps = new Map<string, RehearsalStep>(); // by path
   const missed = new Map<string, string>(); // step id -> why the outline failed
   const say = (line: string) => onLine?.(line);
   return {
     async walk(step, path) {
-      const { choice, why } = rehearsalChoice(step, effects.get(step.id), llm, !recorded || recorded.has(step.id));
+      const { choice, why } = rehearsalChoice(
+        step,
+        effects.get(step.id),
+        llm,
+        !recorded || recorded.has(step.id),
+        made,
+      );
       if (choice === "do" && step.type === "llm") llm++;
       if (choice === "skip") {
         const target =

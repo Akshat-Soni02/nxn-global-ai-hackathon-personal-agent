@@ -4,6 +4,7 @@
 
 export {
   ACTION_VERBS,
+  madeHere,
   type RecordedEffect,
   type Rehearsal,
   rehearsal,
