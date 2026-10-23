@@ -26,6 +26,11 @@ The design-agent tables also give the matching section of
   check; Play Store missed one (how often it runs); KPI and YC missed several (F1–F5).
 - **On Oct 23 it ran on 5 real recordings** (public sites, recorded by Claude, no voice; checkpoint 4). The safe test
   run ran live and found real faults, **but none of the five saved workflows did its task when run** (F17–F34).
+- **Step 4 (same day) fixed them at the root and tested again** ([deep dive](record-v2-deep-dive.md),
+  [checkpoint 5](../testing/checkpoint-5.md)). Each live run found the next cause, F35–F60, all fixed in code.
+  **Two of the five now do their task end to end when run** (B: the newest video; C: today's rupee rate).
+  A's re-design builds the right loop, but its live design gave up; D and E still don't do theirs. Where every F
+  stands is at the end.
 
 ## How to read the tables
 
@@ -281,6 +286,45 @@ The design-agent tables also give the matching section of
 | F32 | The agent burns its 40 calls on one step (13 changes to one step; 9 tries at setting the schedule) | record |
 | F33 | The safe test run: a step failed only inside it (unexplained); it can't start when an input needs a file the run downloads; it leaves tabs open | record |
 | F34 | The bench's checks pass workflows that can't run | record |
+
+## Where F1–F60 stand now (Oct 23, after step 4 and checkpoint 5)
+
+The causes and commits are in [the deep dive](record-v2-deep-dive.md); what the live runs showed is in
+[checkpoint 5](../testing/checkpoint-5.md).
+
+**Fixed, and seen working in a live run:**
+
+| # | Seen where |
+|---|---|
+| F17 a paste gets the copy made just before it | live A: each story's title and points went into Title and Value |
+| F18 the first page is a step | live A: step 1 opens Hacker News |
+| F23 a download is followed by its rename and move | live D: the run found the PDF it downloaded, renamed and moved it (with F53) |
+| F24 a watched folder inside a hidden folder | live D: the rename and move were recorded |
+| F25 a workflow can read a whole page | live B, C, D: read the page, then an AI step picks |
+| F1 "every day" is a schedule | live B (Mondays 9:00), C (weekdays 9:00), D (daily 9:00) whenever the design finished |
+| F26, F49 a failed test is no longer explained away by a change that did nothing | live C's second try |
+| F27 a stopped design that can't run keeps the recorded steps | live D: kept the recorded steps twice instead of a broken draft |
+| F28, F50 the agent can't save steps the runner can't run | live B and C ran every step |
+| F35–F37 the loop over an AI step's list | A's re-design built "read the page → AI picks the top 3 → loop: type, type, Save" |
+| F38, F42b the trigger by name; the time of day not asked | re-designs; live C asked nothing |
+| F53 a download is waited for | live D: the find waited for the PDF |
+
+**Fixed in code and tests, not yet seen in a live run:** F3, F13, F16, F20, F21, F30, F31, F32 (partly: the repeat
+guard F43), F34, F39–F41, F43, F44, F45–F48, F51, F52, F54–F61.
+
+**Still open:**
+
+| # | What | Why it's open |
+|---|---|---|
+| D | The design agent didn't finish D within its 40 calls in 4 of 5 live tries. The one that finished had the right shape, but its run-time AI step took the Main Page's image caption as the article's title | Each try showed a new tool gap (F51–F60, all fixed), but D was stopped after its last try, as Rushil asked. F59 (the agent now sees what AI steps answer) and F60 aren't tested live |
+| A | A's live design gave up: it removed every save and was let through the finish gate after two refusals. F61 now keeps the recorded steps instead; A wasn't run again. A's re-design builds the loop, but says "skip ones already on the list" is built when no step reads the list | The model's judgment; the finish gate takes the agent's word for which steps build a rule, and code can't tell what an AI step's instruction does |
+| E, F22 | Canvas apps: the click on the canvas and the typing are recorded on the properties panel, so replay can't find where to type | Needs the connector or vision rung (deep dive §3); not a fix in capture |
+| F19 | List places on tables and component grids | Reading the page and an AI step covers the tasks without them |
+| F29 | "The recording already answers this" matches loosely | A design decision (deep dive §2) |
+| F11, F12, F13b, F14, F15 | as before | deep dive §2 |
+| new | Picture captions time out at 90 s each; with Pictures on, E took over 10 minutes to compile | Not looked into yet |
+| new | In the test run, a step that uses a file this run would download says "has no value yet" | The runner fills `{{…}}` before it decides to skip a step: replay's (Akshat) |
+| F6–F10, repair | Replay | Akshat. Repair ran on every failing Run now in checkpoint 5 (about $0.05–0.08 each) |
 
 ## Not checked live yet
 
