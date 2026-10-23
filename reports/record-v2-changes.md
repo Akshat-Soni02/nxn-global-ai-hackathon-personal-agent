@@ -17,9 +17,14 @@ Replay and recovery (P, X) appear only where record needed them.
 - Plan 3 (design agent v2, screens, review): [`…plans/2026-10-20-record-v2-plan3.md`](../docs/superpowers/plans/2026-10-20-record-v2-plan3.md);
 - the live checks: [`testing/checkpoint-1.md`](../testing/checkpoint-1.md) (capture in a real Chrome, Sheets and
   Gmail), [`checkpoint-2.md`](../testing/checkpoint-2.md) (evidence from real recordings) and
-  [`checkpoint-3.md`](../testing/checkpoint-3.md) (design agent v2 on the real model).
+  [`checkpoint-3.md`](../testing/checkpoint-3.md) (design agent v2 on the real model);
+- after the plans: [`checkpoint-4.md`](../testing/checkpoint-4.md) (five tasks on real sites, Oct 23), the step-4 fixes
+  in [`record-v2-deep-dive.md`](record-v2-deep-dive.md), and [`checkpoint-5.md`](../testing/checkpoint-5.md) (the
+  same tasks again, live).
 
-Code is as of `feat/record-v2` at `19cb94d` (Oct 20). The branch is not pushed or merged.
+Code was first described as of `feat/record-v2` at `19cb94d` (Oct 20); PR #14 merged it on Oct 21. **Updated Oct 23 for
+step 4** (`d519c90`, PR #15): what step 4 changed is in its own section below, before "Removed", and the failures list
+says where each one stands.
 
 **Status marks:**
 - **fixed (live):** seen working in a real recording or real model run;
@@ -35,8 +40,8 @@ Code is as of `feat/record-v2` at `19cb94d` (Oct 20). The branch is not pushed o
 | # | Fundamental issue | Before | Now | Status |
 |---|---|---|---|---|
 | 1 | A step is remembered by things that don't come back | Selection clicks stored as container text; Google's per-session ids kept; no list position; no sheet cell | Capture records what does come back: selections as `select_text`, no Google ids, link addresses kept, list position, sheet cell, names for nameless links (R1) | **partly**: capture fixed (live). The replay matcher still doesn't use text, `near` or list position (P3, Akshat) |
-| 2 | Generalising is left to one model | No code-side generalisation; one agent with brittle tools | Code finds patterns and prepares the change (proposals: today's date, item k of a list, repeats, open directly, all files, constants). Agent v2 first writes what the task is (the task model), then accepts proposals by id, with forgiving tools (D1–D3) | **partly**: built. Real runs: timesheet and Play Store right; KPI built no loop; YC lost half its calls to tool syntax (checkpoint 3) |
-| 3 | Nothing checks the result | `finish` took anything that parsed; a run that did nothing "succeeded" | Code's finish gate decides when a design is done (D6), plus a safe test run in the automation window, a review with "Looks right" before Go live, and "nothing to do" for an empty run (`0f8c516`) | **fixed (tests)**. Found live: the gate takes the model's word on how often it runs (D6) |
+| 2 | Generalising is left to one model | No code-side generalisation; one agent with brittle tools | Code finds patterns (proposals). Only today's date and open-directly come with the change prepared; a list item, a repeat, all files and a constant are notes the agent builds itself (`e1c45dd`). Agent v2 first writes what the task is (the task model), then builds with forgiving tools: it reads the page and lets an AI step pick, and loops over what that returns (D1–D3) | **partly**. Live, Oct 23: B (the newest video) and C (today's rate) generalise and run; A's re-design builds the "top 3" loop; on longer tasks the model still gives up or runs out of calls (checkpoint 5) |
+| 3 | Nothing checks the result | `finish` took anything that parsed; a run that did nothing "succeeded" | Code's finish gate decides when a design is done (D6), plus a safe test run in the automation window, a review with "Looks right" before Go live, and "nothing to do" for an empty run (`0f8c516`). Since step 4 the gate also refuses steps the runner can't run, and a design that lost your work or can't run is never saved over the recording (`753b83b`, `e64161d`) | **fixed (live)** for what checkpoint 4 and 5 showed. Still the agent's word: which steps build a rule |
 | 4 | Replay has no timeouts and one tab | DevTools calls hung 35–50 s; multi-tab recordings flattened into one tab | Every DevTools call has a timeout (15 s, 30 s to navigate), and a hang counts as an environment problem (`b40ca77`). Steps can name their tab (`a73777e`) | Timeouts **fixed (tests)**. Tabs **partly**: a run that waits for approval closes its named tabs (open, Akshat) |
 | 5 | What the agents did can't be reconstructed | No reasoning, no input for rejected calls | Replies keep the model's reasoning (`7703b73`); rejected calls keep their input; `design.json` keeps the whole prompt, the task model, every decision and change with its why, the test report, questions, gaps and the transcript (`702954a`, `92d6465`) | **fixed (live)**: read in checkpoint 3 |
 
@@ -225,7 +230,7 @@ Everything else is allowed and kept with its reason for the review.
 |---|---|---|---|
 | `finish` accepted a workflow that no longer does the task | Accepted | The **finish gate** (`gate.ts`) wants:<br>- every write kept;<br>- every rule you said built or explained;<br>- checks on text that really appeared;<br>- test failures explained;<br>- defaults for unattended runs;<br>- the frequency you said.<br>It refuses at most twice, then saves with the gaps listed (`b221880`) | **fixed (tests)** |
 | Every stated rule unbuilt | Accepted | Every rule needs steps or a reason | **partly**: F2 |
-| No test before saving | None | A **safe test run** (`d35b071`):<br>- it opens pages, reads, and follows only recorded links;<br>- it only outlines typing, sending and acting buttons;<br>- it says first what it will do ("opening 1 email will mark it as read");<br>- without Chrome it says "not run";<br>- it queues behind real runs | **fixed (tests)**: not yet run live |
+| No test before saving | None | A **safe test run** (`d35b071`):<br>- it opens pages, reads, and follows only recorded links;<br>- it only outlines typing, sending and acting buttons;<br>- it says first what it will do ("opening 1 email will mark it as read");<br>- without Chrome it says "not run";<br>- it queues behind real runs | **fixed (live)**: ran live in checkpoints 4 and 5 and found real faults |
 | Summaries describing changes never made | History fixed in PR #13 | The **review**, built by code (`e3dbfc3`):<br>- a badge per change with its reason;<br>- "What you said → what was built";<br>- what wasn't tested.<br>Go live, and schedules, wait for "Looks right" (`feec1cc`) | **fixed (tests)** |
 | How often it runs, from "every day" | Worked (PR #13) | **Regressed, found live:** the model wrote "manual" while quoting "every day / every month", and the gate takes its word | **open**: F1 |
 
@@ -239,6 +244,31 @@ Everything else is allowed and kept with its reason for the review.
 | Near the $0.10 cap | 16 turns, $0.10 | $0.25 and 40 calls on one meter; real designs cost $0.012–0.124 | **fixed (live)** |
 
 ---
+
+## Step 4 (Oct 23): what changed after real-site testing
+
+[Checkpoint 4](../testing/checkpoint-4.md) recorded five everyday tasks on real public sites, and none of the saved
+workflows did its task. Every cause was on the record side. Each fix below started as a failing test from the real
+trace's shape, with the fewest lines and no per-app code. The F-numbers, causes and tests are in
+[`record-v2-deep-dive.md`](record-v2-deep-dive.md); [checkpoint 5](../testing/checkpoint-5.md) is the live re-test.
+
+| Section | What changed | Commits | Status |
+|---|---|---|---|
+| R1 web capture | A copied element keeps a selector when the page nests tables (the selector path climbs past 6 levels) | `cf92fa2` | fixed (live): Hacker News stories found by their place |
+| R2 tabs | A tab is named from the page it went to, not "about:blank" | `42f9a6a` | fixed (tests) |
+| R4 file capture | A watched folder inside a hidden folder records (only names below it count) | `42f9a6a` | fixed (tests) |
+| R9 normalise | A paste takes the copy made just before it (per field, F17); a page opened in another tab soon after is its own step (F18) | `42f9a6a` | fixed (live) |
+| R10 first draft | A download adds "find the file it saved", which waits up to 60 s; a rename's new name is what later steps use (F23, F53) | `42f9a6a`, `f89a0e9` | fixed (live): live D downloaded, waited, renamed and moved |
+| R10 proposals | A proposal with nothing prepared says "build it yourself, and how"; open directly warns it's only for a page that never changes | `e1c45dd` | fixed (tests) |
+| D3 tools | A read with no control reads the whole page; steps the runner can't run are refused, with what's needed; a loop can hold new steps and makes an AI step's result a list; types and `do` written the model's way are taken; a call resent as it failed, or a change that changed nothing, is said so; `change { target: null }` reads the whole page; a page-open step says to add a click | `e1c45dd`, `1a3f17a`, `f8c4215`, `fa5bf58`, `306e724`, `4674a5c`, `edd1241` | fixed (live) for B and C; the rest fixed (tests) |
+| D4 rules | Besides harm: a control the agent gives by role alone is refused; a schedule must be a fixed time | `306e724`, `1a3f17a` | fixed (tests) |
+| D5 questions | The time of day is never asked (9:00); file options are matched by their words only (F13) | `7e59721`, `753b83b` | fixed (live) |
+| D6 finish gate | A test failure is explained only by a reason given after that test; a test that couldn't start, stale checks, steps in the wrong tab, and steps the runner can't run are problems; frequency words require a schedule; a "the newest / top 3" rule left unbuilt is turned back | `753b83b`, `1a3f17a`, `45e0ebe`, `f89a0e9` | fixed (live) for B, C; rest fixed (tests) |
+| D6 keeping | A stopped design, or one let past the gate after two refusals, keeps the recorded steps if it lost your work or can't run (F27, F61) | `753b83b`, `e64161d` | fixed (live) once (live D) |
+| D6 test run | The agent sees what each step read and what each AI step answered; a file this run would download is only outlined | `389bf90`, `f89a0e9` | fixed (tests) |
+| D6 review | The summary is labelled as the agent's words; unasked questions are listed | `753b83b` | fixed (tests) |
+| D7 budget | A reply cut off at the token cap gets one more episode; `design.json` keeps the first message and the plain list | `f8c4215`, `753b83b` | fixed (tests) |
+| bench | Every bench run says whether the workflow can run (`runs`); `uses_today` counts only the built-in date | `814bc5e` | fixed (live) |
 
 ## Removed
 
@@ -254,8 +284,19 @@ because removing them needs your OK.
 
 ## Failures to fix
 
-One list of everything known to be broken or missing in record and the design agent, as of Oct 20. Nothing here
-is being worked on now: on Oct 20, Rushil chose to list them rather than fix them, and not to re-run the evals.
+One list of everything known to be broken or missing in record and the design agent, as of Oct 20. On Oct 20 Rushil
+chose to list them rather than fix them; on Oct 23 (step 4) the record-side ones were worked on.
+
+**Where they stand on Oct 23:**
+- **F1** fixed (live): frequency words require a schedule (`753b83b`); B, C and D got schedules.
+- **F2** partly: a "newest / top 3" rule left unbuilt is turned back with how to build it (`1a3f17a`), and A's
+  re-design built the loop. KPI itself wasn't re-recorded.
+- **F3** fixed: all five slips are forgiven (`e1c45dd`, `f8c4215`).
+- **F4** partly: the time of day is never asked (`7e59721`); other re-asks with `confirm` still go through.
+- **F5** open: nothing checks a write's page; the safe test run, now live, is what catches it.
+- **F13** partly: options are matched by their words (`753b83b`); "all of them" isn't offered.
+- **F6–F10** Akshat's. **F11, F12** open.
+- Later failures, F17–F61, are in [`record-v2-deep-dive.md`](record-v2-deep-dive.md).
 
 **Columns:**
 - **Seen in:** the run or review that showed it;
@@ -308,8 +349,7 @@ is being worked on now: on Oct 20, Rushil chose to list them rather than fix the
   $0.25 of his key, and the safe test run opens pages in the automation window.
 - **After `pnpm setup:mac`:** Move to Trash, Shadow's prompts skipped, copy and paste from the app.
 - **Akshat's sign-off:** `skill.ts` `tab`, the player's test run, dates and keys.
-- **"Arilo Stats":** the name in the synthetic Play Store fixture may be a real Chat space; rename it before
-  pushing if so.
+- **"Arilo Stats":** Rushil confirmed on Oct 23 it isn't a real Chat space.
 
 ## Conclusion
 
@@ -323,7 +363,11 @@ is being worked on now: on Oct 20, Rushil chose to list them rather than fix the
   - the model's judgement (no loop for "the newest");
   - a trust gap in the gate (how often it runs);
   - tool syntax (YC).
-- **What's left:**
+- **What's left (Oct 20):**
   - those three fixes;
   - Rushil's live recordings;
   - the replay side (the matcher, writing to sheets, tabs during waits), which is Akshat's.
+- **Oct 23, step 4:** the three fixes are in, and five real-site tasks were recorded, fixed at the root (F17–F61) and
+  re-tested live. **Two of the five do their task end to end** (B, C). What's left is the design agent finishing longer
+  tasks within its calls, AI-step answers nothing checks, and canvas apps
+  ([checkpoint 5](../testing/checkpoint-5.md)).
