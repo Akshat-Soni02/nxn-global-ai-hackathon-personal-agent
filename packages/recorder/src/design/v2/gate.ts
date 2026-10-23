@@ -4,7 +4,16 @@
 // it runs as often as they said. Each problem is a sentence the agent reads and fixes (twice at most; then it is saved
 // with the gaps listed for the user). Oct 19: the agent finished with all 20 recorded steps removed, and with checks
 // for text never on screen.
-import { type Check, isAction, isOutward, type Skill, type Step, triggerOf, walkSteps } from "@shadow/core";
+import {
+  type Check,
+  isAction,
+  isOutward,
+  type Locator,
+  type Skill,
+  type Step,
+  triggerOf,
+  walkSteps,
+} from "@shadow/core";
 import { MASK } from "../../mask.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
 
@@ -39,6 +48,53 @@ export interface GateInput {
 }
 
 const norm = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
+
+// What the step-runner needs before it can run a step (packages/player): each action's values, and a control it can
+// find. Its matcher scores role and name, stored attributes and selectors; text and `near` alone it can't use.
+// Checkpoint 4: reads with no control, fs.find with {folder, pattern}, a control found only "near Indian Rupee".
+const NEEDS: Record<string, string[]> = {
+  "web.navigate": ["url"],
+  "web.type": ["text"],
+  "web.select": ["option"],
+  "web.press": ["key"],
+  "fs.find": ["dir", "glob"],
+  "fs.move": ["from", "to"],
+  "fs.copy": ["from", "to"],
+  "fs.rename": ["from", "to"],
+  "fs.read": ["path"],
+  "data.pick": ["from"],
+};
+const findable = (t: Locator | undefined) =>
+  Boolean(t && (t.role || Object.keys(t.attrs ?? {}).length > 0 || t.fallbacks.length > 0));
+
+export function stepProblems(step: Step): string[] {
+  if (!isAction(step)) return [];
+  const key = `${step.channel}.${step.action}`;
+  const needs = NEEDS[key] ?? [];
+  const missing = needs.filter((k) => step.args[k] === undefined || step.args[k] === "");
+  const problems =
+    missing.length > 0 ? [`${step.id}: ${key} needs ${needs.join(" and ")} (missing ${missing.join(", ")})`] : [];
+  const noControl =
+    ["web.navigate", "web.wait_for"].includes(key) || (key === "web.extract" && step.args.source === "google_sheet");
+  // A key pressed on the page needs no control; one aimed at a control must be able to find it.
+  if (step.channel === "web" && !noControl && (key !== "web.press" || step.target) && !findable(step.target)) {
+    problems.push(
+      `${step.id}: replay can't find its control: give it a role and name ({ role: "button", name: "Save" }) or copy a recorded one ({ like: "s3" }). To read a whole page, read with no target${key === "web.press" ? "; a key pressed on the page needs no target" : ""}`,
+    );
+  }
+  return problems;
+}
+
+// Every step the runner can't run, and inputs it can't fill: a default is a value, never a {{…}} template.
+export function runProblems(skill: Skill): string[] {
+  const inputs = Object.entries(triggerOf(skill).inputs)
+    .filter(([, i]) => typeof i.default === "string" && i.default.includes("{{"))
+    .map(
+      ([name]) =>
+        `input ${name}: a default can't be a {{…}} value: use it in the step itself ({{today}}, {{today|D MMM}})`,
+    );
+  return [...inputs, ...[...walkSteps(skill.steps)].flatMap(({ step }) => stepProblems(step))];
+}
 
 // The work the user showed (what they typed, chose, moved or sent: a step that needed approval sent something) still
 // happens: kept (in a loop counts), or its removal explained for the review. A workflow that keeps none of it isn't

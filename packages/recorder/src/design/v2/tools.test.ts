@@ -350,3 +350,68 @@ describe("the tools", () => {
     expect(String((await run(s, "edit", { edits: [] })).output.use)).toMatch(/add, change, remove, move, loop, branch/);
   });
 });
+
+describe("steps the step-runner can run (Checkpoint 4)", () => {
+  const proposal = (id: string, kind: Proposal["kind"]): Proposal => ({
+    id,
+    kind,
+    summary: "s3 copied from item 1 of 20",
+    steps: ["s3"],
+    evidence: [],
+    edits: [],
+    runnable: true,
+  });
+
+  it("reads a whole page when a read has no control: the page's main part, else its body", async () => {
+    const s = session();
+    const out = await run(s, "add", {
+      step: { do: "read_all", intent: "read the page", save_as: "page" },
+      after: "s1",
+    });
+    expect(out.output.ok).toBe(true);
+    const added = findStep(s.draft, "s4") as { target?: unknown; args: Record<string, unknown> };
+    expect(added.target).toEqual({ fallbacks: ["main", "body"] });
+    expect(added.args.all).toBeUndefined();
+  });
+
+  it("refuses a step the runner can't run, saying what it needs", async () => {
+    const s = session();
+    const find = await run(s, "add", {
+      step: { do: "find_files", intent: "find it", folder: "~/Reading", pattern: "*.pdf" },
+    });
+    expect(JSON.stringify(find.output)).toMatch(/fs\.find needs dir and glob/);
+    const near = await run(s, "add", { step: { do: "click", intent: "the rate", target: { near: "Indian Rupee" } } });
+    expect(JSON.stringify(near.output)).toMatch(/can't find its control/);
+    const input = await run(s, "input", { name: "today_date", type: "text", default: "{{today}}", about: "today" });
+    expect(JSON.stringify(input.output)).toMatch(/use \{\{today\}\} in the step itself/);
+    expect(triggerInputs(s)).not.toHaveProperty("today_date");
+  });
+
+  it("says a proposal with nothing prepared is a note to build, not a change made", async () => {
+    const s = session({ proposals: new Map([["p1", proposal("p1", "list_item")]]) });
+    const out = await run(s, "accept", { proposal: "p1", why: "the newest" });
+    expect(JSON.stringify(out.output)).toMatch(/nothing prepared.*build it/i);
+  });
+
+  it("forgives what the real runs got wrong: ids in one string, how often through change, a step id as a variable", async () => {
+    const s = session();
+    expect((await run(s, "remove", { steps: "s2, s3", why: "noise" })).output.ok).toBe(true);
+    const t = session();
+    expect(
+      (await run(t, "change", { step: "start", args: { schedule: "0 8 * * *" }, why: "every day" })).output.ok,
+    ).toBe(true);
+    expect(JSON.stringify(t.draft.steps[0])).toContain("0 8 * * *");
+    const u = session();
+    await run(u, "add", { step: { do: "read", intent: "read the page", save_as: "subject" }, after: "s1" });
+    const ai = await run(u, "ai_step", {
+      after: "s4",
+      intent: "pick",
+      instruction: "the newest",
+      inputs: ["{{s4}}"],
+      output: { name: "newest", type: "text" },
+    });
+    expect(ai.output.ok).toBe(true);
+    expect(JSON.stringify(u.draft)).toContain('"inputs":["{{subject}}"]');
+  });
+});
+const triggerInputs = (s: SessionV2) => (s.draft.steps[0] as { inputs: Record<string, unknown> }).inputs;

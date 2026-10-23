@@ -8,6 +8,7 @@ import { type AnyTool, type ToolContext, tool } from "@shadow/agent";
 import {
   applyEdits,
   type EditInput,
+  findStep,
   isAction,
   type Locator,
   type Step,
@@ -20,6 +21,7 @@ import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
 import { maskText } from "../../mask.ts";
 import { DoneReport } from "./contracts.ts";
+import { stepProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { maySend, refusals } from "./rules.ts";
 import { MAX_DONE_REFUSALS, MAX_TESTS, type SessionV2 } from "./session.ts";
@@ -62,6 +64,15 @@ const DO: Record<string, [string, string]> = {
   type_in_app: ["ax", "set_value"],
   menu: ["ax", "menu"],
   key_in_app: ["ax", "key"],
+};
+
+// How to do what a proposal with nothing prepared describes (Checkpoint 4: accepting one changed nothing).
+const BUILD_IT: Record<string, string> = {
+  list_item:
+    "read the list or the page (read_all on the list, or read with no target) and let ai_step pick the item; loop over them if there are several",
+  repeat: "read the items (read_all, or read the page and ai_step), then loop over them",
+  all_files: "find_files with pick: all, then loop over the files",
+  constant: "keep the value as it is",
 };
 
 const LocatorSpec = z.object({
@@ -110,6 +121,25 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   const position = (where: { after?: string; before?: string; into?: string }) =>
     where.into ? { into: where.into } : where.before ? { before: where.before } : { after: where.after ?? lastTop() };
   const lastTop = () => session.draft.steps.at(-1)?.id ?? "start";
+  // How often it runs: "manual", a cron, { schedule }, { folder, glob }, or the trigger's own list.
+  const setWhen = (when: unknown, why: string) => {
+    const w = when as { schedule?: string; folder?: string; glob?: string };
+    const value =
+      when === "manual"
+        ? [{ type: "manual" }]
+        : typeof when === "string"
+          ? [{ type: "schedule", cron: when }]
+          : Array.isArray(when)
+            ? when
+            : w?.schedule
+              ? [{ type: "schedule", cron: w.schedule }]
+              : w?.folder
+                ? [{ type: "folder_watch", dir: w.folder, ...(w.glob ? { glob: w.glob } : {}) }]
+                : undefined;
+    if (!value)
+      return { output: { ok: false, problems: ['say when: "manual", { schedule: "0 9 * * *" } or { folder, glob }'] } };
+    return apply([{ op: "set", step: "start", field: "when", value }], why, ["start"]);
+  };
 
   // Edits applied to the draft: they must parse and break no rule. Approval on outward steps is added here, by code.
   const apply = (edits: EditInput[], why: string, touched: string[], unverified: string[] = []) => {
@@ -117,6 +147,19 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     if (!result.ok) return { output: { ok: false, problems: result.problems.map(hint) } };
     const refused = refusals(session.original, result.skill, session.facts);
     if (refused.length > 0) return { output: { ok: false, refused } };
+    // A step it added or changed must be one the runner can run (Checkpoint 4: reads with no control, fs.find with
+    // {folder, pattern}). A recorded control it didn't touch is the gate's to judge, not a reason to refuse this edit.
+    const was = new Map([...walkSteps(session.draft.steps)].map(({ step }) => [step.id, step]));
+    const unrunnable = [...walkSteps(result.skill.steps)]
+      .map(({ step }) => step)
+      .filter((step) => touched.includes(step.id) && JSON.stringify(step) !== JSON.stringify(was.get(step.id)))
+      .flatMap((step) => {
+        const old = was.get(step.id) ?? session.dropped.get(step.id)?.step ?? findStep(session.original, step.id);
+        const same =
+          old && "target" in old && isAction(step) && JSON.stringify(old.target) === JSON.stringify(step.target);
+        return stepProblems(step).filter((p) => !same || !p.includes("can't find its control"));
+      });
+    if (unrunnable.length > 0) return { output: { ok: false, problems: unrunnable } };
     const approved = requireApprovals(result.skill);
     // What it added or changed that may send (an Enter in a message box, a copy of a recorded send): approval too.
     const before = new Map([...walkSteps(session.draft.steps)].map(({ step }) => [step.id, JSON.stringify(step)]));
@@ -192,6 +235,12 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     } else if (target) {
       locator = { ...target, fallbacks: [] };
       unverified = true;
+    }
+    // A read with no control reads the page: its main part, else its body (Checkpoint 4: "read the page and let an AI
+    // step pick" failed three times with "extract needs a target").
+    if (action === "extract" && !locator && values.source === undefined) {
+      locator = { fallbacks: ["main", "body"] };
+      delete values.all;
     }
     const step: Record<string, unknown> = {
       id,
@@ -309,14 +358,22 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       intent: z.string().min(1),
       instruction: z.string().min(1),
       inputs: z.array(z.string()).min(1),
-      output: z.object({ name: z.string().min(1), type: z.record(z.string(), z.unknown()).optional() }),
+      output: z.object({
+        name: z.string().min(1),
+        type: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
+      }),
       why: Why,
     }),
     prepare: unstring,
     run: ({ after, intent, instruction, inputs, output, why }) => {
       if (!known(after)) return { output: { ok: false, problems: [unknown(after)] } };
       const id = nextId("ai");
-      const refs = inputs.map((i) => (/^\{\{.*\}\}$/.test(i.trim()) ? i.trim() : `{{${i.trim()}}}`));
+      // A step's id stands for what it saved ({{s6}} -> {{subject}}): the YC run sent one.
+      const saved = (i: string) => {
+        const step = findStep(session.draft, i.replace(/^\{\{|\}\}$/g, "").trim());
+        return step && "output" in step && step.output ? `{{${step.output.name}}}` : undefined;
+      };
+      const refs = inputs.map((i) => saved(i) ?? (/^\{\{.*\}\}$/.test(i.trim()) ? i.trim() : `{{${i.trim()}}}`));
       return apply(
         [
           {
@@ -328,7 +385,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
               intent,
               instruction,
               inputs: refs,
-              output: { name: output.name, type: output.type ?? { type: "text" } },
+              output: {
+                name: output.name,
+                type: typeof output.type === "string" ? { type: output.type } : (output.type ?? { type: "text" }),
+              },
             },
           },
         ],
@@ -456,10 +516,13 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
           return { output: { ok: false, problems: [`${proposal} is decided already`] } };
         if (!p.runnable || p.edits.length === 0) {
           session.decisions.set(proposal, { decision: "accept", why });
+          // Checkpoint 4: "nothing to change" was read as done, and the steps still found today's items by their text.
           return {
             output: {
               ok: true,
-              note: p.runnable ? "nothing to change" : "noted for the review: replay can't do this yet",
+              note: p.runnable
+                ? `nothing prepared to apply: build it yourself: ${BUILD_IT[p.kind] ?? "with the tools"}`
+                : "noted for the review: replay can't do this yet",
             },
           };
         }
@@ -486,7 +549,9 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       description:
         "Remove steps that aren't part of the task (a click that changed nothing, a detour), with why: the user sees it",
       input: z.object({
-        steps: z.union([z.string(), z.array(z.string())]).transform((s) => (Array.isArray(s) ? s : [s])),
+        steps: z
+          .union([z.string(), z.array(z.string())])
+          .transform((s) => (Array.isArray(s) ? s : [s]).flatMap((id) => id.split(/[\s,]+/).filter(Boolean))),
         why: Why,
       }),
       prepare: unstring,
@@ -578,6 +643,9 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         if (!step || !known(id)) return { output: { ok: false, problems: [unknown(id)] } };
         const edits: EditInput[] = [];
         let unverified = false;
+        // How often it runs is the trigger's: a change to it that says when is one (Checkpoint 4: nine calls on this).
+        const when = args?.when ?? args?.schedule ?? args?.cron;
+        if (step.type === "trigger" && when !== undefined) return setWhen(when, why);
         if (intent) edits.push({ op: "set", step: id, field: "intent", value: intent });
         if (!isAction(step) && (args || target || tab || check || wait || save_as)) {
           return {
@@ -660,15 +728,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         why: Why,
       }),
       prepare: unstring,
-      run: ({ when, why }) => {
-        const value =
-          when === "manual"
-            ? [{ type: "manual" }]
-            : "schedule" in when
-              ? [{ type: "schedule", cron: when.schedule }]
-              : [{ type: "folder_watch", dir: when.folder, ...(when.glob ? { glob: when.glob } : {}) }];
-        return apply([{ op: "set", step: "start", field: "when", value }], why, ["start"]);
-      },
+      run: ({ when, why }) => setWhen(when, why),
     }),
     tool({
       name: "input",
@@ -684,6 +744,15 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       }),
       prepare: unstring,
       run: ({ name, type, default: value, about, why }) => {
+        if (typeof value === "string" && value.includes("{{"))
+          return {
+            output: {
+              ok: false,
+              problems: [
+                `a default can't be a {{…}} value: use {{today}} in the step itself ({{today|D MMM}}), no input needed`,
+              ],
+            },
+          };
         const inputs = {
           ...triggerOf(session.draft).inputs,
           [name]: { type: { type }, description: about, ...(value !== undefined ? { default: value } : {}) },

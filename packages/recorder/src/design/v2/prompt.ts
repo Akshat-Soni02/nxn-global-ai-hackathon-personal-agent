@@ -28,7 +28,11 @@ Principles
 - Recorded values are examples. A value that will be different next time comes from today's date, an input, an
   earlier step or a list item; it never stays as fixed text.
 - Build every rule of the task model, or say in done why it isn't built.
-- Prefer accepting code's proposals (accept p1): those changes are prepared and checked.
+- Proposals marked [change ready] are prepared and checked: accept or reject each. The others are notes: accepting
+  one changes nothing, so build what it describes yourself.
+- To pick what changes each time (the newest, the top 3, today's), read the page (read with no target reads it all)
+  and let an ai_step pick it; loop over a list it returns. Today's date is {{today}} (or {{today|D MMM}}) right in a
+  step's text: never an input.
 - Remove what isn't part of the task (a click that changed nothing, a detour), with why. Put back a step code left
   out (restore x2) if it mattered.
 - Open pages by name: { do: "open", page: "s1" } or { page: "KPI Sheet" }. Code writes the address.
