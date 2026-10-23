@@ -1,6 +1,6 @@
 import { fakeLlm } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
-import { BUILD, UNDERSTAND } from "./prompt.ts";
+import { BUILD, PLAN, UNDERSTAND } from "./prompt.ts";
 import { understand } from "./understand.ts";
 
 const task = {
@@ -47,5 +47,15 @@ describe("stage 1: understand", () => {
     expect(BUILD).toMatch(/target: \{ place:\s+"s2" \}/);
     expect(BUILD).toMatch(/change s5 \{ tab: "KPI Sheet" \} and s6 \{ tab: "KPI Sheet" \}/);
     expect(BUILD.split("\n").length).toBeLessThanOrEqual(80);
+  });
+
+  it("plans with the build's principles and example, without testing and finishing (the episode's)", () => {
+    expect(PLAN).toMatch(/^You are Shadow's design agent, planning\. Principles/);
+    expect(PLAN).toMatch(/A worked example: the KPI task/);
+    expect(PLAN).toMatch(/- Ask only what the user must decide/);
+    expect(PLAN).toMatch(/target: \{ place:\s+"s2" \}/);
+    for (const gone of ["- Test it (test)", "- Finish with done", "Tools: accept", "- test, then done"])
+      expect(PLAN).not.toContain(gone);
+    expect(PLAN).toMatch(/\{"calls": \[\{"tool": "<tool>", "input": \{…\}\}, …\]\}/);
   });
 });

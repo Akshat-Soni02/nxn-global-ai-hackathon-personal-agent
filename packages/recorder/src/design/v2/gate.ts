@@ -210,7 +210,8 @@ const tabless = (steps: Step[]): string[] => {
 // happens: kept (in a loop counts), or its removal explained for the review. A workflow that keeps none of it isn't
 // what they meant, whatever reason each removal was given (Oct 19: the Play Store run kept one step of the recording).
 // The steps that ran in the test but got nothing: a read of an empty control, an AI step that answered nothing. The
-// runner counts them as done (checkpoint 6: D's read got "" three times and an AI step made up an article from it).
+// runner counts them as done (checkpoint 6: D's read got "" three times and an AI step made up an article from it). An
+// AI step's empty list is an answer: nothing new today ("skip the ones already saved").
 export function emptyIn(skill: Skill, test: TestReport | undefined): string[] {
   const steps = new Map([...walkSteps(skill.steps)].map(({ step }) => [step.id, step]));
   const empty = (v: unknown) =>
@@ -220,9 +221,50 @@ export function emptyIn(skill: Skill, test: TestReport | undefined): string[] {
     (typeof v === "object" && Object.keys(v).length === 0);
   return (test?.steps ?? []).flatMap((t) => {
     const step = steps.get(t.id);
-    const makes = step && (isLlm(step) || (isAction(step) && step.output));
+    const makes =
+      step && ((isLlm(step) && step.output.type.type !== "list") || (isAction(step) && step.output !== undefined));
     return t.status === "done" && makes && empty(t.value) ? [t.id] : [];
   });
+}
+
+// An AI step's answer that isn't in what it read: right for one it works out (a summary, a name it makes), wrong for
+// one it picks from a page (checkpoint 5: D's took a picture's caption for the title). Shown to the agent with the
+// test's results, never refused: only it knows which kind the step is.
+export function unfoundIn(skill: Skill, test: TestReport | undefined): string[] {
+  const all = [...walkSteps(skill.steps)].map(({ step }) => step);
+  const ran = new Map((test?.steps ?? []).map((t) => [t.id, t]));
+  const text = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v ?? ""));
+  const saved = (name: string) => {
+    const by = all.find((s) => (isLlm(s) || isAction(s)) && s.output?.name === name);
+    return by ? text(ran.get(by.id)?.value) : "";
+  };
+  return all.filter(isLlm).flatMap((ai) => {
+    const t = ran.get(ai.id);
+    if (t?.status !== "done") return [];
+    const read = ai.inputs
+      .flatMap((i) => [...i.matchAll(/\{\{\s*(\w+)/g)].map((m) => saved(m[1] ?? "")))
+      .join("\n")
+      .toLowerCase();
+    if (!read.trim()) return [];
+    const answers = (Array.isArray(t.value) ? t.value : [t.value]).filter(
+      (v): v is string => typeof v === "string" && v.trim() !== "",
+    );
+    const missing = answers.find((a) => !read.includes(a.trim().toLowerCase()));
+    return missing
+      ? [
+          `${ai.id} answered "${missing.slice(0, 80)}", which isn't in what it read: right for an answer it works out, wrong for one it picks from the page`,
+        ]
+      : [];
+  });
+}
+
+// An address made of two (checkpoint 6: "https://en.wikipedia.org" before a value that was already a whole address),
+// from the runner's "(it tried to open …)": said how to fix it.
+export function joined(error?: string): string {
+  const tried = /it tried to open (\S+)\)/.exec(error ?? "")?.[1];
+  return tried && (tried.match(/:\/\//g) ?? []).length > 1
+    ? `; its address is two joined: a value that is already a whole address is opened alone ({{value}})`
+    : "";
 }
 
 export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string, string>): string[] {
@@ -307,7 +349,7 @@ export function gate(input: GateInput): string[] {
     const what =
       step.status === "not_found"
         ? "the test run didn't find it"
-        : `it failed in the test run (${step.error ?? "no reason given"})`;
+        : `it failed in the test run (${step.error ?? "no reason given"})${joined(step.error)}`;
     problems.push(`${step.id}: ${what}: fix it, or explain why it will work in a real run`);
   }
 

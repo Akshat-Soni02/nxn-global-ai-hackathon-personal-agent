@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
-import { madeBy, notRunWhy, toTrash } from "./rehearse.ts";
+import { emptyFiles, madeBy, notRunWhy, toTrash } from "./rehearse.ts";
 
 const skill = (channel: "web" | "ax") =>
   Skill.parse({
@@ -64,6 +64,15 @@ describe("what the final check made goes to the Trash (Rushil, 24 Oct)", () => {
       ],
     };
     expect(madeBy(skill, report)).toEqual(["/u/Reading/24 Oct - X.pdf"]);
+  });
+
+  it("tells a file made empty (0 bytes) from one with something in it: an empty one fails the check", () => {
+    const home = mkdtempSync(join(tmpdir(), "tp-empty-"));
+    writeFileSync(join(home, "empty.pdf"), "");
+    writeFileSync(join(home, "full.pdf"), "%PDF");
+    expect(emptyFiles([join(home, "empty.pdf"), join(home, "full.pdf"), join(home, "gone.pdf")])).toEqual([
+      join(home, "empty.pdf"),
+    ]);
   });
 
   it("moves each to the Trash, never over another file there", () => {

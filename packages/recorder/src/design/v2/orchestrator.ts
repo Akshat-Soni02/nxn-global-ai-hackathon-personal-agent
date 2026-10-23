@@ -164,8 +164,9 @@ export function progressOf(output: string): boolean | undefined {
   return undefined;
 }
 
-// Plan, then apply (step 5): the changes a plan may hold (looking, testing, asking and finishing are the episode's), and
-// the reply that holds them. Each tool's input is checked by the tool itself, as in the episode.
+// Plan, then apply (step 5): what a plan may hold (looking, testing and finishing are the episode's), and the reply
+// that holds it. Asked as plain JSON and checked here: strict decoding can't hold "any tool's input". Each tool checks
+// its own input, as in the episode.
 const PLANNED = new Set([
   "accept",
   "reject",
@@ -179,8 +180,11 @@ const PLANNED = new Set([
   "ai_step",
   "trigger",
   "input",
+  "ask",
 ]);
-const PlanReply = z.object({ calls: z.array(z.object({ tool: z.string(), input: z.looseObject({}) })).max(60) });
+const PlanReply = z.object({
+  calls: z.array(z.object({ tool: z.string(), input: z.record(z.string(), z.unknown()).default({}) })).max(60),
+});
 
 const cadenceText = (task: TaskModel) =>
   task.cadence.kind === "manual" ? "when you start it" : (task.cadence.quote ?? task.cadence.kind);
@@ -306,12 +310,12 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         profile: "smart",
         system: PLAN,
         user: [message, "", "# The tools a plan can use", ...catalogue].join("\n"),
-        schema: PlanReply,
-        schemaName: "plan",
+        json: true,
         meter,
         signal: options.signal,
       });
-      calls = reply.value?.calls ?? [];
+      const parsed = PlanReply.safeParse(reply.value);
+      calls = parsed.success ? parsed.data.calls : [];
     } catch {
       return undefined;
     }

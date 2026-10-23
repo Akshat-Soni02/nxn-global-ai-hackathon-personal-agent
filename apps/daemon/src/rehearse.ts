@@ -5,7 +5,7 @@
 //
 // The final check (local: true) also makes the files the workflow makes, for real, so the design sees them; each is put
 // in the Trash after it (Rushil, 24 Oct: "keep-local changes", and "remove the tests saved").
-import { existsSync, renameSync } from "node:fs";
+import { existsSync, renameSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { isAction, type Skill, walkSteps } from "@shadow/core";
@@ -38,6 +38,9 @@ export function madeBy(skill: Skill, report: { steps: { id: string; status: stri
     return s.status === "done" && making.has(s.id) && typeof path === "string" ? [path] : [];
   });
 }
+
+// The files that are there but hold nothing (0 bytes).
+export const emptyFiles = (paths: string[]) => paths.filter((p) => existsSync(p) && statSync(p).size === 0);
 
 // Each file still there goes to the Trash (a name taken there gets " (n)"), so nothing the check made is left in your
 // folders, and nothing is lost if it shouldn't have gone. The ones moved, by their paths.
@@ -117,6 +120,8 @@ export async function rehearse(
   const first = await once();
   if (!local) return first;
   const made = madeBy(skill, first);
+  // A file made empty (0 bytes) is a failed check, whatever the run said: the task wasn't done.
+  const empty = emptyFiles(made).map((p) => basename(p));
   const second = options.twice ? await once() : undefined;
   const again = second ? madeBy(skill, second) : undefined;
   const removed = toTrash([...made, ...(again ?? [])]);
@@ -124,6 +129,7 @@ export async function rehearse(
     options.onLine?.(`Put in the Trash what the check made: ${removed.map((p) => basename(p)).join(", ")}`);
   return {
     ...first,
+    ...(empty.length > 0 ? { outcome: `failed: it made ${empty.join(", ")} empty (0 bytes)` } : {}),
     made: removed.map((p) => basename(p)),
     ...(again ? { again: again.map((p) => basename(p)) } : {}),
   };

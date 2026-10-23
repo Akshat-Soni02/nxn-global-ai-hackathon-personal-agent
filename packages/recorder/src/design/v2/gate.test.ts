@@ -1,7 +1,7 @@
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
-import { emptyIn, gate, roleAlone, runProblems, unmadeProblems } from "./gate.ts";
+import { emptyIn, gate, joined, roleAlone, runProblems, unfoundIn, unmadeProblems } from "./gate.ts";
 
 const CHAT = "https://chat.google.com/room/X";
 const SHEET = "https://docs.google.com/spreadsheets/d/S/edit";
@@ -420,8 +420,38 @@ describe("what the test run's values show (step 5: code checks them)", () => {
   it('finds a read or AI step that ran but got nothing (checkpoint 6: D\'s read got "" three times)', () => {
     expect(emptyIn(w, ran("", "Thuggee"))).toEqual(["s2"]);
     expect(emptyIn(w, ran("Thuggee", "  "))).toEqual(["ai1"]);
-    expect(emptyIn(w, ran(["a"], []))).toEqual(["ai1"]);
+    expect(emptyIn(w, ran(["a"], []))).toEqual(["ai1"]); // a text answer
     expect(emptyIn(w, ran("Thuggee", "Thuggee"))).toEqual([]);
+  });
+  it("takes an AI step's empty list as an answer: nothing new today (A: skip the ones already saved)", () => {
+    const list = skill([
+      act("s1", "web", "navigate", { url: "https://news.ycombinator.com" }),
+      {
+        id: "ai1",
+        type: "llm",
+        intent: "pick",
+        instruction: "the top 3 stories not already saved",
+        inputs: [],
+        output: { name: "stories", type: { type: "list", items: { type: "text" } } },
+      },
+    ]);
+    const report = { outcome: "succeeded", steps: [{ id: "ai1", path: "ai1", status: "done" as const, value: [] }] };
+    expect(emptyIn(list, report)).toEqual([]);
+  });
+  it("shows an AI answer that isn't in what it read (D: a made-up article), never one that is", () => {
+    expect(unfoundIn(w, ran("Thuggee were bands of robbers in India", "Thuggee"))).toEqual([]);
+    expect(unfoundIn(w, ran("Thuggee were bands of robbers", "2026 in railway transportation")).join()).toMatch(
+      /ai1 answered "2026 in railway transportation", which isn't in what it read/,
+    );
+    expect(unfoundIn(w, ran("", "anything"))).toEqual([]); // nothing read: emptyIn's to say
+  });
+  it("says how to fix an address made of two (D: en.wikipedia.orghttps://…)", () => {
+    const error =
+      "navigation failed: net::ERR_NAME_NOT_RESOLVED (it tried to open https://en.wikipedia.orghttps://en.wikipedia.org/wiki/Thuggee)";
+    expect(joined(error)).toMatch(/its address is two joined/);
+    expect(joined("navigation failed (it tried to open https://en.wikipedia.org/wiki/Thuggee)")).toBe("");
+    const failed = { outcome: "failed", steps: [{ id: "s1", path: "s1", status: "failed" as const, error }] };
+    expect(gate(input(w, { test: failed, sinceTest: new Map() })).join()).toMatch(/s1: it failed .*two joined/);
   });
   it("sends it back to the agent unless a reason was given after the test", () => {
     const problems = gate(input(w, { test: ran("", "x"), sinceTest: new Map() }));

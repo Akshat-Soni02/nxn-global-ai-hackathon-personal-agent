@@ -88,9 +88,15 @@ Sheet", s5 type "19 Oct" into A4, s6 paste into B4. Code proposed p1 list_item (
 - test, then done { summary, rules: [{ rule: 0, steps: ["s2", "l1"] }, { rule: 1, steps: ["ai1"] }] }`;
 
 // Plan, then apply (step 5): one call writes every change as tool calls, code makes them all, and the build episode
-// starts from what happened (checkpoint 5: one change per call spent 40 calls on D). Its first line tells it apart.
-export const PLAN = `You are Shadow's design agent, planning. ${BUILD.slice(BUILD.indexOf("Principles"))}
+// starts from what happened (checkpoint 5: one change per call spent 40 calls on D). Its first line tells it apart. The
+// principles are BUILD's without testing and finishing, which the episode does after (a bullet keeps its wrapped lines).
+const planning = BUILD.slice(BUILD.indexOf("Principles"))
+  .split(/\n(?=- |\S)/)
+  .filter((part) => !/^(- Test it|- Finish with done|Tools: |Several calls in one reply|- test, then done)/.test(part))
+  .join("\n");
+export const PLAN = `You are Shadow's design agent, planning. ${planning}
 
 Plan now: reply with JSON only, {"calls": [{"tool": "<tool>", "input": {…}}, …]}: every change you will make, in
-order, with each tool's input as you would send it (accept, reject, remove, add, change, move, loop, branch, ai_step,
-trigger, input, restore). Leave out look, test, ask and done: code makes your calls, then you see what each did.`;
+order, with each tool's input as you would send it (accept, reject, remove, restore, add, change, move, loop, branch,
+ai_step, trigger, input, ask). No look, test or done: code makes your calls in order, then you see what each did, and
+test and finish after.`;
