@@ -77,6 +77,19 @@ const NEEDS: Record<string, string[]> = {
 const findable = (t: Locator | undefined) =>
   Boolean(t && (t.role || Object.keys(t.attrs ?? {}).length > 0 || t.fallbacks.length > 0));
 
+// A control the agent writes by role alone matches every control with that role (Checkpoint 5: C read { role: "cell" }
+// on a table of 50 rates, and the test run found it ambiguous). It needs a name too, except to read them all or the
+// page's one main part. A recorded control is the test run's to judge: it may be the only one of its kind.
+export function roleAlone(step: Step): string[] {
+  if (!isAction(step) || step.channel !== "web" || !step.target?.role || step.target.name) return [];
+  const t = step.target;
+  if (Object.keys(t.attrs ?? {}).length > 0 || t.fallbacks.length > 0 || step.args.all === true || t.role === "main")
+    return [];
+  return [
+    `${step.id}: a role alone matches every ${t.role} on the page: give it a name too, copy a recorded control ({ like: "s3" }), or read the whole page (change: target: null)`,
+  ];
+}
+
 export function stepProblems(step: Step): string[] {
   if (!isAction(step)) return [];
   const key = `${step.channel}.${step.action}`;
@@ -89,7 +102,7 @@ export function stepProblems(step: Step): string[] {
   // A key pressed on the page needs no control; one aimed at a control must be able to find it.
   if (step.channel === "web" && !noControl && (key !== "web.press" || step.target) && !findable(step.target)) {
     problems.push(
-      `${step.id}: replay can't find its control: give it a role and name ({ role: "button", name: "Save" }) or copy a recorded one ({ like: "s3" }). To read a whole page, read with no target${key === "web.press" ? "; a key pressed on the page needs no target" : ""}`,
+      `${step.id}: replay can't find its control: give it a role and name ({ role: "button", name: "Save" }) or copy a recorded one ({ like: "s3" }). To read a whole page, read with no target (change: target: null)${key === "web.press" ? "; a key pressed on the page needs no target" : ""}`,
     );
   }
   return problems;

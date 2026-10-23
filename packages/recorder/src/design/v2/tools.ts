@@ -22,7 +22,7 @@ import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
 import { maskText } from "../../mask.ts";
 import { DoneReport } from "./contracts.ts";
-import { isCron, stepProblems } from "./gate.ts";
+import { isCron, roleAlone, stepProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { maySend, refusals } from "./rules.ts";
 import { MAX_DONE_REFUSALS, MAX_TESTS, type SessionV2 } from "./session.ts";
@@ -187,6 +187,8 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   const apply = (edits: EditInput[], why: string, touched: string[], unverified: string[] = []) => {
     const result = applyEdits(session.draft, edits);
     if (!result.ok) return { output: { ok: false, problems: result.problems.map(hint) } };
+    // Said, so a change that didn't take isn't read as done (Checkpoint 5: C sent eight that changed nothing).
+    const unchanged = JSON.stringify(result.skill) === JSON.stringify(session.draft);
     const refused = refusals(session.original, result.skill, session.facts);
     if (refused.length > 0) return { output: { ok: false, refused } };
     // A step it added or changed must be one the runner can run (Checkpoint 4: reads with no control, fs.find with
@@ -199,7 +201,9 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         const old = was.get(step.id) ?? session.dropped.get(step.id)?.step ?? findStep(session.original, step.id);
         const same =
           old && "target" in old && isAction(step) && JSON.stringify(old.target) === JSON.stringify(step.target);
-        return stepProblems(step).filter((p) => !same || !p.includes("can't find its control"));
+        return [...stepProblems(step), ...roleAlone(step)].filter(
+          (p) => !same || !/can't find its control|role alone/.test(p),
+        );
       });
     if (unrunnable.length > 0) return { output: { ok: false, problems: unrunnable } };
     const approved = requireApprovals(result.skill);
@@ -231,6 +235,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       output: {
         ok: true,
         ...(added.length > 0 ? { approval_added: added } : {}),
+        ...(unchanged ? { note: "nothing changed: the workflow is exactly as it was (its why is kept)" } : {}),
         workflow: outlineOf(session.draft),
       },
     };
@@ -727,7 +732,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         step: z.string(),
         intent: z.string().optional(),
         args: z.record(z.string(), z.unknown()).optional(),
-        target: TargetSpec.optional(),
+        target: TargetSpec.nullable().optional(),
         tab: z.string().optional(),
         check: z.record(z.string(), z.unknown()).optional(),
         wait: z.record(z.string(), z.unknown()).optional(),
@@ -780,7 +785,13 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
                 type: producedType({ ...step, args: { ...step.args, ...(args ?? {}) } } as never),
               },
             });
-          if (target) {
+          // A read with no control reads the whole page (Checkpoint 5: C couldn't take a read's control away, and eight
+          // changes "to read the whole page" kept reading { role: "cell" }).
+          if (target === null) {
+            if (step.action !== "extract")
+              return { output: { ok: false, problems: [`${id}: only a read can do without a control`] } };
+            edits.push({ op: "retarget", step: id, target: { fallbacks: ["main", "body"] } });
+          } else if (target) {
             if ("like" in target) {
               const like = anyStep(target.like);
               if (!like || !isAction(like) || !like.target)

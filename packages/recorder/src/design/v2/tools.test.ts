@@ -671,3 +671,26 @@ describe("what round 3's re-design of A showed", () => {
     expect(isTimeOfDay("Which row should the numbers go in?")).toBe(false);
   });
 });
+
+describe("what live C showed", () => {
+  it("lets a read drop its control to read the whole page (change target: null); nothing else can", async () => {
+    const s = session();
+    await run(s, "add", {
+      step: { do: "read", intent: "the rate", target: { like: "s3" }, save_as: "rate" },
+      after: "s1",
+    });
+    const out = await run(s, "change", { step: "s4", target: null, why: "the whole page" });
+    expect(out.output.ok).toBe(true);
+    expect((findStep(s.draft, "s4") as { target: unknown }).target).toEqual({ fallbacks: ["main", "body"] });
+    const cell = await run(s, "change", { step: "s4", target: { role: "cell" }, why: "near the rate" });
+    expect(JSON.stringify(cell.output)).toMatch(/a role alone matches every cell/);
+    const click = await run(s, "change", { step: "s3", target: null, why: "x" });
+    expect(JSON.stringify(click.output)).toMatch(/only a read can do without a control/);
+  });
+
+  it("says when a change changed nothing, so the model sees its change didn't take (C: 8 such changes)", async () => {
+    const s = session();
+    const out = await run(s, "change", { step: "s3", intent: "type the subject", why: "read the whole page" });
+    expect(JSON.stringify(out.output)).toMatch(/nothing changed/);
+  });
+});

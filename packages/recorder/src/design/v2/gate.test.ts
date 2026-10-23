@@ -1,7 +1,7 @@
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
-import { gate } from "./gate.ts";
+import { gate, roleAlone } from "./gate.ts";
 
 const CHAT = "https://chat.google.com/room/X";
 const SHEET = "https://docs.google.com/spreadsheets/d/S/edit";
@@ -330,5 +330,24 @@ describe("what round 3 showed", () => {
       }),
     );
     expect(problems.join("\n")).not.toMatch(/no step trigger/);
+  });
+});
+
+describe("what live C showed", () => {
+  it("refuses a control the agent gives by role alone, except to read them all or the main part", () => {
+    const read = (target: unknown, args: Record<string, unknown> = {}) =>
+      roleAlone({
+        id: "s2",
+        type: "action",
+        intent: "read",
+        channel: "web",
+        action: "extract",
+        args,
+        target,
+      } as never);
+    expect(read({ role: "cell", fallbacks: [] }).join()).toMatch(/a role alone matches every cell/);
+    expect(read({ role: "cell", fallbacks: [] }, { all: true })).toEqual([]);
+    expect(read({ role: "main", fallbacks: [] })).toEqual([]);
+    expect(read({ role: "cell", name: "94.89", fallbacks: [] })).toEqual([]);
   });
 });
