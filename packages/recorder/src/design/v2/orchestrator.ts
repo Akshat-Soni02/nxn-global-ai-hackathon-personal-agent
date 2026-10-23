@@ -27,7 +27,7 @@ import { BUILD } from "./prompt.ts";
 import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
 import { type ChangeNote, changeNotes, type RecordingFacts } from "./rules.ts";
 import { newSession, type QueuedQuestion, type SessionV2 } from "./session.ts";
-import { designToolsV2, isTimeOfDay } from "./tools.ts";
+import { designToolsV2, isHowTo, isTimeOfDay } from "./tools.ts";
 import { understand } from "./understand.ts";
 
 export interface DesignV2Options {
@@ -125,6 +125,27 @@ export function withFields(skill: Skill): Skill {
   return typed?.ok ? typed.skill : skill;
 }
 
+// With no cap on calls (Rushil, 23 Oct), what ends a design that isn't getting anywhere: this many changes in a row that
+// were refused, malformed, or changed nothing (checkpoints 5–6: D re-added one read 10 times, changed one step 15 times
+// to no effect, and sent 6 malformed calls in a row).
+export const STUCK = 5;
+
+// Whether a tool's result moved the workflow on: true (a change made), false (refused, or nothing changed), or undefined
+// (a look, a test, a question: neither).
+export function progressOf(output: string): boolean | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output.replace(/^\s*<untrusted_data>\s*|\s*<\/untrusted_data>\s*$/g, ""));
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const o = parsed as { ok?: unknown; refused?: unknown; note?: unknown };
+  if (o.ok === false || o.refused !== undefined) return false;
+  if (o.ok === true) return !String(o.note ?? "").startsWith("nothing changed");
+  return undefined;
+}
+
 const cadenceText = (task: TaskModel) =>
   task.cadence.kind === "manual" ? "when you start it" : (task.cadence.quote ?? task.cadence.kind);
 
@@ -190,10 +211,15 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     return outcome({ kind: "kept", reason: why });
   };
 
-  // One episode of the agent loop on what is left of the budget: build/test/fix, or putting the answers in.
+  // One episode of the agent loop on what is left of the budget: build/test/fix, or putting the answers in. With no cap
+  // on calls, it also ends when the agent stops getting anywhere (STUCK changes in a row went nowhere).
   const episode = async (message: string): Promise<string | undefined> => {
     const left = remaining(meter, budget);
     if (left.calls === 0 || left.costUsd === 0) return "its budget was used up";
+    const stop = new AbortController();
+    const forward = () => stop.abort();
+    options.signal?.addEventListener("abort", forward, { once: true });
+    let stuck = 0;
     const run = await runAgent<DoneReport>({
       llm: options.llm,
       profile: "smart",
@@ -204,12 +230,17 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
       budget: { turns: left.calls, costUsd: left.costUsd, liveActions: 0 },
       protocol: options.protocol,
       meter,
-      signal: options.signal,
+      signal: stop.signal,
       onEvent: (event) => {
         transcript.push(event);
         options.onEvent?.(event);
+        const moved = event.type === "invalid" ? false : event.type === "result" ? progressOf(event.output) : undefined;
+        if (moved === true) stuck = 0;
+        if (moved === false && ++stuck >= STUCK) stop.abort();
       },
-    });
+    }).finally(() => options.signal?.removeEventListener("abort", forward));
+    if (stuck >= STUCK && !options.signal?.aborted)
+      return `it stopped getting anywhere: ${STUCK} changes in a row were refused or changed nothing`;
     const o = run.outcome;
     if (o.kind === "finished") return undefined;
     if (o.kind === "out_of_budget") return `it ran out of ${o.budget}`;
@@ -243,7 +274,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // The task model's unknowns: what the evidence speaks to goes to the agent with the evidence; the rest are queued.
     const seen: string[] = [];
     for (const u of theTask.unknowns) {
-      if (isTimeOfDay(u.question)) continue;
+      if (isTimeOfDay(u.question) || isHowTo(u.question)) continue;
       const about = view.about(u.question);
       if (about.length > 0) {
         seen.push(

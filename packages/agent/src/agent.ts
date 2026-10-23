@@ -243,7 +243,8 @@ export async function runAgent<F>(options: AgentOptions<F>): Promise<Episode<F>>
 
     // ---- The results go back to the model, with what is left of the budget (counted after the calls ran) ----
     const left = budget.turns - state.turn;
-    const status = `[turn ${state.turn} of ${budget.turns}, live actions ${state.liveActions} of ${budget.liveActions}${left <= 2 ? `; ${left} turn(s) left: finish soon` : ""}]`;
+    const turns = Number.isFinite(budget.turns) ? `of ${budget.turns}` : "(no limit)";
+    const status = `[turn ${state.turn} ${turns}, live actions ${state.liveActions} of ${budget.liveActions}${left <= 2 ? `; ${left} turn(s) left: finish soon` : ""}]`;
     // The status goes with the last call that ran, as before; only results of calls that ran are working memory.
     const lastRan = outputs.map((o) => o.ran).lastIndexOf(true);
     for (const [i, { call, output, ran }] of outputs.entries()) {

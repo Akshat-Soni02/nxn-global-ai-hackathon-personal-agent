@@ -13,7 +13,7 @@ import { type Flow, flowOf } from "./flow.ts";
 import { proposalsOf } from "./proposals.ts";
 import { type Picture, screensOf } from "./screens.ts";
 import { type TabInfo, tabsOf } from "./tabs.ts";
-import { describeStep, type TimelineLine, timelineOf, timelineSlice } from "./timeline.ts";
+import { describeStep, placeOf, type TimelineLine, timelineOf, timelineSlice } from "./timeline.ts";
 
 export const EVIDENCE_TOKENS = 24_000;
 // About four characters a token, as the model client counts for its budget.
@@ -30,6 +30,8 @@ export interface EvidenceStep {
   near: string[];
   caption?: string;
   weak?: string;
+  // Where its control was on the page (its selector): what { place } clicks next time, whatever it says then.
+  place?: string;
   events: string[];
 }
 export interface Evidence {
@@ -122,6 +124,7 @@ export function buildEvidence(input: EvidenceInput): Evidence {
       near: screen.near,
       ...(caption ? { caption } : {}),
       ...(weak ? { weak } : {}),
+      ...(placeOf(s) ? { place: placeOf(s) } : {}),
       events: s.events,
     };
   });

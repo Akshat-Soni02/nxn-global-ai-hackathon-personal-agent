@@ -441,7 +441,31 @@ describe("what the re-designs after the fixes showed (round 2)", () => {
 
   it("says plainly when a step to copy a control from has none", async () => {
     const out = await run(session(), "add", { step: { do: "read_all", intent: "read", target: { like: "s1" } } });
-    expect(JSON.stringify(out.output)).toMatch(/s1 has no control to copy \(it opens a page\)/);
+    expect(JSON.stringify(out.output)).toMatch(
+      /s1 has no control to copy \(it opens a page: to click what is in the place it was, target \{ place: \\"s1\\" \}\)/,
+    );
+  });
+
+  it("clicks whatever is in a recorded control's place next time, or a selector it writes (checkpoint 6)", async () => {
+    const evidence: EvidenceView = {
+      step: (id) => (id === "s2" ? { place: "#mp-tfa > p > b > a" } : undefined),
+      timeline: () => "",
+      about: () => [],
+      appeared: () => new Set(),
+    };
+    const s = session({ evidence });
+    const placed = await run(s, "add", {
+      step: { do: "click", intent: "open today's featured article", target: { place: "s2" } },
+    });
+    expect(placed.output.ok).toBe(true);
+    expect(findStep(s.draft, "s4")).toMatchObject({ target: { fallbacks: ["#mp-tfa > p > b > a"] } });
+    const heading = await run(s, "add", {
+      step: { do: "read", intent: "read the article's title", target: { css: "h1" }, save_as: "title" },
+    });
+    expect(heading.output.ok).toBe(true);
+    expect(findStep(s.draft, "s5")).toMatchObject({ target: { fallbacks: ["h1"] } });
+    const none = await run(s, "add", { step: { do: "click", intent: "x", target: { place: "s3" } } });
+    expect(JSON.stringify(none.output)).toMatch(/s3 has no recorded place/);
   });
 
   it("refuses a schedule that isn't a fixed time: a {{value}} can't be a cron", async () => {

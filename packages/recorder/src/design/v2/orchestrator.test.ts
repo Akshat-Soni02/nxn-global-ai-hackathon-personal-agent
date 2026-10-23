@@ -7,7 +7,7 @@ import { buildEvidence } from "../../evidence/evidence.ts";
 import { normaliseAll } from "../../normalise.ts";
 import type { TestReport } from "./contracts.ts";
 import { scriptedDesigner } from "./fake.ts";
-import { type DesignV2Options, designV2 } from "./orchestrator.ts";
+import { type DesignV2Options, designV2, progressOf } from "./orchestrator.ts";
 
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
 const SHEET = "https://docs.google.com/spreadsheets/d/SHEET-ID/edit";
@@ -202,6 +202,32 @@ describe("design agent v2, stage by stage", () => {
     expect(out.kind).toBe("kept");
     expect(out.reason).toMatch(/lost work you showed/);
     expect([...walkSteps(out.skill.steps)].length).toBe([...walkSteps(skill.steps)].length);
+  });
+
+  it("with no cap on calls, stops a design that isn't getting anywhere (checkpoint 6: D's loops)", async () => {
+    const nowhere = call("remove", { steps: ["s99"], why: "x" }); // no such step: refused every time
+    const { options, skill } = await setup({
+      llm: fakeLlm(
+        scriptedDesigner(
+          Array.from({ length: 30 }, () => nowhere),
+          task,
+        ),
+      ),
+    });
+    const out = await designV2(options);
+    expect(out.kind).toBe("kept");
+    expect(out.reason).toMatch(/stopped getting anywhere: 5 changes in a row/);
+    expect(out.usage.calls).toBeLessThan(10);
+    expect([...walkSteps(out.skill.steps)].length).toBe([...walkSteps(skill.steps)].length);
+  });
+
+  it("tells a change that moved the workflow on from one that went nowhere", () => {
+    expect(progressOf('{"ok":true,"workflow":"…"}')).toBe(true);
+    expect(progressOf('{"ok":true,"note":"nothing changed: the workflow is exactly as it was"}')).toBe(false);
+    expect(progressOf('{"ok":false,"problems":["no step s99"]}')).toBe(false);
+    expect(progressOf('{"refused":"not finished yet"}')).toBe(false);
+    expect(progressOf('<untrusted_data>\n{"id":"s1"}\n</untrusted_data>')).toBeUndefined();
+    expect(progressOf("start  trigger  when: manual")).toBeUndefined();
   });
 
   it("keeps the plain list when the evidence can't be read", async () => {

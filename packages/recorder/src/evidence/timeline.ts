@@ -75,8 +75,15 @@ const effectText = (e: Effect) =>
             ? "changed nothing"
             : `changed the page (${e.changed})`;
 
+// Where a step's control was on the page (its selector): the same place holds next time's item (today's featured
+// article, the top story), whatever it says then. Never the page itself.
+export const placeOf = (s: NormalisedStep): string | undefined =>
+  s.target && s.target.tag !== "body" && s.target.tag !== "html" ? s.target.selectors?.css : undefined;
+
 function facts(s: NormalisedStep): string {
   const parts: string[] = [];
+  const place = placeOf(s);
+  if (place) parts.push(`place ${place}${s.target?.near ? ` near ${quote(s.target.near)}` : ""}`);
   if (s.list)
     parts.push(
       `item ${s.list.index + 1} of ${s.list.count}${s.list.container.name ? ` in "${s.list.container.name}"` : ""}`,

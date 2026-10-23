@@ -84,9 +84,15 @@ const LocatorSpec = z.object({
   text: z.string().optional(),
   near: z.string().optional(),
 });
-// A control: the target of a recorded step ({ like: "s3" }), or one described by role and name (a new target: it
-// stays unverified until the test run finds it on the live page).
-const TargetSpec = z.union([z.object({ like: z.string() }), LocatorSpec]);
+// A control: the target of a recorded step ({ like: "s3" }); the one in the place a recorded step's was ({ place: "s2" }:
+// today's featured article, the top story, whatever it says that day); or a new one, by a selector ({ css: "h1" }) or by
+// role and name (unverified until the test run finds it on the live page).
+const TargetSpec = z.union([
+  z.object({ like: z.string() }),
+  z.object({ place: z.string() }),
+  z.object({ css: z.string().min(1) }),
+  LocatorSpec,
+]);
 // A step as the model writes it: what it does, what for, its control, and its values (at the top or under args).
 const StepSpec = z
   .object({
@@ -134,6 +140,10 @@ const typeFrom = (t: unknown): unknown => {
 // A question about the time of day it runs: never asked, 9:00 is the default (Checkpoint 5: A, B and D2 asked it; D2
 // made it an input), and the review shows the time so it can be changed.
 export const isTimeOfDay = (question: string) => /\b(what|which) time\b|\btime of day\b|\bwhat hour\b/i.test(question);
+// A question about how to build it, not what they want (checkpoint 6: D asked which PDF method, Puppeteer, wkhtmltopdf or
+// pandoc, and whether "the script" should overwrite): never the user's to answer.
+export const isHowTo = (question: string) =>
+  /\b(method|approach|technique|library|puppeteer|wkhtmltopdf|pandoc|selenium|the script|an api)\b/i.test(question);
 
 export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   const ids = () => [...walkSteps(session.draft.steps)].map(({ step }) => step.id);
@@ -151,6 +161,29 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   // A recorded step anywhere: in the draft, the recording, or what code left out.
   const anyStep = (id: string): Step | undefined =>
     [...walkSteps(session.draft.steps), ...walkSteps(session.original.steps)].find(({ step }) => step.id === id)?.step;
+  // The locator for a control the model names. A recorded one is as recorded; one in a recorded place is that place's
+  // selector without its words, so it finds whatever is there next time (checkpoint 6: today's featured article).
+  const locatorOf = (
+    target: z.infer<typeof TargetSpec>,
+  ): { locator: Locator; unverified: boolean } | { error: string } => {
+    if ("like" in target) {
+      const like = anyStep(target.like);
+      if (!like) return { error: unknown(target.like) };
+      if (isAction(like) && like.target) return { locator: like.target, unverified: false };
+      const opens = isAction(like) && like.action === "navigate";
+      return {
+        error: `${target.like} has no control to copy (${opens ? `it opens a page: to click what is in the place it was, target { place: "${target.like}" }` : "it has none"}). To read a whole page, read with no target`,
+      };
+    }
+    if ("place" in target) {
+      const recorded = session.evidence?.step(target.place) as { place?: string } | undefined;
+      return recorded?.place
+        ? { locator: { fallbacks: [recorded.place] }, unverified: false }
+        : { error: `${target.place} has no recorded place: use { like: "…" }, { css: "…" } or { role, name }` };
+    }
+    if ("css" in target) return { locator: { fallbacks: [target.css] }, unverified: true };
+    return { locator: { ...target, fallbacks: [] }, unverified: true };
+  };
   const position = (where: { after?: string; before?: string; into?: string }) =>
     where.into ? { into: where.into } : where.before ? { before: where.before } : { after: where.after ?? lastTop() };
   const lastTop = () => session.draft.steps.at(-1)?.id ?? "start";
@@ -300,17 +333,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     }
     let locator: Locator | undefined;
     let unverified = false;
-    if (target && "like" in target) {
-      const like = anyStep(target.like);
-      if (!like) return { error: unknown(target.like) };
-      if (!isAction(like) || !like.target)
-        return {
-          error: `${target.like} has no control to copy (${isAction(like) && like.action === "navigate" ? "it opens a page" : "it has none"}): to read a whole page, read with no target`,
-        };
-      locator = like.target;
-    } else if (target) {
-      locator = { ...target, fallbacks: [] };
-      unverified = true;
+    if (target) {
+      const found = locatorOf(target);
+      if ("error" in found) return found;
+      ({ locator, unverified } = found);
     }
     // A read with no control reads the page: its main part, else its body (Checkpoint 4: "read the page and let an AI
     // step pick" failed three times with "extract needs a target").
@@ -531,6 +557,15 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
             ok: false,
             problems: [
               'a time they didn\'t say is 9:00: set it in the trigger (trigger { when: { schedule: "0 9 * * 1" } }), never ask it',
+            ],
+          },
+        };
+      if (isHowTo(question))
+        return {
+          output: {
+            ok: false,
+            problems: [
+              "how to build it is yours to decide, from the steps you have (save_pdf saves a page as a PDF; files are never overwritten): ask only what the user wants",
             ],
           },
         };
@@ -820,15 +855,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
               return { output: { ok: false, problems: [`${id}: only a read can do without a control`] } };
             edits.push({ op: "retarget", step: id, target: { fallbacks: ["main", "body"] } });
           } else if (target) {
-            if ("like" in target) {
-              const like = anyStep(target.like);
-              if (!like || !isAction(like) || !like.target)
-                return { output: { ok: false, problems: [`${target.like} has no control to copy`] } };
-              edits.push({ op: "retarget", step: id, target: like.target });
-            } else {
-              edits.push({ op: "retarget", step: id, target: { ...target, fallbacks: [] } });
-              unverified = true;
-            }
+            const found = locatorOf(target);
+            if ("error" in found) return { output: { ok: false, problems: [found.error] } };
+            edits.push({ op: "retarget", step: id, target: found.locator });
+            unverified = unverified || found.unverified;
           }
           // First, so the other changes in this call apply on top of it (a replace built from the step as it was would
           // undo them).
