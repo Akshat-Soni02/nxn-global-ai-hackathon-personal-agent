@@ -415,3 +415,36 @@ describe("steps the step-runner can run (Checkpoint 4)", () => {
   });
 });
 const triggerInputs = (s: SessionV2) => (s.draft.steps[0] as { inputs: Record<string, unknown> }).inputs;
+
+describe("what the re-designs after the fixes showed (round 2)", () => {
+  it("says how to use a list's item: put the step in a loop first", async () => {
+    const s = session();
+    const out = await run(s, "add", {
+      step: { do: "type", intent: "title", target: { like: "s3" }, text: "{{story.title}}" },
+      after: "s3",
+    });
+    expect(JSON.stringify(out.output)).toMatch(/loop/);
+  });
+
+  it("takes step lists as one string, with or without brackets", async () => {
+    expect((await run(session(), "remove", { steps: "[s2, s3]", why: "x" })).output.ok).toBe(true);
+    const looped = await run(session(), "loop", {
+      steps: "s2, s3",
+      over: "{{emails}}",
+      item: { name: "email" },
+      intent: "each email",
+      why: "each",
+    });
+    expect(looped.output.ok).toBe(true);
+  });
+
+  it("says plainly when a step to copy a control from has none", async () => {
+    const out = await run(session(), "add", { step: { do: "read_all", intent: "read", target: { like: "s1" } } });
+    expect(JSON.stringify(out.output)).toMatch(/s1 has no control to copy \(it opens a page\)/);
+  });
+
+  it("refuses a schedule that isn't a fixed time: a {{value}} can't be a cron", async () => {
+    const out = await run(session(), "trigger", { when: { schedule: "{{cron_expr}}" }, why: "friday" });
+    expect(JSON.stringify(out.output)).toMatch(/a schedule is a fixed cron/);
+  });
+});

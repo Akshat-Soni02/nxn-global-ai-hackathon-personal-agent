@@ -21,7 +21,7 @@ import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
 import { maskText } from "../../mask.ts";
 import { DoneReport } from "./contracts.ts";
-import { stepProblems } from "./gate.ts";
+import { isCron, stepProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { maySend, refusals } from "./rules.ts";
 import { MAX_DONE_REFUSALS, MAX_TESTS, type SessionV2 } from "./session.ts";
@@ -102,6 +102,10 @@ const StepSpec = z
 type StepSpec = z.infer<typeof StepSpec>;
 const Where = { after: z.string().optional(), before: z.string().optional(), into: z.string().optional() };
 const Why = z.string().default("");
+// Step ids as a list, or in one string ("s2, s3", "[s2, s3]"): the real runs sent all three.
+const Ids = z
+  .union([z.string(), z.array(z.string())])
+  .transform((s) => (Array.isArray(s) ? s : [s]).flatMap((id) => id.split(/[\s,[\]"']+/).filter(Boolean)));
 
 export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   const ids = () => [...walkSteps(session.draft.steps)].map(({ step }) => step.id);
@@ -138,6 +142,16 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
                 : undefined;
     if (!value)
       return { output: { ok: false, problems: ['say when: "manual", { schedule: "0 9 * * *" } or { folder, glob }'] } };
+    const bad = (value as { type?: string; cron?: string }[]).find((x) => x.type === "schedule" && !isCron(x.cron));
+    if (bad)
+      return {
+        output: {
+          ok: false,
+          problems: [
+            `a schedule is a fixed cron (minute hour day month weekday, e.g. "0 9 * * 5"), never a {{value}}: "${bad.cron}"`,
+          ],
+        },
+      };
     return apply([{ op: "set", step: "start", field: "when", value }], why, ["start"]);
   };
 
@@ -201,6 +215,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     if (/^steps: .*(at least|too small)/i.test(problem)) {
       return `${problem}: a workflow keeps at least one step besides its trigger: remove fewer, or say in done why they go`;
     }
+    // A list's item used outside a loop (Checkpoint 5: 20 calls on "{{story.title}} uses story").
+    const item = /uses (\w+), which is not declared by an earlier step/.exec(problem)?.[1];
+    if (item)
+      return `${problem}: to use each item of a list, first put the steps that use it in a loop (loop: steps, over: "{{list}}", item: { name: "${item}" }); you can loop the recorded steps and then change their values, or add this step into a loop that has it (into: the loop's id)`;
     if (/steps.*(at least|too small)/i.test(problem))
       return `${problem}: give loop or branch the steps to repeat (steps: [ids])`;
     return problem;
@@ -233,8 +251,11 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     let unverified = false;
     if (target && "like" in target) {
       const like = anyStep(target.like);
-      if (!like || !isAction(like) || !like.target)
-        return { error: `${target.like} has no control to copy: ${unknown(target.like)}` };
+      if (!like) return { error: unknown(target.like) };
+      if (!isAction(like) || !like.target)
+        return {
+          error: `${target.like} has no control to copy (${isAction(like) && like.action === "navigate" ? "it opens a page" : "it has none"}): to read a whole page, read with no target`,
+        };
       locator = like.target;
     } else if (target) {
       locator = { ...target, fallbacks: [] };
@@ -278,7 +299,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     description:
       'Repeat steps that sit next to each other for every item of a list an earlier step produces: over "{{list}}" (or its name), item { name } (used inside as {{name}}). The common shape: read a list, pick the items wanted (ai_step or a pick_row), loop over them',
     input: z.object({
-      steps: z.array(z.string()),
+      steps: Ids,
       over: z.string().min(1),
       item: z.object({ name: z.string().min(1), type: z.record(z.string(), z.unknown()).optional() }),
       intent: z.string().min(1),
@@ -323,7 +344,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     description:
       "Do steps that sit next to each other only when a condition holds: if { left, op, right } (equals, not_equals, contains, greater_than, less_than, exists, not_exists), else: steps for when it doesn't",
     input: z.object({
-      steps: z.array(z.string()),
+      steps: Ids,
       if: z.record(z.string(), z.unknown()),
       else: z.array(z.string()).optional(),
       intent: z.string().min(1),
@@ -554,9 +575,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       description:
         "Remove steps that aren't part of the task (a click that changed nothing, a detour), with why: the user sees it",
       input: z.object({
-        steps: z
-          .union([z.string(), z.array(z.string())])
-          .transform((s) => (Array.isArray(s) ? s : [s]).flatMap((id) => id.split(/[\s,]+/).filter(Boolean))),
+        steps: Ids,
         why: Why,
       }),
       prepare: unstring,

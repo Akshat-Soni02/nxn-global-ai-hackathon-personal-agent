@@ -263,3 +263,49 @@ describe("what Checkpoint 4 let through", () => {
     expect(problems.join("\n")).toMatch(/"Every day".*only runs when started by hand/);
   });
 });
+
+describe("what the re-designs after the fixes showed (round 2)", () => {
+  const ok = skill(
+    [
+      act("s1", "web", "navigate", { url: CHAT }),
+      act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+      act("s3", "web", "type", { text: "Date - {{today|D MMM}}" }),
+      act("s4", "web", "press", { key: "Enter" }),
+    ],
+    [{ type: "schedule", cron: "0 9 1 * *" }],
+  );
+  const pick = TaskModel.parse({ ...task, rules: [{ quote: "note the newest video", where: "goal" }] });
+
+  it("turns back a rule about picking what changes, said not to be built, with how to build it", () => {
+    const problems = gate(input(ok, { task: pick, done: done([{ rule: 0, not_built: "not enough selectors" }]) }));
+    expect(problems.join("\n")).toMatch(/rule 0 "note the newest video" isn't built: .*reading the page.*ai_step/);
+  });
+
+  it("counts a new step doing what a recorded write did, on the same control, as that work kept", () => {
+    const same = skill(
+      [
+        act("s1", "web", "navigate", { url: CHAT }),
+        act("s9", "web", "upload", { file: "~/Downloads/y.csv" }),
+        act("s10", "web", "type", { text: "Date - {{today|D MMM}}" }),
+        act("s4", "web", "press", { key: "Enter" }),
+      ].map((s) =>
+        s.id === "s9"
+          ? { ...s, target: { role: "textbox", name: "s2", fallbacks: [] } }
+          : s.id === "s10"
+            ? { ...s, target: { role: "textbox", name: "s3", fallbacks: [] } }
+            : s,
+      ),
+      [{ type: "schedule", cron: "0 9 1 * *" }],
+    );
+    expect(
+      gate(
+        input(same, {
+          explained: new Map([
+            ["s2", "a"],
+            ["s3", "b"],
+          ]),
+        }),
+      ).join("\n"),
+    ).not.toMatch(/gone/);
+  });
+});

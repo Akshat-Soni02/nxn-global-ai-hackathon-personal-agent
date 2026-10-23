@@ -29,6 +29,8 @@ const WRITES = new Set([
   "fs.write",
   "ax.set_value",
 ]);
+// A rule about picking what changes each time: the newest, the top 3, the ones not already done.
+const PICK = /\b(?:newest|latest|most recent|top|new|not already|already (?:did|done|saved|on)|skip)\b/i;
 // How often, in words: "every day", "each working day", "every Monday", "daily", "weekdays", "monthly".
 const FREQUENCY =
   /\b(?:every|each)\s+(?:working\s+)?(?:day|morning|evening|night|week|weekday|month|year|hour|monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b|\b(?:daily|weekly|monthly|hourly|weekdays)\b/i;
@@ -93,6 +95,10 @@ export function stepProblems(step: Step): string[] {
   return problems;
 }
 
+// A cron the scheduler can read: five or six fields, no {{…}} (Checkpoint 5: E set "{{cron_expr}}").
+export const isCron = (cron?: string) =>
+  Boolean(cron && !cron.includes("{{") && /^\S+(\s+\S+){4,5}$/.test(cron.trim()));
+
 // Every step the runner can't run, and inputs it can't fill: a default is a value, never a {{…}} template.
 export function runProblems(skill: Skill): string[] {
   const inputs = Object.entries(triggerOf(skill).inputs)
@@ -101,7 +107,10 @@ export function runProblems(skill: Skill): string[] {
       ([name]) =>
         `input ${name}: a default can't be a {{…}} value: use it in the step itself ({{today}}, {{today|D MMM}})`,
     );
-  return [...inputs, ...[...walkSteps(skill.steps)].flatMap(({ step }) => stepProblems(step))];
+  const schedules = triggerOf(skill)
+    .when.filter((w) => w.type === "schedule" && !isCron(w.cron))
+    .map((w) => `its schedule "${(w as { cron: string }).cron}" isn't a fixed cron: e.g. "0 9 * * 5"`);
+  return [...inputs, ...schedules, ...[...walkSteps(skill.steps)].flatMap(({ step }) => stepProblems(step))];
 }
 
 // The work the user showed (what they typed, chose, moved or sent: a step that needed approval sent something) still
@@ -109,13 +118,20 @@ export function runProblems(skill: Skill): string[] {
 // what they meant, whatever reason each removal was given (Oct 19: the Play Store run kept one step of the recording).
 export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string, string>): string[] {
   const now = new Set([...walkSteps(workflow.steps)].map(({ step }) => step.id));
+  // The same action on the same control (by role and name) is that work kept, though the step is new (Checkpoint 5:
+  // A rebuilt its pastes inside a loop and was told its work was gone).
+  const sig = (s: Step) =>
+    isAction(s) && s.target?.role && (s.target.name || s.target.label)
+      ? `${s.channel}.${s.action}|${s.target.role}|${s.target.name ?? s.target.label}`
+      : undefined;
+  const doing = new Set([...walkSteps(workflow.steps)].map(({ step }) => sig(step)).filter(Boolean));
   const problems: string[] = [];
   const shown = [...walkSteps(recorded.steps)]
     .map(({ step }) => step)
     .filter((s) => isAction(s) && (WRITES.has(`${s.channel}.${s.action}`) || isOutward(s) || s.requires_approval));
-  const noneKept = shown.length > 0 && shown.every((s) => !now.has(s.id));
+  const noneKept = shown.length > 0 && shown.every((s) => !now.has(s.id) && !doing.has(sig(s)));
   for (const step of shown) {
-    if (now.has(step.id) || (explained.has(step.id) && !noneKept)) continue;
+    if (now.has(step.id) || doing.has(sig(step)) || (explained.has(step.id) && !noneKept)) continue;
     problems.push(
       `${step.id} (${step.intent}) was work the user showed, and it is gone: keep it, repeat it in a loop, or remove it with a why the user will see${noneKept ? " (none of their work is left)" : ""}`,
     );
@@ -135,6 +151,14 @@ export function gate(input: GateInput): string[] {
     if (!said || (!said.not_built && said.steps.length === 0)) {
       problems.push(
         `rule ${i} "${rule.quote}" is neither built nor explained: name the steps that build it, or say why it isn't built`,
+      );
+      return;
+    }
+    // Picking what changes each time is what reading the page and an ai_step do (Checkpoint 5: B left "the newest
+    // video" unbuilt, saying the recording had no selectors for it).
+    if (said.not_built && PICK.test(rule.quote)) {
+      problems.push(
+        `rule ${i} "${rule.quote}" isn't built: what changes each time (the newest, the top 3, ones not already done) is built by reading the page (read with no target) and an ai_step that picks it, then a loop over what it returns. Build it, or say in not_built why that can't work`,
       );
       return;
     }

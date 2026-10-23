@@ -122,7 +122,7 @@ export function refusals(original: Skill, draft: Skill, facts: RecordingFacts): 
       const unsafe = unsafeRefs(place, safe);
       if (unsafe.length > 0) {
         problems.push(
-          `${step.id}: a path made from {{${unsafe[0]}}} (an AI step's answer, or text read from a page) could point anywhere: use a file a find step found, or an input the user gives`,
+          `${step.id}: a path made from {{${unsafe[0]}}} (an AI step's answer, or text read from a page) could point anywhere: build it from today's date ({{today|D MMM}}), a found file's own name ({{file.name}}), or an input the user gives`,
         );
         continue;
       }
