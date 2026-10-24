@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { type LlmStep, Skill, type VarType } from "@shadow/core";
 import { fakeLlm } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
-import { answerSchema, llmExecutor } from "./llm-step.ts";
+import { answerSchema, dataText, llmExecutor } from "./llm-step.ts";
 
 const rows = [
   { Date: "10/2/2026", Client: "Acme", Amount: "1,180" },
@@ -32,6 +32,20 @@ const step = (extra: Partial<LlmStep> = {}): LlmStep =>
 const ctx = (runId: string) => ({ runId, startedAt: 0, inputs: {}, vars: {} });
 
 describe("llm steps: one model call, capped, cached, typed", () => {
+  it("shows each input under its name, a list numbered in its order (A, 24 Oct: items 7, 15, 10 for the top 3)", async () => {
+    const values = [["Kimi K3.1 Pro", "Twelve years of SQLite"], ["822 points", "108 points"], "My notes"];
+    expect(dataText(values, ["{{hn_titles}}", "{{ hn_points }}", "{{notes}}"])).toBe(
+      "hn_titles:\n1. Kimi K3.1 Pro\n2. Twelve years of SQLite\n\nhn_points:\n1. 822 points\n2. 108 points\n\nnotes:\nMy notes",
+    );
+    // An input written with text around the reference has no single name: shown as it is.
+    expect(dataText(["x"], ["Title: {{t}}"])).toBe("x");
+    const llm = fakeLlm(() => '{"answer": 1}');
+    await llmExecutor({ llm })(step(), ctx("r9"), ["{{rows}}"]);
+    const sent = JSON.stringify(llm.requests[0]);
+    expect(sent).toContain("rows:\\n");
+    expect(sent).toContain('\\"top\\" and \\"first\\" mean the lowest numbers');
+  });
+
   it("caps calls per run, caps input size, caches answers, and checks the answer's type", async () => {
     const llm = fakeLlm(() => '<think>today is 10/3</think> {"answer": "1,234"}');
     const run = llmExecutor({

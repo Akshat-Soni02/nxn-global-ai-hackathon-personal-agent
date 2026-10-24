@@ -375,7 +375,9 @@ async function runLeaf(
       : empty
         ? { ok: false, error: `nothing to work from: its inputs are empty (${empty})` }
         : isLlm(resolved) && env.deps.llm
-          ? await env.deps.llm(resolved, ctx).catch((error: Error) => ({ ok: false, error: error.message }))
+          ? await env.deps
+              .llm(resolved, ctx, isLlm(step) ? step.inputs : undefined)
+              .catch((error: Error) => ({ ok: false, error: error.message }))
           : { ok: false, error: "llm steps need a model client" };
     env.log({ type: "step.result", stepId: step.id, path, attempt, result, ms: Date.now() - t0 });
     if (result.ok) break;

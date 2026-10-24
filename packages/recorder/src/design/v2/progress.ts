@@ -3,7 +3,17 @@
 // feed is for trust, not for debugging; design.json has the whole transcript.
 import type { AgentEvent } from "@shadow/agent";
 
-const list = (steps: unknown) => (Array.isArray(steps) ? steps.join(", ") : String(steps ?? ""));
+// Steps by id, or a step sent whole by what it is for (A, 24 Oct: "Repeating [object Object], [object Object]").
+const list = (steps: unknown) =>
+  Array.isArray(steps)
+    ? steps
+        .map((s) =>
+          typeof s === "string"
+            ? s
+            : String((s as { intent?: unknown; id?: unknown }).intent ?? (s as { id?: unknown }).id ?? "a step"),
+        )
+        .join(", ")
+    : String(steps ?? "");
 
 export function progressLine(event: AgentEvent): string | undefined {
   if (event.type === "end") {

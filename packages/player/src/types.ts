@@ -35,7 +35,8 @@ export interface RunDeps {
   // Rules over saved values (data.pick). Optional: skills without data steps never need it.
   data?: ChannelExecutor;
   // llm steps: one model call that transforms data. Optional: skills without llm steps never need it.
-  llm?: (step: LlmStep, ctx: RunContext) => Promise<StepResult>;
+  // names: the step's inputs as written ("{{hn_titles}}"), so the model reads each value under its name.
+  llm?: (step: LlmStep, ctx: RunContext, names?: string[]) => Promise<StepResult>;
   // Mac apps through the Accessibility API (Shadow.app). Optional: web-and-file skills never need it.
   ax?: ChannelExecutor;
   // Polls a file_exists check (a path or glob) until it holds or the timeout passes.

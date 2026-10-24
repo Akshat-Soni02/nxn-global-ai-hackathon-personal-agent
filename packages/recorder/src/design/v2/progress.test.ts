@@ -8,6 +8,13 @@ describe("the design agent's work, in plain words", () => {
       "Removing s2, s5: clicks that changed nothing",
     );
     expect(call("loop", { steps: ["s4"], item: { name: "email" } })).toBe("Repeating s4 for each email");
+    const whole = [
+      { do: "type", intent: "Type the title" },
+      { do: "click", intent: "Save" },
+    ];
+    expect(call("loop", { steps: whole, item: { name: "story" } })).toBe(
+      "Repeating Type the title, Save for each story",
+    );
     expect(call("accept", { proposal: "p1", why: "the date is today" })).toBe(
       "Using a pattern from the recording: the date is today",
     );

@@ -25,7 +25,26 @@ export function aiLimitsFromEnv(env: Record<string, string | undefined> = proces
   };
 }
 
-export type LlmExecutor = (step: LlmStep, ctx: RunContext) => Promise<StepResult>;
+// `names`: the step's inputs as written ("{{hn_titles}}"), so each value is shown under its name.
+export type LlmExecutor = (step: LlmStep, ctx: RunContext, names?: string[]) => Promise<StepResult>;
+
+// The data as the model reads it: each input under its name, a list's items numbered in the order they came (A, 24 Oct:
+// three unnamed JSON lists, and "the top 3 not already saved" came back as items 7, 15 and 10).
+export function dataText(values: unknown[], names: string[] = []): string {
+  const one = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
+  const shown = (v: unknown) => (Array.isArray(v) ? v.map((x, i) => `${i + 1}. ${one(x)}`).join("\n") : one(v));
+  return values
+    .map((v, i) => {
+      const name = /^\s*\{\{\s*([^}|]+?)\s*\}\}\s*$/.exec(names[i] ?? "")?.[1];
+      return name ? `${name}:\n${shown(v)}` : shown(v);
+    })
+    .join("\n\n");
+}
+const SYSTEM = [
+  "You transform the data you are given into the answer asked for.",
+  'Lists are numbered in the order they came, the page\'s order: "top" and "first" mean the lowest numbers.',
+  "Lists of the same length side by side go together item by item (the 3rd title with the 3rd score).",
+].join("\n");
 
 const fail = (error: string): StepResult => ({ ok: false, error });
 
@@ -41,9 +60,9 @@ export function llmExecutor(options: LlmStepOptions = {}): LlmExecutor {
   const limits = options.limits ?? DEFAULT_AI_LIMITS;
   const callsByRun = new Map<string, number>();
 
-  return async (step, ctx) => {
-    // The step's inputs are already resolved: each is text, or a value shown as JSON.
-    const input = step.inputs.map((v) => (typeof v === "string" ? v : JSON.stringify(v))).join("\n\n");
+  return async (step, ctx, names) => {
+    // The step's inputs are already resolved: each is text, or a value shown as JSON, a list numbered.
+    const input = dataText(step.inputs, names);
     if (input.length > limits.maxInputChars) {
       return fail(
         `the llm step's input is ${input.length} characters, over the ${limits.maxInputChars} limit: narrow it first (a data.pick, or extract less)`,
@@ -68,7 +87,7 @@ export function llmExecutor(options: LlmStepOptions = {}): LlmExecutor {
     try {
       const result = await options.llm.generate({
         profile: "fast",
-        system: "You transform the data you are given into the answer asked for.",
+        system: SYSTEM,
         user: `Today is ${day}.\n${step.instruction}\n\nData:\n${input}`,
         schema: answerSchema(type),
         schemaName: "answer",
