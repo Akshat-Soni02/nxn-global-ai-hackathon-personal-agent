@@ -20,6 +20,13 @@ export function cantRunNow(review: Review | null | undefined, latest: number): s
   return review?.cantRun?.length && review.version === latest ? review.cantRun : [];
 }
 
+// The review's first line: the design's summary, unless it said "can't run yet" and a version was saved on top since.
+export function summaryOf(review: Review, cantRun: string[]): string {
+  return review.cantRun?.length && cantRun.length === 0
+    ? `You changed it after the design said it can't run yet (${review.cantRun[0]}): check it now does, then Looks right`
+    : review.summary;
+}
+
 // The workflow to open: one a recording saved since the Record screen opened (`seen` is the last recording then).
 export function savedSince(seen: string | undefined, last: RecordingView["last"]): string | undefined {
   return last && last.outcome === "saved" && last.skillId && last.sessionId !== seen ? last.skillId : undefined;

@@ -7,7 +7,7 @@ import { Action, Loading, StateChip, StatusChip } from "../components.tsx";
 import { FrequencyPicker } from "../FrequencyPicker.tsx";
 import { ago, duration, money, when } from "../format.ts";
 import { describe } from "../frequency.ts";
-import { badgesOf, cantRunNow } from "../review.ts";
+import { badgesOf, cantRunNow, summaryOf } from "../review.ts";
 import { WorkflowTree } from "../WorkflowTree.tsx";
 import { Editor } from "./Editor.tsx";
 
@@ -250,7 +250,7 @@ function ReviewCard({
           </ul>
         </div>
       ) : null}
-      <p>{review.summary}</p>
+      <p>{summaryOf(review, cantRun)}</p>
       {review.cadence ? <p className="muted">Runs: {review.cadence}</p> : null}
       {review.checked ? <p className="muted">{review.checked}</p> : null}
       <ul className="review-notes">
