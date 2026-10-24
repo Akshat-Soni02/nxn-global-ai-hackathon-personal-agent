@@ -29,6 +29,8 @@ export interface SessionV2 {
   decisions: Map<string, { decision: "accept" | "reject"; why: string }>;
   dropped: Map<string, { step: StepInput; why: string; after: string }>;
   whys: Map<string, string>;
+  // The tabs code gave steps (gate.ts tabsFixed), by step: code's to work out again after every change.
+  autoTabs?: Map<string, string>;
   // The reasons given since the last test run: only these explain a step's test failure (gate.ts).
   sinceTest: Map<string, string>;
   unverified: Set<string>;

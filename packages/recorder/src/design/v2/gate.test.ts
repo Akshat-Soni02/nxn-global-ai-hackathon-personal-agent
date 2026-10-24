@@ -1,7 +1,17 @@
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
-import { emptyIn, gate, joined, roleAlone, runProblems, tabsFixed, unfoundIn, unmadeProblems } from "./gate.ts";
+import {
+  emptyIn,
+  gate,
+  joined,
+  roleAlone,
+  runProblems,
+  sameReads,
+  tabsFixed,
+  unfoundIn,
+  unmadeProblems,
+} from "./gate.ts";
 
 const CHAT = "https://chat.google.com/room/X";
 const SHEET = "https://docs.google.com/spreadsheets/d/S/edit";
@@ -387,19 +397,56 @@ describe("what live D showed", () => {
       nav("s1", "https://news.ycombinator.com/"),
       { ...nav("s2", "http://localhost:5173/notes.html"), tab: "Notes" },
       act("s3", "web", "extract"),
-      { ...act("s4", "web", "extract"), tab: "HN" },
     ]);
     expect(runProblems(w).join()).toMatch(/s3 runs in the window's first tab/);
-    const { skill: tidy, fixed } = tabsFixed(w);
+    const { skill: tidy, fixed, owned } = tabsFixed(w);
     expect(runProblems(tidy)).toEqual([]);
     expect(tidy.steps.find((s) => s.id === "s3")).toMatchObject({ tab: "Notes" });
-    // "HN" was never opened: it acts where the steps before it are, in "Notes".
-    expect(tidy.steps.find((s) => s.id === "s4")).toMatchObject({ tab: "Notes" });
     expect(fixed.get("s3")).toMatch(/code gave it tab "Notes": it acts on the page s2 opened there/);
-    expect(fixed.get("s4")).toMatch(/code gave it tab "Notes": no step opens a page in tab "HN"/);
-    const first = tabsFixed(skill([nav("s1", "https://x.test/"), { ...act("s2", "web", "extract"), tab: "HN" }]));
-    expect(first.skill.steps.find((s) => s.id === "s2")).not.toHaveProperty("tab");
-    expect(tabsFixed(tidy).fixed.size).toBe(0);
+    expect(owned).toEqual(new Map([["s3", "Notes"]]));
+    expect(tabsFixed(tidy, owned).fixed.size).toBe(0);
+  });
+
+  it("never changes a tab the agent named, and works its own out again as steps move (A's 4th design)", () => {
+    // The agent puts the notes read in "Notes" before the open that makes that tab: it stays (the gate says so).
+    const early = skill([
+      { ...nav("s26", "https://news.ycombinator.com/"), tab: "HN" },
+      act("s24", "web", "extract"),
+      { ...act("s25", "web", "extract"), tab: "Notes" },
+    ]);
+    const first = tabsFixed(early);
+    expect(first.skill.steps.find((s) => s.id === "s25")).toMatchObject({ tab: "Notes" });
+    expect(first.skill.steps.find((s) => s.id === "s24")).toMatchObject({ tab: "HN" }); // code's
+    // Then the Notes open goes in before both: the read code placed moves with it; the agent's stays.
+    const later = skill([
+      { ...nav("s26", "https://news.ycombinator.com/"), tab: "HN" },
+      { ...nav("s27", "http://localhost:5173/notes.html"), tab: "Notes" },
+      { ...act("s24", "web", "extract"), tab: "HN" },
+      { ...act("s25", "web", "extract"), tab: "Notes" },
+    ]);
+    const again = tabsFixed(later, first.owned);
+    expect(again.skill.steps.find((s) => s.id === "s24")).toMatchObject({ tab: "Notes" });
+    expect(again.skill.steps.find((s) => s.id === "s25")).toMatchObject({ tab: "Notes" });
+    expect(runProblems(again.skill)).toEqual([]);
+  });
+
+  it("says when two reads got the same page in the test run (A's 4th design: the notes read read Hacker News)", () => {
+    const w = skill([
+      nav("s1", "https://news.ycombinator.com/"),
+      act("s24", "web", "extract"),
+      act("s25", "web", "extract"),
+    ]);
+    const ran = (a: string, b: string) => ({
+      outcome: "succeeded",
+      steps: [
+        { id: "s24", path: "s24", status: "done" as const, value: a },
+        { id: "s25", path: "s25", status: "done" as const, value: b },
+      ],
+    });
+    expect(sameReads(w, ran("Hacker News 1. OBS", "Hacker News 1. OBS")).join()).toMatch(
+      /s25 read exactly what s24 read/,
+    );
+    expect(sameReads(w, ran("Hacker News 1. OBS", "My notes"))).toEqual([]);
   });
 
   it("counts a check still holding the recorded page as a run problem, so a kept draft is judged by it too", () => {

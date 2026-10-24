@@ -22,7 +22,7 @@ import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
 import { maskText } from "../../mask.ts";
 import { DoneReport } from "./contracts.ts";
-import { emptyIn, isCron, joined, roleAlone, stepProblems, tabsFixed, unfoundIn } from "./gate.ts";
+import { emptyIn, isCron, joined, roleAlone, sameReads, stepProblems, tabsFixed, unfoundIn } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { maySend, refusals } from "./rules.ts";
 import { MAX_DONE_REFUSALS, MAX_TESTS, type SessionV2 } from "./session.ts";
@@ -273,8 +273,9 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     // The steps this change made, by the ids code gave them: later calls name them so.
     const had = new Set([...walkSteps(session.draft.steps)].map(({ step }) => step.id));
     // Tabs as the gate wants them, by code: a step after a named tab's page acts in that tab.
-    const tidy = tabsFixed(marked.ok ? marked.skill : approved.skill);
+    const tidy = tabsFixed(marked.ok ? marked.skill : approved.skill, session.autoTabs);
     session.draft = tidy.skill;
+    session.autoTabs = tidy.owned;
     for (const [id, note] of tidy.fixed) if (!session.whys.has(id)) session.whys.set(id, note);
     const made = [...walkSteps(session.draft.steps)].map(({ step }) => step.id).filter((id) => !had.has(id));
     const added = [...approved.added, ...(marked.ok ? sending : [])];
@@ -651,6 +652,8 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       empty: emptyIn(session.draft, report),
       // An AI answer not in what it read: wrong if it was to pick it from there.
       not_in_what_it_read: unfoundIn(session.draft, report),
+      // Two reads that got the same page: one is in the wrong tab.
+      same_reads: sameReads(session.draft, report),
       // What each step read or worked out, short (Checkpoint 5: D's AI step took the image caption for the title, and the
       // test said only that a check failed). Page text: shown as data.
       values: Object.fromEntries(

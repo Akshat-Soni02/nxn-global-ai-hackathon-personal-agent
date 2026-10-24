@@ -209,35 +209,61 @@ const tabless = (steps: Step[]): string[] => {
 };
 
 // What the tab rule asks for, done by code after every change (A, 24 Oct: the agent named tabs on two opens, left the
-// steps after them without, and the gate refused it twice saying "give it tab Notes too"): a step after a page opened
-// in a named tab gets that tab; a tab no step opened a page in is left out. With why, for the review.
-export function tabsFixed(skill: Skill): { skill: Skill; fixed: Map<string, string> } {
+// steps after them without, and the gate refused it twice saying "give it tab Notes too"): a step with no tab, after a
+// page opened in a named tab, gets that tab. Those tabs are code's (`owned`): taken back and worked out again from the
+// steps as they are now, so an open added later moves them. A tab the agent named is never changed, even before the
+// open that makes it (A's 4th design: code moved the notes read to "HN" one call before the Notes tab was opened).
+export function tabsFixed(
+  skill: Skill,
+  owned: Map<string, string> = new Map(),
+): { skill: Skill; fixed: Map<string, string>; owned: Map<string, string> } {
   let opened: { id: string; tab: string } | undefined;
-  const tabs = new Set(["main"]);
   const fixed = new Map<string, string>();
+  const mine = new Map<string, string>();
   const edits: EditInput[] = [];
   for (const { step } of walkSteps(skill.steps)) {
     if (!isAction(step) || step.channel !== "web") continue;
     if (step.action === "navigate") {
       opened = step.tab ? { id: step.id, tab: step.tab } : undefined;
-      if (step.tab) tabs.add(step.tab);
       continue;
     }
-    if (step.tab && !tabs.has(step.tab)) {
-      // Where the steps before it are: the named tab a page was last opened in, else the first tab.
-      const { tab: _, ...rest } = step;
-      edits.push({ op: "replace", step: step.id, with: (opened ? { ...rest, tab: opened.tab } : rest) as never });
-      fixed.set(
-        step.id,
-        `code ${opened ? `gave it tab "${opened.tab}"` : "left its tab out"}: no step opens a page in tab "${step.tab}", so it would act on a blank one`,
-      );
-    } else if (opened && !step.tab) {
-      edits.push({ op: "replace", step: step.id, with: { ...step, tab: opened.tab } as never });
-      fixed.set(step.id, `code gave it tab "${opened.tab}": it acts on the page ${opened.id} opened there`);
-    }
+    const codes = step.tab !== undefined && owned.get(step.id) === step.tab;
+    if (step.tab !== undefined && !codes) continue; // the agent's
+    const want = opened?.tab;
+    if (want) mine.set(step.id, want);
+    if (want === step.tab) continue;
+    const { tab: _, ...rest } = step;
+    edits.push({ op: "replace", step: step.id, with: (want ? { ...rest, tab: want } : rest) as never });
+    fixed.set(
+      step.id,
+      want
+        ? `code gave it tab "${want}": it acts on the page ${opened?.id} opened there`
+        : "code took its tab back: no page before it opens in a named tab",
+    );
   }
   const result = edits.length > 0 ? applyEdits(skill, edits) : undefined;
-  return result?.ok ? { skill: result.skill, fixed } : { skill, fixed: new Map() };
+  if (edits.length > 0 && !result?.ok) return { skill, fixed: new Map(), owned };
+  return { skill: result?.ok ? result.skill : skill, fixed, owned: mine };
+}
+
+// Two reads that got exactly the same text in the test run read the same page (A's 4th design: its "read the notes"
+// read Hacker News again, and every story was then "already saved"): the later one is in the wrong tab or not needed.
+export function sameReads(skill: Skill, test: TestReport | undefined): string[] {
+  const reads = new Set(
+    [...walkSteps(skill.steps)].flatMap(({ step }) => (isAction(step) && step.action === "extract" ? [step.id] : [])),
+  );
+  const seen = new Map<string, string>();
+  return (test?.steps ?? []).flatMap((t) => {
+    if (!reads.has(t.id) || t.status !== "done" || typeof t.value !== "string" || !t.value.trim()) return [];
+    const first = seen.get(t.value);
+    if (!first) {
+      seen.set(t.value, t.id);
+      return [];
+    }
+    return [
+      `${t.id} read exactly what ${first} read in the test run (the same page): give it the tab of the page it should read, or remove it`,
+    ];
+  });
 }
 
 // The work the user showed (what they typed, chose, moved or sent: a step that needed approval sent something) still
@@ -387,6 +413,7 @@ export function gate(input: GateInput): string[] {
     problems.push(`${step.id}: ${what}: fix it, or explain why it will work in a real run`);
   }
 
+  problems.push(...sameReads(workflow, test).filter((p) => !sinceTest.has(p.split(" ")[0] ?? "")));
   for (const id of emptyIn(workflow, test)) {
     if (sinceTest.has(id)) continue;
     problems.push(
