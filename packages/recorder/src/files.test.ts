@@ -1,6 +1,6 @@
 // What made a file (checkpoint 6: Rushil printed the featured article to PDF with Chrome's print dialog, saved it
 // straight into ~/Desktop/Reading, and the PDF was blamed on the click 39 s before it, then dropped from the evidence).
-import { type ElementDescriptor, Skill, type TraceEvent } from "@shadow/core";
+import { applyEdits, type ElementDescriptor, Skill, type TraceEvent } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { compile } from "./compile.ts";
 import { proposalsOf } from "./evidence/proposals.ts";
@@ -196,7 +196,7 @@ describe("what made a file", () => {
     expect(lines.at(-1)).toContain("n4 act: a file appeared");
   });
 
-  it("a file named with the day it was recorded is named with the day it runs", () => {
+  it("a file named with the day it was recorded, and the page's title, is named with the day it runs and that day's page", () => {
     const steps = normaliseAll(printed()).steps;
     const { draft, idsByStep } = skeletonOf(steps);
     const proposals = proposalsOf({
@@ -209,15 +209,33 @@ describe("what made a file", () => {
     });
     const date = proposals.find((p) => p.kind === "date");
     expect(date?.summary).toBe(
-      's3 names the file "23 Oct - Thuggee.pdf", the day it was recorded: {{today|D MMM}} - Thuggee.pdf next time',
+      's3 names the file "23 Oct - Thuggee.pdf", the day it was recorded and the title of the page it saved: {{today|D MMM}} - {{page_title}}.pdf next time, the title read from the page\'s heading',
     );
     expect(date?.edits).toEqual([
+      {
+        op: "insert",
+        at: { before: "s3" },
+        step: {
+          type: "action",
+          channel: "web",
+          action: "extract",
+          intent: "Read the page's title",
+          target: { fallbacks: ["h1"] },
+          args: {},
+          output: { name: "page_title", type: { type: "text" } },
+        },
+      },
       {
         op: "set",
         step: "s3",
         field: "args",
-        value: { dir: "~/Desktop/Reading", name: "{{today|D MMM}} - Thuggee.pdf" },
+        value: { dir: "~/Desktop/Reading", name: "{{today|D MMM}} - {{page_title}}.pdf" },
       },
     ]);
+    // Code's three proposals are the whole workflow: open, click what is at the featured place, read the title, save.
+    const skill = Skill.parse(skillInput(draft));
+    const all = proposals.filter((p) => p.kind === "date" || p.kind === "same_place").flatMap((p) => p.edits);
+    const done = applyEdits(skill, all);
+    expect(done.ok).toBe(true);
   });
 });

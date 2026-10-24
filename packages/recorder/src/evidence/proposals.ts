@@ -86,6 +86,12 @@ export function dateIn(text: string, on: Date): { text: string; template: string
   return undefined;
 }
 
+// The title of the page a save printed ("Battle of Schliengen - Wikipedia"), without the site's name.
+const pageTitle = (title?: string) => {
+  const t = title?.split(/\s[-–—|]\s/)[0]?.trim();
+  return t && t.length >= 3 ? t : undefined;
+};
+
 // The argument that names a file a step makes.
 const FILE_NAME_ARG: Record<string, string> = { "web.save_pdf": "name", "fs.rename": "to" };
 
@@ -100,12 +106,34 @@ function dates(input: ProposalInput): Found[] {
     const named = field && step && isAction(step) ? step.args[field] : undefined;
     const dated = typeof named === "string" ? dateIn(named, input.recordedOn) : undefined;
     if (id && field && dated && step && isAction(step)) {
+      // The printed page's title in the name too: read from the page's heading each day, so the file is named for that
+      // day's page (D, 24 Oct: five designs of one recording, two of them right; with this, all of it is code's).
+      const title = s.kind === "save_pdf" ? pageTitle(s.title) : undefined;
+      const titled = title && dated.text.includes(title) ? dated.text.replace(title, "{{page_title}}") : undefined;
+      const read: EditInput = {
+        op: "insert",
+        at: { before: id },
+        step: {
+          type: "action",
+          channel: "web",
+          action: "extract",
+          intent: "Read the page's title",
+          target: { fallbacks: ["h1"] },
+          args: {},
+          output: { name: "page_title", type: { type: "text" } },
+        },
+      };
       found.push({
         kind: "date",
-        summary: `${id} names the file "${named}", ${dated.says}: ${dated.text} next time`,
+        summary: titled
+          ? `${id} names the file "${named}", ${dated.says} and the title of the page it saved: ${titled} next time, the title read from the page's heading`
+          : `${id} names the file "${named}", ${dated.says}: ${dated.text} next time`,
         steps: [id],
         evidence: s.events,
-        edits: [{ op: "set", step: id, field: "args", value: { ...step.args, [field]: dated.text } }],
+        edits: [
+          ...(titled ? [read] : []),
+          { op: "set", step: id, field: "args", value: { ...step.args, [field]: titled ?? dated.text } },
+        ],
         runnable: true,
       });
       return;
