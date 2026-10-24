@@ -527,6 +527,17 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
     expect(vaguePick("the top three videos")).toMatch(/say how to pick/);
   });
 
+  it('takes words sent as a place for what they are, and "None" as no target (C, 24 Oct)', async () => {
+    const s = session();
+    const added = await run(s, "add", { step: { do: "read", intent: "the rate", save_as: "rate" }, after: "s1" });
+    const id = (added.output.new_steps as string[])[0] as string;
+    const words = await run(s, "change", { step: id, target: { place: "Indian Rupee" }, why: "the row" });
+    expect(JSON.stringify(words.output)).toMatch(/is neither a step nor a selector/);
+    const none = await run(s, "change", { step: id, target: "None", why: "read the whole page" });
+    expect(none.output.ok).toBe(true);
+    expect(findStep(s.draft, id)).toMatchObject({ target: { fallbacks: ["main", "body"] } });
+  });
+
   it("changes an AI step's instruction and what it reads (A, 24 Oct: it removed them for want of this)", async () => {
     const s = await withPage();
     await run(s, "ai_step", {

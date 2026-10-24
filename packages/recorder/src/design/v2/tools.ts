@@ -189,10 +189,16 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       const recorded = session.evidence?.step(target.place) as { place?: string } | undefined;
       if (recorded?.place) return { locator: { fallbacks: [recorded.place] }, unverified: false };
       // A place sent as the selector itself (the D eval, 24 Oct): that selector, unverified like a css target. A step's
-      // id is never a selector, though "h1" may be either: whether such a step exists decides.
-      if (!anyStep(target.place) && !session.dropped.has(target.place))
+      // id is never a selector, though "h1" may be either: whether such a step exists decides. Words aren't a selector
+      // (C, 24 Oct: { place: "Indian Rupee" } was taken as one, and the read found nothing).
+      const selector = /[#.[\]>:=]/.test(target.place) || /^[a-z][a-z0-9-]*$/.test(target.place);
+      if (!anyStep(target.place) && !session.dropped.has(target.place) && selector)
         return { locator: { fallbacks: [target.place] }, unverified: true };
-      return { error: `${target.place} has no recorded place: use { like: "…" }, { css: "…" } or { role, name }` };
+      return {
+        error: anyStep(target.place)
+          ? `${target.place} has no recorded place: use { like: "…" }, { css: "…" } or { role, name }`
+          : `"${target.place}" is neither a step nor a selector: place takes a step's id ("s2") to act on what is where it was; to find a control by its words, { role, name }; to read a whole page, no target`,
+      };
     }
     if ("css" in target) return { locator: { fallbacks: [target.css] }, unverified: true };
     return { locator: { ...target, fallbacks: [] }, unverified: true };
@@ -858,7 +864,14 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         inputs: z.array(z.string()).optional(),
         why: Why,
       }),
-      prepare: unstring,
+      // "None" or "null" for the target is no target: read the whole page (C, 24 Oct: five calls refused; D's checkpoint
+      // 6: six).
+      prepare: (raw) => {
+        const input = unstring(raw);
+        if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+        const o = input as Record<string, unknown>;
+        return typeof o.target === "string" && /^\s*(none|null|nil)?\s*$/i.test(o.target) ? { ...o, target: null } : o;
+      },
       run: ({
         step: id,
         intent,
