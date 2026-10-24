@@ -185,6 +185,8 @@ describe("the tools", () => {
 
   it("changes a step's tab together with its other fields, losing none", async () => {
     const s = session();
+    // A tab is one a page was opened in (code leaves out any other: it would be blank).
+    expect((await run(s, "change", { step: "s1", tab: "Gmail", why: "x" })).output.ok).toBe(true);
     const changed = await run(s, "change", {
       step: "s3",
       intent: "type the subject in the draft",

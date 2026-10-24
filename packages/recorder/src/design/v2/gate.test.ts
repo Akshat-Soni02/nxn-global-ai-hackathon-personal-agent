@@ -1,7 +1,7 @@
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
-import { emptyIn, gate, joined, roleAlone, runProblems, unfoundIn, unmadeProblems } from "./gate.ts";
+import { emptyIn, gate, joined, roleAlone, runProblems, tabsFixed, unfoundIn, unmadeProblems } from "./gate.ts";
 
 const CHAT = "https://chat.google.com/room/X";
 const SHEET = "https://docs.google.com/spreadsheets/d/S/edit";
@@ -380,6 +380,26 @@ describe("what live D showed", () => {
       { ...act("s4", "web", "extract"), tab: "main" },
     ]);
     expect(runProblems(main)).toEqual([]);
+  });
+
+  it("fixes the tabs the way the rule asks, so the agent never spends turns on them (A, 24 Oct)", () => {
+    const w = skill([
+      nav("s1", "https://news.ycombinator.com/"),
+      { ...nav("s2", "http://localhost:5173/notes.html"), tab: "Notes" },
+      act("s3", "web", "extract"),
+      { ...act("s4", "web", "extract"), tab: "HN" },
+    ]);
+    expect(runProblems(w).join()).toMatch(/s3 runs in the window's first tab/);
+    const { skill: tidy, fixed } = tabsFixed(w);
+    expect(runProblems(tidy)).toEqual([]);
+    expect(tidy.steps.find((s) => s.id === "s3")).toMatchObject({ tab: "Notes" });
+    // "HN" was never opened: it acts where the steps before it are, in "Notes".
+    expect(tidy.steps.find((s) => s.id === "s4")).toMatchObject({ tab: "Notes" });
+    expect(fixed.get("s3")).toMatch(/code gave it tab "Notes": it acts on the page s2 opened there/);
+    expect(fixed.get("s4")).toMatch(/code gave it tab "Notes": no step opens a page in tab "HN"/);
+    const first = tabsFixed(skill([nav("s1", "https://x.test/"), { ...act("s2", "web", "extract"), tab: "HN" }]));
+    expect(first.skill.steps.find((s) => s.id === "s2")).not.toHaveProperty("tab");
+    expect(tabsFixed(tidy).fixed.size).toBe(0);
   });
 
   it("counts a check still holding the recorded page as a run problem, so a kept draft is judged by it too", () => {

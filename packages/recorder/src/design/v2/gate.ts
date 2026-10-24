@@ -7,7 +7,9 @@
 
 import { dirname } from "node:path";
 import {
+  applyEdits,
   type Check,
+  type EditInput,
   isAction,
   isLlm,
   isOutward,
@@ -205,6 +207,38 @@ const tabless = (steps: Step[]): string[] => {
       : [];
   });
 };
+
+// What the tab rule asks for, done by code after every change (A, 24 Oct: the agent named tabs on two opens, left the
+// steps after them without, and the gate refused it twice saying "give it tab Notes too"): a step after a page opened
+// in a named tab gets that tab; a tab no step opened a page in is left out. With why, for the review.
+export function tabsFixed(skill: Skill): { skill: Skill; fixed: Map<string, string> } {
+  let opened: { id: string; tab: string } | undefined;
+  const tabs = new Set(["main"]);
+  const fixed = new Map<string, string>();
+  const edits: EditInput[] = [];
+  for (const { step } of walkSteps(skill.steps)) {
+    if (!isAction(step) || step.channel !== "web") continue;
+    if (step.action === "navigate") {
+      opened = step.tab ? { id: step.id, tab: step.tab } : undefined;
+      if (step.tab) tabs.add(step.tab);
+      continue;
+    }
+    if (step.tab && !tabs.has(step.tab)) {
+      // Where the steps before it are: the named tab a page was last opened in, else the first tab.
+      const { tab: _, ...rest } = step;
+      edits.push({ op: "replace", step: step.id, with: (opened ? { ...rest, tab: opened.tab } : rest) as never });
+      fixed.set(
+        step.id,
+        `code ${opened ? `gave it tab "${opened.tab}"` : "left its tab out"}: no step opens a page in tab "${step.tab}", so it would act on a blank one`,
+      );
+    } else if (opened && !step.tab) {
+      edits.push({ op: "replace", step: step.id, with: { ...step, tab: opened.tab } as never });
+      fixed.set(step.id, `code gave it tab "${opened.tab}": it acts on the page ${opened.id} opened there`);
+    }
+  }
+  const result = edits.length > 0 ? applyEdits(skill, edits) : undefined;
+  return result?.ok ? { skill: result.skill, fixed } : { skill, fixed: new Map() };
+}
 
 // The work the user showed (what they typed, chose, moved or sent: a step that needed approval sent something) still
 // happens: kept (in a loop counts), or its removal explained for the review. A workflow that keeps none of it isn't

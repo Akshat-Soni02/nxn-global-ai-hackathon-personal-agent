@@ -22,7 +22,7 @@ import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
 import { maskText } from "../../mask.ts";
 import { DoneReport } from "./contracts.ts";
-import { emptyIn, isCron, joined, roleAlone, stepProblems, unfoundIn } from "./gate.ts";
+import { emptyIn, isCron, joined, roleAlone, stepProblems, tabsFixed, unfoundIn } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { maySend, refusals } from "./rules.ts";
 import { MAX_DONE_REFUSALS, MAX_TESTS, type SessionV2 } from "./session.ts";
@@ -260,7 +260,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       approved.skill,
       sending.map((id): EditInput => ({ op: "set", step: id, field: "requires_approval", value: true })),
     );
-    session.draft = marked.ok ? marked.skill : approved.skill;
+    // Tabs as the gate wants them, by code: a step after a named tab's page acts in that tab.
+    const tidy = tabsFixed(marked.ok ? marked.skill : approved.skill);
+    session.draft = tidy.skill;
+    for (const [id, note] of tidy.fixed) if (!session.whys.has(id)) session.whys.set(id, note);
     const added = [...approved.added, ...(marked.ok ? sending : [])];
     for (const id of touched) {
       if (!why) continue;
@@ -272,6 +275,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       output: {
         ok: true,
         ...(added.length > 0 ? { approval_added: added } : {}),
+        ...(tidy.fixed.size > 0 ? { tabs_fixed: [...tidy.fixed].map(([id, note]) => `${id}: ${note}`) } : {}),
         ...(unchanged ? { note: "nothing changed: the workflow is exactly as it was (its why is kept)" } : {}),
         workflow: outlineOf(session.draft),
       },
