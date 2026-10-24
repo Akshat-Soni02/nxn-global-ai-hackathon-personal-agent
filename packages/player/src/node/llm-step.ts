@@ -88,10 +88,6 @@ export function llmExecutor(options: LlmStepOptions = {}): LlmExecutor {
       const result = await options.llm.generate({
         profile: "fast",
         system: SYSTEM,
-        // It reasons first (A, 24 Oct: "the first 3 not already saved" was right 3 times in 3 with it, 2 in 3 without),
-        // with room for that in its tokens. About $0.0001 more a call.
-        thinking: true,
-        maxTokens: 6_000,
         user: `Today is ${day}.\n${step.instruction}\n\nData:\n${input}`,
         schema: answerSchema(type),
         schemaName: "answer",

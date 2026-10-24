@@ -246,6 +246,33 @@ describe("design agent v2, stage by stage", () => {
       // Three calls: understand, plan, and the episode's done (the plan made what the episode would have).
       expect(out.usage.calls).toBe(3);
     });
+    it("places a planned step after the one the plan added before it, when it names it its own way (A, 24 Oct)", async () => {
+      const named = [
+        { tool: "add", input: { step: { do: "open", intent: "Open the inbox", page: "s1" }, after: "start" } },
+        { tool: "add", input: { step: { do: "read", intent: "Read it", save_as: "inbox" }, after: "open_inbox" } },
+        {
+          tool: "add",
+          input: {
+            after: "read_inbox",
+            intent: "Pick the new ones",
+            instruction: "the subjects not already in the sheet",
+            inputs: ["{{inbox}}"],
+            output: { name: "new_emails", type: "list" },
+          },
+        },
+      ];
+      const llm = fakeLlm(scriptedDesigner([done("x")], task, named));
+      const { options } = await setup({ llm });
+      const out = await designV2(options);
+      const first = out.firstMessage ?? "";
+      expect(first).toMatch(
+        /2\. add .*\(open_inbox is no step: after s\d+, the step the change before it made\) → \{"ok":true/,
+      );
+      expect(first).toMatch(/3\. add .*\(read_inbox is no step: after s\d+, .*\) → \{"ok":true/);
+      const ids = out.skill.steps.map((s) => s.id);
+      expect(ids.indexOf("ai1")).toBe(ids.indexOf("start") + 3); // open, read, then the AI step, in the plan's order
+    });
+
     it("builds as before when the plan call fails", async () => {
       const llm = fakeLlm(scriptedDesigner([done("x")], task, "not a plan"));
       const { options } = await setup({ llm });

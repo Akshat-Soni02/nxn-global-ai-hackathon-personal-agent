@@ -341,10 +341,23 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
       options.onEvent?.(event);
     };
     const lines: string[] = [];
+    // A plan can't know the ids code gives the steps it adds, so it names them its own way ("after": "open_hn"; A, 24
+    // Oct: every later call of its plan failed so): a place naming no step is after the step its last change made.
+    const ids = () => new Set([...walkSteps(session.draft.steps)].map(({ step }) => step.id));
+    let last: string | undefined;
     for (const [i, call] of calls.entries()) {
       const sent = JSON.stringify(call.input);
       const t = tools.get(call.tool);
-      const parsed = t?.input.safeParse(t.prepare ? t.prepare(call.input) : call.input);
+      const input: Record<string, unknown> = { ...call.input };
+      const placed: string[] = [];
+      for (const key of ["after", "before", "into"]) {
+        const named = input[key];
+        if (typeof named !== "string" || !last || named === "trigger" || ids().has(named)) continue;
+        input[key] = last;
+        placed.push(`${named} is no step: ${key} ${last}, the step the change before it made`);
+      }
+      const before = ids();
+      const parsed = t?.input.safeParse(t.prepare ? t.prepare(input) : input);
       if (!t || !parsed?.success) {
         const error = !t
           ? `not made: a plan holds only ${[...tools.keys()].join(", ")}`
@@ -364,7 +377,9 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         output = `${t.name} failed: ${(error as Error).message}`;
       }
       emit({ type: "result", turn: 0, tool: t.name, output, ms: 0 });
-      lines.push(`${i + 1}. ${t.name} ${sent} → ${output}`);
+      const top = new Set(session.draft.steps.map((s) => s.id));
+      last = [...ids()].filter((id) => !before.has(id) && top.has(id)).at(-1) ?? last;
+      lines.push(`${i + 1}. ${t.name} ${sent}${placed.length > 0 ? ` (${placed.join("; ")})` : ""} → ${output}`);
     }
     return lines;
   };

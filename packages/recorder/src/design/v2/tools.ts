@@ -260,10 +260,13 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       approved.skill,
       sending.map((id): EditInput => ({ op: "set", step: id, field: "requires_approval", value: true })),
     );
+    // The steps this change made, by the ids code gave them: later calls name them so.
+    const had = new Set([...walkSteps(session.draft.steps)].map(({ step }) => step.id));
     // Tabs as the gate wants them, by code: a step after a named tab's page acts in that tab.
     const tidy = tabsFixed(marked.ok ? marked.skill : approved.skill);
     session.draft = tidy.skill;
     for (const [id, note] of tidy.fixed) if (!session.whys.has(id)) session.whys.set(id, note);
+    const made = [...walkSteps(session.draft.steps)].map(({ step }) => step.id).filter((id) => !had.has(id));
     const added = [...approved.added, ...(marked.ok ? sending : [])];
     for (const id of touched) {
       if (!why) continue;
@@ -276,6 +279,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         ok: true,
         ...(added.length > 0 ? { approval_added: added } : {}),
         ...(tidy.fixed.size > 0 ? { tabs_fixed: [...tidy.fixed].map(([id, note]) => `${id}: ${note}`) } : {}),
+        ...(made.length > 0 ? { new_steps: made } : {}),
         ...(unchanged ? { note: "nothing changed: the workflow is exactly as it was (its why is kept)" } : {}),
         workflow: outlineOf(session.draft),
       },
@@ -766,10 +770,31 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       description:
         'Add any step: { do, intent, target?, values }. do: open, click, type, select, press, read, read_all, read_sheet, wait, upload, find_files, move_file, pick_row, open_app, press_in_app, type_in_app, menu (or channel.action). open takes page: a step that opened it or a tab name ("s1", "KPI Sheet"); code writes the address. target: { like: "s3" } for a control they used, or { role, name } for a new one (unverified until the test run finds it). Where: after, before or into',
       input: z.object({ step: StepSpec, ...Where, why: Why }),
-      prepare: unstring,
+      // A step sent with its fields beside where it goes, not inside step (A, 24 Oct: four AI steps and a loop, all
+      // refused as "step: expected object"): put inside step, an AI step or a loop marked so it goes to its tool.
+      prepare: (raw) => {
+        const input = unstring(raw);
+        if (!input || typeof input !== "object" || Array.isArray(input) || "step" in input) return input;
+        const { after, before, into, why, ...rest } = input as Record<string, unknown>;
+        const kind = "instruction" in rest ? "ai_step" : "over" in rest && "steps" in rest ? "loop" : undefined;
+        if (!kind && !("do" in rest)) return input;
+        return { step: kind ? { do: kind, ...rest } : rest, after, before, into, why };
+      },
       run: ({ step, after, before, into, why }, ctx) => {
         for (const id of [after, before, into])
           if (id && !known(id)) return { output: { ok: false, problems: [unknown(id)] } };
+        if ("over" in step && "steps" in step) {
+          const repeat = loop.input.safeParse({
+            ...step,
+            ...(before ? { before } : { after: after ?? lastTop() }),
+            why,
+          });
+          if (!repeat.success)
+            return {
+              output: { ok: false, problems: repeat.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`) },
+            };
+          return loop.run(repeat.data, ctx);
+        }
         // An AI step sent to add (Checkpoint 5: A, B, D2 and E all did; D2's came back as an extract with an instruction).
         if ("instruction" in step) {
           const output = step.output ?? (step.save_as ? { name: step.save_as } : undefined);
@@ -809,10 +834,28 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         page: z.string().optional(),
         // How often it runs, sent to change (the D eval, 24 Oct: five calls with a when that was dropped unseen).
         when: z.unknown().optional(),
+        // An AI step's instruction and what it reads (A, 24 Oct: no way to change them, so it removed them, then the
+        // steps that used their answers were in the way).
+        instruction: z.string().min(1).optional(),
+        inputs: z.array(z.string()).optional(),
         why: Why,
       }),
       prepare: unstring,
-      run: ({ step: id, intent, args: given, target, tab, check, wait, save_as, page, when: sent, why }) => {
+      run: ({
+        step: id,
+        intent,
+        args: given,
+        target,
+        tab,
+        check,
+        wait,
+        save_as,
+        page,
+        when: sent,
+        instruction,
+        inputs,
+        why,
+      }) => {
         const url = page === undefined ? undefined : session.pages.get(page);
         if (page !== undefined && !url) {
           return {
@@ -831,11 +874,16 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         const when = sent ?? args?.when ?? args?.schedule ?? args?.cron;
         if (step.type === "trigger" && when !== undefined) return setWhen(when, why);
         if (intent) edits.push({ op: "set", step: id, field: "intent", value: intent });
+        if (isLlm(step)) {
+          if (instruction) edits.push({ op: "set", step: id, field: "instruction", value: instruction });
+          if (inputs) edits.push({ op: "set", step: id, field: "inputs", value: inputs });
+        }
         if (!isAction(step) && (args || target || tab || check || wait || save_as)) {
+          const ai = isLlm(step) ? ': an AI step changes its instruction or inputs (inputs: ["{{name}}"])' : "";
           return {
             output: {
               ok: false,
-              problems: [`${id} is a ${step.type} step: only actions have values, a control, a tab or checks`],
+              problems: [`${id} is a ${step.type} step: only actions have values, a control, a tab or checks${ai}`],
             },
           };
         }

@@ -484,6 +484,52 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
   };
   const typeOf = (s: SessionV2, id: string) => (findStep(s.draft, id) as { output: { type: unknown } }).output.type;
 
+  it("takes an AI step and a loop sent to add with their fields beside the place (A, 24 Oct: all five refused)", async () => {
+    const s = await withPage();
+    // A3's own calls, but for the names of this fixture's steps.
+    const ai = await run(s, "add", {
+      after: "s4",
+      intent: "Extract story titles and points",
+      instruction: "From the page, the title and points of each story.",
+      inputs: ["{{page}}"],
+      output: { name: "stories", type: "list" },
+      why: "Create a list of all stories",
+    });
+    expect(JSON.stringify(ai.output)).toContain('"ok":true');
+    expect(ai.output.new_steps).toEqual(["ai1"]);
+    const repeat = await run(s, "add", {
+      steps: [{ do: "type", intent: "type the title", target: { like: "s3" }, args: { text: "{{story}}" } }],
+      over: "{{stories}}",
+      item: { name: "story", type: {} },
+      intent: "Save each new story",
+      after: "ai1",
+      why: "each story",
+    });
+    expect(JSON.stringify(repeat.output)).toContain('"ok":true');
+    expect(findStep(s.draft, "l1")).toMatchObject({ type: "control", over: "{{stories}}" });
+  });
+
+  it("changes an AI step's instruction and what it reads (A, 24 Oct: it removed them for want of this)", async () => {
+    const s = await withPage();
+    await run(s, "ai_step", {
+      after: "s4",
+      intent: "p",
+      instruction: "x",
+      inputs: ["{{page}}"],
+      output: { name: "picked", type: "text" },
+    });
+    const out = await run(s, "change", {
+      step: "ai1",
+      instruction: "the first 3 in the list's order",
+      inputs: ["{{page}}"],
+      why: "order",
+    });
+    expect(JSON.stringify(out.output)).toContain('"ok":true');
+    expect(findStep(s.draft, "ai1")).toMatchObject({ instruction: "the first 3 in the list's order" });
+    const target = await run(s, "change", { step: "ai1", target: { like: "s3" }, why: "x" });
+    expect(JSON.stringify(target.output)).toMatch(/an AI step changes its instruction or inputs/);
+  });
+
   it("makes a loop with new steps inside it: a step using {{story.title}} can't be added before its loop", async () => {
     const s = await withPage();
     await run(s, "ai_step", {

@@ -44,7 +44,6 @@ describe("llm steps: one model call, capped, cached, typed", () => {
     const sent = JSON.stringify(llm.requests[0]);
     expect(sent).toContain("rows:\\n");
     expect(sent).toContain('\\"top\\" and \\"first\\" mean the lowest numbers');
-    expect(llm.requests[0]).toMatchObject({ chat_template_kwargs: { enable_thinking: true }, max_tokens: 6000 });
   });
 
   it("caps calls per run, caps input size, caches answers, and checks the answer's type", async () => {
