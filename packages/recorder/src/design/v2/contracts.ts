@@ -82,6 +82,7 @@ export const PROPOSAL_KINDS = [
   "date",
   "next_empty_row",
   "open_directly",
+  "same_place",
   "all_files",
   "constant",
 ] as const;

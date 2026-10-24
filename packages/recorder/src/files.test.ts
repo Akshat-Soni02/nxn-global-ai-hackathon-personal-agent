@@ -2,6 +2,7 @@
 // straight into ~/Desktop/Reading, and the PDF was blamed on the click 39 s before it, then dropped from the evidence).
 import { type ElementDescriptor, Skill, type TraceEvent } from "@shadow/core";
 import { describe, expect, it } from "vitest";
+import { compile } from "./compile.ts";
 import { proposalsOf } from "./evidence/proposals.ts";
 import { describeStep, timelineOf } from "./evidence/timeline.ts";
 import { normaliseAll } from "./normalise.ts";
@@ -133,6 +134,30 @@ describe("what made a file", () => {
       ev("download", 2_000, { path: "/Users/me/Downloads/receipt.pdf" }),
     ];
     expect(click(paid)?.requires_approval).toBe(true);
+  });
+
+  it("offers to click what is at the place a link was clicked, not where it led (D, 24 Oct), unless the place names it (B)", async () => {
+    const featured = { ...link, near: "From today's featured article", selectors: { css: "#mp-tfa > p > b > a" } };
+    const video = { ...link, selectors: { css: 'a[aria-label="Thuggee 14 minutes"]' } };
+    const proposals = async (target: ElementDescriptor) => {
+      const trace = [
+        ev("tab_open", 0, { title: "Wikipedia", preexisting: true }),
+        ev("click", 4_000, { target }),
+        ev("navigate", 4_300, { url: ARTICLE, transition: "link" }),
+      ];
+      const { steps } = normaliseAll(trace);
+      const { skill, base } = await compile(steps);
+      return proposalsOf({ steps, skill, idsByStep: base.idsByStep, goal: "g", said: [], recordedOn: new Date(T0) });
+    };
+    const same = (await proposals(featured)).find((p) => p.kind === "same_place");
+    expect(same?.summary).toMatch(
+      /opened the link at a fixed place in the page \(#mp-tfa > p > b > a near "From today's featured article"\)/,
+    );
+    expect(same?.edits[0]).toMatchObject({
+      op: "replace",
+      with: { action: "click", target: { fallbacks: ["#mp-tfa > p > b > a"] } },
+    });
+    expect((await proposals(video)).some((p) => p.kind === "same_place")).toBe(false);
   });
 
   it("a print with no PDF after it is listed as left out, never lost", () => {

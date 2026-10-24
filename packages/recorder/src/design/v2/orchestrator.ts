@@ -395,6 +395,12 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     return lines;
   };
 
+  // A failed reply (the model service's 503, 24 Oct) ends an episode, not the design: once more, from where it got to.
+  const again = async (message: string) => {
+    const first = await episode(message);
+    return first?.startsWith("it failed") ? episode(message) : first;
+  };
+
   try {
     session.proposals = new Map(options.evidence.proposals.map((p) => [p.id, p]));
     session.dropped = droppedOf(options.evidence);
@@ -529,7 +535,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
       // 6: the agent puts its answers in (done tests again if the workflow changed, and the gate runs again).
       if (answers.agent.length > 0) {
         session.refusedDone = 0;
-        const after = await episode(masked(answersMessage(answers.agent, session)));
+        const after = await again(masked(answersMessage(answers.agent, session)));
         if (after) return kept(`it stopped while putting your answers in: ${after}`);
       }
     }
@@ -547,7 +553,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
       if (checked.outcome.startsWith("failed")) {
         const failed = checked.steps.filter((s) => s.status === "failed").map((s) => `${s.id}: ${s.error}`);
         session.refusedDone = 0;
-        const after = await episode(
+        const after = await again(
           masked(
             [
               `The final check ran the workflow for real (the files it makes were made, then put in the Trash), and it failed: ${failed.join("; ") || checked.outcome}. Fix it, then done again.`,
