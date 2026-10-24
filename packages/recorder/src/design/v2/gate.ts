@@ -10,6 +10,7 @@ import {
   applyEdits,
   type Check,
   type EditInput,
+  findStep,
   isAction,
   isLlm,
   isOutward,
@@ -318,6 +319,16 @@ export function unfoundIn(skill: Skill, test: TestReport | undefined): string[] 
   });
 }
 
+// A control given only by a selector that the test run didn't find (B, 24 Oct: six guessed YouTube selectors in a row,
+// each not found): what to do instead, the way that works on any page.
+export function guessed(skill: Skill, id: string): string {
+  const step = findStep(skill, id);
+  const t = step && isAction(step) ? step.target : undefined;
+  return t && !t.role && !t.name && !t.text
+    ? `; a selector not found isn't fixed by guessing another: read the page (read with no target), let an ai_step pick what changes in the list's order, then click it by its name ({ role: "link", name: "{{picked}}" })`
+    : "";
+}
+
 // An address made of two (checkpoint 6: "https://en.wikipedia.org" before a value that was already a whole address),
 // from the runner's "(it tried to open …)": said how to fix it.
 export function joined(error?: string): string {
@@ -408,7 +419,7 @@ export function gate(input: GateInput): string[] {
     if (sinceTest.has(step.id)) continue;
     const what =
       step.status === "not_found"
-        ? "the test run didn't find it"
+        ? `the test run didn't find it${guessed(workflow, step.id)}`
         : `it failed in the test run (${step.error ?? "no reason given"})${joined(step.error)}`;
     problems.push(`${step.id}: ${what}: fix it, or explain why it will work in a real run`);
   }

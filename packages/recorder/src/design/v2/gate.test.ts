@@ -4,6 +4,7 @@ import { DoneReport, TaskModel } from "./contracts.ts";
 import {
   emptyIn,
   gate,
+  guessed,
   joined,
   roleAlone,
   runProblems,
@@ -428,6 +429,19 @@ describe("what live D showed", () => {
     expect(again.skill.steps.find((s) => s.id === "s24")).toMatchObject({ tab: "Notes" });
     expect(again.skill.steps.find((s) => s.id === "s25")).toMatchObject({ tab: "Notes" });
     expect(runProblems(again.skill)).toEqual([]);
+  });
+
+  it("says what to do instead of guessing another selector the test run didn't find (B, 24 Oct)", () => {
+    const w = skill([
+      nav("s1", "https://www.youtube.com/@GoogleDevelopers/videos"),
+      { ...act("s9", "web", "click"), target: { fallbacks: ["ytd-video-renderer:first-child #video-title"] } },
+      act("s3", "web", "extract"),
+    ]);
+    const report = { outcome: "failed", steps: [{ id: "s9", path: "s9", status: "not_found" as const }] };
+    expect(gate(input(w, { test: report, sinceTest: new Map() })).join()).toMatch(
+      /s9: the test run didn't find it; a selector not found isn't fixed by guessing another: read the page/,
+    );
+    expect(guessed(w, "s3")).toBe(""); // a control by its role and name: no such advice
   });
 
   it("says when two reads got the same page in the test run (A's 4th design: the notes read read Hacker News)", () => {

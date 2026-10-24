@@ -22,7 +22,7 @@ import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
 import { maskText } from "../../mask.ts";
 import { DoneReport } from "./contracts.ts";
-import { emptyIn, isCron, joined, roleAlone, sameReads, stepProblems, tabsFixed, unfoundIn } from "./gate.ts";
+import { emptyIn, guessed, isCron, joined, roleAlone, sameReads, stepProblems, tabsFixed, unfoundIn } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { maySend, refusals } from "./rules.ts";
 import { MAX_DONE_REFUSALS, MAX_TESTS, type SessionV2 } from "./session.ts";
@@ -640,7 +640,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     const why = (status: string) =>
       report.steps
         .filter((s) => s.status === status)
-        .map((s) => `${s.id}: ${s.error ?? status.replace("_", " ")}${joined(s.error)}`);
+        .map(
+          (s) =>
+            `${s.id}: ${s.error ?? status.replace("_", " ")}${joined(s.error)}${status === "not_found" ? guessed(session.draft, s.id) : ""}`,
+        );
     return {
       outcome: report.outcome,
       done: ids("done"),
