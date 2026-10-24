@@ -125,6 +125,14 @@ describe("what made a file", () => {
       );
     expect(click(fetched)?.requires_approval).toBe(false);
     expect(click(fetched.slice(0, 2))?.requires_approval).toBe(true); // a form that left nothing here: it sent something
+    // A form that sends and drops a file (a receipt) under other words still waits for your OK.
+    const proceed = el({ tag: "button", role: "button", name: "Continue" });
+    const paid = [
+      ev("click", 0, { target: proceed }),
+      ev("submit", 100, { target: proceed }),
+      ev("download", 2_000, { path: "/Users/me/Downloads/receipt.pdf" }),
+    ];
+    expect(click(paid)?.requires_approval).toBe(true);
   });
 
   it("a print with no PDF after it is listed as left out, never lost", () => {

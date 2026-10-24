@@ -544,12 +544,15 @@ function fileQuestion(
 }
 
 // A form submit, or a button whose words say it commits something. skills/real gates every form submit the same way.
-// A form a click submitted waits for your OK, unless all it did was hand you a file (D, 24 Oct: Wikipedia's "Download"
-// is a form, and a daily run would have stopped every morning for an OK to download a PDF to this Mac).
+// A form a click submitted waits for your OK, unless it is a download (its control says so) and a file came of it (D,
+// 24 Oct: Wikipedia's "Download" is a form, and a daily run would have stopped every morning for an OK to save a PDF to
+// this Mac). A form that drops a file and says something else ("Continue" to pay, with a receipt) still waits.
+const DOWNLOADS = /\b(download|export|pdf|csv|xlsx?)\b/i;
 function isRisky(step: NormalisedStep): boolean {
   const t = step.target;
-  const sent = Boolean(step.submits) && !step.produces?.length;
-  return sent || RISKY.test([t?.name, t?.text, t?.label].filter(Boolean).join(" "));
+  const words = [t?.name, t?.text, t?.label].filter(Boolean).join(" ");
+  const fetched = Boolean(step.produces?.length) && DOWNLOADS.test(words);
+  return (Boolean(step.submits) && !fetched) || RISKY.test(words);
 }
 
 function describe(step: NormalisedStep): string {

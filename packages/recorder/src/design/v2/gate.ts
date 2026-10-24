@@ -329,6 +329,27 @@ export function guessed(skill: Skill, id: string): string {
     : "";
 }
 
+// An AI answer that goes into a page's address but isn't in what it read was made up (D, 24 Oct: it built
+// /wiki/Battle_of_Schliengen from the title; on a day the title doesn't make the address, a "no such article" page opens,
+// loads, and is saved as the PDF). Not explained away: open what the page links to instead.
+export function madeUpAddresses(skill: Skill, test: TestReport | undefined): string[] {
+  const all = [...walkSteps(skill.steps)].map(({ step }) => step);
+  const opens = new Map<string, string>(); // a variable → the step whose address uses it
+  for (const s of all)
+    if (isAction(s) && s.action === "navigate")
+      for (const m of String(s.args.url ?? "").matchAll(/\{\{\s*(\w+)/g)) opens.set(m[1] ?? "", s.id);
+  const unfound = unfoundIn(skill, test);
+  return all.flatMap((s) => {
+    const step = isLlm(s) ? opens.get(s.output.name) : undefined;
+    const doubt = unfound.find((u) => u.startsWith(`${s.id} answered`));
+    return step && doubt
+      ? [
+          `${s.id}'s answer goes into ${step}'s address but isn't in what it read: it may be made up, and a page that doesn't exist still opens. Click the link where it is ({ place: "<the step that clicked it>" }) instead`,
+        ]
+      : [];
+  });
+}
+
 // An address made of two (checkpoint 6: "https://en.wikipedia.org" before a value that was already a whole address),
 // from the runner's "(it tried to open …)": said how to fix it.
 export function joined(error?: string): string {
@@ -425,6 +446,7 @@ export function gate(input: GateInput): string[] {
   }
 
   problems.push(...sameReads(workflow, test).filter((p) => !sinceTest.has(p.split(" ")[0] ?? "")));
+  problems.push(...madeUpAddresses(workflow, test));
   for (const id of emptyIn(workflow, test)) {
     if (sinceTest.has(id)) continue;
     problems.push(

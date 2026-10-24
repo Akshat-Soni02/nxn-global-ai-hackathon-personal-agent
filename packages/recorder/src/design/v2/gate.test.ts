@@ -6,6 +6,7 @@ import {
   gate,
   guessed,
   joined,
+  madeUpAddresses,
   roleAlone,
   runProblems,
   sameReads,
@@ -442,6 +443,33 @@ describe("what live D showed", () => {
       /s9: the test run didn't find it; a selector not found isn't fixed by guessing another: read the page/,
     );
     expect(guessed(w, "s3")).toBe(""); // a control by its role and name: no such advice
+  });
+
+  it("refuses an address an AI step made up from what it read (D, 24 Oct: /wiki/<title> built from the title)", () => {
+    const w = skill([
+      nav("s1", "https://en.wikipedia.org/wiki/Main_Page"),
+      act("s4", "web", "extract", {}, { output: { name: "page", type: { type: "text" } } }),
+      {
+        id: "ai1",
+        type: "llm",
+        intent: "the featured article's link",
+        instruction: "the href of today's featured article",
+        inputs: ["{{page}}"],
+        output: { name: "featured_url", type: { type: "text" } },
+      },
+      nav("s5", "https://en.wikipedia.org{{featured_url}}"),
+    ]);
+    const ran = (page: string) => ({
+      outcome: "succeeded",
+      steps: [
+        { id: "s4", path: "s4", status: "done" as const, value: page },
+        { id: "ai1", path: "ai1", status: "done" as const, value: "/wiki/Battle_of_Schliengen" },
+      ],
+    });
+    expect(
+      madeUpAddresses(w, ran("From today's featured article: The Battle of Schliengen was fought…")).join(),
+    ).toMatch(/ai1's answer goes into s5's address but isn't in what it read/);
+    expect(madeUpAddresses(w, ran('<a href="/wiki/Battle_of_Schliengen">Battle of Schliengen</a>'))).toEqual([]);
   });
 
   it("says when two reads got the same page in the test run (A's 4th design: the notes read read Hacker News)", () => {
