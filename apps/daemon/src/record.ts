@@ -130,7 +130,8 @@ export interface FinishOptions {
 }
 
 // What the review says about the recording itself, before what was built from it (checkpoint 6: 50 s of voice became
-// 0 words, Accessibility was off, and a PDF appeared that nothing recorded made; none of it was said).
+// 0 words, Accessibility was off, and a PDF appeared that nothing recorded made; none of it was said). The 0 words were
+// the microphone's: 50 s of flat noise at -49 dB, the input at 27%; the transcriber read a spoken clip word for word.
 export function noticesOf(facts: {
   microphone: boolean;
   words: number;
@@ -140,7 +141,9 @@ export function noticesOf(facts: {
   const outside = "what you did outside Chrome (Mac apps, save and print dialogs) wasn't recorded";
   return [
     ...(facts.microphone && facts.words === 0
-      ? ["The microphone was on, but no words came through: nothing you said was used"]
+      ? [
+          "The microphone was on, but no words came through: nothing you said was used. Check System Settings → Sound → Input (the microphone you speak into, its level well up)",
+        ]
       : []),
     ...(facts.mac && !facts.mac.connected ? [`Shadow.app wasn't running: ${outside}`] : []),
     ...(facts.mac?.connected && !facts.mac.trusted

@@ -44,7 +44,7 @@ describe("what the review says about the recording itself (checkpoint 6)", () =>
   it("says the microphone heard nothing, Shadow.app or Accessibility was off, and a file nothing made", () => {
     const d = "~/Desktop/Reading/23 Oct - Thuggee.pdf";
     expect(noticesOf({ microphone: true, words: 0, mac: { connected: true, trusted: false }, unmade: [d] })).toEqual([
-      "The microphone was on, but no words came through: nothing you said was used",
+      "The microphone was on, but no words came through: nothing you said was used. Check System Settings → Sound → Input (the microphone you speak into, its level well up)",
       "Accessibility is off for Shadow.app: what you did outside Chrome (Mac apps, save and print dialogs) wasn't recorded. Turn it on in System Settings → Privacy & Security → Accessibility",
       `A file appeared that the recording doesn't show being made: ${d}`,
     ]);
