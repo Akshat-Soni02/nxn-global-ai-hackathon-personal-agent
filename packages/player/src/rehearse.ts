@@ -57,6 +57,11 @@ export function rehearsalChoice(
   if (SAFE_ROLES.has(role) && (went || (effect === undefined && (role === "link" || role === "tab")))) {
     return { choice: "do", why: `a ${role} that only goes somewhere` };
   }
+  // A control given by its place alone (no role): followed when the recording shows it only went somewhere (D, 24 Oct:
+  // the featured article's place was outlined, and the final check saved the Main Page instead).
+  if (!role && effect?.navigated && !effect.opened && !effect.expanded) {
+    return { choice: "do", why: "the recorded click at this place only went to a page" };
+  }
   if (effect?.expanded || effect?.opened) return { choice: "do", why: "it opens a menu or a section" };
   return { choice: "skip", why: "a button: it may change something" };
 }

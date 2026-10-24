@@ -23,7 +23,11 @@ export function effectsOf(steps: NormalisedStep[], idsByStep: string[][]): Map<s
   const effects = new Map<string, Effect>();
   steps.forEach((s, i) => {
     const id = idsByStep[i]?.[0];
-    if (id && s.effect) effects.set(id, s.effect);
+    // A click that left the page reports no effect of its own (the page it measured is gone): the page it went to says
+    // it went somewhere (D, 24 Oct: the featured article's link).
+    const effect =
+      s.effect ?? (s.kind === "click" && s.navigatesTo ? { changed: "large", navigated: true } : undefined);
+    if (id && effect) effects.set(id, effect as Effect);
   });
   return effects;
 }

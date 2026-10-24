@@ -24,4 +24,10 @@ describe("pages and effects for the agent", () => {
     const steps = [step("click", { effect: { changed: "large", navigated: true } }), step("type", { value: "x" })];
     expect([...effectsOf(steps, [["s4"], ["s5"]])]).toEqual([["s4", { changed: "large", navigated: true }]]);
   });
+
+  it("says a click went somewhere when the page it went to says so, though the click reported nothing (D, 24 Oct)", () => {
+    const left = step("click", { navigatesTo: "https://en.wikipedia.org/wiki/Thuggee" });
+    expect([...effectsOf([left], [["s2"]])]).toEqual([["s2", { changed: "large", navigated: true }]]);
+    expect([...effectsOf([step("click", {})], [["s2"]])]).toEqual([]); // a click that stayed, with nothing measured
+  });
 });

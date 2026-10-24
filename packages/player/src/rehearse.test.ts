@@ -17,6 +17,13 @@ const act = (id: string, action: string, target?: Record<string, unknown>, extra
   });
 
 describe("what the test run does for real", () => {
+  it("follows a recorded click given by its place alone when the recording shows it only went to a page (D, 24 Oct)", () => {
+    const place = act("s2", "click", { fallbacks: ["#mp-tfa > p > b > a"] });
+    expect(rehearsalChoice(place, { changed: "large", navigated: true }, 0).choice).toBe("do");
+    expect(rehearsalChoice(place, { changed: "small" }, 0).choice).toBe("skip"); // it changed the page in place
+    expect(rehearsalChoice(place, { changed: "large", navigated: true }, 0, false).choice).toBe("skip"); // not recorded
+  });
+
   it("opens and reads; follows links, tabs and menus that only went somewhere; never presses Archive", () => {
     expect(rehearsalChoice(act("s1", "navigate"), undefined, 0).choice).toBe("do");
     expect(rehearsalChoice(act("s2", "extract", { role: "list" }), undefined, 0).choice).toBe("do");
