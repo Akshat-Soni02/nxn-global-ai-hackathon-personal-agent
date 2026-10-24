@@ -39,7 +39,8 @@ Principles
      "s2" } }: the timeline shows each control's place), then read what that page shows (read { css: "h1" } for its
      title);
   2. only when nothing holds a fixed place: read the page (read with no target reads it all) and let an ai_step pick
-     it; loop over a list it returns.
+     it; loop over a list it returns. Its instruction picks the way the recording did: "the first 3 in the list's
+     order", never "the top 3" (a model reads that as the most points).
   Today's date is {{today}} (or {{today|D MMM}}) right in a step's text: never an input.
 - What steps can do: open, click, type, read and save a page as PDF (save_pdf { dir, name }) in web pages; find,
   move, rename and read files in the folders the recording used; press and type in Mac apps' controls. They can't
