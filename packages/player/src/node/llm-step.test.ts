@@ -120,6 +120,7 @@ describe("an AI step's pick, checked by code (A, 24 Oct: the run said it succeed
       value: [story(0), story(1), story(2)],
     });
     expect(JSON.stringify(fixed.requests[1])).toContain("Your last answer was wrong: it left out item 1 of hn_titles");
+    expect(fixed.requests[1]).toMatchObject({ model: "nvidia/nemotron-3-super-120b-a12b" }); // asked again of the smart one
     const stubborn = step3([
       [story(1), story(2), story(3)],
       [story(1), story(2), story(3)],

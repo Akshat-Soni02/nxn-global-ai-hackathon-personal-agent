@@ -168,12 +168,14 @@ export function llmExecutor(options: LlmStepOptions = {}): LlmExecutor {
     callsByRun.set(ctx.runId, used + 1);
     let answer: unknown;
     let problem: string | undefined;
-    // A wrong pick is asked once more, told what was wrong (that call is part of this step's answer, not counted
-    // against the run's limit); wrong again, the step fails: a run never saves a pick code knows is wrong.
+    // A wrong pick is asked once more, told what was wrong, of the smart model (A, 24 Oct: the fast one picked a saved
+    // story again when told; the smart one was right 3 times in 3 on such picks), about $0.003; that call is part of
+    // this step's answer, not counted against the run's limit. Wrong again, the step fails: a run never saves a pick
+    // code knows is wrong.
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const result = await options.llm.generate({
-          profile: "fast",
+          profile: problem ? "smart" : "fast",
           system: SYSTEM,
           user: `Today is ${day}.\n${step.instruction}\n\nData:\n${input}${problem ? `\n\nYour last answer was wrong: ${problem}. Answer again.` : ""}`,
           schema: answerSchema(type),
