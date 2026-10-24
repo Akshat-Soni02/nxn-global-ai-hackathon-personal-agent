@@ -15,6 +15,9 @@ held throughout: fix from the code that exists, with as few lines as possible, a
 
 **The plan:** [`docs/superpowers/plans/2026-10-23-record-v2-fixes.md`](../docs/superpowers/plans/2026-10-23-record-v2-fixes.md).
 **The verification run:** [`testing/checkpoint-5.md`](../testing/checkpoint-5.md).
+**Updated Oct 24 for step 5:** only the statuses step 5 changed (§2's A and D, §4), each marked "Oct 24". Step 5 itself
+is in [`record-v2-changes.md` § Step 5](record-v2-changes.md#step-5-oct-24-what-changed-after-rushils-own-recording)
+and [`record-v2-plans-explained.md` §14–16](record-v2-plans-explained.md).
 
 ## The one-line answer
 
@@ -137,8 +140,8 @@ round 2 and the live re-record of A to `f8c4215` and `fa5bf58` (F35–F44), roun
 | F13b | "All the reports" can't be answered from speech | It needs a file input that holds a list, plus a loop; the "all files" proposal covers that path | record |
 | F19 | List places are wrong on table layouts (HN) and missed on component grids (YouTube) | Extension list detection, per layout. **"Read the page and let an AI step pick the newest or the top 3" now runs on any page** (F25), which covers these tasks without per-site code | record (later) |
 | F22 | Canvas apps | Re-tested in checkpoint 5 with the note really drawn: the canvas click and the typing are still recorded on the properties panel on top, and replay can't find where to type. It needs the connector or vision rung (§3), not a capture patch | record (§3) |
-| D | The design agent didn't finish D (Wikipedia PDF) within 40 calls in 4 of 5 live tries; the one finished design failed because the run's AI step took an image caption as the title | Every tool gap each try showed is fixed (F51–F60); D was stopped after its last try, as Rushil asked. Nothing at run time checks that an AI step's answer is plausible | record |
-| A | A's re-design claims "skip ones already saved" is built, but no step reads the saved list | The gate checks that a rule's steps exist, not what an AI step's instruction does | record |
+| D | The design agent didn't finish D (Wikipedia PDF) within 40 calls in 4 of 5 live tries; the one finished design failed because the run's AI step took an image caption as the title | Every tool gap each try showed is fixed (F51–F60); D was stopped after its last try, as Rushil asked. Nothing at run time checks that an AI step's answer is plausible. **Oct 24:** no call cap now; D the print way does its task live (day 1), from code's proposals with no AI step. The download way can't be measured in the test browser | record |
+| A | A's re-design claims "skip ones already saved" is built, but no step reads the saved list | The gate checks that a rule's steps exist, not what an AI step's instruction does. **Oct 24:** A does its task live (day 1): the top 3, then the next 3 with no duplicates, because code checks a "first N" pick when the run happens. The gate still doesn't check a rule's steps | record |
 | — | Picture captions time out at 90 s each; with Pictures on, E took over 10 minutes to compile | Not looked into | record |
 | F15 | A spoken "never do X" isn't a guard | A design decision: a quoted rule versus a code-enforced refusal | Rushil |
 | F12 | A question can wait forever | Needs a daemon timeout policy | record (small) |
@@ -189,10 +192,10 @@ target), as a generic connector step rather than another adapter. Leave rung 3 u
 | Stage | Verdict |
 |---|---|
 | ① Describe, ② capture (element pages, files) | **Close.** Real sites recorded correctly; the gaps are canvas apps and nameless Mac controls |
-| ③ Stop: pictures, captions, voice | **Close.** Voice not yet tried on a real task of yours |
+| ③ Stop: pictures, captions, voice | **Close.** Voice not yet tried on a real task of yours. **Oct 24:** tried once, on Rushil's D: 0 words, because of the microphone (measured); the review now says so |
 | ④ Normalise, ⑤ first draft | **Fixed for what checkpoint 4 found** (F17, F18, F23 and the selector depth); list places on tables and grids remain (F19) |
 | ⑥ Evidence and proposals | **Honest now:** only the date and open-directly proposals change anything, and the agent is told so |
-| ⑦ Design agent | **Works on simple tasks, not yet on long ones:**<br>- B and C were designed right and run end to end;<br>- it can no longer save a step the runner can't run, or a draft that lost your work (F27, F61);<br>- on longer tasks (A live, D) the model still gives up or runs out of its 40 calls, and the recorded steps are kept instead |
+| ⑦ Design agent | **Works on simple tasks, not yet on long ones:**<br>- B and C were designed right and run end to end;<br>- it can no longer save a step the runner can't run, or a draft that lost your work (F27, F61);<br>- on longer tasks (A live, D) the model still gives up or runs out of its 40 calls, and the recorded steps are kept instead.<br>**Oct 24 (step 5):** A, B, C and D (print way) were each designed right and do their task live, day 1. No call cap; a final check for files; "Can't run yet" when it can't. Designs still vary: three of six of D's were right |
 | ⑧ Save, ⑨ review | **Honest now:** the summary is labelled as the agent's words; unasked questions are listed |
 | Replay | **Partly** (F6, F8, F9: Akshat). In checkpoint 5, runs with an approval step (B, C, D) went on after the approval and finished; repair ran on every failure and spent $0.05–0.08 each |
 
@@ -203,3 +206,11 @@ workflow that can't run or that lost your work, and does short tasks end to end 
 - canvas apps (E).
 
 All of this is measured in [checkpoint 5](../testing/checkpoint-5.md).
+
+**Oct 24, after step 5: still not production-ready, closer.** The first two items above are now partly done: A and D do
+their task live, and code checks "first N" picks at run time. Rushil's own D recording ([checkpoint 6](../testing/checkpoint-6.md))
+showed the scripted recordings had hidden real gaps (the print dialog, a file blamed on the wrong step). What's left:
+- Rushil's Mac recordings (a real ⌘P, voice, a Finder move) and the day-2 re-runs;
+- the design agent's variance;
+- AI answers other than "first N" picks;
+- canvas apps (E, deferred).

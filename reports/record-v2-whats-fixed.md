@@ -31,6 +31,11 @@ The design-agent tables also give the matching section of
   **Two of the five now do their task end to end when run** (B: the newest video; C: today's rupee rate).
   A's re-design builds the right loop, but its live design gave up; D and E still don't do theirs. Where every F
   stands is at the end.
+- **Oct 24, step 5.** Rushil recorded D himself (checkpoint 6), and it failed in ways the scripted recordings never
+  showed: the print dialog wasn't seen, the PDF was blamed on the wrong step, and Looks right was offered on a workflow
+  that couldn't make it. Step 5 fixed the record, the runner and the design agent, then re-recorded A–D live. **A, B, C
+  and D (the print way) each do their task in the test browser, on day 1.** Still to do: Rushil's Mac recordings and
+  the day-2 re-runs.
 
 ## How to read the tables
 
@@ -57,6 +62,9 @@ The design-agent tables also give the matching section of
   and Gmail.
 - **real evidence:** checkpoint 2. Those recordings turned into `evidence.json`.
 - **real model:** checkpoint 3. The design agent on the real model, on the 4 hand-written test recordings.
+- **live runs:** checkpoints 4–5 and step 5's proof runs. Real sites recorded by Claude in an isolated test browser,
+  designed on the real model, then Run now, with what it saved checked on the page or in the folder.
+- **measured:** a measurement or a probe, not a fix (for example, the microphone's level).
 - **unit tests:** automated tests.
 - **not yet.**
 
@@ -67,8 +75,8 @@ The design-agent tables also give the matching section of
 | # | The problem, in one line | Example from the reports | What it does now | Status | How we know |
 |---|---|---|---|---|---|
 | 1 | A step was remembered by things that don't come back | Selecting a company name stored the whole block's text, `"EventualBuilding the AI data engine…"`, as the click target; Google's per-session ids (`19fml5:17`) were kept | Capture keeps what does come back:<br>- selecting text is its own event;<br>- Google ids are dropped;<br>- each link keeps its address;<br>- a list item keeps its place ("item 1 of 20");<br>- a sheet click keeps its cell (`B3`) | **Partly.** Capture is fixed. Replay can't yet *use* list place or text to find a step (Akshat, F8) | live capture |
-| 2 | Turning "what I did" into "what I meant" was left to one model | Typed "15 Oct" stayed "15 Oct"; "the top job" stayed one fixed address | Code finds the patterns first and prepares the change (proposals). The agent writes a **task model** (what the task is) and then accepts or rejects the proposals | **Partly.** On the real model, timesheet passed every check; Play Store missed how often it runs (F1); KPI built no loop and YC lost half its calls (F2, F3). **Oct 23:** B and C generalise and run end to end; longer tasks still run out of calls (checkpoint 5) | real model; live runs |
-| 3 | Nothing checked that the result does the task | Play Store: the old agent deleted all 20 steps and "finished"; a run that did nothing said "succeeded" | **Finish gate** (code) before saving. **Safe test run** in the automation window. **Review page** with "Looks right" before Go live. An empty run says "nothing to do" | **Done (live).** The test run ran live in checkpoints 4 and 5; the gate now checks how often it runs from your words (F1 fixed) | unit tests; real model; live runs |
+| 2 | Turning "what I did" into "what I meant" was left to one model | Typed "15 Oct" stayed "15 Oct"; "the top job" stayed one fixed address | Code finds the patterns first and prepares the change (proposals). The agent writes a **task model** (what the task is) and then accepts or rejects the proposals | **Partly.** On the real model, timesheet passed every check; Play Store missed how often it runs (F1); KPI built no loop and YC lost half its calls (F2, F3). **Oct 23:** B and C generalise and run end to end; longer tasks still run out of calls (checkpoint 5). **Oct 24 (step 5):** A, B, C and D (print way) do their task, day 1. D's designs varied (three of six right) until code's proposals made the whole workflow | real model; live runs |
+| 3 | Nothing checked that the result does the task | Play Store: the old agent deleted all 20 steps and "finished"; a run that did nothing said "succeeded" | **Finish gate** (code) before saving. **Safe test run** in the automation window. **Review page** with "Looks right" before Go live. An empty run says "nothing to do" | **Done (live).** The test run ran live in checkpoints 4 and 5; the gate now checks how often it runs from your words (F1 fixed). **Since step 5:** a final check makes the files for real; "Can't run yet" replaces Looks right when no step makes the recorded file; an AI step's "first N" pick is checked when it runs | unit tests; real model; live runs |
 | 4 | Replay had no timeouts and only one tab | Chrome calls hung 35–50 s; a 3-tab recording was squashed into one tab | Every Chrome call times out (15 s; 30 s to open a page). A step can name its tab ("KPI Sheet") | Timeouts **Done (tests).** Tabs **Partly**: tabs close while a run waits for your OK (F6, Akshat) | unit tests |
 | 5 | You couldn't see what the agent did | No reasoning kept; refused calls lost | `design.json` keeps:<br>- the task model;<br>- every decision and change with its reason;<br>- the test report and the questions;<br>- the model's reasoning;<br>- refused calls | **Done (live),** with one gap: it doesn't keep the agent's first message, stage 1's reasoning, or the plain list (F16) | real model |
 
@@ -87,6 +95,7 @@ The design-agent tables also give the matching section of
 | *New:* what a click did | Not recorded | Watched for 0.7 s: went somewhere / opened a menu / emptied a field / nothing | **Done (live)** | live capture (Gmail) |
 | *New:* shortcuts | Only Enter and Escape | ⌘/Ctrl/Alt shortcuts and Gmail's single keys (`e`). Fast typing is never kept as keys (not a keylogger) | **Done (live)** | live capture |
 | *New:* a page's own Copy button | Lost | Caught | **Done (live)** | live capture (GitHub) |
+| *New (step 5):* printing the page | Rushil's D: nothing was recorded between clicking the article and the PDF appearing; Chrome's print dialog and the Mac's save panel are outside the page | The page's `beforeprint` is recorded as a print, on any site, with no Accessibility needed | **Done (tests).** Live only with a simulated print (the test browser fired it); a real ⌘P is Rushil's check | unit tests; live runs (simulated) |
 
 ### R2 · Tab capture
 
@@ -130,6 +139,7 @@ The design-agent tables also give the matching section of
 | The problem | Now | Status | How we know |
 |---|---|---|---|
 | Stop was slow (it waited for the pictures) | Both run at the same time | **Done (tests)** | unit tests |
+| *New (step 5):* 50.7 s of Rushil's voice became 0 words, and nothing said so | The review now says the microphone heard no words, and where to check. The cause was the microphone: flat noise at −49 dB, its input level at 27%. The transcriber reads a spoken clip word for word | **Done (tests)** for the notice; not a transcriber fault | unit tests; measured |
 
 ### R8 · Lining up what you said with the steps
 
@@ -147,6 +157,7 @@ The design-agent tables also give the matching section of
 | Repeats not spotted | 5 copy/paste pairs = 5 groups | Code proposes "repeat these for each" | **Done (tests)**; the agent still has to build the loop (F2) | unit tests |
 | The Drive detour kept | KPI opened the sheet through Drive | Code proposes "open the sheet directly" | **Done (tests)** | unit tests |
 | No "go to cell" when writing to a sheet | — | Capture now keeps the cell; replay can't write to a cell yet | **Partly** (F9, Akshat) | — |
+| *New (step 5):* a new file blamed on the step before it | Rushil's D: the PDF on clicking "Thuggee" 39 s earlier, which became "find a PDF" in the saved workflow | A file goes with the step before only when a download, a print or a control that acts explains it. Otherwise it is "a file appeared (what made it wasn't recorded)" | **Done (tests)** | unit tests |
 
 ### R10 · The first draft (code)
 
@@ -158,18 +169,22 @@ The design-agent tables also give the matching section of
 | Typed dates stayed as typed | "15 Oct" | Code proposes `{{today\|D MMM}}` | **Done (live)** | real model (KPI, Play Store) |
 | An Enter that sends a chat message needed no OK | Play Store's Chat message | Needs your OK, also when the agent adds it | **Done (tests)** | unit tests |
 | A recording could be saved as a new version of another workflow | — | The daemon's id always wins | **Done (tests)** | unit tests |
+| *New (step 5):* no step could save a page as PDF | Rushil's D | A print and its PDF become one "save the page as PDF" step (`save_pdf`): the runner prints the page itself. A date in the file's name becomes today's | **Done (live)** | live runs (D) |
+| *New (step 5):* "today's featured article" stayed the recorded one | D: always "Thuggee" | Code proposes clicking whatever is at the place the link was clicked, and a file name with the day and the page's title, read each day from its heading. Both come ready to accept | **Done (live):** D's last design accepted both, in 5 calls | live runs |
 
 ---
 
 ## The design agent
 
-**The old agent is gone.** Design agent v2 runs after Stop, in stages, on one budget ($0.25 and 40 model calls):
+**The old agent is gone.** Design agent v2 runs after Stop, in stages, on one budget ($0.25 and 40 model calls; since
+step 5, $0.25 and no cap on calls):
 1. **understand:** writes the task model;
-2. **build:** with tools;
+2. **build:** with tools (since step 5, one call first plans every change, and code makes them);
 3. **safe test run;**
 4. **one batch of questions;**
 5. **put your answers in;**
-6. **finish gate.**
+6. **finish gate;**
+7. **final check** (step 5): a workflow that makes files runs once for real, and the files go to the Trash.
 
 ### D1 · What it's given (test plan D1, D10)
 
@@ -197,6 +212,7 @@ The design-agent tables also give the matching section of
 | An empty loop | `loop` needs the steps | **Done (tests)** | unit tests |
 | The picture tool was never used | Removed: code captions every picture first | **Done (live)** | real evidence |
 | *New:* YC, 20 of 40 calls refused for small syntax slips | — | **Done (tests)** (F3, step 4): every slip is forgiven or refused with what to do | real model; unit tests |
+| *New (step 5):* one tool action per model call, so Rushil's D spent its 40 calls | One call plans every change and code makes them. The tools forgive more: a place or a selector as the target, "None" to read the whole page, fields they ignored named, the trigger changed by `change` | **Partly:** D's last design took 5 calls; after a plan, the agent still sends about one call per reply | real model; live runs |
 
 ### D4 · The rules (test plan D8)
 
@@ -210,7 +226,7 @@ The design-agent tables also give the matching section of
 
 | The problem | Now | Status | How we know |
 |---|---|---|---|
-| Asking what the recording already answered | Code answers "which file / which row" from what you said | **Partly:** the file answer is matched by words now (F13, step 4), but "all of them" isn't offered; the time of day is never asked; the agent can still re-ask with `confirm` (F4) | real model; live runs |
+| Asking what the recording already answered | Code answers "which file / which row" from what you said | **Partly:** the file answer is matched by words now (F13, step 4), but "all of them" isn't offered; the time of day is never asked; questions on how to build it are never asked (step 5); the agent can still re-ask with `confirm` (F4) | real model; live runs |
 | Asked one by one, every recording's questions shown | One batch on the Record screen, next to each step; Enter sends; "You decide" takes the default; at most 5 | **Done (tests)** | unit tests |
 | A question can wait for ever | Unchanged | **Open** (F12) | — |
 
@@ -218,11 +234,13 @@ The design-agent tables also give the matching section of
 
 | The problem | Now | Status | How we know |
 |---|---|---|---|
-| "Finished" with a workflow that no longer does the task | The finish gate wants:<br>- your work kept;<br>- every rule you said built or explained;<br>- real checks;<br>- test failures explained;<br>- defaults for unattended runs;<br>- the frequency you said.<br>Refused twice at most, then saved with the gaps listed | **Done (tests)** | unit tests |
-| Rules you said, never built | Each rule needs steps or a reason | **Partly:** KPI's "newest" was claimed built by one fixed click (F2). Since step 4 such a rule left unbuilt is turned back with how to build it; the gate still doesn't check what a rule's steps do | real model |
+| "Finished" with a workflow that no longer does the task | The finish gate wants:<br>- your work kept;<br>- every rule you said built or explained;<br>- real checks;<br>- test failures explained;<br>- defaults for unattended runs;<br>- the frequency you said.<br>Refused twice at most, then saved with the gaps listed.<br>Since step 5, a **final check** runs a workflow that makes files for real, and fails an empty file or, on the recording's day, a file other than the recording's | **Done (tests)**; the final check **Done (live)** for D | unit tests; live runs |
+| Rules you said, never built | Each rule needs steps or a reason | **Partly:** KPI's "newest" was claimed built by one fixed click (F2). Since step 4 such a rule left unbuilt is turned back with how to build it; the gate still doesn't check what a rule's steps do. **Oct 24:** A's "skip ones already saved" holds live, because code checks the pick when the run happens (below) | real model; live runs |
 | Nothing tried the workflow | Safe test run: opens pages and reads; only points at buttons, typing and sending | **Done (live):** ran in checkpoints 4 and 5 | unit tests; live runs |
 | Summaries described changes never made | A review page built by code from the real changes; Go live waits for "Looks right" | **Done (tests)** | unit tests |
 | "Every day" → a schedule | Regressed: the model wrote "manual" while quoting "every day" | **Done (live)** (F1, step 4): frequency words in your goal or what you said require a schedule; B, C and D got one | real model; live runs |
+| *New (step 5):* Looks right offered on a workflow that can't make the file (Rushil's D) | "Can't run yet" with why, in place of Looks right; Go live refuses it | **Done (tests);** seen only in screenshots on a scratch daemon | unit tests |
+| *New (step 5):* runs said they succeeded while saving the wrong stories (A: stories 7, 15 and 10; then one already saved) | Code checks an AI step's "first N" pick against its data. A wrong pick is asked once more of the smart model; wrong again, the step fails | **Done (live)** for "first N" picks. Other AI answers (B's views, C's rate) aren't checked | live runs |
 
 ### D7 · Budget and record-keeping (test plan D5, D10)
 
@@ -231,7 +249,7 @@ The design-agent tables also give the matching section of
 | No reasoning kept | Kept for every build turn | **Done (live)** | real model |
 | Refused calls lost | Kept | **Done (live)** | real model |
 | Picture reading not counted | Counted and cached; on the design's budget | **Done (tests)** | unit tests |
-| Close to the $0.10 limit | $0.25 and 40 calls on one meter | **Partly:** YC hit the 40-call cap (F3, now fixed); in checkpoint 5, A live and D still ran out of calls | real model; live runs |
+| Close to the $0.10 limit | $0.25 and 40 calls on one meter. Since step 5: $0.25 and no cap on calls; a design that goes nowhere (5 changes in a row refused or changing nothing) stops, after one fresh start | **Partly.** Before step 5, YC (F3), A and D ran out of calls. Since: no design ran out of calls; D's last took 5 ($0.018), but one D design still spent all $0.25, in 55 calls | real model; live runs |
 
 ---
 
@@ -287,10 +305,12 @@ The design-agent tables also give the matching section of
 | F33 | The safe test run: a step failed only inside it (unexplained); it can't start when an input needs a file the run downloads; it leaves tabs open | record |
 | F34 | The bench's checks pass workflows that can't run | record |
 
-## Where F1–F60 stand now (Oct 23, after step 4 and checkpoint 5)
+## Where F1–F60 stand now (Oct 23, after step 4 and checkpoint 5; updated Oct 24 for step 5)
 
 The causes and commits are in [the deep dive](record-v2-deep-dive.md); what the live runs showed is in
-[checkpoint 5](../testing/checkpoint-5.md).
+[checkpoint 5](../testing/checkpoint-5.md). Step 5's faults have no F-numbers: they are checkpoint 6's causes 1–11
+([`checkpoint-6.md`](../testing/checkpoint-6.md)) and the commits in
+[`record-v2-changes.md` § Step 5](record-v2-changes.md#step-5-oct-24-what-changed-after-rushils-own-recording).
 
 **Fixed, and seen working in a live run:**
 
@@ -306,6 +326,9 @@ The causes and commits are in [the deep dive](record-v2-deep-dive.md); what the 
 | F28 the agent can't save steps the runner can't run | live B and C ran every step |
 | F42b the time of day is never asked | live C: the question was refused with how to set 9:00 |
 | F53 a download is waited for | live D: the find waited for the PDF |
+| F52 a step with no tab after a page opened in a named tab is a problem; F61 a design let past the gate keeps the recorded steps | step 5, A's second design (Oct 24): it left steps after named-tab opens without a tab, the gate refused it twice, and the recorded steps were kept |
+| A, the whole task *(Oct 24)* | step 5, day 1: run 1 saved the top 3 with their points, run 2 the next 3, no duplicates |
+| D the print way, the whole task *(Oct 24)* | step 5, day 1: "24 Oct - Battle of Schliengen.pdf", today's featured article, named as recorded |
 
 **Seen working in a re-design on the real model, not in a live run:** F35–F37 (A's re-design built "read the page → an
 AI step picks the top 3 → a loop that types the title and points and saves"), F38 (the trigger by the name the outline
@@ -313,14 +336,17 @@ shows), F45–F48.
 
 **Fixed in code and tests, not yet seen working on the real model:** F3, F13, F16, F20, F21, F24 (every live D run's
 watch folder was outside any hidden folder), F26 and F49's test path (no live run after the fix had a failed test to
-explain), F30, F31, F32 (partly: the repeat guard F43), F34, F39–F41, F44, F50, F51, F52, F54–F61.
+explain), F30, F31, F32 (partly: the repeat guard F43), F34, F39–F41, F44, F50, F51, F54–F60 (F52 and F61 were seen live on Oct 24, above).
 
 **Still open:**
 
 | # | What | Why it's open |
 |---|---|---|
-| D | The design agent didn't finish D within its 40 calls in 4 of 5 live tries. The one that finished had the right shape, but its run-time AI step took the Main Page's image caption as the article's title | Each try showed a new tool gap (F51–F60, all fixed), but D was stopped after its last try, as Rushil asked. F59 (the agent now sees what AI steps answer) and F60 aren't tested live |
-| A | A's live design gave up: it removed every save and was let through the finish gate after two refusals. F61 now keeps the recorded steps instead; A wasn't run again. A's re-design builds the loop, but says "skip ones already on the list" is built when no step reads the list | The model's judgment; the finish gate takes the agent's word for which steps build a rule, and code can't tell what an AI step's instruction does |
+| D, download way | *Oct 24:* designed (34 calls), but its Run now can't be measured here | The test browser (Playwright) takes every download into its own folder |
+| Variance | *Oct 24:* six designs of task D, each from a fresh print recording, three right, from 5 calls to 55 | The model's judgment. Code's proposals now make D's whole workflow; that 5-call design was seen once |
+| Rules' steps | The gate takes the agent's word for which steps build a rule. At run time code checks only "first N" picks; B's "26K" and C's rate aren't checked | Code can't tell what an AI step's instruction does |
+| Day 2, Mac | *Oct 24:* step 5 counts a task done when Run now does it on two days. The day-2 re-runs, and Rushil's four Mac recordings (a real ⌘P, voice, a Finder move), are still to do | Not run yet |
+| Walk log | *Oct 24:* the walk-through logs `highlighted: false` for every step answered from the inbox; the UI works around it | Replay's (Akshat): `run.ts:329–333` |
 | E, F22 | Canvas apps: the click on the canvas and the typing are recorded on the properties panel, so replay can't find where to type | Needs the connector or vision rung (deep dive §3); not a fix in capture |
 | F19 | List places on tables and component grids | Reading the page and an AI step covers the tasks without them |
 | F29 | "The recording already answers this" matches loosely | A design decision (deep dive §2) |
@@ -331,6 +357,9 @@ explain), F30, F31, F32 (partly: the repeat guard F43), F34, F39–F41, F44, F50
 
 ## Not checked live yet
 
-- The safe test run, the review page and the progress feed, on a real recording.
+- The safe test run, the review page and the progress feed, on a real recording of Rushil's: seen once, on his D
+  (checkpoint 6). Step 5's review (notices, "Can't run yet") only in screenshots on a scratch daemon.
+- A real ⌘P in Chrome: step 5's live runs fired the page's `beforeprint` themselves.
+- Voice with words on a real task: Rushil's D gave 0 words because of the microphone.
 - Move to Trash, Shadow's own prompts skipped, and copy and paste from the app. These need `pnpm setup:mac`.
 - Your sign-off on: `skill.ts` `tab`, the player's test-run mode, dates and keys.
