@@ -178,8 +178,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     if ("place" in target) {
       const recorded = session.evidence?.step(target.place) as { place?: string } | undefined;
       if (recorded?.place) return { locator: { fallbacks: [recorded.place] }, unverified: false };
-      // A place sent as the selector itself (the D eval, 24 Oct): that selector, unverified like a css target.
-      if (!/^[a-z]+\d+$/.test(target.place)) return { locator: { fallbacks: [target.place] }, unverified: true };
+      // A place sent as the selector itself (the D eval, 24 Oct): that selector, unverified like a css target. A step's
+      // id is never a selector, though "h1" may be either: whether such a step exists decides.
+      if (!anyStep(target.place) && !session.dropped.has(target.place))
+        return { locator: { fallbacks: [target.place] }, unverified: true };
       return { error: `${target.place} has no recorded place: use { like: "…" }, { css: "…" } or { role, name }` };
     }
     if ("css" in target) return { locator: { fallbacks: [target.css] }, unverified: true };

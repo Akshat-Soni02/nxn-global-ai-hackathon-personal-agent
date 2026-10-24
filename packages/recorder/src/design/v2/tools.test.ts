@@ -640,6 +640,13 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
     expect(out.output.ok).toBe(true);
     expect(JSON.stringify(s.draft.steps)).toContain('"fallbacks":["#mp-tfa > p > b > a"]');
     expect(s.unverified.size).toBe(1);
+    // "h1" looks like an id, but no step has it: the heading.
+    const heading = await run(s, "add", {
+      step: { do: "read", intent: "the title", target: { place: "h1" }, save_as: "title" },
+      after: "s1",
+    });
+    expect(heading.output.ok).toBe(true);
+    expect(JSON.stringify(s.draft.steps)).toContain('"fallbacks":["h1"]');
   });
 
   it("says which fields a tool left out, never drops them unseen", async () => {
