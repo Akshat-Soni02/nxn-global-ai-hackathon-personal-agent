@@ -177,9 +177,10 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     }
     if ("place" in target) {
       const recorded = session.evidence?.step(target.place) as { place?: string } | undefined;
-      return recorded?.place
-        ? { locator: { fallbacks: [recorded.place] }, unverified: false }
-        : { error: `${target.place} has no recorded place: use { like: "…" }, { css: "…" } or { role, name }` };
+      if (recorded?.place) return { locator: { fallbacks: [recorded.place] }, unverified: false };
+      // A place sent as the selector itself (the D eval, 24 Oct): that selector, unverified like a css target.
+      if (!/^[a-z]+\d+$/.test(target.place)) return { locator: { fallbacks: [target.place] }, unverified: true };
+      return { error: `${target.place} has no recorded place: use { like: "…" }, { css: "…" } or { role, name }` };
     }
     if ("css" in target) return { locator: { fallbacks: [target.css] }, unverified: true };
     return { locator: { ...target, fallbacks: [] }, unverified: true };
@@ -805,9 +806,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         why: Why,
       }),
       prepare: unstring,
-      run: ({ step: named, intent, args: given, target, tab, check, wait, save_as, page, when: sent, why }) => {
-        const trigger = session.draft.steps.find((s) => s.type === "trigger")?.id;
-        const id = named === "trigger" && !known(named) && trigger ? trigger : named;
+      run: ({ step: id, intent, args: given, target, tab, check, wait, save_as, page, when: sent, why }) => {
         const url = page === undefined ? undefined : session.pages.get(page);
         if (page !== undefined && !url) {
           return {
@@ -1025,10 +1024,18 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   // A field a tool doesn't have is dropped by its schema without a word, so the model sends it again and again (the D
   // eval, 24 Oct: change { step: "start", when } five times). Said with the result, with the fields it has.
   let ignored: string[] = [];
+  // The trigger by the word "trigger", wherever a step is named (the D eval, 24 Oct: change and ask both sent it).
+  const named = (input: unknown) => {
+    const trigger = session.draft.steps.find((s) => s.type === "trigger")?.id;
+    if (!trigger || known("trigger") || !input || typeof input !== "object" || Array.isArray(input)) return input;
+    const fields = ["step", "after", "before", "into"] as const;
+    const o = input as Record<string, unknown>;
+    return { ...o, ...Object.fromEntries(fields.filter((f) => o[f] === "trigger").map((f) => [f, trigger])) };
+  };
   return tools.map((t) => ({
     ...t,
     prepare: (raw: unknown) => {
-      const input = t.prepare ? t.prepare(raw) : raw;
+      const input = named(t.prepare ? t.prepare(raw) : raw);
       const shape = (t.input as { shape?: Record<string, unknown> }).shape;
       ignored =
         shape && input && typeof input === "object" && !Array.isArray(input)

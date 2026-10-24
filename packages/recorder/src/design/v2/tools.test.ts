@@ -607,9 +607,16 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
     expect(JSON.stringify(findStep(s.draft, "s5"))).not.toContain('"args":{"output"');
   });
 
-  it("says the trigger's id when asked for a step called trigger", async () => {
+  it("takes the word trigger for the trigger, wherever a step is named", async () => {
     const out = await run(session(), "look", { step: "trigger" });
-    expect(String(out.output)).toMatch(/the trigger is start/);
+    expect(JSON.stringify(out.output)).toMatch(/"id":"start"/);
+    const asked = await run(session(), "ask", {
+      question: "Which sheet tab should it use?",
+      why: "two tabs",
+      step: "trigger",
+      options: ["A", "B"],
+    });
+    expect(asked.output.queued).toBe("q1");
     const bare = await run(session(), "change", { step: "start", why: "every Friday" });
     expect(JSON.stringify(bare.output)).toMatch(/set with the trigger tool: call trigger with \{ when/);
   });
@@ -621,6 +628,18 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
       expect(out.output.ok).toBe(true);
       expect(s.draft.steps[0]).toMatchObject({ when: [{ type: "schedule", cron: "0 9 * * *" }] });
     }
+  });
+
+  it("takes a place sent as the selector itself, unverified like a css target (the D eval, 24 Oct)", async () => {
+    const s = session();
+    const out = await run(s, "add", {
+      step: { do: "click", intent: "the featured article", target: { place: "#mp-tfa > p > b > a" } },
+      after: "s1",
+      why: "what is there today",
+    });
+    expect(out.output.ok).toBe(true);
+    expect(JSON.stringify(s.draft.steps)).toContain('"fallbacks":["#mp-tfa > p > b > a"]');
+    expect(s.unverified.size).toBe(1);
   });
 
   it("says which fields a tool left out, never drops them unseen", async () => {
