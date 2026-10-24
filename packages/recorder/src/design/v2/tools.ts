@@ -120,6 +120,16 @@ const Body = z
   .transform((s) =>
     (Array.isArray(s) ? s : [s]).flatMap((x): (string | StepSpec)[] => (typeof x === "string" ? split(x) : [x])),
   );
+// "The top 3" says neither the page's order nor the most points, and models read it as the most points (A, 24 Oct:
+// measured on Hacker News, and the design wrote it again after the prompt said not to): an AI step that picks a number
+// of items says how.
+export function vaguePick(instruction: string): string | undefined {
+  const top = /\btop\s+(\d+|two|three|four|five|ten)\b/i.test(instruction);
+  return top && !/\b(order|first|position|most|highest|largest|by)\b/i.test(instruction)
+    ? `say how to pick: "the first 3 in the list's order" (or "the 3 with the most points"); a model reads "top 3" as the most points`
+    : undefined;
+}
+
 // The types the model writes (Checkpoint 5: "list", { title: "text" }, "list of text"), in core's own form.
 const typeFrom = (t: unknown): unknown => {
   if (typeof t === "string") {
@@ -515,6 +525,8 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     prepare: unstring,
     run: ({ after, intent, instruction, inputs, output, why }) => {
       if (!known(after)) return { output: { ok: false, problems: [unknown(after)] } };
+      const vague = vaguePick(instruction);
+      if (vague) return { output: { ok: false, problems: [vague] } };
       const id = nextId("ai");
       // A step's id stands for what it saved ({{s6}} -> {{subject}}): the YC run sent one.
       const saved = (i: string) => {
@@ -875,6 +887,8 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         if (step.type === "trigger" && when !== undefined) return setWhen(when, why);
         if (intent) edits.push({ op: "set", step: id, field: "intent", value: intent });
         if (isLlm(step)) {
+          const vague = instruction ? vaguePick(instruction) : undefined;
+          if (vague) return { output: { ok: false, problems: [vague] } };
           if (instruction) edits.push({ op: "set", step: id, field: "instruction", value: instruction });
           if (inputs) edits.push({ op: "set", step: id, field: "inputs", value: inputs });
         }

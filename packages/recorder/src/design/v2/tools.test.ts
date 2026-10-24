@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { DoneReport, EvidenceView, Proposal } from "./contracts.ts";
 import { withFields } from "./orchestrator.ts";
 import { newSession, type SessionV2 } from "./session.ts";
-import { designToolsV2, isTimeOfDay, unstring } from "./tools.ts";
+import { designToolsV2, isTimeOfDay, unstring, vaguePick } from "./tools.ts";
 
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
 const recorded = Skill.parse({
@@ -509,6 +509,24 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
     expect(findStep(s.draft, "l1")).toMatchObject({ type: "control", over: "{{stories}}" });
   });
 
+  it('asks an AI step that picks "the top 3" to say how (A, 24 Oct: models read it as the most points)', async () => {
+    const s = await withPage();
+    const pick = (instruction: string) =>
+      run(s, "ai_step", {
+        after: "s4",
+        intent: "pick",
+        instruction,
+        inputs: ["{{page}}"],
+        output: { name: "p", type: "list" },
+      });
+    expect(JSON.stringify((await pick("Extract the top 3 stories")).output)).toMatch(
+      /say how to pick: \\"the first 3 in the list's order\\"/,
+    );
+    expect(vaguePick("the first 3 stories in the list's order")).toBeUndefined();
+    expect(vaguePick("the top 3 stories by points")).toBeUndefined();
+    expect(vaguePick("the top three videos")).toMatch(/say how to pick/);
+  });
+
   it("changes an AI step's instruction and what it reads (A, 24 Oct: it removed them for want of this)", async () => {
     const s = await withPage();
     await run(s, "ai_step", {
@@ -535,7 +553,7 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
     await run(s, "ai_step", {
       after: "s4",
       intent: "pick",
-      instruction: "the top 3 stories",
+      instruction: "the first 3 stories in the list's order",
       inputs: ["{{page}}"],
       output: { name: "stories", type: { title: "text", points: "text" } },
     });
@@ -637,7 +655,7 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
       step: {
         do: "ai_step",
         intent: "pick",
-        instruction: "the top 3",
+        instruction: "the first 3 in the list's order",
         inputs: ["{{page}}"],
         output: { name: "top", type: "list" },
       },
@@ -716,7 +734,7 @@ describe("before round 3 spends: what the model resends, and what the run's mode
     await run(s, "ai_step", {
       after: "s4",
       intent: "p",
-      instruction: "the top 3",
+      instruction: "the first 3 in the list's order",
       inputs: ["{{page}}"],
       output: { name: "stories", type: "list" },
     });

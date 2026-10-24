@@ -182,9 +182,9 @@ const PLANNED = new Set([
   "input",
   "ask",
 ]);
-const PlanReply = z.object({
-  calls: z.array(z.object({ tool: z.string(), input: z.record(z.string(), z.unknown()).default({}) })).max(60),
-});
+// Checked call by call: one call of another shape costs that call, never the plan (A's re-test, 24 Oct: no call made).
+const PlanCall = z.object({ tool: z.string(), input: z.record(z.string(), z.unknown()).default({}) });
+const PlanReply = z.object({ calls: z.array(z.unknown()) });
 
 const cadenceText = (task: TaskModel) =>
   task.cadence.kind === "manual" ? "when you start it" : (task.cadence.quote ?? task.cadence.kind);
@@ -319,7 +319,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
       (t) =>
         `- ${t.name}: ${t.description}\n  input: ${JSON.stringify(z.toJSONSchema(t.input as z.ZodType, { io: "input" }))}`,
     );
-    let calls: z.infer<typeof PlanReply>["calls"];
+    let calls: z.infer<typeof PlanCall>[];
     try {
       const reply = await options.llm.generate({
         profile: "smart",
@@ -329,9 +329,15 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         meter,
         signal: options.signal,
       });
+      // Kept in design.json, so a plan that made nothing can be read (the transcript's first reply).
+      transcript.push({ type: "reply", turn: 0, thought: reply.text.slice(0, 4_000), costUsd: reply.costUsd, ms: 0 });
       const parsed = PlanReply.safeParse(reply.value);
-      calls = parsed.success ? parsed.data.calls : [];
-    } catch {
+      calls = (parsed.success ? parsed.data.calls : []).slice(0, 60).flatMap((c) => {
+        const call = PlanCall.safeParse(c);
+        return call.success ? [call.data] : [];
+      });
+    } catch (error) {
+      transcript.push({ type: "invalid", turn: 0, error: `the plan call failed: ${(error as Error).message}` });
       return undefined;
     }
     if (calls.length === 0) return undefined;
