@@ -145,6 +145,30 @@ export const makesFiles = (skill: Skill) =>
         (step.channel === "fs" && step.action === "copy") ||
         (step.channel === "fs" && step.action === "find" && step.args.since_run_start === true)),
   );
+// The file the final check made, against the one the recording made, the same day (D, 24 Oct: the check saved "24 Oct -
+// Main Page.pdf" where the recording saved "24 Oct - Battle of Schliengen.pdf", and called it done). A day later the
+// data may differ, so only the same day is judged. " (1)" is code's, for a name taken.
+export function otherFile(made: string[], recorded: string[]): string | undefined {
+  const plain = (name: string) => name.replace(/ \(\d+\)(\.[^.]+)$/, "$1");
+  if (made.length === 0 || recorded.length === 0) return undefined;
+  return made.some((m) => recorded.includes(plain(m)))
+    ? undefined
+    : `it made "${made.join('", "')}" where the recording made "${recorded.join('", "')}" the same day: it saved something else`;
+}
+// The names the recording's own steps gave the files they made (no {{…}}: the plain list's).
+const recordedFiles = (skill: Skill) =>
+  [...walkSteps(skill.steps)].flatMap(({ step }) => {
+    if (!isAction(step)) return [];
+    const name =
+      step.action === "save_pdf"
+        ? step.args.name
+        : step.channel === "fs" && /^(copy|move|rename)$/.test(step.action)
+          ? step.args.to
+          : undefined;
+    const base = typeof name === "string" && !name.includes("{{") ? name.split("/").at(-1) : undefined;
+    return base ? [base] : [];
+  });
+
 // A rule that says not to do the same again: the final check runs twice to see it hold.
 const REPEATS = /\b(skip|already|only (the )?new|not (again|twice)|don'?t repeat|duplicates?)\b/i;
 
@@ -549,7 +573,18 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     if (options.verify && makesFiles(session.draft)) {
       const twice = theTask.rules.some((r) => REPEATS.test(r.quote));
       say("Checking it for real: the files it makes are made, then put in the Trash");
-      checked = await options.verify(finalOf(session.draft), twice);
+      const today = new Date();
+      const sameDay =
+        options.evidence.recordedOn ===
+        `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const judged = (check: TestReport): TestReport => {
+        const other =
+          sameDay && !check.outcome.startsWith("failed")
+            ? otherFile(check.made ?? [], recordedFiles(options.skill))
+            : undefined;
+        return other ? { ...check, outcome: `failed: ${other}` } : check;
+      };
+      checked = judged(await options.verify(finalOf(session.draft), twice));
       if (checked.outcome.startsWith("failed")) {
         const failed = checked.steps.filter((s) => s.status === "failed").map((s) => `${s.id}: ${s.error}`);
         session.refusedDone = 0;
@@ -564,7 +599,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
           ),
         );
         if (after) return kept(`it stopped while fixing what the final check found: ${after}`);
-        checked = await options.verify(finalOf(session.draft), twice);
+        checked = judged(await options.verify(finalOf(session.draft), twice));
       }
       if (checked.outcome.startsWith("failed")) session.gaps.push(`the final check failed: ${checked.outcome}`);
       if (twice && checked.again?.length) {

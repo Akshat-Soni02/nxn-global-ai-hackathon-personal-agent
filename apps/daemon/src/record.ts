@@ -271,6 +271,8 @@ export async function finishRecording(
     log("the design agent is reading the recording...");
     const effects = effectsOf(steps, compiled.base.idsByStep);
     const rehearse = options.rehearse;
+    // The places recorded steps acted at: a click there is that control (unchangedControls).
+    const places = new Set(evidence.steps.flatMap((s) => (s.place ? [s.place] : [])));
     design = await designV2({
       llm,
       skill,
@@ -284,10 +286,11 @@ export async function finishRecording(
       maskTerms: maskTermsOf(recorded),
       unattended: unattendedGaps,
       test: rehearse
-        ? (draft) => rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft))
+        ? (draft) => rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft, places))
         : undefined,
       verify: rehearse
-        ? (draft, twice) => rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft), { twice })
+        ? (draft, twice) =>
+            rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft, places), { twice })
         : undefined,
       meter,
       onProgress: progress,
@@ -363,11 +366,19 @@ export async function finishRecording(
 
 // The steps whose control is still the one recorded: the test run follows a link only there (a link the agent added,
 // or a control it changed, is only outlined).
-function unchangedControls(recorded: Skill, draft: Skill): Set<string> {
+// A click at a place a recorded step acted at counts too: it is that control, whatever it says that day (D, 24 Oct: the
+// final check only outlined the click on the featured article's place, and saved the Main Page as the PDF).
+export function unchangedControls(recorded: Skill, draft: Skill, places: Set<string> = new Set()): Set<string> {
   const target = (step: Step) => JSON.stringify(isAction(step) ? step.target : undefined);
   const was = new Map([...walkSteps(recorded.steps)].map(({ step }) => [step.id, target(step)]));
+  const atPlace = (step: Step) => {
+    const t = isAction(step) ? step.target : undefined;
+    return Boolean(t && !t.role && !t.name && t.fallbacks.length === 1 && places.has(t.fallbacks[0] ?? ""));
+  };
   return new Set(
-    [...walkSteps(draft.steps)].filter(({ step }) => was.get(step.id) === target(step)).map(({ step }) => step.id),
+    [...walkSteps(draft.steps)]
+      .filter(({ step }) => was.get(step.id) === target(step) || atPlace(step))
+      .map(({ step }) => step.id),
   );
 }
 

@@ -7,7 +7,7 @@ import { buildEvidence } from "../../evidence/evidence.ts";
 import { normaliseAll } from "../../normalise.ts";
 import type { TestReport } from "./contracts.ts";
 import { scriptedDesigner } from "./fake.ts";
-import { type DesignV2Options, designV2, makesFiles, progressOf } from "./orchestrator.ts";
+import { type DesignV2Options, designV2, makesFiles, otherFile, progressOf } from "./orchestrator.ts";
 import { reviewOf } from "./review.ts";
 
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
@@ -280,6 +280,15 @@ describe("design agent v2, stage by stage", () => {
       expect(out.kind).toBe("designed");
       expect(out.firstMessage).not.toContain("# Your plan, applied");
     });
+  });
+
+  it("fails a final check that made another file than the recording did the same day (D, 24 Oct: the Main Page)", () => {
+    const recorded = ["24 Oct - Battle of Schliengen.pdf"];
+    expect(otherFile(["24 Oct - Main Page.pdf"], recorded)).toBe(
+      'it made "24 Oct - Main Page.pdf" where the recording made "24 Oct - Battle of Schliengen.pdf" the same day: it saved something else',
+    );
+    expect(otherFile(["24 Oct - Battle of Schliengen (1).pdf"], recorded)).toBeUndefined(); // the name was taken: code's (1)
+    expect(otherFile([], recorded)).toBeUndefined();
   });
 
   it("knows a workflow makes a file when it saves a PDF, copies one, or finds one its run downloaded (D, 24 Oct)", () => {

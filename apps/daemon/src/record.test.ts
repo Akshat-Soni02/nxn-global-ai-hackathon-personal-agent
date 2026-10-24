@@ -12,7 +12,7 @@ import { type Daemon, startDaemon } from "./daemon.ts";
 import { classify, type FsChange, ignored, watchDirsFromEnv, watchFiles } from "./fs-watch.ts";
 import { readState, writeState } from "./lifecycle.ts";
 import { locateFile, locateFiles } from "./locate-file.ts";
-import { finishRecording, noticesOf } from "./record.ts";
+import { finishRecording, noticesOf, unchangedControls } from "./record.ts";
 import { recordingDir, writeForm } from "./recording-store.ts";
 import { findSkills, loadSkill, saveSkill, versions } from "./skill-store.ts";
 import { appendTrace, readTrace, tracePath } from "./trace-store.ts";
@@ -39,6 +39,32 @@ const submit = {
 
 let daemon: Daemon | undefined;
 afterEach(() => daemon?.close());
+
+describe("the controls the test run may follow", () => {
+  it("counts a click at a place a recorded step acted at as that control (D, 24 Oct: the featured article's place)", () => {
+    const wf = (steps: unknown[]) =>
+      Skill.parse({
+        id: "d",
+        name: "d",
+        version: 1,
+        description: { goal: "g" },
+        steps: [{ id: "start", type: "trigger", intent: "t" }, ...steps],
+      });
+    const open = {
+      id: "s1",
+      type: "action",
+      intent: "o",
+      channel: "web",
+      action: "navigate",
+      args: { url: "https://w.test/" },
+    };
+    const plain = wf([open, { ...open, id: "s2", args: { url: "https://w.test/wiki/Thuggee" } }]);
+    const click = { id: "s2", type: "action", intent: "c", channel: "web", action: "click", args: {} };
+    const draft = wf([open, { ...click, target: { fallbacks: ["#mp-tfa > p > b > a"] } }]);
+    expect([...unchangedControls(plain, draft, new Set(["#mp-tfa > p > b > a"]))]).toEqual(["start", "s1", "s2"]);
+    expect([...unchangedControls(plain, draft)]).toEqual(["start", "s1"]); // a place no step recorded: only outlined
+  });
+});
 
 describe("what the review says about the recording itself (checkpoint 6)", () => {
   it("says the microphone heard nothing, Shadow.app or Accessibility was off, and a file nothing made", () => {
