@@ -71,6 +71,9 @@ const texts = (v: unknown): string[] =>
       : v && typeof v === "object"
         ? Object.values(v).flatMap(texts)
         : [];
+// A pick that leaves things out ("not already saved", "skip", "new"): what it picks isn't in the rest of its data (A's
+// 5th design, 24 Oct: the second run saved "Twelve years of distributed SQLite" again, already on the list).
+const EXCLUDES = /\b(not already|not in|isn'?t in|aren'?t in|skip|except|excluding|new)\b/i;
 // A pick's own words: its longest text (the title, not its points).
 const ownText = (v: unknown) => norm(texts(v).sort((a, b) => b.length - a.length)[0] ?? "");
 // Whether an item is in other data, as a person would say it is: a saved title may lack the page's "(kimi.ai)".
@@ -103,6 +106,9 @@ export function pickProblem(
         .flatMap(texts)
         .join("\n"),
     );
+    const again = EXCLUDES.test(instruction) ? at.find((i) => holds(rest, items[i] as string)) : undefined;
+    if (again !== undefined)
+      return `it picked item ${again + 1} of ${label(li)} ("${String(texts(list[again])[0] ?? "").slice(0, 80)}"), which is already in the rest of its data`;
     for (let j = 0; j < Math.max(...at); j++) {
       if (at.includes(j) || holds(rest, items[j] as string)) continue;
       const left = String(texts(list[j])[0] ?? "").slice(0, 80);
@@ -110,12 +116,23 @@ export function pickProblem(
     }
     return undefined;
   }
-  // From page text: the picks' places in it keep the page's order.
-  const page = norm(values.filter((v): v is string => typeof v === "string").join("\n"));
+  // From page text: the text that holds every pick is where they came from; their places in it keep the page's order,
+  // and a pick that leaves things out isn't in the rest of its data.
+  const source = values.findIndex((v) => typeof v === "string" && picks.every((p) => norm(v).includes(p)));
+  if (source < 0) return undefined;
+  const page = norm(values[source] as string);
   const at = picks.map((p) => page.indexOf(p));
-  if (page && at.every((i) => i >= 0) && at.some((i, k) => k > 0 && i <= (at[k - 1] as number)))
-    return "its picks are out of the page's order";
-  return undefined;
+  if (at.some((i, k) => k > 0 && i <= (at[k - 1] as number))) return "its picks are out of the page's order";
+  const rest = norm(
+    values
+      .filter((_, k) => k !== source)
+      .flatMap(texts)
+      .join("\n"),
+  );
+  const again = EXCLUDES.test(instruction) ? picks.findIndex((p) => holds(rest, p)) : -1;
+  return again >= 0
+    ? `it picked "${String(texts(answer[again])[0] ?? "").slice(0, 80)}", which is already in the rest of its data`
+    : undefined;
 }
 
 export function llmExecutor(options: LlmStepOptions = {}): LlmExecutor {

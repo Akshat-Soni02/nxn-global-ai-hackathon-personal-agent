@@ -73,6 +73,20 @@ describe("an AI step's pick, checked by code (A, 24 Oct: the run said it succeed
     expect(pickProblem(pick, [withDomain, points, saved], [story(1), story(2), story(3)], names)).toBeUndefined();
   });
 
+  it("catches a pick already in the rest of its data (A's 5th design: the second run saved a story again)", () => {
+    const page = titles.map((t, i) => `${i + 1}. ${t}\n${points[i]}`).join("\n");
+    const saved = [`My notes\n${titles[0]}\t823\n${titles[1]}\t109\n${titles[2]}\t692`];
+    const fifth =
+      "From the Hacker News text, the stories whose title is not already present in the notes text, limited to the first 3 such stories.";
+    expect(pickProblem(fifth, [page, saved], [story(1), story(3), story(4)])).toBe(
+      'it picked "Twelve years of distributed SQLite", which is already in the rest of its data',
+    );
+    expect(pickProblem(fifth, [page, saved], [story(3), story(4), story(5)])).toBeUndefined();
+    expect(pickProblem(pick, [titles, points, saved], [story(1), story(3), story(4)], names)).toMatch(
+      /it picked item 2 of hn_titles \("Twelve years of distributed SQLite"\), which is already in the rest of its data/,
+    );
+  });
+
   it("checks only picks of the first items, and page text by its order", () => {
     const kpi = "the subjects of KPI emails not already in the sheet"; // a filter may skip what doesn't match
     expect(pickProblem(kpi, [titles, emptyNotes], [story(4)], names)).toBeUndefined();
