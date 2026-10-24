@@ -249,6 +249,11 @@ export function createService(options: ServiceOptions): Service {
     if (review && !review.reviewed && review.version <= latest(id).version) {
       throw new Error("can't go live yet: look at what the design changed, then press Looks right");
     }
+    // A design that can't do the task yet (a file the recording shows that no step makes) never starts on its own; a
+    // version you edited after it may have fixed that (checkpoint 6).
+    if (review?.cantRun?.length && review.version === latest(id).version) {
+      throw new Error(`can't go live: it can't do the task yet: ${review.cantRun.join("; ")}`);
+    }
     const problems = goLiveProblems(latest(id));
     if (problems.length > 0) throw new Error(`can't go live: ${problems.join("; ")}`);
     return setState(id, { state: "live", since: now() });

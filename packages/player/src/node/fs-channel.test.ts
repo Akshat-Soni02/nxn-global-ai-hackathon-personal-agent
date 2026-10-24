@@ -47,6 +47,8 @@ describe("fs channel", () => {
     const d = dir();
     const r = await fsChannel(step("find", { dir: d, glob: "old.pdf", since_run_start: true }), ctx(Date.now() - 1000));
     expect(r.ok).toBe(false);
+    // Checkpoint 6: "no file matches *.pdf", with yesterday's PDF right there. It says why it didn't count.
+    expect(r.error).toBe(`no new file matches old.pdf in ${d} since the run started (older ones there: old.pdf)`);
   });
 
   it("moves a list into a folder and never overwrites", async () => {

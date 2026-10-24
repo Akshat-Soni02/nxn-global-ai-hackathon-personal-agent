@@ -36,7 +36,7 @@ describe("the bench's recordings", () => {
   it.each([
     ["kpi-email-to-sheet", 12, ["date"]],
     ["timesheet", 4, []],
-    ["yc-top-job", 5, ["list_item"]],
+    ["yc-top-job", 5, ["same_place", "list_item"]],
     ["playstore-to-chat", 4, ["date"]],
   ])("%s builds its evidence: %i steps, its proposals, and an expect.json that parses", async (name, count, kinds) => {
     const evidence = await evidenceOf(name);

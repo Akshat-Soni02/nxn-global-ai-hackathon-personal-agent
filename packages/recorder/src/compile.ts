@@ -84,12 +84,14 @@ export interface Compiled {
   model: "nemotron" | "none";
   attempts: number;
   warnings: string[];
+  // What the recording shows that no step can do (skeleton.ts): the design must build it, or the review says so.
+  gaps: string[];
 }
 
 export async function compile(steps: NormalisedStep[], options: CompileOptions = {}): Promise<Compiled> {
   if (steps.length === 0) throw new Error("nothing to compile: the trace has no steps");
   const { form } = options;
-  const { draft: recorded, idsByStep, questions: skeletonQuestions } = skeletonOf(steps);
+  const { draft: recorded, idsByStep, questions: skeletonQuestions, gaps } = skeletonOf(steps);
   // Named after the goal until the model names it.
   const draft = form ? { ...withForm(recorded, form), name: shortName(form.description.goal) } : recorded;
   const base: Base = { draft, steps, idsByStep, form, pricePerMTok: options.pricePerMTok };
@@ -103,7 +105,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
         ]
       : [],
   );
-  const warnings: string[] = [...reported];
+  const warnings: string[] = [...reported, ...gaps];
   const skeletonOnly = (attempts: number): Compiled => ({
     skill: Skill.parse(skillInput(draft)),
     questions: form ? ownQuestions : [...ownQuestions, describeQuestion(draft)],
@@ -111,6 +113,7 @@ export async function compile(steps: NormalisedStep[], options: CompileOptions =
     model: "none",
     attempts,
     warnings,
+    gaps,
   });
 
   return skeletonOnly(0);

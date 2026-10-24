@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { DoneReport, EvidenceView, Proposal } from "./contracts.ts";
 import { withFields } from "./orchestrator.ts";
 import { newSession, type SessionV2 } from "./session.ts";
-import { designToolsV2, isTimeOfDay, unstring } from "./tools.ts";
+import { designToolsV2, isTimeOfDay, unstring, vaguePick } from "./tools.ts";
 
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
 const recorded = Skill.parse({
@@ -185,6 +185,8 @@ describe("the tools", () => {
 
   it("changes a step's tab together with its other fields, losing none", async () => {
     const s = session();
+    // A tab is one a page was opened in (code leaves out any other: it would be blank).
+    expect((await run(s, "change", { step: "s1", tab: "Gmail", why: "x" })).output.ok).toBe(true);
     const changed = await run(s, "change", {
       step: "s3",
       intent: "type the subject in the draft",
@@ -441,7 +443,31 @@ describe("what the re-designs after the fixes showed (round 2)", () => {
 
   it("says plainly when a step to copy a control from has none", async () => {
     const out = await run(session(), "add", { step: { do: "read_all", intent: "read", target: { like: "s1" } } });
-    expect(JSON.stringify(out.output)).toMatch(/s1 has no control to copy \(it opens a page\)/);
+    expect(JSON.stringify(out.output)).toMatch(
+      /s1 has no control to copy \(it opens a page: to click what is in the place it was, target \{ place: \\"s1\\" \}\)/,
+    );
+  });
+
+  it("clicks whatever is in a recorded control's place next time, or a selector it writes (checkpoint 6)", async () => {
+    const evidence: EvidenceView = {
+      step: (id) => (id === "s2" ? { place: "#mp-tfa > p > b > a" } : undefined),
+      timeline: () => "",
+      about: () => [],
+      appeared: () => new Set(),
+    };
+    const s = session({ evidence });
+    const placed = await run(s, "add", {
+      step: { do: "click", intent: "open today's featured article", target: { place: "s2" } },
+    });
+    expect(placed.output.ok).toBe(true);
+    expect(findStep(s.draft, "s4")).toMatchObject({ target: { fallbacks: ["#mp-tfa > p > b > a"] } });
+    const heading = await run(s, "add", {
+      step: { do: "read", intent: "read the article's title", target: { css: "h1" }, save_as: "title" },
+    });
+    expect(heading.output.ok).toBe(true);
+    expect(findStep(s.draft, "s5")).toMatchObject({ target: { fallbacks: ["h1"] } });
+    const none = await run(s, "add", { step: { do: "click", intent: "x", target: { place: "s3" } } });
+    expect(JSON.stringify(none.output)).toMatch(/s3 has no recorded place/);
   });
 
   it("refuses a schedule that isn't a fixed time: a {{value}} can't be a cron", async () => {
@@ -458,12 +484,87 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
   };
   const typeOf = (s: SessionV2, id: string) => (findStep(s.draft, id) as { output: { type: unknown } }).output.type;
 
+  it("takes an AI step and a loop sent to add with their fields beside the place (A, 24 Oct: all five refused)", async () => {
+    const s = await withPage();
+    // A3's own calls, but for the names of this fixture's steps.
+    const ai = await run(s, "add", {
+      after: "s4",
+      intent: "Extract story titles and points",
+      instruction: "From the page, the title and points of each story.",
+      inputs: ["{{page}}"],
+      output: { name: "stories", type: "list" },
+      why: "Create a list of all stories",
+    });
+    expect(JSON.stringify(ai.output)).toContain('"ok":true');
+    expect(ai.output.new_steps).toEqual(["ai1"]);
+    const repeat = await run(s, "add", {
+      steps: [{ do: "type", intent: "type the title", target: { like: "s3" }, args: { text: "{{story}}" } }],
+      over: "{{stories}}",
+      item: { name: "story", type: {} },
+      intent: "Save each new story",
+      after: "ai1",
+      why: "each story",
+    });
+    expect(JSON.stringify(repeat.output)).toContain('"ok":true');
+    expect(findStep(s.draft, "l1")).toMatchObject({ type: "control", over: "{{stories}}" });
+  });
+
+  it('asks an AI step that picks "the top 3" to say how (A, 24 Oct: models read it as the most points)', async () => {
+    const s = await withPage();
+    const pick = (instruction: string) =>
+      run(s, "ai_step", {
+        after: "s4",
+        intent: "pick",
+        instruction,
+        inputs: ["{{page}}"],
+        output: { name: "p", type: "list" },
+      });
+    expect(JSON.stringify((await pick("Extract the top 3 stories")).output)).toMatch(
+      /say how to pick: \\"the first 3 in the list's order\\"/,
+    );
+    expect(vaguePick("the first 3 stories in the list's order")).toBeUndefined();
+    expect(vaguePick("the top 3 stories by points")).toBeUndefined();
+    expect(vaguePick("the top three videos")).toMatch(/say how to pick/);
+  });
+
+  it('takes words sent as a place for what they are, and "None" as no target (C, 24 Oct)', async () => {
+    const s = session();
+    const added = await run(s, "add", { step: { do: "read", intent: "the rate", save_as: "rate" }, after: "s1" });
+    const id = (added.output.new_steps as string[])[0] as string;
+    const words = await run(s, "change", { step: id, target: { place: "Indian Rupee" }, why: "the row" });
+    expect(JSON.stringify(words.output)).toMatch(/is neither a step nor a selector/);
+    const none = await run(s, "change", { step: id, target: "None", why: "read the whole page" });
+    expect(none.output.ok).toBe(true);
+    expect(findStep(s.draft, id)).toMatchObject({ target: { fallbacks: ["main", "body"] } });
+  });
+
+  it("changes an AI step's instruction and what it reads (A, 24 Oct: it removed them for want of this)", async () => {
+    const s = await withPage();
+    await run(s, "ai_step", {
+      after: "s4",
+      intent: "p",
+      instruction: "x",
+      inputs: ["{{page}}"],
+      output: { name: "picked", type: "text" },
+    });
+    const out = await run(s, "change", {
+      step: "ai1",
+      instruction: "the first 3 in the list's order",
+      inputs: ["{{page}}"],
+      why: "order",
+    });
+    expect(JSON.stringify(out.output)).toContain('"ok":true');
+    expect(findStep(s.draft, "ai1")).toMatchObject({ instruction: "the first 3 in the list's order" });
+    const target = await run(s, "change", { step: "ai1", target: { like: "s3" }, why: "x" });
+    expect(JSON.stringify(target.output)).toMatch(/an AI step changes its instruction or inputs/);
+  });
+
   it("makes a loop with new steps inside it: a step using {{story.title}} can't be added before its loop", async () => {
     const s = await withPage();
     await run(s, "ai_step", {
       after: "s4",
       intent: "pick",
-      instruction: "the top 3 stories",
+      instruction: "the first 3 stories in the list's order",
       inputs: ["{{page}}"],
       output: { name: "stories", type: { title: "text", points: "text" } },
     });
@@ -565,7 +666,7 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
       step: {
         do: "ai_step",
         intent: "pick",
-        instruction: "the top 3",
+        instruction: "the first 3 in the list's order",
         inputs: ["{{page}}"],
         output: { name: "top", type: "list" },
       },
@@ -583,11 +684,51 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
     expect(JSON.stringify(findStep(s.draft, "s5"))).not.toContain('"args":{"output"');
   });
 
-  it("says the trigger's id when asked for a step called trigger", async () => {
+  it("takes the word trigger for the trigger, wherever a step is named", async () => {
     const out = await run(session(), "look", { step: "trigger" });
-    expect(String(out.output)).toMatch(/the trigger is start/);
+    expect(JSON.stringify(out.output)).toMatch(/"id":"start"/);
+    const asked = await run(session(), "ask", {
+      question: "Which sheet tab should it use?",
+      why: "two tabs",
+      step: "trigger",
+      options: ["A", "B"],
+    });
+    expect(asked.output.queued).toBe("q1");
     const bare = await run(session(), "change", { step: "start", why: "every Friday" });
-    expect(JSON.stringify(bare.output)).toMatch(/trigger \{ when/);
+    expect(JSON.stringify(bare.output)).toMatch(/set with the trigger tool: call trigger with \{ when/);
+  });
+
+  it("takes how often it runs sent to change, by the trigger's id or the word trigger (the D eval, 24 Oct)", async () => {
+    for (const step of ["start", "trigger"]) {
+      const s = session();
+      const out = await run(s, "change", { step, when: { schedule: "0 9 * * *" }, why: "every day" });
+      expect(out.output.ok).toBe(true);
+      expect(s.draft.steps[0]).toMatchObject({ when: [{ type: "schedule", cron: "0 9 * * *" }] });
+    }
+  });
+
+  it("takes a place sent as the selector itself, unverified like a css target (the D eval, 24 Oct)", async () => {
+    const s = session();
+    const out = await run(s, "add", {
+      step: { do: "click", intent: "the featured article", target: { place: "#mp-tfa > p > b > a" } },
+      after: "s1",
+      why: "what is there today",
+    });
+    expect(out.output.ok).toBe(true);
+    expect(JSON.stringify(s.draft.steps)).toContain('"fallbacks":["#mp-tfa > p > b > a"]');
+    expect(s.unverified.size).toBe(1);
+    // "h1" looks like an id, but no step has it: the heading.
+    const heading = await run(s, "add", {
+      step: { do: "read", intent: "the title", target: { place: "h1" }, save_as: "title" },
+      after: "s1",
+    });
+    expect(heading.output.ok).toBe(true);
+    expect(JSON.stringify(s.draft.steps)).toContain('"fallbacks":["h1"]');
+  });
+
+  it("says which fields a tool left out, never drops them unseen", async () => {
+    const out = await run(session(), "remove", { steps: ["s2"], why: "x", when: "now" });
+    expect(String(out.output.ignored)).toMatch(/^when: not remove's \(it takes steps, why\); left out/);
   });
 });
 
@@ -604,7 +745,7 @@ describe("before round 3 spends: what the model resends, and what the run's mode
     await run(s, "ai_step", {
       after: "s4",
       intent: "p",
-      instruction: "the top 3",
+      instruction: "the first 3 in the list's order",
       inputs: ["{{page}}"],
       output: { name: "stories", type: "list" },
     });
@@ -754,5 +895,29 @@ describe("what live D's last try showed", () => {
     const out = await run(session(), "add", { step: { do: "read", intent: "the page", save_as: "page" }, after: "s1" });
     expect(String(out.output.workflow)).toMatch(/s4 {2}web\.extract {2}"the page" {2}reads the whole page/);
     expect(String(out.output.workflow)).not.toMatch(/element "\?"/);
+  });
+});
+
+describe("save the page as a PDF (checkpoint 6)", () => {
+  const reading = `${process.env.HOME}/Desktop/Reading`;
+  const s = () => newSession(recorded, { pages: [MAIL], folders: [reading] });
+  const pdf = (dir: string) => ({
+    step: {
+      do: "save_pdf",
+      intent: "Save the page as a PDF",
+      args: { dir, name: "{{today|D MMM}} - KPIs.pdf" },
+    },
+    after: "s1",
+    why: "they printed the page to a PDF in Reading",
+  });
+
+  it("adds a step that prints the page to a PDF, named with today's date, in a folder the recording used", async () => {
+    const r = await run(s(), "add", pdf("~/Desktop/Reading"));
+    expect(r.output.ok).toBe(true);
+  });
+
+  it("keeps it out of folders the recording never used", async () => {
+    const r = await run(s(), "add", pdf("~/.ssh"));
+    expect(JSON.stringify(r.output)).toContain("may only reach");
   });
 });

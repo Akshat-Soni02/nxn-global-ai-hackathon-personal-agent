@@ -19,6 +19,7 @@ export function proposalsOf(input: ProposalInput): Proposal[] {
   return [
     ...dates(input),
     ...openDirectly(input),
+    ...samePlaces(input),
     ...listItems(input),
     ...repeats(input),
     ...nextEmptyRows(input),
@@ -85,11 +86,58 @@ export function dateIn(text: string, on: Date): { text: string; template: string
   return undefined;
 }
 
+// The title of the page a save printed ("Battle of Schliengen - Wikipedia"), without the site's name.
+const pageTitle = (title?: string) => {
+  const t = title?.split(/\s[-–—|]\s/)[0]?.trim();
+  return t && t.length >= 3 ? t : undefined;
+};
+
+// The argument that names a file a step makes.
+const FILE_NAME_ARG: Record<string, string> = { "web.save_pdf": "name", "fs.rename": "to" };
+
 function dates(input: ProposalInput): Found[] {
   const found: Found[] = [];
   input.steps.forEach((s, i) => {
     const id = firstId(input, i);
     const step = id ? findStep(input.skill, id) : undefined;
+    // A file named with the day (Print → Save as PDF as "23 Oct - Thuggee.pdf", a rename to "23 Oct.pdf"): named with
+    // the day it runs (checkpoint 6).
+    const field = step && isAction(step) ? FILE_NAME_ARG[`${step.channel}.${step.action}`] : undefined;
+    const named = field && step && isAction(step) ? step.args[field] : undefined;
+    const dated = typeof named === "string" ? dateIn(named, input.recordedOn) : undefined;
+    if (id && field && dated && step && isAction(step)) {
+      // The printed page's title in the name too: read from the page's heading each day, so the file is named for that
+      // day's page (D, 24 Oct: five designs of one recording, two of them right; with this, all of it is code's).
+      const title = s.kind === "save_pdf" ? pageTitle(s.title) : undefined;
+      const titled = title && dated.text.includes(title) ? dated.text.replace(title, "{{page_title}}") : undefined;
+      const read: EditInput = {
+        op: "insert",
+        at: { before: id },
+        step: {
+          type: "action",
+          channel: "web",
+          action: "extract",
+          intent: "Read the page's title",
+          target: { fallbacks: ["h1"] },
+          args: {},
+          output: { name: "page_title", type: { type: "text" } },
+        },
+      };
+      found.push({
+        kind: "date",
+        summary: titled
+          ? `${id} names the file "${named}", ${dated.says} and the title of the page it saved: ${titled} next time, the title read from the page's heading`
+          : `${id} names the file "${named}", ${dated.says}: ${dated.text} next time`,
+        steps: [id],
+        evidence: s.events,
+        edits: [
+          ...(titled ? [read] : []),
+          { op: "set", step: id, field: "args", value: { ...step.args, [field]: titled ?? dated.text } },
+        ],
+        runnable: true,
+      });
+      return;
+    }
     const date = typed(s) ? dateIn(s.value as string, input.recordedOn) : undefined;
     // Only where the draft still types the recorded text (an input or a copy may already make it change).
     if (!id || !date || !step || !isAction(step) || step.args.text !== s.value) return;
@@ -165,6 +213,46 @@ function openDirectly(input: ProposalInput): Found[] {
     }
     i = j + 1;
   }
+  return found;
+}
+
+// --- same place: a link clicked where it sits, whatever it says that day ---------------------------------------------
+// A link clicked at a fixed place in the page ("#mp-tfa > p > b > a", near "From today's featured article"): next time,
+// what is there that day, not the address it led to (D, 24 Oct: the agent built the article's address with an AI step
+// three times, once joined to the site's twice). Only a place that is structure: one naming the item itself
+// (a[aria-label="<the video's title>"]) finds only that item again (B).
+const NAMES_ITEM = /\[(?:aria-label|title|href|alt)[~^$*|]?=/i;
+function samePlaces(input: ProposalInput): Found[] {
+  const found: Found[] = [];
+  input.steps.forEach((s, i) => {
+    const id = firstId(input, i);
+    const place = s.target?.selectors?.css;
+    const name = (s.target?.name ?? s.target?.text ?? "").trim().toLowerCase();
+    if (!id || s.kind !== "click" || !s.navigatesTo || !place || NAMES_ITEM.test(place)) return;
+    if (name.length >= 4 && place.toLowerCase().includes(name)) return;
+    const near = s.target?.near ? ` near "${s.target.near.slice(0, 60)}"` : "";
+    found.push({
+      kind: "same_place",
+      summary: `${id} opened the link at a fixed place in the page (${place}${near}): next time click what is there that day (today's, the newest), not the address it led to this time. Reject it only if it is always this same page`,
+      steps: [id],
+      evidence: s.events,
+      edits: [
+        {
+          op: "replace",
+          step: id,
+          with: {
+            type: "action",
+            channel: "web",
+            action: "click",
+            intent: `Open what is at the place they clicked${near}`,
+            target: { fallbacks: [place] },
+            args: {},
+          },
+        },
+      ],
+      runnable: true,
+    });
+  });
   return found;
 }
 

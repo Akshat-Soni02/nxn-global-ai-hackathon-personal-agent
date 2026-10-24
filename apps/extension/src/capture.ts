@@ -32,6 +32,7 @@ export type PageEvent = Pick<
   | "modifiers"
   | "of"
   | "effect"
+  | "title"
 > & {
   at?: number; // set when the event is sent later than it happened (a copy waits for the sheet's context)
   target?: ElementDescriptor;
@@ -530,6 +531,16 @@ export function startCapture(
   };
   win?.addEventListener("message", onHookCopy);
   stops.push(() => win?.removeEventListener("message", onHookCopy));
+
+  // You printed the page (⌘P, File > Print). The print dialog and the macOS save panel are the browser's and the Mac's,
+  // so this, and the PDF the folder watcher sees after it, are all a recording learns of "save the page as PDF"
+  // (checkpoint 6). The top frame only: one print, however many frames the page has.
+  const onPrint = () => {
+    if (!isRecording() || !win || win !== win.top) return;
+    send("print", doc.documentElement, { at: Date.now(), title: doc.title });
+  };
+  win?.addEventListener("beforeprint", onPrint);
+  stops.push(() => win?.removeEventListener("beforeprint", onPrint));
 
   return () => {
     for (const stop of stops) stop();

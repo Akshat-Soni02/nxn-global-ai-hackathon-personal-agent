@@ -20,11 +20,15 @@ Replay and recovery (P, X) appear only where record needed them.
   [`checkpoint-3.md`](../testing/checkpoint-3.md) (design agent v2 on the real model);
 - after the plans: [`checkpoint-4.md`](../testing/checkpoint-4.md) (five tasks on real sites, Oct 23), the step-4 fixes
   in [`record-v2-deep-dive.md`](record-v2-deep-dive.md), and [`checkpoint-5.md`](../testing/checkpoint-5.md) (the
-  same tasks again, live).
+  same tasks again, live);
+- step 5: [`checkpoint-6.md`](../testing/checkpoint-6.md) (Rushil's own D recording, Oct 23), the commits on
+  `feat/record-v3` (PR #17), and the 24 Oct rows of [`design-eval-ledger.md`](../testing/design-eval-ledger.md) (every
+  live run).
 
 Code was first described as of `feat/record-v2` at `19cb94d` (Oct 20); PR #14 merged it on Oct 21. **Updated Oct 23 for
 step 4** (`d519c90`, PR #15): what step 4 changed is in its own section below, before "Removed", and the failures list
-says where each one stands.
+says where each one stands. **Updated Oct 24 for step 5** (`76d44df`, PR #17, 36 commits): its own section follows step
+4's, and the failures list says where step 5 left them.
 
 **Status marks:**
 - **fixed (live):** seen working in a real recording or real model run;
@@ -40,8 +44,8 @@ says where each one stands.
 | # | Fundamental issue | Before | Now | Status |
 |---|---|---|---|---|
 | 1 | A step is remembered by things that don't come back | Selection clicks stored as container text; Google's per-session ids kept; no list position; no sheet cell | Capture records what does come back: selections as `select_text`, no Google ids, link addresses kept, list position, sheet cell, names for nameless links (R1) | **partly**: capture fixed (live). The replay matcher still doesn't use text, `near` or list position (P3, Akshat) |
-| 2 | Generalising is left to one model | No code-side generalisation; one agent with brittle tools | Code finds patterns (proposals). Only today's date and open-directly come with the change prepared; a list item, a repeat, all files and a constant are notes the agent builds itself (`e1c45dd`). Agent v2 first writes what the task is (the task model), then builds with forgiving tools: it reads the page and lets an AI step pick, and loops over what that returns (D1–D3) | **partly**. Live, Oct 23: B (the newest video) and C (today's rate) generalise and run; A's re-design builds the "top 3" loop; on longer tasks the model still gives up or runs out of calls (checkpoint 5) |
-| 3 | Nothing checks the result | `finish` took anything that parsed; a run that did nothing "succeeded" | Code's finish gate decides when a design is done (D6), plus a safe test run in the automation window, a review with "Looks right" before Go live, and "nothing to do" for an empty run (`0f8c516`). Since step 4 the gate also refuses steps the runner can't run, and a design that lost your work or can't run is never saved over the recording (`753b83b`, `e64161d`) | **fixed (live)** for what checkpoint 4 and 5 showed. Still the agent's word: which steps build a rule |
+| 2 | Generalising is left to one model | No code-side generalisation; one agent with brittle tools | Code finds patterns (proposals). Only today's date and open-directly come with the change prepared; a list item, a repeat, all files and a constant are notes the agent builds itself (`e1c45dd`). Agent v2 first writes what the task is (the task model), then builds with forgiving tools: it reads the page and lets an AI step pick, and loops over what that returns (D1–D3). Since step 5, code also proposes clicking what is at the place a link was clicked, and a file name with the day and the page's title, both with the change ready (`1c289db`, `aae2d53`) | **partly**. Live, Oct 23: B (the newest video) and C (today's rate) generalise and run; A's re-design builds the "top 3" loop; on longer tasks the model still gives up or runs out of calls (checkpoint 5). **Oct 24 (step 5), live, day 1:** A, B, C and D (print way) each do their task. D's designs varied: of six designs of task D, each from a fresh recording, three did the task |
+| 3 | Nothing checks the result | `finish` took anything that parsed; a run that did nothing "succeeded" | Code's finish gate decides when a design is done (D6), plus a safe test run in the automation window, a review with "Looks right" before Go live, and "nothing to do" for an empty run (`0f8c516`). Since step 4 the gate also refuses steps the runner can't run, and a design that lost your work or can't run is never saved over the recording (`753b83b`, `e64161d`). Since step 5: a final check runs a workflow that makes files for real; a workflow that can't make the recorded file says "Can't run yet"; at run time code checks an AI step's "first N" pick (`5a55d94`, `5f74eb4`, `f2a5ca2`) | **fixed (live)** for what checkpoints 4–6 showed. Still the agent's word: which steps build a rule. Only "first N" picks are checked at run time |
 | 4 | Replay has no timeouts and one tab | DevTools calls hung 35–50 s; multi-tab recordings flattened into one tab | Every DevTools call has a timeout (15 s, 30 s to navigate), and a hang counts as an environment problem (`b40ca77`). Steps can name their tab (`a73777e`) | Timeouts **fixed (tests)**. Tabs **partly**: a run that waits for approval closes its named tabs (open, Akshat) |
 | 5 | What the agents did can't be reconstructed | No reasoning, no input for rejected calls | Replies keep the model's reasoning (`7703b73`); rejected calls keep their input; `design.json` keeps the whole prompt, the task model, every decision and change with its why, the test report, questions, gaps and the transcript (`702954a`, `92d6465`) | **fixed (live)**: read in checkpoint 3 |
 
@@ -150,7 +154,9 @@ runs in stages:
 4. **Ask:** one batch of questions, only what the evidence can't answer.
 5. **Finish gate:** code decides whether it's done.
 
-The whole design has one budget: $0.25 and 40 model calls, picture captions included.
+The whole design has one budget: $0.25 and 40 model calls, picture captions included. **Since step 5** there is no
+cap on calls (the $0.25 stays), stage 2 starts with one call that plans every change, and a final check follows the
+gate (see "Step 5" below).
 
 ## D1 · What it's given
 
@@ -241,7 +247,7 @@ Everything else is allowed and kept with its reason for the review.
 | Reasoning not kept | Empty | Kept (`7703b73`) | **fixed (live)** |
 | Rejected calls' input not kept | Lost | Kept (`702954a`) | **fixed (live)** |
 | Vision calls not metered | Unmetered | Metered and cached by picture (`775ea37`); captions count on the design's budget | **fixed (tests)** |
-| Near the $0.10 cap | 16 turns, $0.10 | $0.25 and 40 calls on one meter; real designs cost $0.012–0.124 | **fixed (live)** |
+| Near the $0.10 cap | 16 turns, $0.10 | $0.25 and 40 calls on one meter; real designs cost $0.012–0.124. Since step 5: $0.25 and no cap on calls (`39d66cd`) | **fixed (live)** |
 
 ---
 
@@ -270,6 +276,38 @@ trace's shape, with the fewest lines and no per-app code. The F-numbers, causes 
 | D7 budget | A reply cut off at the token cap gets one more episode; `design.json` keeps the first message and the plain list | `f8c4215`, `753b83b` | fixed (tests) |
 | bench | Every bench run says whether the workflow can run (`runs`); `uses_today` counts only the built-in date | `814bc5e` | fixed (live) |
 
+## Step 5 (Oct 24): what changed after Rushil's own recording
+
+On Oct 23 at 23:42 Rushil recorded D himself (save today's featured Wikipedia article as a PDF, through Chrome's print
+dialog), and it failed. [Checkpoint 6](../testing/checkpoint-6.md) traced eleven causes. Step 5 worked through them in
+phases 0–5, from his rulings (the phases and causes, piece by piece: [plans explained §14–16](record-v2-plans-explained.md)).
+Each fix started as a failing test from the real recording's shape. Phase 5 then ran A–D live, in the isolated test
+browser on the real model, and each run's fault was fixed before the next. Branch `feat/record-v3`, PR #17; 687 tests
+green.
+
+| Section | What changed | Commits | Status |
+|---|---|---|---|
+| R1 web capture | Printing the page is recorded: the page's `beforeprint` becomes a `print` event (②), for ⌘P or File → Print on any site, with no Accessibility needed | `b7738d3` | fixed (tests). Live only with a simulated print: the test browser fired `beforeprint` and wrote the PDF as the save panel would. A real ⌘P is Rushil's check |
+| R7 voice | Rushil's 50.7 s of voice gave 0 words. Measured: the microphone (flat noise at −49 dB, input level 27%); the transcriber reads a spoken clip word for word. The review now says so (D6 review below) | `3b5a1d5` | measured: not a code fault |
+| R9 normalise | A new file goes with the step before it only when something says that step made it: a download of that path; a print followed by a PDF within 10 minutes (one `save_pdf` step); a control that acts (Export, a Mac app's Save) within 15 s. Any other file is its own step, `file_appeared`, "a file nothing recorded made". A print with no PDF after it is listed as noise | `b7738d3` | fixed (tests); the print pairing live only as in R1 |
+| ⑥ evidence | Every file a step made or that appeared is named; files nothing recorded made are listed; each control's place is shown (`#mp-tfa > p > b > a`) | `b7738d3`, `5f74eb4`, `39d66cd` | fixed (live): D's designs clicked by that place |
+| R10 first draft | A print and its PDF become `web.save_pdf {dir, name}`. A file nothing made gets no "find" step: it's a gap. A date in a saved PDF's or renamed file's name becomes `{{today\|…}}`. A form whose control says download, export, pdf or csv, and whose only effect was a file, needs no OK (Wikipedia's Download would have waited every morning) | `b7738d3`, `8935f13`, `d49ac67`, `624f753` | `save_pdf` and the date fixed (live): D saved "24 Oct - Battle of Schliengen.pdf". The form rule fixed (tests): the test browser takes every download |
+| R10 proposals | Two new ones, with the change ready: click what is at the place a link was clicked (`same_place`; not when the place names the item itself, as B's video title did); a file named with the day **and** the page's title, the title read each day from its heading (`h1`) | `1c289db`, `aae2d53` | fixed (live): D's last design accepted both, in 5 calls |
+| D1 prompt | Says what steps can't do (browser menus, the print dialog, save panels), that `save_pdf` exists, and to click by place before letting an AI pick. The tab advice that left D on a blank tab is corrected | `39d66cd` | fixed (live) |
+| D3 plan, then apply | One call plans every change as tool calls (plain JSON, checked call by call). Code makes them through the same tools and rules, and the build episode starts from what each did, to repair. A plan's own names for steps it adds ("after": "open_hn") find them | `c4cb871`, `8275620`, `57187e9`, `e579bf9` | partly. Live: D's 5-call design was a plan of code's proposals; A3's plan made no change. The episode after still sends about one call per reply (D eval: 8 turns, 8 calls) |
+| D3 tools | A tool names the fields it ignored (`change` had dropped `when` unseen, 5 times). `change` sets the trigger and edits AI steps. "trigger" names the trigger in every tool. `add` takes AI steps and loops sent with loose fields. A target can be `{ place: "s2" }` (whatever is there next time) or `{ css }`; words sent as a place aren't a selector; target "None" reads the whole page. An AI step picking "the top 3" with no order or measure is refused, with the words to use. A date format core can't read lists its tokens | `39d66cd`, `2606a89`, `0504ac0`, `67c081f`, `e579bf9`, `57187e9`, `2e1cd16` | fixed (live) for C ("None", words as a place) and D (place); the rest fixed (tests) |
+| R2 / D3 tabs | After every change, code gives a step with no tab the tab of the page opened before it; it works those out again each time and never changes a tab the agent named. A step may not name a tab no earlier step opened a page in (it would act on a blank tab) | `5a88c22`, `f471ffe`, `8935f13` | fixed (live): in A's fifth design the notes read got the saved stories (the pick check found one in it), so it read the notes tab. The blank-tab rule fixed (tests) |
+| D5 questions | Questions about how to build it are never asked | `39d66cd` | fixed (tests) |
+| D6 test run | Code checks every value the test run got and shows the agent what's wrong: the steps the gate refuses (below), an address made of two (with how to fix it), and an AI answer not in what it read (shown only, never refused). A selector the run didn't find says "read the page, let an AI step pick, click it by its name" instead of guessing another. A click at a recorded place that only went to a page is followed, not outlined | `c4cb871`, `8275620`, `f471ffe`, `1ee7913`, `c270ba7`, `c76eb5a` | the place click fixed (live): D's last design. The rest fixed (tests) |
+| D6 finish gate | Refuses: a file the recording shows that no step makes (then **"Can't run yet"**: the review shows why instead of Looks right, and Go live refuses); a step that got nothing in the test; two reads of the same page; an AI answer used in an address that isn't in what it read ("click the link where it is") | `5f74eb4`, `c4cb871`, `f471ffe`, `624f753` | fixed (tests). Live, one D design still built the address with AI; its final check failed on it |
+| D6 final check (new; end of ⑦, after the gate) | A workflow that makes a file runs once for real in the automation window. Only `save_pdf` and copies, moves or renames of files this run made are done; nothing on a web page. Every file it made goes to the Trash, and the review says which. A failure goes back to the agent once. A "skip / already / only new" rule runs it twice. It fails an empty file, and, on the recording's day, a file other than the recording's | `5a55d94`, `8275620`, `d49ac67`, `c270ba7` | fixed (live) for D: it made "24 Oct - Battle of Schliengen (1).pdf" and trashed it; on another design it caught "24 Oct - Main Page.pdf". Running twice fixed (tests): no file-making task with a skip rule has run |
+| D6 review, run log | The review opens with notices: the microphone heard no words (and where to check); Shadow.app or Accessibility off, so what you did outside Chrome wasn't recorded; a file nothing made. Then what the final check made. The Run page groups its log by step; the walk-through says "nothing to outline" only for steps with nothing to outline | `ce23c92`, `975065e`, `3b5a1d5` | fixed (tests); seen in screenshots on a scratch daemon, not yet in Rushil's app |
+| D7 budget | No cap on calls; $0.25 per design. A design ends after 5 changes in a row that were refused or changed nothing (STUCK), with one fresh start that lists them. A failed reply (a 503) gets one more try in every episode | `39d66cd`, `2606a89`, `1c289db` | partly. Live: no design ran out of calls; A's third design got stuck, started fresh once, got stuck again, and kept the recorded steps. But one D design still spent all $0.25, in 55 calls |
+| runner (Akshat reviews) | `web.save_pdf` (Chrome's `Page.printToPDF`; the daemon writes the file, under a free name if taken). An empty whole-page read fails. An AI step whose inputs are all empty doesn't run. A find names the older files it ignored. A failed open names the address it tried. An AI step gets each input by its name, a list numbered | `b7738d3`, `8935f13`, `b09d15e` | `save_pdf` and named inputs fixed (live); the rest fixed (tests) |
+| runner: AI steps | The design writes a pick in the recording's order ("the first 3 in the list's order"). Probe on A's real inputs, 3 tries each: "top 3" 0 of 3 on every model; "the first 3 in the list's order" 2 of 3 fast, 3 of 3 smart. Thinking was turned on, then off the same day (it ran out of tokens on a whole page) | `43bde8e`, `e579bf9` | measured (probe, $0.0089) |
+| runner: the pick check | Code checks an AI step that picks "the first N" (`pickProblem`): the list's order kept; nothing earlier left out unless it's in the rest of the data; for "not already / skip / new", nothing picked that's already there. Wrong: asked once more of the smart model, told why. Wrong again: the step fails, so a run never saves a pick code knows is wrong | `f2a5ca2`, `3145779`, `b14b3b1` | fixed (live): A's second Run now saved the next 3, no duplicates. Other picks (B's newest video, C's rate) aren't checked |
+| agent loop | Its rules say "up to N tools a turn"; they said "exactly one" while running 8 | `c4cb871` | fixed (tests) |
+
 ## Removed
 
 | What | Why | Replaced by |
@@ -297,6 +335,21 @@ chose to list them rather than fix them; on Oct 23 (step 4) the record-side ones
 - **F13** partly: options are matched by their words (`753b83b`); "all of them" isn't offered.
 - **F6–F10** Akshat's. **F11, F12** open.
 - Later failures, F17–F61, are in [`record-v2-deep-dive.md`](record-v2-deep-dive.md).
+
+**Where they stand on Oct 24 (step 5).** Step 5's faults have no F-numbers: checkpoint 6's are its causes 1–11, and
+the rest are named by commit above.
+- **F2** partly: A's "skip ones already saved" holds live, because code checks the pick when the run happens
+  (`3145779`, `b14b3b1`). The gate still doesn't check what a rule's steps do; KPI wasn't re-recorded.
+- **F4** partly: questions about how to build it are never asked (`39d66cd`).
+- **The deep dive's open A and D:** A does its task live (top 3, then the next 3). D, the print way, does too. Both on
+  day 1 only. D's download way can't be measured in the test browser, which takes every download.
+- **"Longer tasks run out of calls":** no cap now. What's left is variance: six designs of task D, each from a fresh recording, three
+  right, from 5 calls to 55.
+- **Open, new:**
+  - Rushil's four Mac recordings (a real ⌘P, voice, a Finder move) and the day-2 re-runs;
+  - AI answers other than "first N" picks aren't checked at run time;
+  - the walk-through logs `highlighted: false` for every step answered from the inbox (`run.ts:329–333`, Akshat; the
+    UI works around it).
 
 **Columns:**
 - **Seen in:** the run or review that showed it;
@@ -371,3 +424,9 @@ chose to list them rather than fix them; on Oct 23 (step 4) the record-side ones
   re-tested live. **Two of the five do their task end to end** (B, C). What's left is the design agent finishing longer
   tasks within its calls, AI-step answers nothing checks, and canvas apps
   ([checkpoint 5](../testing/checkpoint-5.md)).
+- **Oct 24, step 5:** Rushil's own D recording failed in ways the scripted ones never showed: capture missed the print
+  dialog, the PDF was blamed on the wrong step, and "Looks right" was offered on a workflow that couldn't make it
+  ([checkpoint 6](../testing/checkpoint-6.md)). Step 5 made the record say what happened, gave the runner `save_pdf`,
+  and gave the design agent a plan, no call cap, a final check, a pick check and an honest "Can't run yet". **In the
+  test browser, A, B, C and D (print way) each do their task, on day 1.** What's left: Rushil's Mac recordings, day-2
+  re-runs, the design agent's variance, and AI answers only some checks cover.

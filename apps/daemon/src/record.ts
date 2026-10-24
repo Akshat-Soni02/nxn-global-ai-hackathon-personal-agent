@@ -120,9 +120,39 @@ export interface FinishOptions {
     effects: Map<string, Effect>,
     onLine: (line: string) => void,
     recorded: Set<string>,
+    // The final check: make the files for real, then put them in the Trash (twice: run it again too).
+    final?: { twice: boolean },
   ) => Promise<TestReport>;
   // Plain-language lines for the Record screen as the work goes on.
   progress?: (line: string) => void;
+  // Whether Shadow.app is running and may use Accessibility: without it, nothing outside Chrome was recorded.
+  mac?: () => { connected: boolean; trusted: boolean };
+}
+
+// What the review says about the recording itself, before what was built from it (checkpoint 6: 50 s of voice became
+// 0 words, Accessibility was off, and a PDF appeared that nothing recorded made; none of it was said). The 0 words were
+// the microphone's: 50 s of flat noise at -49 dB, the input at 27%; the transcriber read a spoken clip word for word.
+export function noticesOf(facts: {
+  microphone: boolean;
+  words: number;
+  mac?: { connected: boolean; trusted: boolean };
+  unmade: string[];
+}): string[] {
+  const outside = "what you did outside Chrome (Mac apps, save and print dialogs) wasn't recorded";
+  return [
+    ...(facts.microphone && facts.words === 0
+      ? [
+          "The microphone was on, but no words came through: nothing you said was used. Check System Settings → Sound → Input (the microphone you speak into, its level well up)",
+        ]
+      : []),
+    ...(facts.mac && !facts.mac.connected ? [`Shadow.app wasn't running: ${outside}`] : []),
+    ...(facts.mac?.connected && !facts.mac.trusted
+      ? [
+          `Accessibility is off for Shadow.app: ${outside}. Turn it on in System Settings → Privacy & Security → Accessibility`,
+        ]
+      : []),
+    ...facts.unmade.map((f) => `A file appeared that the recording doesn't show being made: ${f}`),
+  ];
 }
 
 export async function finishRecording(
@@ -241,6 +271,8 @@ export async function finishRecording(
     log("the design agent is reading the recording...");
     const effects = effectsOf(steps, compiled.base.idsByStep);
     const rehearse = options.rehearse;
+    // The places recorded steps acted at: a click there is that control (unchangedControls).
+    const places = new Set(evidence.steps.flatMap((s) => (s.place ? [s.place] : [])));
     design = await designV2({
       llm,
       skill,
@@ -254,7 +286,11 @@ export async function finishRecording(
       maskTerms: maskTermsOf(recorded),
       unattended: unattendedGaps,
       test: rehearse
-        ? (draft) => rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft))
+        ? (draft) => rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft, places))
+        : undefined,
+      verify: rehearse
+        ? (draft, twice) =>
+            rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft, places), { twice })
         : undefined,
       meter,
       onProgress: progress,
@@ -316,17 +352,33 @@ export async function finishRecording(
   const saved = saveSkill(dataDir, noted);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
   progress(`Saved ${saved.skill.name}`);
-  if (design) writeReview(dataDir, reviewOf(design, saved.skill, made));
+  if (design) {
+    const notices = noticesOf({
+      microphone: recorded?.consent.microphone ?? false,
+      words: said.length,
+      mac: options.mac?.(),
+      unmade: evidence?.unmade ?? [],
+    });
+    writeReview(dataDir, reviewOf(design, saved.skill, made, notices));
+  }
   return { ...saved, design };
 }
 
 // The steps whose control is still the one recorded: the test run follows a link only there (a link the agent added,
 // or a control it changed, is only outlined).
-function unchangedControls(recorded: Skill, draft: Skill): Set<string> {
+// A click at a place a recorded step acted at counts too: it is that control, whatever it says that day (D, 24 Oct: the
+// final check only outlined the click on the featured article's place, and saved the Main Page as the PDF).
+export function unchangedControls(recorded: Skill, draft: Skill, places: Set<string> = new Set()): Set<string> {
   const target = (step: Step) => JSON.stringify(isAction(step) ? step.target : undefined);
   const was = new Map([...walkSteps(recorded.steps)].map(({ step }) => [step.id, target(step)]));
+  const atPlace = (step: Step) => {
+    const t = isAction(step) ? step.target : undefined;
+    return Boolean(t && !t.role && !t.name && t.fallbacks.length === 1 && places.has(t.fallbacks[0] ?? ""));
+  };
   return new Set(
-    [...walkSteps(draft.steps)].filter(({ step }) => was.get(step.id) === target(step)).map(({ step }) => step.id),
+    [...walkSteps(draft.steps)]
+      .filter(({ step }) => was.get(step.id) === target(step) || atPlace(step))
+      .map(({ step }) => step.id),
   );
 }
 

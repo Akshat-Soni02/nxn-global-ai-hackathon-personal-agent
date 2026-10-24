@@ -1,7 +1,19 @@
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
-import { gate, roleAlone, runProblems } from "./gate.ts";
+import {
+  emptyIn,
+  gate,
+  guessed,
+  joined,
+  madeUpAddresses,
+  roleAlone,
+  runProblems,
+  sameReads,
+  tabsFixed,
+  unfoundIn,
+  unmadeProblems,
+} from "./gate.ts";
 
 const CHAT = "https://chat.google.com/room/X";
 const SHEET = "https://docs.google.com/spreadsheets/d/S/edit";
@@ -367,6 +379,118 @@ describe("what live D showed", () => {
     expect(runProblems(same)).toEqual([]);
   });
 
+  it("says a step that names a tab no step opened a page in acts on a blank tab (checkpoint 6: D's read got nothing)", () => {
+    const w = skill([
+      nav("s1", "https://en.wikipedia.org/wiki/Main_Page"),
+      { ...act("s4", "web", "extract"), tab: "Wikipedia, the free encyclopedia" },
+    ]);
+    expect(runProblems(w).join()).toMatch(
+      /s4: no earlier step opens a page in tab "Wikipedia, the free encyclopedia", so it would act on a blank tab/,
+    );
+    const main = skill([
+      nav("s1", "https://en.wikipedia.org/wiki/Main_Page"),
+      { ...act("s4", "web", "extract"), tab: "main" },
+    ]);
+    expect(runProblems(main)).toEqual([]);
+  });
+
+  it("fixes the tabs the way the rule asks, so the agent never spends turns on them (A, 24 Oct)", () => {
+    const w = skill([
+      nav("s1", "https://news.ycombinator.com/"),
+      { ...nav("s2", "http://localhost:5173/notes.html"), tab: "Notes" },
+      act("s3", "web", "extract"),
+    ]);
+    expect(runProblems(w).join()).toMatch(/s3 runs in the window's first tab/);
+    const { skill: tidy, fixed, owned } = tabsFixed(w);
+    expect(runProblems(tidy)).toEqual([]);
+    expect(tidy.steps.find((s) => s.id === "s3")).toMatchObject({ tab: "Notes" });
+    expect(fixed.get("s3")).toMatch(/code gave it tab "Notes": it acts on the page s2 opened there/);
+    expect(owned).toEqual(new Map([["s3", "Notes"]]));
+    expect(tabsFixed(tidy, owned).fixed.size).toBe(0);
+  });
+
+  it("never changes a tab the agent named, and works its own out again as steps move (A's 4th design)", () => {
+    // The agent puts the notes read in "Notes" before the open that makes that tab: it stays (the gate says so).
+    const early = skill([
+      { ...nav("s26", "https://news.ycombinator.com/"), tab: "HN" },
+      act("s24", "web", "extract"),
+      { ...act("s25", "web", "extract"), tab: "Notes" },
+    ]);
+    const first = tabsFixed(early);
+    expect(first.skill.steps.find((s) => s.id === "s25")).toMatchObject({ tab: "Notes" });
+    expect(first.skill.steps.find((s) => s.id === "s24")).toMatchObject({ tab: "HN" }); // code's
+    // Then the Notes open goes in before both: the read code placed moves with it; the agent's stays.
+    const later = skill([
+      { ...nav("s26", "https://news.ycombinator.com/"), tab: "HN" },
+      { ...nav("s27", "http://localhost:5173/notes.html"), tab: "Notes" },
+      { ...act("s24", "web", "extract"), tab: "HN" },
+      { ...act("s25", "web", "extract"), tab: "Notes" },
+    ]);
+    const again = tabsFixed(later, first.owned);
+    expect(again.skill.steps.find((s) => s.id === "s24")).toMatchObject({ tab: "Notes" });
+    expect(again.skill.steps.find((s) => s.id === "s25")).toMatchObject({ tab: "Notes" });
+    expect(runProblems(again.skill)).toEqual([]);
+  });
+
+  it("says what to do instead of guessing another selector the test run didn't find (B, 24 Oct)", () => {
+    const w = skill([
+      nav("s1", "https://www.youtube.com/@GoogleDevelopers/videos"),
+      { ...act("s9", "web", "click"), target: { fallbacks: ["ytd-video-renderer:first-child #video-title"] } },
+      act("s3", "web", "extract"),
+    ]);
+    const report = { outcome: "failed", steps: [{ id: "s9", path: "s9", status: "not_found" as const }] };
+    expect(gate(input(w, { test: report, sinceTest: new Map() })).join()).toMatch(
+      /s9: the test run didn't find it; a selector not found isn't fixed by guessing another: read the page/,
+    );
+    expect(guessed(w, "s3")).toBe(""); // a control by its role and name: no such advice
+  });
+
+  it("refuses an address an AI step made up from what it read (D, 24 Oct: /wiki/<title> built from the title)", () => {
+    const w = skill([
+      nav("s1", "https://en.wikipedia.org/wiki/Main_Page"),
+      act("s4", "web", "extract", {}, { output: { name: "page", type: { type: "text" } } }),
+      {
+        id: "ai1",
+        type: "llm",
+        intent: "the featured article's link",
+        instruction: "the href of today's featured article",
+        inputs: ["{{page}}"],
+        output: { name: "featured_url", type: { type: "text" } },
+      },
+      nav("s5", "https://en.wikipedia.org{{featured_url}}"),
+    ]);
+    const ran = (page: string) => ({
+      outcome: "succeeded",
+      steps: [
+        { id: "s4", path: "s4", status: "done" as const, value: page },
+        { id: "ai1", path: "ai1", status: "done" as const, value: "/wiki/Battle_of_Schliengen" },
+      ],
+    });
+    expect(
+      madeUpAddresses(w, ran("From today's featured article: The Battle of Schliengen was fought…")).join(),
+    ).toMatch(/ai1's answer goes into s5's address but isn't in what it read/);
+    expect(madeUpAddresses(w, ran('<a href="/wiki/Battle_of_Schliengen">Battle of Schliengen</a>'))).toEqual([]);
+  });
+
+  it("says when two reads got the same page in the test run (A's 4th design: the notes read read Hacker News)", () => {
+    const w = skill([
+      nav("s1", "https://news.ycombinator.com/"),
+      act("s24", "web", "extract"),
+      act("s25", "web", "extract"),
+    ]);
+    const ran = (a: string, b: string) => ({
+      outcome: "succeeded",
+      steps: [
+        { id: "s24", path: "s24", status: "done" as const, value: a },
+        { id: "s25", path: "s25", status: "done" as const, value: b },
+      ],
+    });
+    expect(sameReads(w, ran("Hacker News 1. OBS", "Hacker News 1. OBS")).join()).toMatch(
+      /s25 read exactly what s24 read/,
+    );
+    expect(sameReads(w, ran("Hacker News 1. OBS", "My notes"))).toEqual([]);
+  });
+
   it("counts a check still holding the recorded page as a run problem, so a kept draft is judged by it too", () => {
     const w = skill([
       act(
@@ -378,6 +502,71 @@ describe("what live D showed", () => {
       ),
     ]);
     expect(runProblems(w).join()).toMatch(/s2: its check still looks for "\/wiki\/Thuggee"/);
+  });
+});
+
+describe("what the test run's values show (step 5: code checks them)", () => {
+  const w = skill([
+    act("s1", "web", "navigate", { url: "https://en.wikipedia.org/wiki/Main_Page" }),
+    act("s2", "web", "extract", {}, { output: { name: "title", type: { type: "text" } } }),
+    {
+      id: "ai1",
+      type: "llm",
+      intent: "pick",
+      instruction: "the article's title",
+      inputs: ["{{title}}"],
+      output: { name: "article", type: { type: "text" } },
+    },
+  ]);
+  const ran = (s2: unknown, ai1: unknown) => ({
+    outcome: "succeeded",
+    steps: [
+      { id: "s1", path: "s1", status: "done" as const },
+      { id: "s2", path: "s2", status: "done" as const, value: s2 },
+      { id: "ai1", path: "ai1", status: "done" as const, value: ai1 },
+    ],
+  });
+  it('finds a read or AI step that ran but got nothing (checkpoint 6: D\'s read got "" three times)', () => {
+    expect(emptyIn(w, ran("", "Thuggee"))).toEqual(["s2"]);
+    expect(emptyIn(w, ran("Thuggee", "  "))).toEqual(["ai1"]);
+    expect(emptyIn(w, ran(["a"], []))).toEqual(["ai1"]); // a text answer
+    expect(emptyIn(w, ran("Thuggee", "Thuggee"))).toEqual([]);
+  });
+  it("takes an AI step's empty list as an answer: nothing new today (A: skip the ones already saved)", () => {
+    const list = skill([
+      act("s1", "web", "navigate", { url: "https://news.ycombinator.com" }),
+      {
+        id: "ai1",
+        type: "llm",
+        intent: "pick",
+        instruction: "the top 3 stories not already saved",
+        inputs: [],
+        output: { name: "stories", type: { type: "list", items: { type: "text" } } },
+      },
+    ]);
+    const report = { outcome: "succeeded", steps: [{ id: "ai1", path: "ai1", status: "done" as const, value: [] }] };
+    expect(emptyIn(list, report)).toEqual([]);
+  });
+  it("shows an AI answer that isn't in what it read (D: a made-up article), never one that is", () => {
+    expect(unfoundIn(w, ran("Thuggee were bands of robbers in India", "Thuggee"))).toEqual([]);
+    expect(unfoundIn(w, ran("Thuggee were bands of robbers", "2026 in railway transportation")).join()).toMatch(
+      /ai1 answered "2026 in railway transportation", which isn't in what it read/,
+    );
+    expect(unfoundIn(w, ran("", "anything"))).toEqual([]); // nothing read: emptyIn's to say
+  });
+  it("says how to fix an address made of two (D: en.wikipedia.orghttps://…)", () => {
+    const error =
+      "navigation failed: net::ERR_NAME_NOT_RESOLVED (it tried to open https://en.wikipedia.orghttps://en.wikipedia.org/wiki/Thuggee)";
+    expect(joined(error)).toMatch(/its address is two joined/);
+    expect(joined("navigation failed (it tried to open https://en.wikipedia.org/wiki/Thuggee)")).toBe("");
+    const failed = { outcome: "failed", steps: [{ id: "s1", path: "s1", status: "failed" as const, error }] };
+    expect(gate(input(w, { test: failed, sinceTest: new Map() })).join()).toMatch(/s1: it failed .*two joined/);
+  });
+  it("sends it back to the agent unless a reason was given after the test", () => {
+    const problems = gate(input(w, { test: ran("", "x"), sinceTest: new Map() }));
+    expect(problems.join("\n")).toMatch(/s2: it got nothing in the test run/);
+    const explained = gate(input(w, { test: ran("", "x"), sinceTest: new Map([["s2", "logged in it isn't empty"]]) }));
+    expect(explained.join("\n")).not.toMatch(/got nothing/);
   });
 });
 
@@ -402,5 +591,24 @@ describe("what live D showed, again", () => {
       ]);
     expect(runProblems(rename("~/Downloads/23 Oct - Thuggee.pdf"))).toEqual([]);
     expect(runProblems(rename("~/Downloads/{{today|D MMM}}.pdf")).join()).toMatch(/s7: its check still looks for/);
+  });
+});
+
+describe("a file the recording shows appearing with nothing recorded making it (checkpoint 6)", () => {
+  const pdf = "~/Desktop/Reading/23 Oct - Thuggee.pdf";
+  const open = act("s1", "web", "navigate", { url: "https://en.wikipedia.org/wiki/Main_Page" });
+  it("is a problem until some step makes a file in that folder", () => {
+    expect(unmadeProblems(skill([open]), [pdf]).join()).toMatch(
+      /~\/Desktop\/Reading\/23 Oct - Thuggee.pdf appeared in the recording, but no step makes a file in ~\/Desktop\/Reading/,
+    );
+    const saved = {
+      ...act("s3", "web", "save_pdf", { dir: "~/Desktop/Reading", name: "{{today|D MMM}} - x.pdf" }),
+      target: undefined,
+    };
+    expect(unmadeProblems(skill([open, saved]), [pdf])).toEqual([]);
+    const moved = act("s4", "fs", "move", { from: "~/Downloads/x.pdf", to: "~/Desktop/Reading/" });
+    expect(unmadeProblems(skill([open, moved]), [pdf])).toEqual([]);
+    const elsewhere = { ...saved, args: { dir: "~/Documents", name: "x.pdf" } };
+    expect(unmadeProblems(skill([open, elsewhere]), [pdf])).toHaveLength(1);
   });
 });

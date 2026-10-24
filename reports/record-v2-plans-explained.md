@@ -1,4 +1,4 @@
-# Plans 1–3, checkpoints 1–5 and the step-4 fixes, explained piece by piece
+# Plans 1–3, checkpoints 1–6 and the step-4 and step-5 fixes, explained piece by piece
 
 **Why this file.** Record v2 was built in three plans, each followed by a live check (a *checkpoint*). The summaries so
 far said things like "a new way to score designs" or "rules stated vs rules built" without saying what they are, where
@@ -24,11 +24,12 @@ they live, or who uses them. This file does that for every piece. Each piece get
 - ⑥ **Evidence:** `evidence.json`.
 - ⑦ **Design agent:**
   - 7a understand;
-  - 7b build;
+  - 7b build (since Oct 24 it starts with one call that plans every change);
   - 7c safe test run;
   - 7d questions;
   - 7e put your answers in;
-  - 7f finish gate.
+  - 7f finish gate;
+  - 7g final check (since Oct 24): a workflow that makes files runs once for real, then its files go to the Trash.
 - ⑧ **Save.**
 - ⑨ **Your review.**
 
@@ -40,23 +41,32 @@ they live, or who uses them. This file does that for every piece. Each piece get
 |---|---|---|---|---|
 | Recording folder | All files of one recording; deleted 24 h after its workflow is saved | `~/Library/Application Support/Shadow/recordings/<id>/` | ②–⑦ | — |
 | `trace.jsonl` | Every event, one per line: click, typing, copy, key, tab, file | recording folder | ② | `{"event":"click","url":"https://mail.google.com/…","target":{"role":"link","name":"Daily KPIs - w/c 19 Oct"},…}` |
+| `print` event *(Oct 24)* | The page's own `beforeprint`, recorded when you print it (⌘P or File → Print), on any site, with no Accessibility needed | `trace.jsonl` | ② | `{"event":"print","title":"Battle of Schliengen - Wikipedia",…}` |
 | `screen.jsonl`, `shots.jsonl` | The words read off each picture (masked), and a line per picture saying whether it was taken | recording folder | ②③ | `"outcome":"taken"` |
 | `transcript.jsonl` | What you said, with times (masked) | recording folder | ③ | "I always take the newest one, and never one I already did." |
 | Noise list | Events code left out, each with an id and a reason, so nothing is lost silently | inside `evidence.json` | ④ | `x1 clicked the drawn grid` |
-| **Plain list** | Code's first draft: one workflow step per real action, exactly as you did it (same page, same target, same values). No AI. It would replay only this one example | built in memory by `compile.ts` / `skeleton.ts`; not saved as its own file (F16) | ⑤ | `s12 type "19 Oct" into A4` |
+| `file_appeared` *(Oct 24)* | A step for a file that appeared with nothing recorded making it. Code no longer blames it on the step before; the finish gate asks for a step that makes it | `evidence.json → steps` and `unmade` | ④ | "a file appeared: ~/Desktop/Reading/23 Oct - Thuggee.pdf (what made it wasn't recorded)" |
+| **Plain list** | Code's first draft: one workflow step per real action, exactly as you did it (same page, same target, same values). No AI. It would replay only this one example | built in memory by `compile.ts` / `skeleton.ts`; kept in `design.json → plain` since Oct 23 (F16) | ⑤ | `s12 type "19 Oct" into A4` |
+| `web.save_pdf` *(Oct 24)* | A workflow step that saves the open page as a PDF into a folder, under a name: Chrome prints it (`Page.printToPDF`) and the daemon writes the file. A print and its PDF become one | `packages/core/src/skill.ts`; run by `packages/player` | ⑤, and every run | `save_pdf ~/Desktop/Reading "{{today\|D MMM}} - {{page_title}}.pdf"` |
 | **Proposal** | A change code has prepared, which the agent only says yes or no to | inside `evidence.json` | ⑥ | `p1 date: s12 types "19 Oct" → {{today\|D MMM}}` |
+| `same_place` proposal *(Oct 24)* | "Click whatever is at the place this link was clicked", for a link that changes every day. Its change is ready | `evidence/proposals.ts` | ⑥ | D: click `#mp-tfa > p > b > a`, today's featured article |
 | **`evidence.json`** | Everything code understood about the recording, masked: steps, noise, where values went, proposals, what you said, one timeline. All the design agent reads | recording folder; built by `packages/recorder/src/evidence/evidence.ts` | ⑥ | — |
 | **Task model** | What the agent thinks the task is, written before it changes anything: outcome, how often, where each value comes from, your rules (quoted), unknowns | `design.json → task` | 7a | §3.1 (the real KPI run) |
 | **Finish gate** | Code's checklist before a design is saved. Code, not the model, decides "done" | `packages/recorder/src/design/v2/gate.ts` | 7f | "rule 0 is neither built nor explained" |
+| **"Can't run yet"** *(Oct 24)* | What a design says when the recording shows a file no step makes. The review shows why in place of Looks right, and Go live refuses it | `design.json → cantRun`; the review | 7f, ⑨ | "~/Desktop/Reading/23 Oct - Thuggee.pdf appeared in the recording, but no step makes a file in ~/Desktop/Reading" |
 | **Safe test run** | The workflow tried in the automation window: it opens pages and reads; buttons, typing and sending are only found and highlighted | `packages/player/src/rehearse.ts`, `apps/daemon/src/rehearse.ts` | 7c | "step 4 ✓ found 'KPI Sheet'" |
+| **Final check** *(Oct 24)* | The safe test run in "local mode", once the gate is passed: the files the workflow makes (a saved PDF, a copy, a move of one of those) are made for real, then put in the Trash. Nothing on a web page is done. Twice for a "skip" rule | the same files, plus `design/v2/orchestrator.ts` | 7g | D: it made "24 Oct - Battle of Schliengen (1).pdf", then trashed it |
+| STUCK *(Oct 24)* | With no cap on calls, what ends a design that goes nowhere: 5 changes in a row refused or changing nothing. It then gets one fresh start that lists them | `design/v2/orchestrator.ts` | ⑦ | — |
+| **Pick check** *(Oct 24)* | Code checking an AI step's pick of "the first N" against its data, when a run happens. A wrong pick is asked once more of the smart model; wrong again, the step fails | `pickProblem` in `packages/player/src/node/llm-step.ts` | every run (replay) | A: "Twelve years of distributed SQLite" picked again though already saved |
+| Notices *(Oct 24)* | What the review says the recording missed: the microphone heard no words; Shadow.app or Accessibility was off; a file nothing made | `apps/daemon/src/record.ts` (`noticesOf`) | ⑨ | "The microphone was on, but no words came through" |
 | **`design.json`** | The design agent's notebook for one recording. Fields:<br>- `task`: the task model;<br>- `done`;<br>- `decisions`;<br>- `notes`;<br>- `gaps`;<br>- `test`;<br>- `asked`, `answered`, `pending`, `skipped`;<br>- `system`: its instructions;<br>- `transcript`;<br>- `usage` | recording folder | end of ⑦ | — |
 | Workflow | The saved result, a new version each time | `skills/<id>/v1.json`, `v2.json`… | ⑧ | — |
 | **`review.json`** | What the review page shows: every change with its reason, "What you said → what was built", what wasn't tested, and whether you pressed Looks right | `skills/<id>/review.json` | ⑧⑨ | — |
 | **Bench** | A testing tool, not a stage. It runs ④–⑧ on a test recording and scores the workflow against a list | `scripts/design-eval.ts`, `packages/recorder/src/eval/expect.ts` | — | §3.1 |
 | **Test recording** (fixture) | A recording folder **written by hand** to look like a real one, kept in git | `fixtures/recordings/<name>/` | — | `kpi-email-to-sheet` |
 | `expect.json` | A test recording's list of what a correct workflow must do next time, as checks code can run | in each test recording | — | `{"kind":"has_loop","why":"every new KPI email"}` |
-| Ledger | Every real-model run: cost, and the total against the $5 | `testing/design-eval-ledger.md` | — | $0.63 of $5 so far |
-| Checkpoint | A stop after a plan, to try it live before the next plan starts | `testing/checkpoint-1.md` … `-3.md` | — | — |
+| Ledger | Every real-model run: cost, and the total against the budget ($5; $10 since Oct 23) | `testing/design-eval-ledger.md` | — | about $6.6 of $10 by Oct 24 (§16) |
+| Checkpoint | A stop after a plan, to try it live before the next plan starts | `testing/checkpoint-1.md` … `-6.md` | — | — |
 
 ---
 
@@ -78,7 +88,12 @@ they live, or who uses them. This file does that for every piece. Each piece get
 | Oct 23 | **Step 4**: every failure traced to its cause and fixed (F17–F61) | §12 |
 | Oct 23 | **Checkpoint 5**: the same five tasks re-designed and re-recorded live | §13 |
 | Oct 23 | PR #15 opened | — |
-| waiting | **Checkpoint 3, steps 2–3**: Rushil's own recordings; the test plan's verdict table | not done |
+| Oct 23, evening | A re-run live at Rushil's ask: does its task, but "skip ones already saved" missed one | §14 |
+| Oct 23, 23:42 | **Checkpoint 6**: Rushil records D himself, on his Mac; it fails | §14 |
+| Oct 24 | **Step 5**, phases 0–4: the record tells the truth, the runner's new abilities, design agent v3, the run log and the review | §15 |
+| Oct 24 | **Phase 5**: A–D re-recorded live and fixed until each did its task | §16 |
+| Oct 24 | PR #17 opened (`feat/record-v3`, 36 commits) | — |
+| waiting | **Checkpoint 3, steps 2–3** and **Phase 5's other half**: Rushil's own recordings on his Mac; the day-2 re-runs; the test plan's verdict table | not done |
 
 ---
 
@@ -307,16 +322,19 @@ Use this table with it.
 
 ## 10. Never tested yet
 
-Written Oct 22; the marks are as of Oct 23.
+Written Oct 22; the marks are as of Oct 24.
 - ~~**Design agent v2 on a real recording.**~~ Done: checkpoints 4 and 5 (§11, §13).
 - ~~**The safe test run in Chrome.**~~ Done, live, in checkpoints 4 and 5: it found real faults.
 - **A person answering the question batch:** partly. I answered D's, D2's and E's in checkpoint 4; you haven't yet.
-- **The progress feed, the review page and Looks right in the app,** on a real recording: not yet. The live runs used
-  the daemon's API, not the window.
-- **Capture with your voice on a real task of yours:** not yet. Checkpoints 4 and 5 had no voice.
-- **Mac-app capture after `pnpm setup:mac`:** not yet.
+- **The progress feed, the review page and Looks right in the app,** on a real recording: once, on your D (checkpoint
+  6). It offered Looks right on a workflow that couldn't make the PDF (cause 9). Step 5's review (notices, "Can't run
+  yet") has been seen only in screenshots on a scratch daemon.
+- **Capture with your voice on a real task of yours:** tried once (your D): 0 words, because of the microphone (§14,
+  cause 10). Not yet with words.
+- **Mac-app capture after `pnpm setup:mac`:** not yet. Accessibility was off for your D.
+- **A real ⌘P in Chrome** *(new)*: not yet. Phase 5's print-way runs fired the page's `beforeprint` themselves.
 
-What's left of this list needs your recordings (KPI, YC, Play Store, with voice) on your Mac.
+What's left of this list needs your recordings on your Mac: KPI, YC, Play Store with voice, and step 5's four (§16).
 
 ---
 
@@ -442,3 +460,261 @@ The full list (cause, fix, commit, test for each F) is [`record-v2-deep-dive.md`
 **Cost:** $2.93 for the whole checkpoint. The ledger stands at $4.34 of $5.
 
 **Where:** [`testing/checkpoint-5.md`](../testing/checkpoint-5.md).
+
+---
+
+## 14. Checkpoint 6 (Oct 23, 23:42): D recorded by you, on your Mac
+
+**What it was:** you recorded D yourself, the way you'd do it: your Chrome, your daemon (on `cce8f0d`), Screen and the
+microphone on, Pictures off, Accessibility not allowed. Your goal: "Every day, save today's featured Wikipedia article
+as a PDF into my Reading folder in desktop, named with today's date". You opened the Main Page, clicked the featured
+article ("Thuggee"), printed it with Chrome's print dialog (Save as PDF), and in the save panel chose
+`~/Desktop/Reading` and typed "23 Oct - Thuggee".
+
+**Result:** the design used all 40 calls, and what it reached couldn't run, so the recorded steps were kept: open the
+Main Page, open "Thuggee", find a PDF made since the run started. It ran by hand, and the review offered Looks right.
+Run now failed at the find after 60 s: your PDF was there, but older than the run.
+
+**The eleven causes, and where each stands after step 5:**
+
+| # | Cause | Stage | Now |
+|---|---|---|---|
+| 1 | Capture sees only the web page: the print dialog and the save panel are outside it, and Shadow.app sees the panel only with Accessibility | ② | The page's `print` event is recorded (§15.1). Fixed (tests); a real ⌘P not yet tried |
+| 2 | The PDF was blamed on clicking "Thuggee" 39 s earlier: since Oct 4, a new file went with the step before it, and step 4's F23 fix then made that a "find the file it saved" step | ④ | A file goes only with what made it (§15.1). Fixed (tests) |
+| 3 | The evidence showed the click and dropped the file, so the agent guessed "YYYY-MM-DD.pdf" and asked 4 questions the recording answers | ⑥ | Every file fact is in the evidence (§15.1). Fixed (live) |
+| 4 | No step could save a page as PDF | runner | `web.save_pdf` (§15.2). Fixed (live) |
+| 5 | The agent reasoned like a script writer: Puppeteer, wkhtmltopdf; "Thuggee" as a value you type; `press Control+P` | ⑦ | The prompt says what steps can't do, and that `save_pdf` exists (§15.3). Fixed (live) |
+| 6 | Its read named a tab that opens blank on first use. It got "" (counted as success), and the AI step answered `…/wiki/2026_in_railway_transportation` from nothing | runner, ⑦ | An empty read fails, an AI step with no input doesn't run, a tab no step opened is refused (§15.2). Fixed (tests) |
+| 7 | `https://en.wikipedia.org` joined to a full address (`en.wikipedia.orghttps://…`), and the agent didn't act on what its test showed | ⑦ | Code checks what each test step got (§15.3). Fixed (tests); a later live D design still built one, and its final check caught it |
+| 8 | 40 calls gone: one action per call, 6 calls trying `target: "None"`, changes that changed nothing | ⑦ | No cap, STUCK, a plan first, "None" reads the whole page (§15.3). **Partly:** after the plan, about one call per reply still |
+| 9 | The kept steps couldn't make the PDF, yet Looks right was offered | ⑦ ⑨ | "Can't run yet", and Go live refuses (§15.3, §15.4). Fixed (tests) |
+| 10 | 50.7 s of voice became 0 words, and nothing said so | ③ | Measured: the microphone (flat noise at −49 dB, its input level at 27%); the transcriber reads a spoken clip word for word. The review now says so (§15.4) |
+| 11 | The run log was hard to read; "you said do it (its target was not outlined)" for a page open | UI | Grouped by step; that wording only where it fits (§15.4). Fixed (tests) |
+
+**Were A–C really fixed?** Only for the one way each was recorded in checkpoints 4–5: by my script, in an isolated
+browser, with scratch folders and no voice. D was always recorded through Wikipedia's "Download as PDF" link, never the
+print dialog.
+
+**A, re-run the same evening** (`cce8f0d`, at your ask): designed in 23 calls ($0.10). It read Hacker News and the
+notes; one AI step picked the top 3 and another filtered out the saved ones; a loop typed and saved. Run now saved the
+live top 3, but also "Local Wikipedia…" again: its Hacker News title ends "(edjefferson.com)", the saved one doesn't.
+Nothing checked the AI step's answer.
+
+**Where:** [`testing/checkpoint-6.md`](../testing/checkpoint-6.md); a copy of the recording in
+`~/shadow-tests/checkpoint-6/D-print/` (not in git).
+
+---
+
+## 15. Step 5 (Oct 24): the plan and its phases, piece by piece
+
+The plan (`~/.claude/plans/zippy-riding-lovelace.md`, not in git) was re-scoped by checkpoint 6. **Your rulings, 24 Oct:**
+- **Self-test:** the agent may make changes that stay with you (files), and what its checks made is removed: files go
+  to the Trash. Web saves can't be undone, so they are only outlined.
+- **Runner code:** build it; Akshat reviews (listed for him in PR #17).
+- **Proof:** both of us, many ways. Done means a Run now that does the task, checked on the page or in the folder, on
+  two different days.
+- **Budget:** no cap on calls, $0.25 per design ("let the budget be same"); $10 for all real-model runs.
+- **From 23 Oct:** E (canvas) deferred; the F17–F61 patches stay as they are.
+
+Every fix started as a failing test built from the real recording's shape, with tests, lint and typecheck green before
+each commit (687 tests at the end).
+
+### 15.0 Phase 0: the diagnosis
+- **Built:** [`checkpoint-6.md`](../testing/checkpoint-6.md), read from the recording's own files; checkpoint 5's A
+  re-run; the ledger row (`b4e2ff0`).
+
+### 15.1 Phase 1: the record tells the truth (② ④ ⑤ ⑥)
+- **Before:** capture didn't see the print dialog. A new file went with the step before it, however long after. The
+  evidence then dropped it, so the agent never learned a PDF had appeared.
+- **Built:**
+  - the content script records the page's `beforeprint` as a `print` event;
+  - a new file goes with the step before only when something explains it: a download of that path, a print (a PDF
+    within 10 minutes), or a control that acts (within 15 s). Otherwise it is a `file_appeared` step. A print with no
+    PDF after it is listed as noise;
+  - a print and its PDF become one `web.save_pdf {dir, name}` step; a file nothing made gets no "find" step;
+  - the evidence names every file a step made or that appeared, and each control's place;
+  - a date in a saved file's name becomes `{{today|…}}`.
+- **Where:** `apps/extension/src/capture.ts`, `packages/core/src/trace.ts`, `normalise.ts`, `skeleton.ts`,
+  `evidence/timeline.ts`, `evidence/proposals.ts`.
+- **Used at:** ② ④ ⑤ ⑥.
+- **Example:** live D, the print way: the `print` and the PDF that appeared in Reading became one `save_pdf` step, its
+  name proposed as `{{today|D MMM}} - …`.
+- **Tested by:** unit tests, one from checkpoint 6's shape (a print, then a PDF 39 s later). Live only with a simulated
+  print: the test browser fired `beforeprint` and wrote the PDF where the save panel would. A real ⌘P is your check.
+
+### 15.2 Phase 2: the runner's new abilities (runner; Akshat reviews)
+- **Before:** no step could save a page as PDF. A read that got "" counted as done, and an AI step with nothing to
+  read answered anyway. A step could name a tab no step had opened, and act on a blank one. A find that skipped older
+  files said only "no file matches".
+- **Built:**
+  - `web.save_pdf`: the extension prints the page (Chrome's `Page.printToPDF`) and the daemon writes the file, under a
+    free name if that one is taken;
+  - an empty whole-page read fails ("blank or unloaded page");
+  - an AI step whose inputs are all empty doesn't run;
+  - the gate refuses a step that names a tab no earlier step opened a page in;
+  - a find names the older files it skipped; a page that won't open says the address it tried.
+- **Where:** `packages/core/src/skill.ts`, `check.ts`; `packages/player/src/run.ts`, `node/fs-channel.ts`;
+  `apps/extension`; `design/v2/gate.ts` (the tab rule).
+- **Used at:** every run, the test run (7c) and the final check (7g).
+- **Example:** before any design, a hand-made workflow clicked today's featured article by its place alone, read its
+  heading, and saved "24 Oct - Thuggee.pdf".
+- **Tested by:** unit tests; `save_pdf` live. Two Run nows of that workflow first failed because the test profile kept
+  the old extension, and each started replay's paid repair, unannounced ($0.06).
+
+### 15.3 Phase 3: design agent v3 (⑦)
+
+`packages/recorder/src/design/v2` grew in place. Six pieces:
+
+**a. No call cap; STUCK.**
+- **Before:** 40 calls on one meter. In 17 of 18 saved designs every call carried one action, so A and D ran out.
+- **Built:** no cap, and $0.25 stays. A design ends after 5 changes in a row that were refused or changed nothing
+  (STUCK), then gets one fresh start that lists them. A failed reply (a 503) gets one more try in every episode.
+- **Where:** `budget.ts`, `orchestrator.ts`. **Used at:** ⑦.
+- **Example:** A's third design got stuck, started fresh, got stuck again, and kept the recorded steps.
+- **Tested by:** unit tests; live. **Partly:** $0.25 still ended one D design, at 55 calls.
+
+**b. Plan, then apply.**
+- **Before:** one tool action per model call.
+- **Built:** after 7a, one call writes every change as tool calls, in plain JSON, checked call by call (a malformed
+  call costs only itself). Code makes them in order through the same tools and guardrails. The episode starts with
+  "Your plan, applied": what each change did. Names the plan makes up for its own new steps find them. The agent
+  loop's rules say "up to N tools a turn" (they said "exactly one" while running 8).
+- **Where:** `orchestrator.ts`, `prompt.ts` (`PLAN`), `packages/agent/src/agent.ts`. **Used at:** 7b.
+- **Example:** the D eval on a copy of your recording: 10 calls, $0.0333 (understand, a plan of 6, then 8 turns),
+  where 23 Oct's ran out of 40.
+- **Tested by:** unit tests; real model. **Partly:** after the plan, the episode still sent one call per reply (8
+  turns, 8 calls), and A3's plan made no change.
+
+**c. It knows its tools.**
+- **Before:** it offered Puppeteer, guessed selectors, sent `target: "None"` 6 times, and `change` dropped `when`
+  silently 5 times.
+- **Built:**
+  - the prompt says what steps can't do (browser menus, the print dialog, save panels) and that `save_pdf` exists;
+  - a target can be `{ place: "s2" }` (whatever is at that place next time) or `{ css }`; words aren't a selector;
+    "None" reads the whole page;
+  - a tool names the fields it ignored; `change` sets the trigger and edits AI steps; "trigger" works as a step name;
+    `add` takes AI steps and loops sent with loose fields;
+  - an AI step picking "the top 3" with no order or measure is refused, with the words to use;
+  - a date format core can't read lists its tokens (`{{today|D MMM}}` is "24 Oct");
+  - questions about how to build it are never asked.
+- **Where:** `prompt.ts`, `tools.ts`, `evidence/evidence.ts`. **Used at:** 7b, 7d.
+- **Example:** live C's first design sent `{ place: "Indian Rupee" }`, which was taken as a selector and read
+  nothing. Words aren't a selector now, and its next design did the task.
+- **Tested by:** unit tests; live (C, D).
+
+**d. Code checks what the test run got.**
+- **Before:** your D's read got "" three times, counted as success, and its AI step made an article up from it.
+- **Built:** shown to the agent and refused by the gate: a read or AI step that got nothing; two reads that got the
+  same page; an address made of two; an AI answer used in an address but not in what the step read. Shown only: an AI
+  answer not in what it read. A selector the run didn't find says what to do instead of guessing another. A click at
+  a recorded place that only went to a page is followed, not outlined.
+- **Where:** `gate.ts`, `orchestrator.ts`; `packages/player/src/rehearse.ts`. **Used at:** 7c, 7f.
+- **Example:** one D design's test only outlined its click on the featured article's place, so its check saved "24
+  Oct - Main Page.pdf". That click is now followed.
+- **Tested by:** unit tests; the place click live.
+
+**e. The honest end: "Can't run yet".**
+- **Before:** the kept recording couldn't make the PDF, yet Looks right was offered.
+- **Built:** the evidence lists files nothing recorded made. The gate refuses until a step makes a file in that folder
+  (`save_pdf`, a move, a write). If none does, the design says "Can't run yet" with why; the review shows that in place
+  of Looks right, and Go live refuses.
+- **Where:** `gate.ts`, `orchestrator.ts`, `review.ts`; `apps/daemon/src/service.ts`. **Used at:** 7f, ⑧, ⑨.
+- **Example:** your D as recorded: "~/Desktop/Reading/23 Oct - Thuggee.pdf appeared in the recording, but no step makes
+  a file in ~/Desktop/Reading".
+- **Tested by:** unit tests; screenshots on a scratch daemon.
+
+**f. The final check (7g).**
+- **Before:** the test run only outlines what changes anything, so nothing showed the workflow made the right file.
+- **Built:** after the gate, a workflow that makes files runs once for real in the automation window. Only `save_pdf`,
+  and copies, moves or renames of files this run made, are done; nothing on a web page. Every file it made goes to the
+  Trash, and the review says which. A failure goes back to the agent once. A "skip / already / only new" rule runs it
+  twice. It fails an empty file, and, on the recording's day, a file other than the recording's (" (1)" for a taken
+  name is fine).
+- **Where:** `packages/player/src/rehearse.ts` (local mode), `apps/daemon/src/rehearse.ts`, `orchestrator.ts`.
+  **Used at:** 7g.
+- **Example:** D's last design: it made "24 Oct - Battle of Schliengen (1).pdf", the recording's file, and trashed it.
+  Another design's check caught "24 Oct - Main Page.pdf".
+- **Tested by:** unit tests; live for D. Running twice only in tests: no task that makes files has a skip rule yet.
+
+**What the plan said that the code doesn't do:**
+- the final check types and clicks nothing on a page, so A's skip rule was proven by two Run nows and the pick check
+  (§15.5), not by it;
+- "the article's heading matches the AI's title": deferred; D's final design has no AI step;
+- a $1 ceiling per design: you kept $0.25.
+
+### 15.4 Phase 4: the run log and the review (⑨, the app)
+- **Before:** a run's log lines ran together; a page-open step said "its target was not outlined"; nothing said the
+  microphone heard nothing.
+- **Built:**
+  - the Run page groups the log by step (its id, intent and kind, with a line between steps); the walk-through says
+    "nothing to outline" only for steps with nothing to outline;
+  - the review opens with **notices**, then what the final check made;
+  - "Can't run yet" in place of Looks right; Go live says why it waits; after an edit, the review asks you to check
+    the edit makes the file.
+- **Where:** `apps/ui/src/runlog.ts`, `screens/Run.tsx`, `screens/Workflow.tsx`, `review.ts`; `apps/daemon/src/record.ts`.
+- **Used at:** ⑨, and each run's page.
+- **Example:** "The microphone was on, but no words came through: nothing you said was used. Check System Settings →
+  Sound → Input (the microphone you speak into, its level well up)".
+- **Tested by:** unit tests; screenshots on a scratch daemon. Your app shows it after
+  `corepack pnpm --filter @shadow/ui build` and a daemon restart.
+
+### 15.5 What the proof runs added
+Each live run in §16 found the next fault, fixed before the next run:
+- **The pick check (runner).** A's runs said they succeeded while saving stories 7, 15 and 10, then 2, 3 and 4, then
+  one already saved. Now an AI step gets each input by name, a list numbered; the design writes a pick in the
+  recording's order; and code checks a "first N" pick (`pickProblem`): the list's order kept, nothing earlier left out
+  unless it's in the rest of the data, and for "not already / skip / new", nothing already there. Wrong: asked once
+  more of the smart model (about $0.003), told why. Wrong again: the step fails. It checks only "first N" picks.
+- **AI steps, measured.** On A's real inputs, 3 tries each: "top 3" was wrong 3 of 3 on every model (dropped #1, or
+  took the most points); "the first 3 in the list's order" was right 2 of 3 on the fast model and 3 of 3 on the smart
+  one. Thinking was turned on (`43bde8e`), then off the same day (`e579bf9`): it ran out of tokens on a whole page, and
+  the clear instruction was what fixed it.
+- **Tabs given by code.** A's second design named tabs on two opens and left the steps after them without; the gate
+  refused it twice. Code now gives those steps their tab after every change, works its tabs out again each time, and
+  never changes one the agent named (A's fourth design: code moved the notes read to "HN" one call before the Notes
+  tab was opened, and every story was "already saved").
+- **Click the place, name the file from the heading.** Three D designs built the article's address with an AI step
+  (one joined it to the site's twice). Now code proposes clicking what is at the featured article's place
+  (`same_place`), and a file named with the day and the page's title, read from `h1`, both with the change ready.
+  An AI answer used in an address but not in what the step read is refused.
+- **Downloads.** Wikipedia's Download is a form, so it would have waited every morning for an OK. A form whose control
+  says download, export, pdf or csv, and whose only effect was a file, needs none; a found download counts as a file
+  the workflow makes, for the final check. Unit tests only (the test browser takes every download).
+
+---
+
+## 16. Phase 5 (Oct 24): the proof runs
+
+**What it was:** each task recorded again live by me in the isolated test browser, designed on the real model at
+Stop, then started with Run now. What it saved was checked on the page or in the folder. Each run is a row in the
+ledger.
+
+| Task | Live result, day 1 | Designs it took |
+|---|---|---|
+| A (Hacker News top 3 → notes, skip saved ones) | ✓ Run 1 saved the top 3 (OBS Studio, Kimi K3.1 Pro, Twelve years of distributed SQLite) with live points. Run 2 saved the next 3 (#4 Today we hacked, #5, #6), no duplicates, after the pick check and the smart retry. Points came out as "113 points" in run 1 and "867" in run 2: the AI's own format | five; the fifth, 17 calls, $0.085 |
+| B (Google for Developers' newest video and views → notes) | ✓ "Design and replicate voices with Gemini 3.8 Flash TTS, 26K": the channel's newest. Its videos page shows "26K", rounded, where the recording copied the video page's exact count | two; the second, 30 calls, $0.11 |
+| C (USD→INR, today's date → notes) | ✓ "USD to INR, 94.871354, 24 Oct, USD"; the page shows 94.871354 | two; the second, 27 calls, $0.12 |
+| D, the print way | ✓ "24 Oct - Battle of Schliengen.pdf" (2.9 MB), today's featured article, in the recording's name format. Its final check made the recording's file and trashed it | six, each from a fresh recording, three right; the last, 5 calls, $0.018, from code's three proposals, with no AI step |
+| D, the download way | not measurable here: the test browser (Playwright) takes every download into its own folder | one, 34 calls |
+| E (canvas) | deferred | — |
+
+**D's designs varied.** Of six designs of task D, each from a fresh print recording, three did the task (43 calls with an AI step; 7
+calls; 5 calls). Three didn't: an address built with AI, which its final check caught; a wrong file, which its final
+check caught before the fix episode got stuck; 55 calls, out of its $0.25. What settled it was moving the design into
+code: with the date, the title and the place proposed with their changes ready, accepting code's proposals is the whole
+workflow. That 5-call design was seen once.
+
+**Also found:** the walk-through logs `highlighted: false` for every step answered from the inbox
+(`packages/player/src/run.ts:329–333`). It's Akshat's; the UI works around it.
+
+**Not done yet:**
+- **Day 2.** Done means a Run now that does the task on two different days; the re-runs on new data (25 Oct) are next.
+  The four workflows that passed are in `~/shadow-tests/checkpoint-6/kit/`.
+- **Your four Mac recordings:** D through the real print dialog; D again while speaking, after raising the input
+  level; D saved to Downloads, then moved into Reading in Finder; one of A, B or C with voice in your Chrome.
+
+**Cost:** step 5's rows in the ledger add up to about $2.2. The whole ledger is about $6.6 of the $10 (every dollar
+figure in it added up, the "est. under" caps included).
+
+**Where:** [`testing/design-eval-ledger.md`](../testing/design-eval-ledger.md); copies in `~/shadow-tests/checkpoint-6/`
+(not in git).

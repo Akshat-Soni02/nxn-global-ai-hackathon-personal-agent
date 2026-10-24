@@ -1,6 +1,6 @@
 import { fakeLlm } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
-import { BUILD, UNDERSTAND } from "./prompt.ts";
+import { BUILD, PLAN, UNDERSTAND } from "./prompt.ts";
 import { understand } from "./understand.ts";
 
 const task = {
@@ -38,9 +38,25 @@ describe("stage 1: understand", () => {
     expect(BUILD).toContain("<untrusted_data>");
     expect(BUILD).toMatch(/accept p1/);
     expect(BUILD).toMatch(/page: "KPI Sheet"/);
-    // A step without a tab runs in the window's first tab: every step that works in the sheet names it.
-    expect(BUILD).toMatch(/without a tab runs in the window's first tab/);
+    // Steps without a tab share one tab; a tab name goes with an open that put a page in it (checkpoint 6: a read named
+    // the recorded tab, got a blank one, and read nothing).
+    expect(BUILD).toMatch(/steps without a tab all work in one tab/);
+    expect(BUILD).toMatch(/A tab name no open put a page in is a blank tab/);
+    // What steps can't do, and the order to get what changes each time: the same place before an AI pick.
+    expect(BUILD).toMatch(/can't\s+use the browser's own menus, print dialog/);
+    expect(BUILD).toMatch(/target: \{ place:\s+"s2" \}/);
+    expect(BUILD).toMatch(/"the first 3 in the list's\s+order", never "the top 3"/);
     expect(BUILD).toMatch(/change s5 \{ tab: "KPI Sheet" \} and s6 \{ tab: "KPI Sheet" \}/);
     expect(BUILD.split("\n").length).toBeLessThanOrEqual(80);
+  });
+
+  it("plans with the build's principles and example, without testing and finishing (the episode's)", () => {
+    expect(PLAN).toMatch(/^You are Shadow's design agent, planning\. Principles/);
+    expect(PLAN).toMatch(/A worked example: the KPI task/);
+    expect(PLAN).toMatch(/- Ask only what the user must decide/);
+    expect(PLAN).toMatch(/target: \{ place:\s+"s2" \}/);
+    for (const gone of ["- Test it (test)", "- Finish with done", "Tools: accept", "- test, then done"])
+      expect(PLAN).not.toContain(gone);
+    expect(PLAN).toMatch(/\{"calls": \[\{"tool": "<tool>", "input": \{…\}\}, …\]\}/);
   });
 });

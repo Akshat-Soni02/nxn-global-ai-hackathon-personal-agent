@@ -369,16 +369,27 @@ async function runLeaf(
     const [channel, action] = isAction(resolved) ? [resolved.channel, resolved.action] : ["llm", "transform"];
     env.log({ type: "step.start", stepId: step.id, path, channel, action, attempt });
     const t0 = Date.now();
+    const empty = isLlm(resolved) && isLlm(step) ? emptyInputs(step, resolved) : undefined;
     result = isAction(resolved)
       ? await executeOnce(resolved, ctx, env.deps)
-      : isLlm(resolved) && env.deps.llm
-        ? await env.deps.llm(resolved, ctx).catch((error: Error) => ({ ok: false, error: error.message }))
-        : { ok: false, error: "llm steps need a model client" };
+      : empty
+        ? { ok: false, error: `nothing to work from: its inputs are empty (${empty})` }
+        : isLlm(resolved) && env.deps.llm
+          ? await env.deps
+              .llm(resolved, ctx, isLlm(step) ? step.inputs : undefined)
+              .catch((error: Error) => ({ ok: false, error: error.message }))
+          : { ok: false, error: "llm steps need a model client" };
     env.log({ type: "step.result", stepId: step.id, path, attempt, result, ms: Date.now() - t0 });
     if (result.ok) break;
   }
   // A step that ended because the run was stopped is not a failure to repair.
   if (env.signal?.aborted) return fail("you stopped it", "cancelled");
+  // A page that wouldn't open says the address it tried when a value built it: the step only shows {{…}} (checkpoint 6:
+  // "https://en.wikipedia.org" before a full address made en.wikipedia.orghttps://…, which no one could see).
+  const url = isAction(resolved) && resolved.action === "navigate" ? String(resolved.args.url ?? "") : "";
+  if (!result.ok && url && isAction(step) && String(step.args.url ?? "").includes("{{")) {
+    result = { ...result, error: `${result.error ?? "it didn't open"} (it tried to open ${url.slice(0, 200)})` };
+  }
   if (!result.ok) {
     const failure: Failure = { stepId: step.id, path, step: resolved, result, attempts, vars: { ...vars } };
     if ((await env.deps.onFailure?.(failure)) === "pause") {
@@ -547,6 +558,22 @@ function parsePosition(skill: Skill, at: string): Pick<ResumeState, "target" | "
   return { target, items, active: true };
 }
 
+// The whole page: what a read with no control of its own looks in ({ fallbacks: ["main", "body"] }).
+const isPageBody = (selector: string) => selector === "main" || selector === "body";
+
+// An AI step whose every input came back empty would answer from nothing (checkpoint 6: from an empty page it named an
+// article that wasn't there). Its inputs as written, for the message; undefined when it has something to read.
+function emptyInputs(step: LlmStep, resolved: LlmStep): string | undefined {
+  const blank = (v: unknown) =>
+    v === undefined ||
+    v === null ||
+    (typeof v === "string" && !v.trim()) ||
+    (Array.isArray(v) && v.length === 0) ||
+    (typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length === 0);
+  const values = resolved.inputs as unknown[];
+  return values.length > 0 && values.every(blank) ? step.inputs.join(", ") : undefined;
+}
+
 async function executeOnce(step: ActionStep, ctx: RunContext, deps: RunDeps): Promise<StepResult> {
   const channel =
     step.channel === "web"
@@ -567,6 +594,15 @@ async function executeOnce(step: ActionStep, ctx: RunContext, deps: RunDeps): Pr
     result = await channel(step, ctx);
   } catch (error) {
     return { ok: false, error: (error as Error).message };
+  }
+  // A read of the whole page that came back empty read a blank or unloaded page: the steps after it would work on
+  // nothing (checkpoint 6: D's read named a tab no step had opened, read "", and its AI step made an article up).
+  const whole = step.target && !step.target.role && !step.target.name && step.target.fallbacks.some(isPageBody);
+  if (result.ok && step.channel === "web" && step.action === "extract" && whole && !String(result.value ?? "").trim()) {
+    return {
+      ok: false,
+      error: "it read nothing: the page was blank or hadn't loaded (in a tab no step opened a page in?)",
+    };
   }
   // The web executor verifies its own page checks; file checks are verified here for every channel.
   const fileCheck = step.check?.file_exists;

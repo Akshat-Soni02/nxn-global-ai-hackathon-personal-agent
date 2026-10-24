@@ -12,7 +12,7 @@ import { type Daemon, startDaemon } from "./daemon.ts";
 import { classify, type FsChange, ignored, watchDirsFromEnv, watchFiles } from "./fs-watch.ts";
 import { readState, writeState } from "./lifecycle.ts";
 import { locateFile, locateFiles } from "./locate-file.ts";
-import { finishRecording } from "./record.ts";
+import { finishRecording, noticesOf, unchangedControls } from "./record.ts";
 import { recordingDir, writeForm } from "./recording-store.ts";
 import { findSkills, loadSkill, saveSkill, versions } from "./skill-store.ts";
 import { appendTrace, readTrace, tracePath } from "./trace-store.ts";
@@ -39,6 +39,48 @@ const submit = {
 
 let daemon: Daemon | undefined;
 afterEach(() => daemon?.close());
+
+describe("the controls the test run may follow", () => {
+  it("counts a click at a place a recorded step acted at as that control (D, 24 Oct: the featured article's place)", () => {
+    const wf = (steps: unknown[]) =>
+      Skill.parse({
+        id: "d",
+        name: "d",
+        version: 1,
+        description: { goal: "g" },
+        steps: [{ id: "start", type: "trigger", intent: "t" }, ...steps],
+      });
+    const open = {
+      id: "s1",
+      type: "action",
+      intent: "o",
+      channel: "web",
+      action: "navigate",
+      args: { url: "https://w.test/" },
+    };
+    const plain = wf([open, { ...open, id: "s2", args: { url: "https://w.test/wiki/Thuggee" } }]);
+    const click = { id: "s2", type: "action", intent: "c", channel: "web", action: "click", args: {} };
+    const draft = wf([open, { ...click, target: { fallbacks: ["#mp-tfa > p > b > a"] } }]);
+    expect([...unchangedControls(plain, draft, new Set(["#mp-tfa > p > b > a"]))]).toEqual(["start", "s1", "s2"]);
+    expect([...unchangedControls(plain, draft)]).toEqual(["start", "s1"]); // a place no step recorded: only outlined
+  });
+});
+
+describe("what the review says about the recording itself (checkpoint 6)", () => {
+  it("says the microphone heard nothing, Shadow.app or Accessibility was off, and a file nothing made", () => {
+    const d = "~/Desktop/Reading/23 Oct - Thuggee.pdf";
+    expect(noticesOf({ microphone: true, words: 0, mac: { connected: true, trusted: false }, unmade: [d] })).toEqual([
+      "The microphone was on, but no words came through: nothing you said was used. Check System Settings → Sound → Input (the microphone you speak into, its level well up)",
+      "Accessibility is off for Shadow.app: what you did outside Chrome (Mac apps, save and print dialogs) wasn't recorded. Turn it on in System Settings → Privacy & Security → Accessibility",
+      `A file appeared that the recording doesn't show being made: ${d}`,
+    ]);
+    expect(noticesOf({ microphone: false, words: 0, mac: { connected: false, trusted: false }, unmade: [] })).toEqual([
+      "Shadow.app wasn't running: what you did outside Chrome (Mac apps, save and print dialogs) wasn't recorded",
+    ]);
+    // Words heard, Accessibility on, every file made: nothing to say.
+    expect(noticesOf({ microphone: true, words: 3, mac: { connected: true, trusted: true }, unmade: [] })).toEqual([]);
+  });
+});
 
 describe("trace store", () => {
   it("appends events as lines and reads them back in time order, skipping a torn last line", () => {

@@ -4,9 +4,15 @@
 // it runs as often as they said. Each problem is a sentence the agent reads and fixes (twice at most; then it is saved
 // with the gaps listed for the user). Oct 19: the agent finished with all 20 recorded steps removed, and with checks
 // for text never on screen.
+
+import { dirname } from "node:path";
 import {
+  applyEdits,
   type Check,
+  type EditInput,
+  findStep,
   isAction,
+  isLlm,
   isOutward,
   type Locator,
   type Skill,
@@ -16,6 +22,7 @@ import {
 } from "@shadow/core";
 import { MASK } from "../../mask.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
+import { expand, withDates } from "./places.ts";
 
 // Actions that change something the user cares about: what they typed, chose, uploaded or moved.
 const WRITES = new Set([
@@ -55,6 +62,36 @@ export interface GateInput {
   said?: string[];
   // What an unattended run still needs (the daemon's go-live checks).
   unattended?: (skill: Skill) => string[];
+  // Files the recording shows appearing with nothing recorded making them (evidence.unmade).
+  unmade?: string[];
+}
+
+// A file the recording shows appearing with nothing recorded making it (checkpoint 6: a PDF saved through the
+// browser's print dialog) is made by some step next time, in that folder; else the workflow can't do the task, and says
+// so instead of offering "Looks right".
+export function unmadeProblems(skill: Skill, unmade: string[]): string[] {
+  const folders = [...walkSteps(skill.steps)].flatMap(({ step }) => {
+    if (!isAction(step)) return [];
+    const key = `${step.channel}.${step.action}`;
+    const a = step.args;
+    const place =
+      key === "web.save_pdf"
+        ? `${a.dir}/`
+        : ["fs.move", "fs.copy", "fs.rename"].includes(key)
+          ? a.to
+          : key === "fs.write"
+            ? a.path
+            : undefined;
+    if (typeof place !== "string" || !/^[~/]/.test(place)) return [];
+    const where = String(withDates(place));
+    return [expand(where.endsWith("/") ? where : dirname(where))];
+  });
+  return unmade
+    .filter((path) => !folders.includes(expand(dirname(path))))
+    .map(
+      (path) =>
+        `${path} appeared in the recording, but no step makes a file in ${dirname(path)}: build what made it (a page printed to PDF is save_pdf; a download is a click on the page's own control), or say in done why it can't be built`,
+    );
 }
 
 const norm = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
@@ -67,6 +104,7 @@ const NEEDS: Record<string, string[]> = {
   "web.type": ["text"],
   "web.select": ["option"],
   "web.press": ["key"],
+  "web.save_pdf": ["dir", "name"],
   "fs.find": ["dir", "glob"],
   "fs.move": ["from", "to"],
   "fs.copy": ["from", "to"],
@@ -98,7 +136,8 @@ export function stepProblems(step: Step): string[] {
   const problems =
     missing.length > 0 ? [`${step.id}: ${key} needs ${needs.join(" and ")} (missing ${missing.join(", ")})`] : [];
   const noControl =
-    ["web.navigate", "web.wait_for"].includes(key) || (key === "web.extract" && step.args.source === "google_sheet");
+    ["web.navigate", "web.wait_for", "web.save_pdf"].includes(key) ||
+    (key === "web.extract" && step.args.source === "google_sheet");
   // A key pressed on the page needs no control; one aimed at a control must be able to find it.
   if (step.channel === "web" && !noControl && (key !== "web.press" || step.target) && !findable(step.target)) {
     problems.push(
@@ -147,11 +186,20 @@ const stale = (step: Step): string[] => {
 // name that tab too.
 const tabless = (steps: Step[]): string[] => {
   let opened: { id: string; tab: string } | undefined;
+  const tabs = new Set(["main"]); // tabs a page was opened in
   return steps.flatMap((step) => {
     if (!isAction(step) || step.channel !== "web") return [];
     if (step.action === "navigate") {
       opened = step.tab ? { id: step.id, tab: step.tab } : undefined;
+      if (step.tab) tabs.add(step.tab);
       return [];
+    }
+    // A tab is made the first time a step names it, empty (checkpoint 6: D's read named the recorded tab while the page
+    // had opened in the first one, read nothing, and its AI step made an article up).
+    if (step.tab && !tabs.has(step.tab)) {
+      return [
+        `${step.id}: no earlier step opens a page in tab "${step.tab}", so it would act on a blank tab: leave its tab out to stay on the page the steps before it opened`,
+      ];
     }
     return opened && !step.tab
       ? [
@@ -161,9 +209,156 @@ const tabless = (steps: Step[]): string[] => {
   });
 };
 
+// What the tab rule asks for, done by code after every change (A, 24 Oct: the agent named tabs on two opens, left the
+// steps after them without, and the gate refused it twice saying "give it tab Notes too"): a step with no tab, after a
+// page opened in a named tab, gets that tab. Those tabs are code's (`owned`): taken back and worked out again from the
+// steps as they are now, so an open added later moves them. A tab the agent named is never changed, even before the
+// open that makes it (A's 4th design: code moved the notes read to "HN" one call before the Notes tab was opened).
+export function tabsFixed(
+  skill: Skill,
+  owned: Map<string, string> = new Map(),
+): { skill: Skill; fixed: Map<string, string>; owned: Map<string, string> } {
+  let opened: { id: string; tab: string } | undefined;
+  const fixed = new Map<string, string>();
+  const mine = new Map<string, string>();
+  const edits: EditInput[] = [];
+  for (const { step } of walkSteps(skill.steps)) {
+    if (!isAction(step) || step.channel !== "web") continue;
+    if (step.action === "navigate") {
+      opened = step.tab ? { id: step.id, tab: step.tab } : undefined;
+      continue;
+    }
+    const codes = step.tab !== undefined && owned.get(step.id) === step.tab;
+    if (step.tab !== undefined && !codes) continue; // the agent's
+    const want = opened?.tab;
+    if (want) mine.set(step.id, want);
+    if (want === step.tab) continue;
+    const { tab: _, ...rest } = step;
+    edits.push({ op: "replace", step: step.id, with: (want ? { ...rest, tab: want } : rest) as never });
+    fixed.set(
+      step.id,
+      want
+        ? `code gave it tab "${want}": it acts on the page ${opened?.id} opened there`
+        : "code took its tab back: no page before it opens in a named tab",
+    );
+  }
+  const result = edits.length > 0 ? applyEdits(skill, edits) : undefined;
+  if (edits.length > 0 && !result?.ok) return { skill, fixed: new Map(), owned };
+  return { skill: result?.ok ? result.skill : skill, fixed, owned: mine };
+}
+
+// Two reads that got exactly the same text in the test run read the same page (A's 4th design: its "read the notes"
+// read Hacker News again, and every story was then "already saved"): the later one is in the wrong tab or not needed.
+export function sameReads(skill: Skill, test: TestReport | undefined): string[] {
+  const reads = new Set(
+    [...walkSteps(skill.steps)].flatMap(({ step }) => (isAction(step) && step.action === "extract" ? [step.id] : [])),
+  );
+  const seen = new Map<string, string>();
+  return (test?.steps ?? []).flatMap((t) => {
+    if (!reads.has(t.id) || t.status !== "done" || typeof t.value !== "string" || !t.value.trim()) return [];
+    const first = seen.get(t.value);
+    if (!first) {
+      seen.set(t.value, t.id);
+      return [];
+    }
+    return [
+      `${t.id} read exactly what ${first} read in the test run (the same page): give it the tab of the page it should read, or remove it`,
+    ];
+  });
+}
+
 // The work the user showed (what they typed, chose, moved or sent: a step that needed approval sent something) still
 // happens: kept (in a loop counts), or its removal explained for the review. A workflow that keeps none of it isn't
 // what they meant, whatever reason each removal was given (Oct 19: the Play Store run kept one step of the recording).
+// The steps that ran in the test but got nothing: a read of an empty control, an AI step that answered nothing. The
+// runner counts them as done (checkpoint 6: D's read got "" three times and an AI step made up an article from it). An
+// AI step's empty list is an answer: nothing new today ("skip the ones already saved").
+export function emptyIn(skill: Skill, test: TestReport | undefined): string[] {
+  const steps = new Map([...walkSteps(skill.steps)].map(({ step }) => [step.id, step]));
+  const empty = (v: unknown) =>
+    v == null ||
+    (typeof v === "string" && !v.trim()) ||
+    (Array.isArray(v) && v.length === 0) ||
+    (typeof v === "object" && Object.keys(v).length === 0);
+  return (test?.steps ?? []).flatMap((t) => {
+    const step = steps.get(t.id);
+    const makes =
+      step && ((isLlm(step) && step.output.type.type !== "list") || (isAction(step) && step.output !== undefined));
+    return t.status === "done" && makes && empty(t.value) ? [t.id] : [];
+  });
+}
+
+// An AI step's answer that isn't in what it read: right for one it works out (a summary, a name it makes), wrong for
+// one it picks from a page (checkpoint 5: D's took a picture's caption for the title). Shown to the agent with the
+// test's results, never refused: only it knows which kind the step is.
+export function unfoundIn(skill: Skill, test: TestReport | undefined): string[] {
+  const all = [...walkSteps(skill.steps)].map(({ step }) => step);
+  const ran = new Map((test?.steps ?? []).map((t) => [t.id, t]));
+  const text = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v ?? ""));
+  const saved = (name: string) => {
+    const by = all.find((s) => (isLlm(s) || isAction(s)) && s.output?.name === name);
+    return by ? text(ran.get(by.id)?.value) : "";
+  };
+  return all.filter(isLlm).flatMap((ai) => {
+    const t = ran.get(ai.id);
+    if (t?.status !== "done") return [];
+    const read = ai.inputs
+      .flatMap((i) => [...i.matchAll(/\{\{\s*(\w+)/g)].map((m) => saved(m[1] ?? "")))
+      .join("\n")
+      .toLowerCase();
+    if (!read.trim()) return [];
+    const answers = (Array.isArray(t.value) ? t.value : [t.value]).filter(
+      (v): v is string => typeof v === "string" && v.trim() !== "",
+    );
+    const missing = answers.find((a) => !read.includes(a.trim().toLowerCase()));
+    return missing
+      ? [
+          `${ai.id} answered "${missing.slice(0, 80)}", which isn't in what it read: right for an answer it works out, wrong for one it picks from the page`,
+        ]
+      : [];
+  });
+}
+
+// A control given only by a selector that the test run didn't find (B, 24 Oct: six guessed YouTube selectors in a row,
+// each not found): what to do instead, the way that works on any page.
+export function guessed(skill: Skill, id: string): string {
+  const step = findStep(skill, id);
+  const t = step && isAction(step) ? step.target : undefined;
+  return t && !t.role && !t.name && !t.text
+    ? `; a selector not found isn't fixed by guessing another: read the page (read with no target), let an ai_step pick what changes in the list's order, then click it by its name ({ role: "link", name: "{{picked}}" })`
+    : "";
+}
+
+// An AI answer that goes into a page's address but isn't in what it read was made up (D, 24 Oct: it built
+// /wiki/Battle_of_Schliengen from the title; on a day the title doesn't make the address, a "no such article" page opens,
+// loads, and is saved as the PDF). Not explained away: open what the page links to instead.
+export function madeUpAddresses(skill: Skill, test: TestReport | undefined): string[] {
+  const all = [...walkSteps(skill.steps)].map(({ step }) => step);
+  const opens = new Map<string, string>(); // a variable → the step whose address uses it
+  for (const s of all)
+    if (isAction(s) && s.action === "navigate")
+      for (const m of String(s.args.url ?? "").matchAll(/\{\{\s*(\w+)/g)) opens.set(m[1] ?? "", s.id);
+  const unfound = unfoundIn(skill, test);
+  return all.flatMap((s) => {
+    const step = isLlm(s) ? opens.get(s.output.name) : undefined;
+    const doubt = unfound.find((u) => u.startsWith(`${s.id} answered`));
+    return step && doubt
+      ? [
+          `${s.id}'s answer goes into ${step}'s address but isn't in what it read: it may be made up, and a page that doesn't exist still opens. Click the link where it is ({ place: "<the step that clicked it>" }) instead`,
+        ]
+      : [];
+  });
+}
+
+// An address made of two (checkpoint 6: "https://en.wikipedia.org" before a value that was already a whole address),
+// from the runner's "(it tried to open …)": said how to fix it.
+export function joined(error?: string): string {
+  const tried = /it tried to open (\S+)\)/.exec(error ?? "")?.[1];
+  return tried && (tried.match(/:\/\//g) ?? []).length > 1
+    ? `; its address is two joined: a value that is already a whole address is opened alone ({{value}})`
+    : "";
+}
+
 export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string, string>): string[] {
   const now = new Set([...walkSteps(workflow.steps)].map(({ step }) => step.id));
   // The same action on the same control (by role and name) is that work kept, though the step is new (Checkpoint 5:
@@ -191,7 +386,7 @@ export function gate(input: GateInput): string[] {
   const { recorded, workflow, task, done, test, appeared, explained } = input;
   const sinceTest = input.sinceTest ?? explained;
   const now = new Map<string, Step>([...walkSteps(workflow.steps)].map(({ step }) => [step.id, step]));
-  const problems = lostWork(recorded, workflow, explained);
+  const problems = [...lostWork(recorded, workflow, explained), ...unmadeProblems(workflow, input.unmade ?? [])];
 
   // Every rule they said or wrote: built by steps that exist, or explained.
   task.rules.forEach((rule, i) => {
@@ -245,9 +440,18 @@ export function gate(input: GateInput): string[] {
     if (sinceTest.has(step.id)) continue;
     const what =
       step.status === "not_found"
-        ? "the test run didn't find it"
-        : `it failed in the test run (${step.error ?? "no reason given"})`;
+        ? `the test run didn't find it${guessed(workflow, step.id)}`
+        : `it failed in the test run (${step.error ?? "no reason given"})${joined(step.error)}`;
     problems.push(`${step.id}: ${what}: fix it, or explain why it will work in a real run`);
+  }
+
+  problems.push(...sameReads(workflow, test).filter((p) => !sinceTest.has(p.split(" ")[0] ?? "")));
+  problems.push(...madeUpAddresses(workflow, test));
+  for (const id of emptyIn(workflow, test)) {
+    if (sinceTest.has(id)) continue;
+    problems.push(
+      `${id}: it got nothing in the test run (an empty value): fix what it reads, or explain why a real run will have one`,
+    );
   }
 
   const notRun = /^not run: (.*)/.exec(test?.outcome ?? "")?.[1];

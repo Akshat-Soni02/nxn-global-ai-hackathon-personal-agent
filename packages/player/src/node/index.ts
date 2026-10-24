@@ -2,7 +2,7 @@
 
 export { type DevChrome, launchChrome, MAC_CHROME } from "./chrome.ts";
 export { dataChannel, pick } from "./data-channel.ts";
-export { fsChannel } from "./fs-channel.ts";
+export { fsChannel, savePdf } from "./fs-channel.ts";
 export { checkFile, type FileRule, resolveInputs } from "./inputs.ts";
 export {
   type AiLimits,

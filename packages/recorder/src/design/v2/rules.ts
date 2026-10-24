@@ -111,12 +111,15 @@ export function refusals(original: Skill, draft: Skill, facts: RecordingFacts): 
       if (why) problems.push(`${step.id}: ${why}`);
     }
     // A place on disk the step reads, writes or hands to a page: an fs step's path arguments, or an upload's files.
+    // A PDF's name is a file name only (the runner keeps it in its folder), so only its folder is a place.
     const places =
       step.channel === "fs"
         ? PATH_ARGS.map((key) => step.args[key])
         : step.channel === "web" && step.action === "upload"
           ? [step.args.file, ...(Array.isArray(step.args.files) ? step.args.files : [])]
-          : [];
+          : step.channel === "web" && step.action === "save_pdf"
+            ? [step.args.dir]
+            : [];
     for (const place of places) {
       if (place === undefined) continue;
       const unsafe = unsafeRefs(place, safe);

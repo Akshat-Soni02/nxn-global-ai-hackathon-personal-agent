@@ -97,6 +97,9 @@ function refType(scope: Scope, expr: string): PathType | string {
   const ref = parseRef(expr);
   const date = ref && scope.has(ref.name) ? undefined : parseDateRef(expr);
   if (date) return date.format ? { type: "text" } : { type: "date" };
+  // A date with a format it can't read says which tokens it can (the D eval, 24 Oct: {{today|d MMM}}, date-fns style).
+  if (!ref && /^\s*(today|week_start)\b/.test(expr))
+    return 'has a date format it can\'t read: its tokens are YYYY YY MMMM MMM MM M DD D dddd ddd, D is the day of the month ({{today|D MMM}} is "24 Oct")';
   if (!ref) return "is not a variable reference: use {{name}} or {{name.field}}";
   const root = scope.get(ref.name) ?? BUILT_INS[ref.name];
   if (!root) return `uses ${ref.name}, which is not declared by an earlier step`;
@@ -123,6 +126,7 @@ function produces(step: ActionStep): VarType[] {
       return [FILE, listOf(FILE)];
     case "fs.rename":
     case "fs.write":
+    case "web.save_pdf":
       return [FILE];
     case "fs.read":
       return [TEXT];

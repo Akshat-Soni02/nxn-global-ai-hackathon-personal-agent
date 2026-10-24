@@ -21,7 +21,15 @@ import {
   runSkill,
   type StepResult,
 } from "@shadow/player";
-import { fileExists, fsChannel, type LlmExecutor, poll, resolveInputs, scriptChannel } from "@shadow/player/node";
+import {
+  fileExists,
+  fsChannel,
+  type LlmExecutor,
+  poll,
+  resolveInputs,
+  savePdf,
+  scriptChannel,
+} from "@shadow/player/node";
 import { type Recovery as PlayerRecovery, runWithRecovery } from "@shadow/player/repair";
 import type { PageOp, PageOpResult } from "@shadow/player/web";
 import type { Daemon } from "./daemon.ts";
@@ -140,6 +148,12 @@ export async function runSkillOn(
     );
     if (reply.type !== "run.step_result") throw new Error(`unexpected reply ${reply.type}`);
     const { ok, value, matchScore, matchedBy, failedCheck, error } = reply;
+    // web.save_pdf: the extension printed the page; the file is written here (never its bytes into the run's log).
+    if (ok && step.action === "save_pdf") {
+      const pdf = (value as { pdf?: unknown } | undefined)?.pdf;
+      if (typeof pdf !== "string") return { ok: false, error: "the page could not be printed to a PDF" };
+      return { ok, value: await savePdf(step.args, pdf) };
+    }
     return { ok, value, matchScore, matchedBy, failedCheck, error };
   };
 

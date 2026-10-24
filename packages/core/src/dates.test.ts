@@ -35,6 +35,12 @@ describe("dates in a workflow", () => {
     expect(typing("{{today|[~/.ssh]}}").success).toBe(false);
   });
 
+  it("says which tokens a format takes when it can't read one (the D eval, 24 Oct: date-fns' d MMM)", () => {
+    const bad = typing("{{today|d MMM}}");
+    expect(bad.success).toBe(false);
+    expect(bad.error?.issues[0]?.message).toMatch(/date format it can't read: its tokens are YYYY .* D is the day/);
+  });
+
   it("lets a step use them", () => {
     expect(typing("{{today|D MMM}}").success).toBe(true);
     expect(typing("w/c {{week_start|D.M.YYYY}}").success).toBe(true);

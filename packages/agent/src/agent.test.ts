@@ -375,6 +375,25 @@ describe("record-keeping and several calls per turn (opt-in)", () => {
     expect(JSON.stringify(llm.requests[1])).toContain("Not run: one tool per turn.");
   });
 
+  it("tells the model how many calls a turn runs: never 'exactly one' when it runs several", async () => {
+    const one = await runAgent({
+      llm: fakeLlm([call("done", { summary: "ok" })]),
+      system: "s",
+      task: "t",
+      tools: [done],
+    });
+    expect(one.system).toContain("call exactly one tool");
+    const several = await runAgent({
+      llm: fakeLlm([call("done", { summary: "ok" })]),
+      system: "s",
+      task: "t",
+      tools: [done],
+      callsPerTurn: 8,
+    });
+    expect(several.system).not.toContain("exactly one tool");
+    expect(several.system).toContain("up to 8; they run in order");
+  });
+
   it("stores the input of a call it rejected, the model's reasoning, and the whole system prompt", async () => {
     const llm = fakeLlm([
       { reasoning: "I should dismiss the banner first.", toolCalls: [{ name: "dismiss", arguments: { text: 5 } }] },

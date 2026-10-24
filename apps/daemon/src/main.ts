@@ -256,11 +256,13 @@ record = createRecordControl({
       describer,
       // The design agent's safe test run: in the automation window, its log next to the recording.
       // Queued with the runs: one leg at a time in the automation window.
-      rehearse: (skill, effects, onLine, recorded) =>
+      rehearse: (skill, effects, onLine, recorded, final) =>
         service.exclusive(() =>
           rehearse(daemon, skill, {
             effects,
             recorded,
+            local: Boolean(final),
+            twice: final?.twice ?? false,
             hooks: { data, llm },
             logDir: recordingDir(home, sessionId),
             onLine: (line) => {
@@ -270,6 +272,7 @@ record = createRecordControl({
           }),
         ),
       progress,
+      mac: () => daemon.mac(),
       log,
     });
   },

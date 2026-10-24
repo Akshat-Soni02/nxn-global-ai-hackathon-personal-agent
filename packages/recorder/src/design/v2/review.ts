@@ -19,10 +19,25 @@ export interface Review {
   made?: string[];
   // Questions not asked (another one changed the same step, or past five): each took its default.
   notAsked?: string[];
+  // Why it can't do the task yet: the page shows this instead of "Looks right", and it can't go live (checkpoint 6).
+  cantRun?: string[];
+  // What the final check did for real: the files it made and put in the Trash, or how it failed.
+  checked?: string;
+  // What the recording itself missed (no words from the microphone, Accessibility off, a file nothing made).
+  notices?: string[];
   reviewed: boolean;
 }
 
-export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] = []): Review {
+// The final check in a line: what it made (then put in the Trash), or where it failed.
+function checkedText(check: NonNullable<DesignV2Outcome["checked"]>): string {
+  if (check.outcome.startsWith("failed")) return `The final check ran it for real and it failed: ${check.outcome}`;
+  const made = check.made ?? [];
+  return made.length > 0
+    ? `The final check ran it for real: it made ${made.join(", ")}, then put ${made.length === 1 ? "it" : "them"} in the Trash`
+    : `The final check ran it for real: ${check.outcome}`;
+}
+
+export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] = [], notices: string[] = []): Review {
   const said = (design.task?.rules ?? []).map((rule, i) => {
     const built = design.done?.rules.find((r) => r.rule === i);
     const notBuilt = built ? built.not_built : "the design agent didn't say";
@@ -43,8 +58,9 @@ export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] =
   return {
     skillId: skill.id,
     version: skill.version,
-    summary:
-      design.kind === "designed"
+    summary: design.cantRun?.length
+      ? `Can't run yet: ${design.cantRun[0]}`
+      : design.kind === "designed"
         ? // The agent's own words, said as such: Checkpoint 4's described a branch that wasn't there. The notes are code's.
           design.summary
           ? `In the agent's words: "${design.summary}". The changes below are what it really did.`
@@ -57,6 +73,9 @@ export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] =
     ...(cadence ? { cadence } : {}),
     ...(made.length > 0 ? { made } : {}),
     ...(design.skipped.length > 0 ? { notAsked: design.skipped } : {}),
+    ...(design.cantRun?.length ? { cantRun: design.cantRun } : {}),
+    ...(design.checked ? { checked: checkedText(design.checked) } : {}),
+    ...(notices.length > 0 ? { notices } : {}),
     reviewed: false,
   };
 }

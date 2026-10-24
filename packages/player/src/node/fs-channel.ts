@@ -41,6 +41,22 @@ async function moveFile(from: string, to: string): Promise<void> {
   }
 }
 
+// web.save_pdf's file: the extension printed the page (base64, from Page.printToPDF); it is written here, where files
+// live. The name is a file name only: a "/" in it (a title read from the page) can't take it out of the folder.
+export async function savePdf(args: Record<string, unknown>, data: string): Promise<ReturnType<typeof fileValue>> {
+  const dir = expandHome(str(args.dir, "dir"));
+  const raw =
+    str(args.name, "name")
+      .replace(/[/\\:]/g, "-")
+      .replace(/^\.+/, "")
+      .trim() || "page";
+  const name = /\.pdf$/i.test(raw) ? raw : `${raw}.pdf`;
+  await mkdir(dir, { recursive: true });
+  const target = freePath(join(dir, name));
+  await writeFile(target, Buffer.from(data, "base64"));
+  return fileValue(target);
+}
+
 export async function fsChannel(step: Step, ctx: RunContext): Promise<StepResult> {
   const a = step.args;
   switch (step.action) {
@@ -55,7 +71,18 @@ export async function fsChannel(step: Step, ctx: RunContext): Promise<StepResult
       // With timeout_ms, wait for at least one match (e.g. a download finishing). Otherwise look once.
       await poll(search, step.timeout_ms ?? 0);
       if (pick === "all") return { ok: true, value: found.map(fileValue) };
-      if (!found[0]) return { ok: false, error: `no file matches ${a.glob} in ${a.dir}` };
+      if (!found[0]) {
+        // Files from before the run don't count, so say they are there (checkpoint 6: "no file matches *.pdf" with
+        // yesterday's PDF in the folder).
+        const older = since !== undefined ? await findFiles(str(a.dir, "dir"), str(a.glob, "glob")) : [];
+        const names = older.slice(0, 3).map((f) => basename(f));
+        return {
+          ok: false,
+          error: older.length
+            ? `no new file matches ${a.glob} in ${a.dir} since the run started (older ones there: ${names.join(", ")})`
+            : `no file matches ${a.glob} in ${a.dir}`,
+        };
+      }
       return { ok: true, value: fileValue(found[0]) };
     }
     case "move":

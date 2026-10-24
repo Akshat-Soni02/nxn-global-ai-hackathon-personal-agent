@@ -372,9 +372,10 @@ describe("after Stop, with a model", () => {
     const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
     expect(kept).toMatchObject({ kind: "designed", summary: "A scheduled run logs the current week" });
     expect(kept.asked).toEqual([{ question: "Which week should a scheduled run log?", answer: "", by: "agent" }]);
-    // One AI read the recording: stage 1 wrote the task model, every later call was the agent's, with its tools.
+    // One AI read the recording: stage 1 wrote the task model, the next call planned its changes (none here), every
+    // later call was the agent's, with its tools.
     expect(kept.task).toMatchObject({ cadence: { kind: "schedule" } });
-    expect(llm.requests.slice(1).every((r) => Array.isArray((r as { tools?: unknown }).tools))).toBe(true);
+    expect(llm.requests.slice(2).every((r) => Array.isArray((r as { tools?: unknown }).tools))).toBe(true);
     // What the agent was told is kept, so a poor result can be explained (Oct 14: it couldn't be).
     expect(kept.system).toMatch(/^You are Shadow's design agent/);
   });

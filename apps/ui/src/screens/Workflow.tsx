@@ -7,7 +7,7 @@ import { Action, Loading, StateChip, StatusChip } from "../components.tsx";
 import { FrequencyPicker } from "../FrequencyPicker.tsx";
 import { ago, duration, money, when } from "../format.ts";
 import { describe } from "../frequency.ts";
-import { badgesOf } from "../review.ts";
+import { badgesOf, cantRunNow, summaryOf } from "../review.ts";
 import { WorkflowTree } from "../WorkflowTree.tsx";
 import { Editor } from "./Editor.tsx";
 
@@ -31,6 +31,7 @@ export function Workflow({ id }: { id: string }) {
   const mine = summary.data?.find((w) => w.id === id);
   const state = mine?.state;
   const needsLook = Boolean(review.data && !review.data.reviewed && review.data.version <= latest.version);
+  const cantRun = cantRunNow(review.data, latest.version);
 
   return (
     <>
@@ -58,7 +59,12 @@ export function Workflow({ id }: { id: string }) {
             {state?.state === "live" ? (
               <Action run={() => session.call("pause", { id })}>Pause</Action>
             ) : needsLook && state?.state !== "paused" ? (
-              <button type="button" className="button" disabled title="Look at what the design changed first">
+              <button
+                type="button"
+                className="button"
+                disabled
+                title={cantRun[0] ? `It can't run yet: ${cantRun[0]}` : "Look at what the design changed first"}
+              >
                 Go live
               </button>
             ) : (
@@ -128,6 +134,7 @@ export function Workflow({ id }: { id: string }) {
       {review.data && !review.data.reviewed ? (
         <ReviewCard
           review={review.data}
+          cantRun={cantRun}
           onLooksRight={async () => {
             await session.call("looksRight", { id });
             review.reload();
@@ -207,9 +214,18 @@ export function Workflow({ id }: { id: string }) {
   );
 }
 
-// The review after a design (spec 4.3): every change with its why, what you said and what was built for it, what
-// wasn't tested, and how it was made. Go live waits for Looks right.
-function ReviewCard({ review, onLooksRight }: { review: Review; onLooksRight: () => Promise<unknown> }) {
+// The review after a design (spec 4.3): what the recording itself missed, every change with its why, what you said and
+// what was built for it, what wasn't tested, and how it was made. Go live waits for Looks right; a workflow that can't
+// do the task yet has no Looks right, only what to do about it (checkpoint 6: D was offered one).
+function ReviewCard({
+  review,
+  cantRun,
+  onLooksRight,
+}: {
+  review: Review;
+  cantRun: string[];
+  onLooksRight: () => Promise<unknown>;
+}) {
   const list = (title: string, items: string[]) =>
     items.length > 0 ? (
       <>
@@ -224,8 +240,19 @@ function ReviewCard({ review, onLooksRight }: { review: Review; onLooksRight: ()
   return (
     <section className="section review" aria-label="What the design changed">
       <h2>Check what was built</h2>
-      <p>{review.summary}</p>
+      {review.notices?.length ? (
+        <div className="review-notices">
+          <strong>About the recording</strong>
+          <ul>
+            {review.notices.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <p>{summaryOf(review, cantRun)}</p>
       {review.cadence ? <p className="muted">Runs: {review.cadence}</p> : null}
+      {review.checked ? <p className="muted">{review.checked}</p> : null}
       <ul className="review-notes">
         {badgesOf(review).map((b) => (
           <li key={`${b.step}-${b.label}`}>
@@ -252,7 +279,21 @@ function ReviewCard({ review, onLooksRight }: { review: Review; onLooksRight: ()
           </ol>
         </details>
       ) : null}
-      <Action run={onLooksRight}>Looks right</Action>
+      {cantRun.length > 0 ? (
+        <div className="review-cant-run">
+          <strong>Can't run yet</strong>
+          <ul>
+            {cantRun.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+          <div className="muted small">
+            Record again, showing how it is made, or Edit it to add the step that makes it. Go live waits until then.
+          </div>
+        </div>
+      ) : (
+        <Action run={onLooksRight}>Looks right</Action>
+      )}
     </section>
   );
 }

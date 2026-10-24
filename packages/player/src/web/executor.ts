@@ -255,6 +255,11 @@ export async function executeWebStep(cdp: Cdp, step: Step, env: WebEnv = {}): Pr
         .map((id) => callOn<{ text: string; href: string }>(cdp, id, FN_TEXT_AND_HREF)),
     );
     value = render(items, a);
+  } else if (step.action === "save_pdf") {
+    // What Print → Save as PDF does, without the browser's dialog. The bytes go back to the daemon, which writes the
+    // file (savePdf in node/fs-channel.ts): the extension can't write to disk.
+    const { data } = await cdp.send<{ data: string }>("Page.printToPDF", { printBackground: true });
+    value = { pdf: data };
   } else if (step.action === "press" && !step.target) {
     const error = await press(cdp, String(a.key ?? ""), modifiersOf(a.modifiers));
     if (error) return fail(error);

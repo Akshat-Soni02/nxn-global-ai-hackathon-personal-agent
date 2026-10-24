@@ -2,7 +2,7 @@
 // Turns one recording into a workflow exactly as Stop does (finishRecording), in a scratch data folder, and checks the
 // result against the folder's expect.json: what a correct workflow does next time, in the user's words, as checks.
 // Fake model by default: free, and it finishes at once, so it shows what code alone builds. --real uses the key (.env,
-// else the Keychain) and is capped by the ledger, testing/design-eval-ledger.md: $5 in all for Record v2. Without
+// else the Keychain) and is capped by the ledger, testing/design-eval-ledger.md: $10 in all for Record v2. Without
 // --yes, --real only says what it would spend.
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +15,7 @@ import { configFromEnv, createLlm, fakeLlm, type Llm, UsageMeter } from "../pack
 import { checkExpectations, Expectations, scriptedDesigner } from "../packages/recorder/src/index.ts";
 
 const LEDGER = resolve(import.meta.dirname, "../testing/design-eval-ledger.md");
-const CAP_USD = 5;
+const CAP_USD = 10; // Rushil, 23 Oct: $10 in all (was $5)
 // The most one design may cost: its budget, pictures included. Announced before a real run.
 const ESTIMATE_USD = 0.25;
 

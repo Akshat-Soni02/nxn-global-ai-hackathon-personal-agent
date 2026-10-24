@@ -82,6 +82,7 @@ export const PROPOSAL_KINDS = [
   "date",
   "next_empty_row",
   "open_directly",
+  "same_place",
   "all_files",
   "constant",
 ] as const;
@@ -127,4 +128,7 @@ export interface TestReport {
   steps: TestStep[];
   // How the run ended (the player's status), and why when it stopped early.
   outcome: string;
+  // The final check only: the files it made for real, then put in the Trash; and those a second run made again.
+  made?: string[];
+  again?: string[];
 }
