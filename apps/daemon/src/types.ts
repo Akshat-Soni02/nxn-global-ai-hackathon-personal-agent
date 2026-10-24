@@ -186,5 +186,7 @@ export interface Review {
   // Why it can't do the task yet: shown instead of "Looks right", and it can't go live.
   cantRun?: string[];
   checked?: string;
+  // What the recording itself missed: shown first.
+  notices?: string[];
   reviewed: boolean;
 }

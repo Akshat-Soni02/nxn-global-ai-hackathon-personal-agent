@@ -12,7 +12,7 @@ import { type Daemon, startDaemon } from "./daemon.ts";
 import { classify, type FsChange, ignored, watchDirsFromEnv, watchFiles } from "./fs-watch.ts";
 import { readState, writeState } from "./lifecycle.ts";
 import { locateFile, locateFiles } from "./locate-file.ts";
-import { finishRecording } from "./record.ts";
+import { finishRecording, noticesOf } from "./record.ts";
 import { recordingDir, writeForm } from "./recording-store.ts";
 import { findSkills, loadSkill, saveSkill, versions } from "./skill-store.ts";
 import { appendTrace, readTrace, tracePath } from "./trace-store.ts";
@@ -39,6 +39,22 @@ const submit = {
 
 let daemon: Daemon | undefined;
 afterEach(() => daemon?.close());
+
+describe("what the review says about the recording itself (checkpoint 6)", () => {
+  it("says the microphone heard nothing, Shadow.app or Accessibility was off, and a file nothing made", () => {
+    const d = "~/Desktop/Reading/23 Oct - Thuggee.pdf";
+    expect(noticesOf({ microphone: true, words: 0, mac: { connected: true, trusted: false }, unmade: [d] })).toEqual([
+      "The microphone was on, but no words came through: nothing you said was used",
+      "Accessibility is off for Shadow.app: what you did outside Chrome (Mac apps, save and print dialogs) wasn't recorded. Turn it on in System Settings → Privacy & Security → Accessibility",
+      `A file appeared that the recording doesn't show being made: ${d}`,
+    ]);
+    expect(noticesOf({ microphone: false, words: 0, mac: { connected: false, trusted: false }, unmade: [] })).toEqual([
+      "Shadow.app wasn't running: what you did outside Chrome (Mac apps, save and print dialogs) wasn't recorded",
+    ]);
+    // Words heard, Accessibility on, every file made: nothing to say.
+    expect(noticesOf({ microphone: true, words: 3, mac: { connected: true, trusted: true }, unmade: [] })).toEqual([]);
+  });
+});
 
 describe("trace store", () => {
   it("appends events as lines and reads them back in time order, skipping a torn last line", () => {

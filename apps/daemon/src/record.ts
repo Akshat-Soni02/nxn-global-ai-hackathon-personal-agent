@@ -125,6 +125,31 @@ export interface FinishOptions {
   ) => Promise<TestReport>;
   // Plain-language lines for the Record screen as the work goes on.
   progress?: (line: string) => void;
+  // Whether Shadow.app is running and may use Accessibility: without it, nothing outside Chrome was recorded.
+  mac?: () => { connected: boolean; trusted: boolean };
+}
+
+// What the review says about the recording itself, before what was built from it (checkpoint 6: 50 s of voice became
+// 0 words, Accessibility was off, and a PDF appeared that nothing recorded made; none of it was said).
+export function noticesOf(facts: {
+  microphone: boolean;
+  words: number;
+  mac?: { connected: boolean; trusted: boolean };
+  unmade: string[];
+}): string[] {
+  const outside = "what you did outside Chrome (Mac apps, save and print dialogs) wasn't recorded";
+  return [
+    ...(facts.microphone && facts.words === 0
+      ? ["The microphone was on, but no words came through: nothing you said was used"]
+      : []),
+    ...(facts.mac && !facts.mac.connected ? [`Shadow.app wasn't running: ${outside}`] : []),
+    ...(facts.mac?.connected && !facts.mac.trusted
+      ? [
+          `Accessibility is off for Shadow.app: ${outside}. Turn it on in System Settings → Privacy & Security → Accessibility`,
+        ]
+      : []),
+    ...facts.unmade.map((f) => `A file appeared that the recording doesn't show being made: ${f}`),
+  ];
 }
 
 export async function finishRecording(
@@ -321,7 +346,15 @@ export async function finishRecording(
   const saved = saveSkill(dataDir, noted);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
   progress(`Saved ${saved.skill.name}`);
-  if (design) writeReview(dataDir, reviewOf(design, saved.skill, made));
+  if (design) {
+    const notices = noticesOf({
+      microphone: recorded?.consent.microphone ?? false,
+      words: said.length,
+      mac: options.mac?.(),
+      unmade: evidence?.unmade ?? [],
+    });
+    writeReview(dataDir, reviewOf(design, saved.skill, made, notices));
+  }
   return { ...saved, design };
 }
 

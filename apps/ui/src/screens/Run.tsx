@@ -1,12 +1,13 @@
 // One run: how it went step by step (its log, runs/<id>.jsonl, across all its legs), what repair did, and what it
 // waits for.
+import type { Skill } from "@shadow/core";
 import type { InboxItem, RunRow, WorkflowSummary } from "@shadow/daemon/src/types.ts";
 import type { RunLogEvent } from "@shadow/player";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading, StatusChip } from "../components.tsx";
 import { duration, money, when } from "../format.ts";
+import { groupsOf, intentsOf, kindText, type Logged, lineOf } from "../runlog.ts";
 
-type Logged = RunLogEvent & { at: number };
 interface Episode {
   failure: string;
   outcome: string;
@@ -88,7 +89,11 @@ export function Run({ id }: { id: string }) {
 
       <section className="section">
         <h2>Steps</h2>
-        {events.length === 0 ? <p className="muted">Nothing logged yet.</p> : <Timeline events={events} />}
+        {events.length === 0 ? (
+          <p className="muted">Nothing logged yet.</p>
+        ) : (
+          <Timeline events={events} skillId={run.skillId} version={run.version} />
+        )}
       </section>
 
       {repairs.length > 0 ? (
@@ -116,16 +121,32 @@ export function Run({ id }: { id: string }) {
   );
 }
 
-function Timeline({ events }: { events: Logged[] }) {
-  // A step's start is implied by its result; the rest is shown as it happened.
-  const shown = events.filter((e) => e.type !== "step.start" && e.type !== "loop.item");
+// The log a step at a time (runlog.ts): each step's lines under its name and what it does, a line between steps.
+function Timeline({ events, skillId, version }: { events: Logged[]; skillId: string; version: number }) {
+  const workflow = useQuery<{ latest: Skill } | null>("workflow", { id: skillId });
+  // The steps' intents, when the run was on the version shown (an older version's steps may differ).
+  const latest = workflow.data?.latest;
+  const intents = latest && latest.version === version ? intentsOf(latest.steps) : new Map<string, string>();
   return (
     <ol className="timeline">
-      {shown.map((e, i) => (
+      {groupsOf(events).map((g, gi) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: a run's log is only ever appended, never reordered
-        <li key={`${e.at}-${i}`} className={`event ${tone(e)}`}>
-          <span className="event-time">{new Date(e.at).toLocaleTimeString()}</span>
-          <span className="event-text">{describe(e)}</span>
+        <li key={`${g.step ?? "run"}-${gi}`} className="step-group">
+          {g.step ? (
+            <div className="step-head">
+              <code>{g.step}</code> {intents.get(g.id ?? "") ?? ""}
+              {kindText(g.kind) ? <span className="muted small"> · {kindText(g.kind)}</span> : null}
+            </div>
+          ) : null}
+          <ol className="step-events">
+            {g.events.map((e, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a run's log is only ever appended, never reordered
+              <li key={`${e.at}-${i}`} className={`event ${tone(e)}`}>
+                <span className="event-time">{new Date(e.at).toLocaleTimeString()}</span>
+                <span className="event-text">{lineOf(e, g.kind)}</span>
+              </li>
+            ))}
+          </ol>
         </li>
       ))}
     </ol>
@@ -137,43 +158,6 @@ function tone(e: RunLogEvent): string {
   if (e.type === "repair") return e.outcome === "commit" ? "ok" : "wait";
   if (e.type === "run.end") return e.status === "succeeded" ? "ok" : e.status === "waiting" ? "wait" : "bad";
   return "quiet";
-}
-
-function describe(e: RunLogEvent): string {
-  switch (e.type) {
-    case "run.start":
-      return e.resumedAt ? `Went on at ${e.resumedAt}` : `Started v${e.version}`;
-    case "step.result": {
-      const r = e.result;
-      const match = r.matchScore !== undefined ? ` · match ${r.matchScore}` : "";
-      const attempt = e.attempt > 1 ? ` · try ${e.attempt}` : "";
-      return `${r.ok ? "✓" : "✗"} ${e.path} · ${duration(e.ms)}${match}${attempt}${r.ok ? "" : ` · ${r.error ?? "failed"}`}`;
-    }
-    case "step.approval":
-      return `${e.path}: ${e.approved ? "approved" : "denied"}`;
-    case "step.ask":
-      return `${e.path}: asked "${e.question}", answered ${JSON.stringify(e.answer)}`;
-    case "step.skipped":
-      return `– ${e.path} skipped (${e.reason})`;
-    case "step.walk":
-      return `${e.path}: ${e.choice === "do" ? "you said do it" : e.choice === "skip" ? "you skipped it" : "you stopped"}${e.highlighted ? "" : " (its target was not outlined)"}`;
-    case "loop.start":
-      return `↻ ${e.path}: ${e.items} item(s)`;
-    case "loop.item_failed":
-      return `↷ ${e.path}[${e.index}] skipped: ${e.error}`;
-    case "branch":
-      return `⑂ ${e.path}: ${e.took === "steps" ? "the condition held" : "otherwise"}`;
-    case "repair":
-      return e.outcome === "commit"
-        ? `⚒ ${e.path} repaired (${e.by}), saved as v${e.version}: ${e.summary}`
-        : `⚒ ${e.path} ${e.outcome} (${e.class}): ${e.summary}`;
-    case "run.end":
-      return e.status === "waiting"
-        ? `Waiting for you at ${e.failedStep}`
-        : `Ended: ${e.status}${e.failedStep && e.status !== "succeeded" ? ` at ${e.failedStep}` : ""}${e.error ? ` · ${e.error}` : ""}`;
-    default:
-      return (e as { type: string }).type;
-  }
 }
 
 // ---- What repair did, in plain words ----------------------------------------------------------------------------

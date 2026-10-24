@@ -272,6 +272,7 @@ record = createRecordControl({
           }),
         ),
       progress,
+      mac: () => daemon.mac(),
       log,
     });
   },

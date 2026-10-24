@@ -688,6 +688,23 @@ nav a.active .badge {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+/* One step's lines under its name, a line between steps */
+.step-group {
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.step-group:first-child {
+  border-top: 0;
+}
+.step-head {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.step-events {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
 .episode {
   border: 1px solid var(--line);
   border-radius: var(--r-control);
@@ -1418,4 +1435,22 @@ button.wf-arm-label:hover {
 .review-badge-untested {
   color: #8250df;
   margin-left: 6px;
+}
+/* What the recording missed, and why it can't run yet */
+.review-notices {
+  background: var(--wait-bg);
+  border-radius: var(--r-card);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.review-cant-run {
+  color: var(--bad);
+  background: var(--bad-bg);
+  border-radius: var(--r-card);
+  padding: 10px 14px;
+}
+.review-notices ul,
+.review-cant-run ul {
+  margin: 4px 0;
+  padding-left: 18px;
 }

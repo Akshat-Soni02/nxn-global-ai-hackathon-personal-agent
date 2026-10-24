@@ -23,6 +23,8 @@ export interface Review {
   cantRun?: string[];
   // What the final check did for real: the files it made and put in the Trash, or how it failed.
   checked?: string;
+  // What the recording itself missed (no words from the microphone, Accessibility off, a file nothing made).
+  notices?: string[];
   reviewed: boolean;
 }
 
@@ -35,7 +37,7 @@ function checkedText(check: NonNullable<DesignV2Outcome["checked"]>): string {
     : `The final check ran it for real: ${check.outcome}`;
 }
 
-export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] = []): Review {
+export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] = [], notices: string[] = []): Review {
   const said = (design.task?.rules ?? []).map((rule, i) => {
     const built = design.done?.rules.find((r) => r.rule === i);
     const notBuilt = built ? built.not_built : "the design agent didn't say";
@@ -73,6 +75,7 @@ export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] =
     ...(design.skipped.length > 0 ? { notAsked: design.skipped } : {}),
     ...(design.cantRun?.length ? { cantRun: design.cantRun } : {}),
     ...(design.checked ? { checked: checkedText(design.checked) } : {}),
+    ...(notices.length > 0 ? { notices } : {}),
     reviewed: false,
   };
 }
