@@ -135,10 +135,15 @@ export function withFields(skill: Skill): Skill {
   return typed?.ok ? typed.skill : skill;
 }
 
-// A workflow that makes a file of its own (a page saved as PDF, a copy): the final check runs it for real.
-const makesFiles = (skill: Skill) =>
+// A workflow that makes a file of its own (a page saved as PDF, a copy, a download it then finds: D, 24 Oct): the
+// final check runs it for real.
+export const makesFiles = (skill: Skill) =>
   [...walkSteps(skill.steps)].some(
-    ({ step }) => isAction(step) && (step.action === "save_pdf" || (step.channel === "fs" && step.action === "copy")),
+    ({ step }) =>
+      isAction(step) &&
+      (step.action === "save_pdf" ||
+        (step.channel === "fs" && step.action === "copy") ||
+        (step.channel === "fs" && step.action === "find" && step.args.since_run_start === true)),
   );
 // A rule that says not to do the same again: the final check runs twice to see it hold.
 const REPEATS = /\b(skip|already|only (the )?new|not (again|twice)|don'?t repeat|duplicates?)\b/i;

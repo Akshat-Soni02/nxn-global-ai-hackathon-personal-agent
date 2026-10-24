@@ -7,7 +7,7 @@ import { buildEvidence } from "../../evidence/evidence.ts";
 import { normaliseAll } from "../../normalise.ts";
 import type { TestReport } from "./contracts.ts";
 import { scriptedDesigner } from "./fake.ts";
-import { type DesignV2Options, designV2, progressOf } from "./orchestrator.ts";
+import { type DesignV2Options, designV2, makesFiles, progressOf } from "./orchestrator.ts";
 import { reviewOf } from "./review.ts";
 
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
@@ -280,6 +280,28 @@ describe("design agent v2, stage by stage", () => {
       expect(out.kind).toBe("designed");
       expect(out.firstMessage).not.toContain("# Your plan, applied");
     });
+  });
+
+  it("knows a workflow makes a file when it saves a PDF, copies one, or finds one its run downloaded (D, 24 Oct)", () => {
+    const wf = (step: Record<string, unknown>) =>
+      Skill.parse({
+        id: "w",
+        name: "w",
+        version: 1,
+        description: { goal: "g" },
+        steps: [
+          { id: "start", type: "trigger", intent: "t" },
+          { id: "s1", type: "action", intent: "x", ...step },
+        ],
+      });
+    const find = { channel: "fs", action: "find", args: { dir: "~/Downloads", glob: "*.pdf", pick: "newest" } };
+    expect(
+      makesFiles(
+        wf({ ...find, args: { ...find.args, since_run_start: true }, output: { name: "f", type: { type: "file" } } }),
+      ),
+    ).toBe(true);
+    expect(makesFiles(wf({ ...find, output: { name: "f", type: { type: "file" } } }))).toBe(false); // a file already there
+    expect(makesFiles(wf({ channel: "web", action: "save_pdf", args: { dir: "~/R", name: "x.pdf" } }))).toBe(true);
   });
 
   it("tells a change that moved the workflow on from one that went nowhere", () => {

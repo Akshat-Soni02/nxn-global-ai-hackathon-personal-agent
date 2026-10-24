@@ -112,6 +112,21 @@ describe("what made a file", () => {
     expect(accounted(trace)).toEqual([]);
   });
 
+  it("a form whose only effect was a download needs no OK; one that sent something does (D, 24 Oct)", () => {
+    const download = el({ tag: "button", role: "button", name: "Download" });
+    const fetched = [
+      ev("click", 0, { target: download }),
+      ev("submit", 100, { target: download }),
+      ev("download", 2_000, { path: "/Users/me/Downloads/Thuggee.pdf" }),
+    ];
+    const click = (trace: TraceEvent[]) =>
+      (skeletonOf(normaliseAll(trace).steps).draft.steps as { action?: string; requires_approval?: boolean }[]).find(
+        (s) => s.action === "click",
+      );
+    expect(click(fetched)?.requires_approval).toBe(false);
+    expect(click(fetched.slice(0, 2))?.requires_approval).toBe(true); // a form that left nothing here: it sent something
+  });
+
   it("a print with no PDF after it is listed as left out, never lost", () => {
     const trace = [...opened(), ev("print", 10_000, { url: ARTICLE, title: "Thuggee - Wikipedia" })];
     const { noise } = normaliseAll(trace);
