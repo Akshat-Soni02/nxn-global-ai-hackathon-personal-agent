@@ -19,6 +19,10 @@ export function captionQuestion(step: NormalisedStep, terms: string[] = []): str
   return `The user did: ${maskText(describeStep(step), terms).text}. This picture is from just before they did it.${where} In at most 40 words: what this is, which item they acted on (its place in a list, if any), and any values shown.`;
 }
 
+// Captions asked at once: each is one vision call of up to a minute, so one at a time made 33 steps take 3½ minutes
+// (25 Oct); a few at once keeps within the service's rate limits.
+export const CAPTIONS_AT_ONCE = 3;
+
 export async function captionsOf(
   steps: NormalisedStep[],
   pictureOf: (i: number) => string | undefined,
@@ -26,20 +30,22 @@ export async function captionsOf(
   log: (...args: unknown[]) => void = () => {},
   terms: string[] = [],
 ): Promise<(string | undefined)[]> {
-  const captions: (string | undefined)[] = [];
-  for (const [i, step] of steps.entries()) {
-    const path = pictureOf(i);
-    if (!path) {
-      captions.push(undefined);
-      continue;
+  const captions: (string | undefined)[] = steps.map(() => undefined);
+  let next = 0;
+  const worker = async () => {
+    while (next < steps.length) {
+      const i = next++;
+      const step = steps[i];
+      const path = pictureOf(i);
+      if (!step || !path) continue;
+      try {
+        const text = (await describe(path, captionQuestion(step, terms), step.point)).replace(/\s+/g, " ").trim();
+        captions[i] = text ? text.slice(0, CAPTION_CHARS) : undefined;
+      } catch (error) {
+        log(`a caption failed (step ${i + 1}: ${describeStep(step).slice(0, 60)}):`, (error as Error).message);
+      }
     }
-    try {
-      const text = (await describe(path, captionQuestion(step, terms), step.point)).replace(/\s+/g, " ").trim();
-      captions.push(text ? text.slice(0, CAPTION_CHARS) : undefined);
-    } catch (error) {
-      log("a caption failed:", (error as Error).message);
-      captions.push(undefined);
-    }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(CAPTIONS_AT_ONCE, steps.length) }, worker));
   return captions;
 }
