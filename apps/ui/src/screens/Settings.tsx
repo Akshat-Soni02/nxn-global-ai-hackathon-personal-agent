@@ -3,10 +3,27 @@
 // and the memory Shadow keeps (view and forget). A developer's own Token Factory key can still be pasted (folded away).
 // Everything here is a call to the daemon; the window holds no secret: the key field is write-only.
 import type { Consent } from "@shadow/daemon/src/types.ts";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
 import { ago } from "../format.ts";
+import { appStep } from "../WorkflowTree.tsx";
+
+// A connected app's action as the daemon lists it (mcp-tools.ts), and a check of one app (settings.ts checkApp).
+interface AppTool {
+  name: string;
+  description: string;
+  toolkit?: string;
+  readOnly: boolean;
+  destructive: boolean;
+}
+interface AppCheck {
+  ok: boolean;
+  actions?: number;
+  reads?: number;
+  error?: string;
+  ms: number;
+}
 
 interface AccountView {
   apiUrl?: string;
@@ -125,7 +142,20 @@ export function Settings() {
         </section>
       ) : null}
 
-      {hasService && s.account.signedIn ? <ConnectedAppsView /> : null}
+      {hasService && s.account.signedIn ? (
+        <ConnectedAppsView />
+      ) : (
+        <section className="section">
+          <h2>Connected apps</h2>
+          <p className="muted small">
+            Google Sheets, Gmail, Google Docs, Drive and Calendar, Slack, Notion and GitHub: once connected, a workflow
+            reads or writes them directly instead of clicking through their pages.{" "}
+            {hasService
+              ? "Sign in above to see and connect them."
+              : "They need Shadow's service, which this build doesn't have (SHADOW_API_URL)."}
+          </p>
+        </section>
+      )}
 
       <section className="section">
         <h2>Model</h2>
@@ -378,7 +408,9 @@ function ConnectedAppsView() {
   const [waiting, setWaiting] = useState<string>();
   const every = { everyMs: waiting ? 3000 : undefined };
   const apps = useQuery<ConnectedApps>("connectedApps", {}, every);
-  const tools = useQuery<{ name: string; toolkit?: string }[]>("appTools", {}, every);
+  const tools = useQuery<AppTool[]>("appTools", {}, every);
+  const [checks, setChecks] = useState<Record<string, AppCheck>>({});
+  const [open, setOpen] = useState<string>();
   useEffect(() => {
     if (!waiting) return;
     const stop = setTimeout(() => setWaiting(undefined), 5 * 60_000);
@@ -390,60 +422,116 @@ function ConnectedAppsView() {
   }, [connectedNow]);
   if (!apps.data) return <Loading error={apps.error} />;
   const active = (slug: string) => apps.data?.connections.find((c) => c.toolkit === slug && c.status === "ACTIVE");
+  // A connection that is there but not working (expired, failed): said, so it isn't mistaken for never connected.
+  const broken = (slug: string) => apps.data?.connections.find((c) => c.toolkit === slug && c.status !== "ACTIVE");
+  const check = async (slug: string) => {
+    const result = await session.call<AppCheck>("checkApp", { toolkit: slug });
+    setChecks((c) => ({ ...c, [slug]: result }));
+    tools.reload();
+  };
   return (
     <section className="section">
       <h2>Connected apps</h2>
       <p className="muted small">
         Connect an app once, and a workflow can read or write it directly. Steps that change something still ask you
-        first. Composio keeps the sign-in to each app; disconnect here at any time.
+        first. Composio keeps the sign-in to each app; disconnect here at any time. Check tries the connection the way a
+        run uses it, without doing anything in the app.
       </p>
       <table className="table compact">
         <tbody>
           {apps.data.toolkits.map((kit) => {
             const conn = active(kit.slug);
-            const count = (tools.data ?? []).filter((t) => t.toolkit === kit.slug).length;
+            const stale = conn ? undefined : broken(kit.slug);
+            const actions = (tools.data ?? []).filter((t) => t.toolkit === kit.slug);
+            const checked = checks[kit.slug];
             return (
-              <tr key={kit.slug}>
-                <td className="strong">{kit.name}</td>
-                <td className="muted small">
-                  {conn
-                    ? `Connected${count ? `: ${count} actions` : ""}`
-                    : waiting === kit.slug
-                      ? "Finish in your browser…"
-                      : "Not connected"}
-                  {apps.data?.declined.includes(kit.slug) ? (
-                    <>
-                      {" · not offered when you record "}
-                      <button
-                        type="button"
-                        className="link-button"
-                        onClick={() => session.call("offerAppAgain", { toolkit: kit.slug }).then(() => apps.reload())}
+              <Fragment key={kit.slug}>
+                <tr>
+                  <td className="strong">{kit.name}</td>
+                  <td className="muted small">
+                    {conn
+                      ? `Connected${actions.length ? `: ${actions.length} actions` : ""}`
+                      : waiting === kit.slug
+                        ? "Finish in your browser…"
+                        : stale
+                          ? `Needs connecting again (${stale.status.toLowerCase()})`
+                          : "Not connected"}
+                    {checked ? (
+                      <span className={checked.ok ? "ok-text" : "error"}>
+                        {" · "}
+                        {checked.ok
+                          ? `works: ${checked.actions} actions reached in ${checked.ms} ms (${checked.reads} only read)`
+                          : `doesn't work: ${checked.error}`}
+                      </span>
+                    ) : null}
+                    {conn && actions.length > 0 ? (
+                      <>
+                        {" · "}
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => setOpen(open === kit.slug ? undefined : kit.slug)}
+                        >
+                          {open === kit.slug ? "hide what it can do" : "what it can do"}
+                        </button>
+                      </>
+                    ) : null}
+                    {apps.data?.declined.includes(kit.slug) ? (
+                      <>
+                        {" · not offered when you record "}
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => session.call("offerAppAgain", { toolkit: kit.slug }).then(() => apps.reload())}
+                        >
+                          offer it again
+                        </button>
+                      </>
+                    ) : null}
+                  </td>
+                  <td className="right">
+                    {conn ? (
+                      <>
+                        <Action run={() => check(kit.slug)}>Check</Action>
+                        <Action
+                          kind="danger"
+                          run={() => session.call("disconnectApp", { id: conn.id }).then(() => apps.reload())}
+                        >
+                          Disconnect
+                        </Action>
+                      </>
+                    ) : (
+                      <Action
+                        run={async () => {
+                          await session.call("connectApp", { toolkit: kit.slug });
+                          setWaiting(kit.slug);
+                        }}
                       >
-                        offer it again
-                      </button>
-                    </>
-                  ) : null}
-                </td>
-                <td className="right">
-                  {conn ? (
-                    <Action
-                      kind="danger"
-                      run={() => session.call("disconnectApp", { id: conn.id }).then(() => apps.reload())}
-                    >
-                      Disconnect
-                    </Action>
-                  ) : (
-                    <Action
-                      run={async () => {
-                        await session.call("connectApp", { toolkit: kit.slug });
-                        setWaiting(kit.slug);
-                      }}
-                    >
-                      Connect
-                    </Action>
-                  )}
-                </td>
-              </tr>
+                        {stale ? "Connect again" : "Connect"}
+                      </Action>
+                    )}
+                  </td>
+                </tr>
+                {open === kit.slug ? (
+                  <tr>
+                    <td colSpan={3}>
+                      <ul className="app-actions">
+                        {actions.map((t) => (
+                          <li key={t.name}>
+                            <span className={t.readOnly && !t.destructive ? "muted small" : "small"}>
+                              {t.readOnly && !t.destructive ? "reads only" : "changes things: asks you first"}
+                            </span>{" "}
+                            <strong>{appStep(t.name).does}</strong>
+                            {t.description ? (
+                              <span className="muted small"> — {t.description.split("\n")[0]}</span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             );
           })}
         </tbody>

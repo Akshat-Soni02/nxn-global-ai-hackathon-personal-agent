@@ -1,5 +1,8 @@
 // The daemon's account, model client and MCP client against the real shadow-api app (apps/api), in memory: a fake
 // Token Factory, a fake Google Sheet, a fake Keychain. What a user does: sign in, record (model calls), run an mcp step.
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../api/src/app.ts";
 import { configFromEnv } from "../../api/src/config.ts";
@@ -9,6 +12,7 @@ import { fakeTools } from "../../api/src/tools/fake.ts";
 import { createAccount } from "./account.ts";
 import type { SecurityRunner } from "./keychain.ts";
 import { mcpTools, toolNeedsApproval } from "./mcp-tools.ts";
+import { createAppControl } from "./settings.ts";
 
 const API = "http://shadow-api.test";
 
@@ -135,5 +139,34 @@ describe("the account, through shadow-api", () => {
 
     const bad = await tools.call("GOOGLESHEETS_APPEND_VALUES", { spreadsheet_id: "kpi", values: "nope" });
     expect(bad).toMatchObject({ ok: false, error: expect.stringContaining("list of rows") });
+  });
+});
+
+describe("Settings → Connected apps → Check", () => {
+  it("says whether a connected app works the way a run reaches it, without doing anything in it", async () => {
+    const w = world();
+    const account = await signedIn(w);
+    const tools = mcpTools(`${API}/v1/tools/mcp`, account.fetch);
+    const app = createAppControl({
+      dataDir: mkdtempSync(join(tmpdir(), "check-")),
+      logDir: "",
+      nativeHost: "",
+      model: () => undefined,
+      keySource: () => "account",
+      applyKey: () => {},
+      account,
+      tools: () => tools,
+      memory: {} as never,
+      openUrl: () => {},
+    });
+    expect(await app.checkApp("googlesheets")).toMatchObject({ ok: false, error: "not connected" });
+    await app.connectApp("googlesheets");
+    expect(await app.checkApp("googlesheets")).toMatchObject({ ok: true, actions: 2, reads: 1 });
+    // Checking wrote nothing to the sheet.
+    const uid = JSON.parse(w.items.get("shadow-account") ?? "{}").uid as string;
+    expect(w.sheets.sheet(uid)).toEqual([]);
+
+    await account.signOut();
+    expect(await app.checkApp("googlesheets")).toMatchObject({ ok: false, error: "not signed in to Shadow" });
   });
 });
