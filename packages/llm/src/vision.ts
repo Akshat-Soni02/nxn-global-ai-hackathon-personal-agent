@@ -28,7 +28,9 @@ export async function describeImage(llm: Llm, request: DescribeImageRequest): Pr
     user: request.question,
     images: [{ dataUrl: request.dataUrl }],
     imagesConsented: request.consented,
-    maxTokens: 400,
+    // No cap below the profile's: GLM-5.3-Flash always reasons first, and on Nebius no switch turns that off (25 Oct:
+    // ~80% of a plain picture's output was reasoning). At 400 a busy screenshot's reasoning took the whole budget and the
+    // answer came back empty ("a caption failed: the model used its whole token budget"). The prompt keeps the answer short.
     signal: request.signal,
     meter: request.meter,
   });
