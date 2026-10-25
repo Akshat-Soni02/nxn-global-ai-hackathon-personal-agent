@@ -26,11 +26,11 @@ import { appsSection, type ConnectorChance, type Connectors, readOnlyTools, type
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
 import { gate, lostWork, runProblems, unmadeProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
-import { BUILD, PLAN } from "./prompt.ts";
+import { BUILD, BUILD_FILE, PLAN, PLAN_FILE } from "./prompt.ts";
 import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
 import { type ChangeNote, changeNotes, type RecordingFacts } from "./rules.ts";
 import { newSession, type QueuedQuestion, type SessionV2 } from "./session.ts";
-import { designToolsV2, isHowTo, isTimeOfDay } from "./tools.ts";
+import { type DesignMode, designToolsV2, isHowTo, isTimeOfDay, workflowFile } from "./tools.ts";
 import { understand } from "./understand.ts";
 
 export interface DesignV2Options {
@@ -62,6 +62,9 @@ export interface DesignV2Options {
   meter?: UsageMeter;
   budget?: { costUsd: number; calls: number };
   protocol?: Protocol;
+  // How the agent edits (tools.ts): "file", the workflow as JSON it reads, writes and edits; "verbs" (the default),
+  // one tool per kind of change.
+  mode?: DesignMode;
   signal?: AbortSignal;
   onEvent?: (event: AgentEvent) => void;
   // Plain-language lines for the Record screen.
@@ -246,6 +249,8 @@ const PLANNED = new Set([
   "input",
   "ask",
 ]);
+// In file mode a plan is the proposals' decisions, the workflow written whole, and the questions.
+const PLANNED_FILE = new Set(["accept", "reject", "restore", "write_workflow", "edit_workflow", "ask"]);
 // Checked call by call: one call of another shape costs that call, never the plan (A's re-test, 24 Oct: no call made).
 const PlanCall = z.object({ tool: z.string(), input: z.record(z.string(), z.unknown()).default({}) });
 const PlanReply = z.object({ calls: z.array(z.unknown()) });
@@ -257,6 +262,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   const meter = options.meter ?? new UsageMeter();
   const budget = options.budget ?? DESIGN_V2_BUDGET;
   const say = options.onProgress ?? (() => {});
+  const mode = options.mode ?? "verbs";
+  const system = mode === "file" ? BUILD_FILE : BUILD;
   const transcript: AgentEvent[] = [];
   // Built from the plain list first, so even evidence that can't be read keeps the recording (below, in the try).
   const session = newSession(options.skill, options.facts, {
@@ -291,7 +298,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     answered,
     pending: reachedQuestions ? [] : openCodeQuestions(options.questions, options.skill, session.draft),
     skipped,
-    system: BUILD,
+    system,
     ...(firstMessage ? { firstMessage } : {}),
     plain: options.skill,
     transcript,
@@ -335,9 +342,9 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     const run = await runAgent<DoneReport>({
       llm: options.llm,
       profile: "smart",
-      system: BUILD,
+      system,
       task: message,
-      tools: designToolsV2(session),
+      tools: designToolsV2(session, { mode }),
       callsPerTurn: 8,
       budget: { turns: left.calls, costUsd: left.costUsd, liveActions: 0 },
       protocol: options.protocol,
@@ -375,8 +382,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   // (checkpoints 5–6: 17 of 18 designs sent one). No plan, or a failed call: the episode builds as before.
   const plan = async (message: string): Promise<string[] | undefined> => {
     const tools = new Map(
-      designToolsV2(session)
-        .filter((t) => PLANNED.has(t.name))
+      designToolsV2(session, { mode })
+        .filter((t) => (mode === "file" ? PLANNED_FILE : PLANNED).has(t.name))
         .map((t) => [t.name, t]),
     );
     const catalogue = [...tools.values()].map(
@@ -387,7 +394,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     try {
       const reply = await options.llm.generate({
         profile: "smart",
-        system: PLAN,
+        system: mode === "file" ? PLAN_FILE : PLAN,
         // A whole workflow, after reasoning over the whole recording: the largest reply the design asks for.
         maxTokens: 32_768,
         user: [message, "", "# The tools a plan can use", ...catalogue].join("\n"),
@@ -546,12 +553,12 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // Every message the agent reads is masked like the evidence: the outline holds recorded values (typed text, an
     // email, a Never or private word), and page names hold tab titles.
     const masked = (text: string) => maskText(text, session.maskTerms ?? []).text;
-    firstMessage = masked(buildMessage(theTask, options.evidence, session, seen));
+    firstMessage = masked(buildMessage(theTask, options.evidence, session, seen, mode));
     const applied = await plan(firstMessage);
     if (applied) {
       firstMessage = masked(
         [
-          buildMessage(theTask, options.evidence, session, seen),
+          buildMessage(theTask, options.evidence, session, seen, mode),
           "",
           "# Your plan, applied: each change, and what it did (the workflow above is after them)",
           ...applied,
@@ -564,7 +571,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // A failed reply (Checkpoint 5: D2's 33rd turn thought past the token cap) ends an episode, not the design: once
     // more, from the workflow as it got to, on what is left of the budget.
     if (stopped?.startsWith("it failed"))
-      stopped = await episode(masked(buildMessage(theTask, options.evidence, session, seen)));
+      stopped = await episode(masked(buildMessage(theTask, options.evidence, session, seen, mode)));
     // Stuck: once more from a fresh start, which shows what went nowhere (a long run of the same call feeds itself; the
     // D eval, 24 Oct, reasoned the same paragraph five times).
     if (stopped?.startsWith("it stopped getting anywhere")) {
@@ -572,7 +579,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
       stopped = await episode(
         masked(
           [
-            buildMessage(theTask, options.evidence, session, seen),
+            buildMessage(theTask, options.evidence, session, seen, mode),
             "",
             `# Your last ${went.length} calls went nowhere: do something different (another tool, other values), or done with why`,
             ...went,
@@ -678,7 +685,13 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
 // The build episode's first message: the task model, the workflow now, code's proposals, what code left out, what the
 // recording holds about the unknowns, and the pages it can open. The full evidence went to stage 1; details on request
 // (look).
-function buildMessage(task: TaskModel, evidence: Evidence, session: SessionV2, seen: string[]): string {
+function buildMessage(
+  task: TaskModel,
+  evidence: Evidence,
+  session: SessionV2,
+  seen: string[],
+  mode: DesignMode,
+): string {
   const proposals = evidence.proposals.map(
     (p) =>
       `${p.id} ${p.kind}: ${p.summary}${p.edits.length > 0 ? " [change ready]" : ""}${p.runnable ? "" : " [can't run yet]"}`,
@@ -690,8 +703,9 @@ function buildMessage(task: TaskModel, evidence: Evidence, session: SessionV2, s
     "# The task model you wrote (rules by number: 0, 1, …)",
     JSON.stringify(task, null, 1),
     "",
-    "# The workflow now",
-    outlineOf(session.draft),
+    ...(mode === "file"
+      ? ["# The workflow now, as read_workflow shows it", workflowFile(session.draft)]
+      : ["# The workflow now", outlineOf(session.draft)]),
     "",
     "# Proposals (accept or reject each)",
     ...(proposals.length > 0 ? proposals : ["(none)"]),

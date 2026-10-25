@@ -280,6 +280,8 @@ export async function finishRecording(
     const places = new Set(evidence.steps.flatMap((s) => (s.place ? [s.place] : [])));
     design = await designV2({
       llm,
+      // The workflow as a file it reads and edits (Oct 25): fewer, plainer tools than one per kind of change.
+      mode: "file",
       skill,
       questions,
       evidence,

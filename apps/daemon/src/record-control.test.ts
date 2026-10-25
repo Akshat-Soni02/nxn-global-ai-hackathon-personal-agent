@@ -313,10 +313,16 @@ describe("after Stop, with a model", () => {
     const field = { ...button("Week", "week"), tag: "input", role: "textbox", name: "Week" };
     appendTrace(home, { id: "e1", sessionId, at: 1000, event: "type", url: PAGE, target: field, value: "2026-W41" });
     appendTrace(home, { id: "e2", sessionId, at: 3000, event: "click", url: PAGE, target: button("Save", "save") });
-    const week = call("input", { name: "week", type: "text", about: "the ISO week", why: "the week changes each run" });
+    const week = input({ type: { type: "text" }, description: "the ISO week" }, "the week changes each run");
     return { sessionId, week };
   }
   const call = (name: string, args: unknown) => ({ toolCalls: [{ name, arguments: args }] });
+  // The design edits the workflow as a file: the week, put in the trigger's inputs.
+  const input = (week: Record<string, unknown>, why: string) =>
+    call("edit_workflow", {
+      edits: [{ old: '"inputs": {}', new: `"inputs": { "week": ${JSON.stringify(week)} }` }],
+      why,
+    });
 
   const task = {
     outcome: "this week's hours are logged",
@@ -336,14 +342,11 @@ describe("after Stop, with a model", () => {
             step: "s2",
             confirm: true,
           }),
-          call("input", {
-            name: "week",
-            type: "text",
-            // A real value: a {{today}} default is refused (Checkpoint 4: the runner doesn't fill templates in defaults).
-            default: "2026-W41",
-            about: "the ISO week",
-            why: "a scheduled run logs the current week",
-          }),
+          // A real value: a {{today}} default is refused (Checkpoint 4: the runner doesn't fill templates in defaults).
+          input(
+            { type: { type: "text" }, description: "the ISO week", default: "2026-W41" },
+            "a scheduled run logs the current week",
+          ),
           call("done", { summary: "Built; one question for you", rules: [] }),
           // After the answer: the apply episode's done is the design's last word.
           call("done", { summary: "A scheduled run logs the current week", rules: [] }),
