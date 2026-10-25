@@ -1,8 +1,9 @@
 // First run (docs/design.md, "Deployment", first run): the one window a new user sees before anything else. Three
-// short steps, each a button that does the thing and says what happened: the Token Factory key (to the Keychain,
-// then a connection check against Nemotron), Chrome (the connection file, and the extension folder to load), and
-// the macOS permissions (Accessibility, Screen Recording, Microphone). Nothing here talks to the model itself:
-// every button is a call to the daemon's API (main.swift), which holds the key and makes the calls.
+// short steps, each a button that does the thing and says what happened: signing in to Shadow (the browser opens
+// Shadow's sign-in page; then a connection check against Nemotron), Chrome (the connection file, and the extension
+// folder to load), and the macOS permissions (Accessibility, Screen Recording, Microphone). A build without Shadow's
+// service (SHADOW_API_URL unset) asks for a Token Factory key instead, as before Oct 25. Nothing here talks to the
+// model itself: every button is a call to the daemon's API (main.swift), which holds the sign-in and makes the calls.
 import AVFoundation
 import AppKit
 import SwiftUI
@@ -12,6 +13,10 @@ final class FirstRunModel: ObservableObject {
   @Published var keyStatus = ""
   @Published var keyOk = false
   @Published var checking = false
+  // Shadow's service is configured: step 1 is Sign in, not a key.
+  @Published var managed = false
+  // While signing in: the code the browser page shows.
+  @Published var signInCode = ""
   @Published var chromeStatus = ""
   @Published var chromeOk = false
   @Published var accessibility = AXIsProcessTrusted()
@@ -23,6 +28,7 @@ final class FirstRunModel: ObservableObject {
 struct FirstRunView: View {
   @ObservedObject var model: FirstRunModel
   @State private var key = ""
+  var onSignIn: () -> Void = {}
   var onSaveKey: (String) -> Void = { _ in }
   var onSetupChrome: () -> Void = {}
   var onShowExtension: () -> Void = {}
@@ -35,24 +41,45 @@ struct FirstRunView: View {
     VStack(alignment: .leading, spacing: 18) {
       VStack(alignment: .leading, spacing: 4) {
         Text("Welcome to Shadow").font(.system(size: 22, weight: .semibold))
-        Text("Show it a task once. It does it for you from then on, on your Mac, with your own model key.")
+        Text("Show it a task once. It does it for you from then on, on your Mac.")
           .foregroundStyle(.secondary)
       }
 
-      step(1, "Your Nebius Token Factory key", done: model.keyOk) {
-        Text(
-          "Made at tokenfactory.nebius.com. It is stored in your Keychain and never leaves this Mac except to call the model."
-        )
-        .font(.callout).foregroundStyle(.secondary)
-        HStack {
-          SecureField("Paste the key", text: $key).textFieldStyle(.roundedBorder).frame(maxWidth: 360)
-          Button(model.checking ? "Checking…" : "Save and check") { onSaveKey(key) }
-            .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty || model.checking || !model.daemonUp)
-            .keyboardShortcut(.defaultAction)
+      if model.managed {
+        step(1, "Sign in to Shadow", done: model.keyOk) {
+          Text(
+            "Your browser opens Shadow's sign-in page (Google or email). No API key needed; your recordings and workflows stay on this Mac."
+          )
+          .font(.callout).foregroundStyle(.secondary)
+          HStack {
+            Button(model.checking ? "Waiting for the browser…" : "Sign in") { onSignIn() }
+              .disabled(model.checking || model.keyOk || !model.daemonUp)
+              .keyboardShortcut(.defaultAction)
+            if !model.signInCode.isEmpty && !model.keyOk {
+              Text("The page shows \(model.signInCode)").font(.system(.callout, design: .monospaced))
+            }
+          }
+          if !model.daemonUp { Text("Starting Shadow's daemon…").font(.callout).foregroundStyle(.secondary) }
+          if !model.keyStatus.isEmpty {
+            Text(model.keyStatus).font(.callout).foregroundStyle(model.keyOk ? .green : .secondary)
+          }
         }
-        if !model.daemonUp { Text("Starting Shadow's daemon…").font(.callout).foregroundStyle(.secondary) }
-        if !model.keyStatus.isEmpty {
-          Text(model.keyStatus).font(.callout).foregroundStyle(model.keyOk ? .green : .red)
+      } else {
+        step(1, "Your Nebius Token Factory key", done: model.keyOk) {
+          Text(
+            "Made at tokenfactory.nebius.com. It is stored in your Keychain and never leaves this Mac except to call the model."
+          )
+          .font(.callout).foregroundStyle(.secondary)
+          HStack {
+            SecureField("Paste the key", text: $key).textFieldStyle(.roundedBorder).frame(maxWidth: 360)
+            Button(model.checking ? "Checking…" : "Save and check") { onSaveKey(key) }
+              .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty || model.checking || !model.daemonUp)
+              .keyboardShortcut(.defaultAction)
+          }
+          if !model.daemonUp { Text("Starting Shadow's daemon…").font(.callout).foregroundStyle(.secondary) }
+          if !model.keyStatus.isEmpty {
+            Text(model.keyStatus).font(.callout).foregroundStyle(model.keyOk ? .green : .red)
+          }
         }
       }
 

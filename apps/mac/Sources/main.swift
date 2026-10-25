@@ -163,6 +163,7 @@ final class AppMain: NSObject, NSApplicationDelegate {
     statusMenu?.daemonUp = up
     firstRun?.model.daemonUp = up
     if up {
+      if firstRun != nil { refreshFirstRunAccount() }
       everConnected = true
       link.send(["id": UUID().uuidString, "type": "hello", "from": "mac", "version": "0.0.0", "trusted": trusted])
       panel.refresh()
@@ -314,9 +315,25 @@ final class AppMain: NSObject, NSApplicationDelegate {
     model.extensionFolder = packaged
       ? Bundle.main.resourceURL?.appendingPathComponent("extension").path ?? ""
       : (Bundle.main.bundlePath as NSString).deletingLastPathComponent + "/../../extension/dist"
+    if connected { refreshFirstRunAccount() }
     win.show(
       FirstRunView(
         model: model,
+        onSignIn: { [weak self] in
+          model.checking = true
+          model.keyStatus = "Opening Shadow's sign-in page in your browser…"
+          self?.apiCall("signIn") { value, error in
+            if let error {
+              model.checking = false
+              model.keyStatus = error
+              return
+            }
+            let account = (value as? JSON)?["account"] as? JSON
+            model.signInCode = (account?["pending"] as? JSON)?["userCode"] as? String ?? ""
+            model.keyStatus = "Finish signing in in your browser."
+            self?.waitForSignIn(until: Date().addingTimeInterval(600))
+          }
+        },
         onSaveKey: { [weak self] key in
           model.checking = true
           model.keyStatus = "Storing the key in your Keychain…"
@@ -368,6 +385,50 @@ final class AppMain: NSObject, NSApplicationDelegate {
           win.close()
           self?.window.show(route: "/workflows")
         }))
+  }
+
+  // Whether this build has Shadow's service (step 1 is then Sign in), and whether the account is signed in already.
+  private func refreshFirstRunAccount() {
+    apiCall("settings") { [weak self] value, _ in
+      guard let model = self?.firstRun?.model, let account = (value as? JSON)?["account"] as? JSON else { return }
+      model.managed = account["apiUrl"] as? String != nil
+      if account["signedIn"] as? Bool == true && !model.keyOk {
+        model.keyOk = true
+        model.keyStatus = "Signed in as \(account["email"] as? String ?? "you")."
+      }
+    }
+  }
+
+  // The daemon finishes signing in on its own once the browser is done; this only watches for it, every two seconds.
+  private func waitForSignIn(until deadline: Date) {
+    guard let model = firstRun?.model else { return }
+    apiCall("settings") { [weak self] value, _ in
+      let account = (value as? JSON)?["account"] as? JSON
+      if account?["signedIn"] as? Bool == true {
+        model.keyStatus = "Signed in as \(account?["email"] as? String ?? "you"). Checking the connection to Nemotron…"
+        self?.apiCall("checkModel") { value, error in
+          model.checking = false
+          let check = value as? JSON
+          model.keyOk = check?["ok"] as? Bool == true
+          model.keyStatus =
+            model.keyOk
+            ? "Signed in as \(account?["email"] as? String ?? "you"). Connected to Nemotron."
+            : "Signed in, but the model did not answer: \(check?["error"] as? String ?? error ?? "try again later")"
+        }
+        return
+      }
+      if let failed = account?["error"] as? String, account?["pending"] == nil {
+        model.checking = false
+        model.keyStatus = failed
+        return
+      }
+      guard Date() < deadline else {
+        model.checking = false
+        model.keyStatus = "The sign-in code expired: press Sign in again."
+        return
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self?.waitForSignIn(until: deadline) }
+    }
   }
 
   private func showExtensionFolder() {
