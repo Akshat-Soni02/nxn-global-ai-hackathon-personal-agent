@@ -75,6 +75,13 @@ await esbuild.build({
 });
 copyFileSync(process.execPath, join(resources, "node"));
 chmodSync(join(resources, "node"), 0o755);
+// Shadow's service (docs/cloud-architecture.md): SHADOW_API_URL when packaging, e.g. the Cloud Run URL. Without it the
+// app asks for a Token Factory key on first run, as before.
+const apiUrl = process.env.SHADOW_API_URL?.replace(/\/+$/, "") ?? "";
+if (apiUrl && !/^https:\/\/[A-Za-z0-9.-]+(:\d+)?$/.test(apiUrl)) {
+  throw new Error(`SHADOW_API_URL must be an https origin, got ${apiUrl}`);
+}
+console.log(apiUrl ? `  Shadow's service: ${apiUrl}` : "  no SHADOW_API_URL: the app will ask for a Token Factory key");
 writeFileSync(
   join(resources, "daemon"),
   `#!/bin/sh
@@ -82,7 +89,7 @@ writeFileSync(
 DIR="$(cd "$(dirname "$0")" && pwd)"
 export SHADOW_BUNDLE="$(cd "$DIR/../.." && pwd)"
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-exec "$DIR/node" "$DIR/daemon.js"
+${apiUrl ? `export SHADOW_API_URL="\${SHADOW_API_URL:-${apiUrl}}"\n` : ""}exec "$DIR/node" "$DIR/daemon.js"
 `,
 );
 writeFileSync(

@@ -1,0 +1,15 @@
+# For apps/api/Dockerfile, built from the repository root.
+**/node_modules
+**/dist
+.git
+.claude
+.env
+.env.*
+apps/mac/build
+apps/website/.next
+apps/website/out
+fixtures
+recordings
+reports
+docs
+*.log
