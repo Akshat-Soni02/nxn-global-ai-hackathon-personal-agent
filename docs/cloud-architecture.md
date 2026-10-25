@@ -164,6 +164,30 @@ Steps run in order on the Mac:
 - **No prompt logging.**
 - **ZDR on in the Nebius organisation.**
 
+### Quotas: where they live, and why the Mac can't change them
+
+The free tier is enforced **only in `shadow-api`**, against Firestore. The Mac only *shows* usage (`GET /v1/usage`).
+
+| Document | Holds |
+|---|---|
+| `users/{uid}` | `plan` (`free` now, `paid` later), its limits (dollars a day and a month, tool calls a day), `developer` (no caps) |
+| `usage/{uid}/days/{yyyy-mm-dd}` | dollars spent, tool calls, reserved-but-not-settled amount |
+| `usage/{uid}/months/{yyyy-mm}` | the same per month |
+
+**Reserve, then settle,** so concurrent calls can't slip past the limit and a crash can't undercount:
+1. **Before a model call,** one Firestore transaction adds the call's *maximum* cost (its `max_tokens` × the model's price, plus the input size) to today's total. If that would pass the limit: `429 quota exceeded`, and nothing reaches Nebius.
+2. **After it,** the reservation is replaced by the real cost from the token counts.
+
+Tool calls work the same way, counting one per call.
+
+**Why editing the Mac changes nothing:** the Mac never holds the Nebius or Composio key, only a device token tied to an account. Every model and tool call passes through `shadow-api`, which counts it. Changing the app, its files or its database can only change what the app *shows*.
+
+**Abuse:**
+- one free tier per Google account (sign-in required);
+- device tokens can be revoked;
+- a per-IP rate limit on sign-up;
+- a Cloud Billing budget alert as the last guard.
+
 **Cost at hackathon scale:**
 - Cloud Run, Firestore, Identity Platform and Secret Manager are essentially in their free tiers.
 - Models: about $0.09 to design a recording; under $0.01 per AI step; about $0.05 per repair.
@@ -184,6 +208,16 @@ Steps run in order on the Mac:
 | `packages/player` | runs `mcp` steps through the daemon; repair: an MCP step's failure is classed (auth expired → environment; 5xx → transient; bad args → data) |
 | `packages/recorder` (design agent) | connected tools offered as options; propose an `mcp` step for a recorded UI sequence that a tool does (sheet writes first). **With Rushil: record-v3 owns this** |
 | `apps/mac` + `apps/ui` | first run: Sign in; Settings: Connected apps, Usage; the key screen goes |
+
+### Running locally (no caps)
+
+| Mode | How | Caps |
+|---|---|---|
+| **Everyday development** | `NEBIUS_API_KEY` in the repo's `.env`: the daemon calls Nebius directly, no backend (the path that exists today) | none |
+| **Working on `apps/api`** | run it on your machine with `QUOTAS=off` and the Firestore emulator; point the daemon at `http://localhost:…/v1` | none |
+| **Your account on the real service** | `developer: true` on `users/{uid}`, set in the console or by an admin script (never from the app) | skipped; usage still recorded |
+
+Connected apps in development use the same Composio project; a separate Composio project for development is optional.
 
 ---
 
