@@ -88,6 +88,8 @@ export interface ConnectorChance {
   // The document each step worked in, by step id (a sheet's or a doc's id, read from its address by code): the agent
   // reads masked addresses, so it writes "<id:s4>" and code puts the real id in.
   ids: Record<string, string>;
+  // What the recording did there: wrote (typed, pasted, sent) and/or read (copied). Picks the tools worth listing.
+  work?: { writes: boolean; reads: boolean };
 }
 
 const WORK = new Set<StepClass>(["act", "read"]);
@@ -102,12 +104,24 @@ export function documentIdOf(url: string | undefined): string | undefined {
 export function connectorChances(steps: NormalisedStep[], idsByStep: string[][]): ConnectorChance[] {
   const found = new Map<string, ConnectorChance>();
   steps.forEach((step, i) => {
-    if (!WORK.has(classOf(step))) return;
+    const kind = classOf(step);
+    if (!WORK.has(kind)) return;
     const app = appOf(step.url);
     const id = idsByStep[i]?.[0];
     if (!app || !id) return;
-    const chance = found.get(app.toolkit) ?? { toolkit: app.toolkit, name: app.name, why: app.why, steps: [], ids: {} };
+    const chance = found.get(app.toolkit) ?? {
+      toolkit: app.toolkit,
+      name: app.name,
+      why: app.why,
+      steps: [],
+      ids: {},
+      work: { writes: false, reads: false },
+    };
     chance.steps.push(id);
+    if (chance.work) {
+      if (kind === "act") chance.work.writes = true;
+      else chance.work.reads = true;
+    }
     const doc = documentIdOf(step.url);
     if (doc) chance.ids[id] = doc;
     found.set(app.toolkit, chance);
@@ -170,8 +184,27 @@ export interface UsableApp extends ConnectorChance {
   tools: AppTool[];
 }
 
-// At most this many tools of one app are listed in the build message (Gmail and Sheets have 40–60); the rest by look.
-export const LISTED_TOOLS = 40;
+// At most this many tools of one app are listed in the build message (Gmail and Sheets have 40–60 and Drive 80; Oct 25:
+// all of them made a 27 k-character message the agent never read); the rest by look.
+export const LISTED_TOOLS = 8;
+
+const WRITES = /APPEND|UPDATE|WRITE|INSERT|ADD|CREATE|SEND|REPLY|POST|UPSERT/;
+const READS = /GET|READ|LOOKUP|SEARCH|FIND|LIST|FETCH|VALUES/;
+const RISKY = /DELETE|CLEAR|REMOVE|TRASH|EMPTY|DROP/;
+
+// The tools that fit what the recording did there: writes favour append / update, reads favour get / search; never a
+// tool that deletes or clears unless nothing else fits. Plain names first (a toolkit's main tools are its short ones).
+export function shortlist(app: Pick<UsableApp, "tools" | "work">, n = LISTED_TOOLS): AppTool[] {
+  const writes = app.work?.writes ?? true;
+  const reads = app.work?.reads ?? true;
+  const score = (t: AppTool) =>
+    (writes && WRITES.test(t.name) ? 3 : 0) +
+    (reads && READS.test(t.name) ? 2 : 0) +
+    (t.readOnly && reads ? 1 : 0) -
+    (RISKY.test(t.name) || t.destructive ? 5 : 0) -
+    t.name.length / 100;
+  return [...app.tools].sort((a, b) => score(b) - score(a)).slice(0, n);
+}
 
 // The build message's section about the connected apps.
 export function appsSection(apps: UsableApp[]): string[] {
@@ -179,17 +212,20 @@ export function appsSection(apps: UsableApp[]): string[] {
   const lines = ["# Connected apps: use them directly (an app step) instead of clicking through their pages"];
   for (const app of apps) {
     lines.push(`## ${app.name} (the recording worked in it at ${app.steps.join(", ")})`);
-    const docs = Object.keys(app.ids);
-    if (docs.length > 0)
+    // One line per document, by the first step that worked in it (s9…s33 all in one sheet are one document).
+    const docs = new Map<string, string>();
+    for (const [step, doc] of Object.entries(app.ids)) if (!docs.has(doc)) docs.set(doc, step);
+    if (docs.size > 0)
       lines.push(
-        `The document each step worked in, as you write its id in arguments: ${docs.map((s) => `<id:${s}>`).join(", ")} (code puts the real id in)`,
+        `The document${docs.size > 1 ? "s" : ""} it worked in, as you write the id in arguments: ${[...docs.values()].map((s) => `<id:${s}>`).join(", ")} (code puts the real id in)`,
       );
-    for (const tool of app.tools.slice(0, LISTED_TOOLS)) {
+    const listed = shortlist(app);
+    for (const tool of listed) {
       const line = tool.description.split("\n")[0]?.slice(0, 160) ?? "";
       lines.push(`- ${tool.name}${tool.readOnly ? " (reads only)" : ""}: ${line}`);
     }
-    if (app.tools.length > LISTED_TOOLS)
-      lines.push(`- …${app.tools.length - LISTED_TOOLS} more: look { app_tool: "…" }`);
+    if (app.tools.length > listed.length)
+      lines.push(`- …${app.tools.length - listed.length} more: look { app_tools: "${app.toolkit}" } lists them all`);
   }
   lines.push(
     'Add one with add { do: "app", tool, arguments: {…}, intent, save_as? }; look { app_tool } gives a tool\'s arguments first.',

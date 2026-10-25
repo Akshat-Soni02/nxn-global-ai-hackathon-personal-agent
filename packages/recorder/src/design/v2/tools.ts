@@ -1081,16 +1081,29 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       name: "look",
       kind: "look",
       description:
-        "A step's full evidence (step), a proposal (proposal), the timeline between two steps (from, to), a connected app tool's arguments (app_tool), or the workflow as it is now (nothing)",
+        "A step's full evidence (step), a proposal (proposal), the timeline between two steps (from, to), a connected app tool's arguments (app_tool), every tool of a connected app (app_tools: its name), or the workflow as it is now (nothing)",
       input: z.object({
         step: z.string().optional(),
         proposal: z.string().optional(),
         from: z.string().optional(),
         to: z.string().optional(),
         app_tool: z.string().optional(),
+        app_tools: z.string().optional(),
       }),
       prepare: unstring,
-      run: ({ step, proposal, from, to, app_tool }) => {
+      run: ({ step, proposal, from, to, app_tool, app_tools }) => {
+        // Every tool of a connected app (the message lists only the few that fit the recorded work).
+        if (app_tools) {
+          const app = session.apps.find((a) => a.toolkit === app_tools.toLowerCase() || a.name === app_tools);
+          return {
+            output: app
+              ? app.tools.map(
+                  (t) =>
+                    `${t.name}${t.readOnly ? " (reads only)" : ""}: ${t.description.split("\n")[0]?.slice(0, 120) ?? ""}`,
+                )
+              : `no connected app ${app_tools}. Apps: ${session.apps.map((a) => a.toolkit).join(", ") || "none"}`,
+          };
+        }
         if (app_tool) {
           const found = session.apps.flatMap((a) => a.tools).find((t) => t.name === app_tool);
           return {
