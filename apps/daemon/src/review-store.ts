@@ -20,6 +20,14 @@ export function readReview(dataDir: string, id: string): Review | undefined {
   return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Review) : undefined;
 }
 
+// What the recording showed at each step (recordedSteps), kept beside the review: the recording itself is deleted after
+// a day, and a repair weeks later still sees what the failing step looked like when it was shown.
+export function writeRecordedSteps(dataDir: string, id: string, steps: Record<string, string>): void {
+  const path = join(skillDir(dataDir, id), "recorded.json");
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(steps, null, 1)}\n`, { mode: 0o600 });
+}
+
 export function markReviewed(dataDir: string, id: string): Review | undefined {
   const review = readReview(dataDir, id);
   if (!review) return undefined;

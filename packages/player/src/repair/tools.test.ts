@@ -1,0 +1,151 @@
+// Repair v2's tools on their own (Oct 25): the user's OK for what repair may not change alone, the repeat guard, and
+// what the recording showed in the failure report.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { AnyTool } from "@shadow/agent";
+import { type ActionStep, findStep, Skill } from "@shadow/core";
+import { describe, expect, it } from "vitest";
+import { type RunDeps, WAIT, type Wait } from "../types.ts";
+import type { RepairEnv } from "./env.ts";
+import { failureReport } from "./report.ts";
+import { type RepairFinish, type RepairSession, repairGuard, repairTools } from "./tools.ts";
+
+const DRIFT = join(import.meta.dirname, "../../../../fixtures/pages/drift");
+const skill = Skill.parse(JSON.parse(readFileSync(join(DRIFT, "drift-skill.json"), "utf8")));
+const step = findStep(skill, "s5") as ActionStep;
+const failure = {
+  stepId: "s5",
+  path: "s5",
+  step,
+  result: { ok: false, error: "target not found" },
+  attempts: 3,
+  vars: {},
+};
+
+function session(answer?: boolean | Wait, extra: Partial<RepairEnv> = {}) {
+  const asked: string[] = [];
+  const deps = {
+    ...(answer === undefined
+      ? {}
+      : {
+          ask: async (a: { question: string }) => {
+            asked.push(a.question);
+            return answer;
+          },
+        }),
+  } as unknown as RunDeps;
+  const s: RepairSession = {
+    original: skill,
+    draft: skill,
+    failure,
+    env: { runId: "r", deps, ...extra },
+    report: "",
+    edits: [],
+  };
+  const tools = repairTools(s);
+  const run = async (
+    name: string,
+    input: unknown,
+  ): Promise<{ output?: unknown; finish?: RepairFinish; refused?: string }> => {
+    const t = tools.find((x) => x.name === name) as AnyTool<RepairFinish>;
+    const refused = await repairGuard(s)({ tool: t as AnyTool, input });
+    if (refused) return { refused };
+    return t.run(t.input.parse(input), { turn: 1 }) as Promise<{ output: unknown; finish?: RepairFinish }>;
+  };
+  return { s, run, asked };
+}
+
+// A fix that opens a site the workflow never used: not repair's to decide alone.
+const elsewhere = {
+  edits: [
+    {
+      op: "insert",
+      at: { before: "s5" },
+      step: {
+        type: "action",
+        intent: "open the export page",
+        channel: "web",
+        action: "navigate",
+        args: { url: "https://exports.example.com/csv" },
+      },
+    },
+  ],
+};
+const tried = (s: RepairSession) => {
+  s.tried = {
+    draft: JSON.stringify(s.draft.steps),
+    result: { ok: true, ran: [], vars: {}, evidence: "the export appeared", approved: [] },
+    from: "s5",
+  };
+};
+
+describe("repair asks instead of refusing", () => {
+  it("makes a change only the user may allow, and says commit will ask", async () => {
+    const { run } = session(true);
+    const applied = (await run("edit", elsewhere)) as { output: string };
+    expect(applied.output).toContain("Commit will ask the user's OK for");
+    expect(applied.output).toContain("exports.example.com is a site this workflow doesn't use");
+  });
+
+  it("commits on yes, asking once", async () => {
+    const { s, run, asked } = session(true);
+    await run("edit", elsewhere);
+    tried(s);
+    const done = await run("commit", { summary: "the export moved to its own site" });
+    expect(done.finish).toEqual({ kind: "commit", summary: "the export moved to its own site" });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain("Go ahead?");
+    await run("commit", { summary: "again" });
+    expect(asked).toHaveLength(1);
+  });
+
+  it("doesn't commit on no, nor when nobody can answer", async () => {
+    for (const answer of [false, WAIT, undefined] as const) {
+      const { s, run } = session(answer);
+      await run("edit", elsewhere);
+      tried(s);
+      const out = (await run("commit", { summary: "x" })) as { output: string; finish?: unknown };
+      expect(out.finish).toBeUndefined();
+      expect(out.output).toMatch(answer === false ? /the user said no/ : /nobody can answer now/);
+    }
+  });
+
+  it("still refuses what is never allowed", async () => {
+    const { run } = session(true);
+    const out = await run("edit", { edits: [{ op: "set", step: "s4", field: "requires_approval", value: false }] });
+    expect(out).toEqual({ refused: "s4: approval can't be turned off" });
+  });
+});
+
+describe("the repeat guard", () => {
+  it("answers the same look, with nothing done in between, without running it again", async () => {
+    let looked = 0;
+    const { run } = session(undefined, {
+      page: async () => {
+        looked++;
+        return { ok: true, value: [] };
+      },
+    });
+    await run("find", { text: "Export" });
+    const again = (await run("find", { text: "Export" })) as { output: string };
+    expect(again.output).toMatch(/^You made this exact call already/);
+    expect(looked).toBe(1);
+    // A probe changes the page: the same look runs again after it.
+    await run("press", { key: "Escape" });
+    await run("find", { text: "Export" });
+    expect(looked).toBe(3);
+  });
+});
+
+describe("the failure report", () => {
+  it("says what the recording showed at the failing step", async () => {
+    const report = await failureReport(
+      skill,
+      failure,
+      { class: "drift", reason: "renamed" },
+      { runId: "r", deps: {} as RunDeps, recorded: (id) => (id === "s5" ? "recorded: clicked Export CSV" : undefined) },
+    );
+    expect(report).toContain("# When it was recorded");
+    expect(report).toContain("recorded: clicked Export CSV");
+  });
+});

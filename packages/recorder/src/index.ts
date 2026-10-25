@@ -61,6 +61,7 @@ export {
   estimateTokens,
   evidenceText,
   evidenceView,
+  recordedSteps,
 } from "./evidence/evidence.ts";
 export { type Flow, flowOf } from "./evidence/flow.ts";
 export { effectsOf, pagesOf } from "./evidence/pages.ts";

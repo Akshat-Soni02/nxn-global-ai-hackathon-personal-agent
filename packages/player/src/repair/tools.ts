@@ -8,7 +8,7 @@ import {
   type EditInput,
   isOutward,
   neverMatch,
-  repairViolations,
+  repairCheck,
   type Skill,
   type Step,
   walkSteps,
@@ -36,6 +36,8 @@ export interface RepairSession {
   edits: EditInput[];
   // The last try, and the draft it ran on.
   tried?: { draft: string; result: TryResult; from: string };
+  // The draft the user said yes to (askOk), so a commit sent again doesn't ask twice.
+  okd?: string;
 }
 
 const key = (skill: Skill) => JSON.stringify(skill.steps);
@@ -201,9 +203,23 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
       description:
         "Save the draft as the next version. Allowed only after try_steps ran the current draft through the failed step and showed evidence",
       input: z.object({ summary: z.string().min(1).max(300) }),
-      run: ({ summary }) => {
+      run: async ({ summary }) => {
         const problem = commitProblem(session);
         if (problem) return { output: `Not committed: ${problem}` };
+        // What isn't repair's to decide alone (docs/agents/rules.md): the user is asked once, and it commits on yes.
+        const asks = repairCheck(session.original, session.draft).ask;
+        if (asks.length > 0 && session.okd !== key(session.draft)) {
+          const answer = await askOk(session, summary, asks);
+          if (answer === "waiting")
+            return {
+              output: `Not committed: it needs the user's OK (${asks.join("; ")}) and nobody can answer now. Escalate, saying in plain words what you would change and why`,
+            };
+          if (answer === "no")
+            return {
+              output: `Not committed: the user said no to ${asks.join("; ")}. Find a fix without it, or escalate`,
+            };
+          session.okd = key(session.draft);
+        }
         return { output: "committed", finish: { kind: "commit", summary } };
       },
     }),
@@ -264,7 +280,33 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
       }),
     );
   }
-  return tools;
+  return remembered(tools, session);
+}
+
+// A call made again with nothing changed since gets the same answer (Oct 25: the repair of the YC run sent find 9
+// times on the same page): said so, with that answer, instead of running it again. Probing, editing, trying or waiting
+// changes things; those are never held back themselves.
+function remembered(tools: AnyTool<RepairFinish>[], session: RepairSession): AnyTool<RepairFinish>[] {
+  const seen = new Map<string, { moves: number; output: string }>();
+  let moves = 0;
+  return tools.map((t) => ({
+    ...t,
+    run: async (input: unknown, ctx: Parameters<AnyTool<RepairFinish>["run"]>[1]) => {
+      const call = `${t.name} ${JSON.stringify(input)} ${key(session.draft)}`;
+      const before = seen.get(call);
+      // Only looks and edits: a probe or a try acts on the page, and the same click twice can be right (a menu's toggle).
+      if (before && before.moves === moves && (t.kind === "look" || t.kind === "edit") && t.name !== "wait") {
+        return {
+          output: `You made this exact call already, and nothing has changed since (no probe, edit, try or wait in between), so the answer is the same:\n${before.output.slice(0, 600)}\nDo something else: probe the page, edit the draft, try it, or escalate.`,
+        };
+      }
+      const result = await t.run(input, ctx);
+      if (t.kind === "probe" || t.kind === "edit" || t.kind === "try" || t.name === "wait") moves++;
+      const output = typeof result.output === "string" ? result.output : JSON.stringify(result.output);
+      seen.set(call, { moves, output });
+      return result;
+    },
+  }));
 }
 
 function applyToDraft(session: RepairSession, edits: EditInput[]) {
@@ -272,7 +314,23 @@ function applyToDraft(session: RepairSession, edits: EditInput[]) {
   if (!result.ok) return { output: `Not applied: ${result.problems.join("; ")}` };
   session.draft = result.skill;
   session.edits.push(...edits);
-  return { output: `Applied. The draft now:\n${workflowOutline(session.draft, session.failure.stepId)}` };
+  const asks = repairCheck(session.original, session.draft).ask;
+  const ok = asks.length > 0 ? `\nCommit will ask the user's OK for: ${asks.join("; ")}` : "";
+  return { output: `Applied. The draft now:\n${workflowOutline(session.draft, session.failure.stepId)}${ok}` };
+}
+
+// The user's OK for a change repair may not make alone, through the run's own question (the inbox, or the terminal in
+// `pnpm replay`). No way to ask, or nobody there now: "waiting".
+async function askOk(session: RepairSession, summary: string, asks: string[]): Promise<"yes" | "no" | "waiting"> {
+  const ask = session.env.deps.ask;
+  if (!ask) return "waiting";
+  const question = `"${session.original.name}" stopped at ${session.failure.stepId}. Shadow can fix it: ${summary}. That needs your OK: ${asks.join("; ")}. Go ahead?`;
+  try {
+    const answer = await ask({ question, kind: "confirm" }, session.failure.step);
+    return answer === true ? "yes" : answer === false ? "no" : "waiting";
+  } catch {
+    return "waiting";
+  }
 }
 
 function commitProblem(session: RepairSession): string | undefined {
@@ -334,19 +392,19 @@ export function repairGuard(session: RepairSession) {
       const { locator } = inspected.value as { locator: never };
       const result = applyEdits(session.draft, [{ op: "retarget", step, target: locator }]);
       if (result.ok) {
-        const violations = repairViolations(session.original, result.skill);
+        const violations = repairCheck(session.original, result.skill).never;
         if (violations.length > 0) return violations.join("; ");
       }
     }
     if (t.name === "edit") {
       const result = applyEdits(session.draft, (input as { edits: EditInput[] }).edits);
       if (result.ok) {
-        const violations = repairViolations(session.original, result.skill);
+        const violations = repairCheck(session.original, result.skill).never;
         if (violations.length > 0) return violations.join("; ");
       }
     }
     if (t.name === "commit") {
-      const violations = repairViolations(session.original, session.draft);
+      const violations = repairCheck(session.original, session.draft).never;
       if (violations.length > 0) return violations.join("; ");
     }
     return undefined;

@@ -24,9 +24,10 @@ export interface RepairLimits {
   episode: Partial<Budget>;
 }
 export const DEFAULT_REPAIR_LIMITS: RepairLimits = {
+  // Oct 25 (X6): room to get the run done, not only to fix a locator (12 turns and $0.10 ran out looking).
   episodesPerRun: 2,
-  costPerRunUsd: 0.25,
-  episode: { turns: 12, costUsd: 0.1, liveActions: 20 },
+  costPerRunUsd: 0.45,
+  episode: { turns: 20, costUsd: 0.2, liveActions: 30 },
 };
 
 export interface RepairerOptions {
@@ -96,11 +97,12 @@ export function createRepairer(options: RepairerOptions = {}): Repairer {
     }
 
     // 2. The repair agent, within the run's limits.
-    const escalate = (reason: string, episode?: Episode<RepairFinish>): RepairOutcome => ({
+    const escalate = (reason: string, episode?: Episode<RepairFinish>, whatToShow?: string): RepairOutcome => ({
       kind: "escalate",
-      reason,
+      reason: episode ? `${reason}. ${whatItTried(episode)}` : reason,
       classification,
       episode,
+      ...(whatToShow ? { whatToShow } : {}),
     });
     if (!options.llm) return escalate(`no model configured to repair it (${classification.reason})`);
     if (episodes >= limits.episodesPerRun)
@@ -143,7 +145,7 @@ export function createRepairer(options: RepairerOptions = {}): Repairer {
     }
     const finish = outcome.value;
     if (finish.kind === "resolve") return { ...finish, classification, episode };
-    if (finish.kind === "escalate") return { ...finish, classification, episode };
+    if (finish.kind === "escalate") return escalate(finish.reason, episode, finish.whatToShow);
     const tried = session.tried?.result;
     return {
       kind: "commit",
@@ -172,8 +174,35 @@ button, a new banner or dialog, an action moved into a menu, a new confirmation 
 that is down, a login page, an empty inbox or bad data is resolved without changing anything.
 To repair drift: look at the page, probe it if you must (open a menu, dismiss a banner), edit the draft, then
 try_steps to run it on the live page. Commit only when a try shows evidence. Keep the change as small as the page
-requires, keep step ids, and never change what the user decided. If you can't find a safe fix, escalate and say what
-the user should show you.`;
+requires, keep step ids, and never change what the user decided. The report says what the step looked like when it
+was recorded: find that again on the page. You may add, remove, reorder and change steps to get the run done; a change
+that acts outward, opens a new site or removes a step that asks for approval is put to the user when you commit, and
+made on yes. Calling the same look again with nothing done in between gets the same answer: act instead. If you can't
+find a safe fix, escalate and say in plain words what you would change, or what the user should show you.`;
+
+// What the repair did before it handed over, in plain words for the user (Oct 25, X7): "It looked at the page 9 times,
+// changed the workflow once and tried a fix once (the last try: target not found)."
+export function whatItTried(episode: Episode<RepairFinish>): string {
+  const KINDS: [string, RegExp][] = [
+    ["looked at the page", /^(page_outline|find|inspect|describe_screen|failure_report|workflow|recall)$/],
+    ["tried things on the page", /^(click_safe|press|scroll|go_back|navigate)$/],
+    ["changed the workflow", /^(retarget|edit)$/],
+    ["tried a fix", /^try_steps$/],
+  ];
+  const calls = episode.transcript.flatMap((e) => (e.type === "call" ? [e.tool] : []));
+  const times = (n: number) => (n === 1 ? "once" : n === 2 ? "twice" : `${n} times`);
+  const parts = KINDS.flatMap(([words, names]) => {
+    const n = calls.filter((c) => names.test(c)).length;
+    return n > 0 ? [`${words} ${times(n)}`] : [];
+  });
+  if (parts.length === 0) return "It didn't get to try anything.";
+  const last = [...episode.transcript].reverse().find((e) => e.type === "result" && e.tool === "try_steps") as
+    | { output?: string }
+    | undefined;
+  const error = last?.output ? /"error":"([^"]{1,160})/.exec(last.output)?.[1] : undefined;
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+  return `It ${list}${error ? ` (the last try: ${error})` : ""}.`;
+}
 
 // The repaired workflow as the next version, with a note saying how it came about.
 function nextVersion(original: Skill, draft: Skill, summary: string, now = () => new Date()): Skill {

@@ -34,6 +34,8 @@ export interface Recovery {
   // A masked picture of the page (web) or the frontmost window (ax), described (only with pictures consent).
   describeScreen?(question: string, channel: "web" | "ax"): Promise<string>;
   available?(): Availability;
+  // What the recording showed at a step, for the failure report.
+  recorded?: RepairEnv["recorded"];
   // Each repair episode, to store next to the run log.
   onEpisode?(n: number, record: { failure: string; outcome: RepairOutcome["kind"]; transcript: unknown[] }): void;
   // A transient failure is retried after these waits; then it needs the user.
@@ -94,6 +96,7 @@ export async function runWithRecovery(
             failure.step.type === "action" && failure.step.channel === "ax" ? "ax" : "web",
           ) ?? Promise.resolve("")),
       available: recovery.available?.(),
+      recorded: recovery.recorded,
     };
     const before = recovery.repairer.spent.costUsd;
     const repaired = await recovery.repairer.repair(current, failure, env);

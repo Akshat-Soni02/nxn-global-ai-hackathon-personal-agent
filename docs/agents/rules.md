@@ -44,8 +44,9 @@ the repair agent (`packages/core/src/guard.ts`), sorted on Oct 25 (reports/plan-
 | The trigger, inputs and defaults, the description, args the user set, AI instructions, max_items, on_item_fail | never | the user's decisions |
 | Approval turned off, a question removed or changed | never | |
 | Script steps | never | |
-| A new step that sends, submits, pays, publishes or deletes | ask | refused today; repair v2 (#25): an inbox question, applied on yes |
-| A new app (mcp) step | ask | refused today; repair v2: proposed with the Connect button |
-| Going to a site the workflow doesn't use | ask | refused today; repair v2: asked |
-| Removing an AI step, a loop, a step that needs approval or asks | ask | refused today ("can't be removed"); repair v2: asked, except a question the user answered (never) |
+| A new step that sends, submits, pays, publishes or deletes, or a step turned outward | ask | `repairCheck().ask`: put to the user at commit (the run's own question), committed on yes; nobody there: escalated in plain words |
+| A new app (mcp) step | ask | asked at commit like the others; offering to connect an app from a repair is not built yet |
+| Going to a site the workflow doesn't use (an edit) | ask | asked at commit; a probe's `navigate` still stays on the workflow's sites |
+| Removing an AI step, a loop or a step that needs approval | ask | asked at commit |
+| Removing a step that asks the user a question | never | |
 | Skipping steps that only got to a page a later step opens by its address | allowed | ladder rung 0, no model (`ladder.ts`) |

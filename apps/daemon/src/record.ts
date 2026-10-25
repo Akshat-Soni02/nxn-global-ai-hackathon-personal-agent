@@ -32,6 +32,7 @@ import {
   type Question,
   recordedFolders,
   recordedPages,
+  recordedSteps,
   requireApprovals,
   reviewOf,
   type TestReport,
@@ -43,7 +44,7 @@ import { type FsChange, watchFiles } from "./fs-watch.ts";
 import { goLiveProblems } from "./lifecycle.ts";
 import { type LocateOptions, locateFiles } from "./locate-file.ts";
 import { maskTermsOf, readForm, readNotes, recordingDir } from "./recording-store.ts";
-import { writeReview } from "./review-store.ts";
+import { writeRecordedSteps, writeReview } from "./review-store.ts";
 import { loadSkill, newSkillId, saveSkill } from "./skill-store.ts";
 import { appendTrace, readTrace } from "./trace-store.ts";
 
@@ -361,6 +362,7 @@ export async function finishRecording(
         };
   const saved = saveSkill(dataDir, noted);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
+  if (evidence) writeRecordedSteps(dataDir, saved.skill.id, recordedSteps(evidence));
   progress(`Saved ${saved.skill.name}`);
   if (design) {
     const notices = noticesOf({

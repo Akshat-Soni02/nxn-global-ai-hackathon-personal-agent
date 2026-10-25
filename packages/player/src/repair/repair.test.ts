@@ -359,9 +359,10 @@ describe("the repair agent", () => {
 
     const looper = fakeLlm(() => call("page_outline", {}));
     const repairer = createRepairer({ llm: looper, limits: { episode: { turns: 3 } } });
+    // Said in plain words, with what it tried (the same look, again and again, is told so after the first).
     expect(await repairer.repair(skill, failure, env)).toMatchObject({
       kind: "escalate",
-      reason: "the repair ran out of turns",
+      reason: expect.stringMatching(/^the repair ran out of turns\. It looked at the page 3 times\.$/),
     });
     await repairer.repair(skill, failure, env);
     expect(await repairer.repair(skill, failure, env)).toMatchObject({

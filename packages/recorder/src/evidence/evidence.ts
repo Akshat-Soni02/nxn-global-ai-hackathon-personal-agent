@@ -254,3 +254,22 @@ export function evidenceView(ev: Evidence): EvidenceView {
     appeared: () => new Set(ev.steps.flatMap((s) => s.appeared)),
   };
 }
+
+// What the recording showed at each step, by step id, short: kept beside the workflow (skills/<id>/recorded.json) when
+// it is saved, so a repair long after the recording was deleted still sees what the step looked like then (Oct 25, X1).
+// As masked as the evidence it comes from.
+export function recordedSteps(ev: Evidence): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const s of ev.steps) {
+    const said = ev.said.filter((x) => Math.abs(x.at - s.at) <= 8_000).map((x) => `"${x.text}"`);
+    const text = [
+      `recorded: ${s.line}`,
+      ...(s.caption ? [`the screen then: ${s.caption}`] : []),
+      ...(s.near.length > 0 ? [`near its control: ${s.near.slice(0, 6).join(" | ")}`] : []),
+      ...(s.appeared.length > 0 ? [`appeared after it: ${s.appeared.slice(0, 6).join(" | ")}`] : []),
+      ...(said.length > 0 ? [`said around it: ${said.join(" ")}`] : []),
+    ].join("\n");
+    for (const id of s.ids) out[id] = text.slice(0, 1_500);
+  }
+  return out;
+}
