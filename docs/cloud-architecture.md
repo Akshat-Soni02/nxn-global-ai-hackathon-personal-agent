@@ -204,7 +204,7 @@ Tool calls work the same way, counting one per call.
 | **new `apps/api`** | the Cloud Run service (§3): Hono or Fastify, Firestore client, Composio SDK, an OpenAI-compatible relay; Dockerfile |
 | `packages/llm` | `configFromEnv` / Keychain path → **`configFromAccount`**: base URL `https://api…/v1/llm`, token from the daemon's auth; `.env` keeps working for development |
 | `apps/daemon` | auth (device flow, token refresh, Keychain); **MCP client** (`@modelcontextprotocol/sdk`, Streamable HTTP to `/v1/tools/mcp`); Settings API: account, connected apps, usage; key routes removed |
-| `packages/core` | a new step: `{ type: "action", channel: "mcp", action: "<tool>", args }`; approval from the tool's annotations; the capability briefing lists connected tools |
+| `packages/core` | a new step: `{ type: "action", channel: "mcp", action: "call", args: { tool, arguments } }`; approval from the tool's annotations; the capability briefing lists connected tools |
 | `packages/player` | runs `mcp` steps through the daemon; repair: an MCP step's failure is classed (auth expired → environment; 5xx → transient; bad args → data) |
 | `packages/recorder` (design agent) | connected tools offered as options; propose an `mcp` step for a recorded UI sequence that a tool does (sheet writes first). **With Rushil: record-v3 owns this** |
 | `apps/mac` + `apps/ui` | first run: Sign in; Settings: Connected apps, Usage; the key screen goes |

@@ -5,6 +5,8 @@
 > **Oct 13: record-side decisions.** The description form comes first (all five fields, before recording starts). From screenshots, only text leaves the Mac: the pictures stay on it and are deleted with the recording. Re-recording a task you already have: decided later that day, **Record again** on a workflow's page saves the new recording as its next version ([Open questions](#open-questions)).
 >
 > **Oct 13, evening: sprint 4.** The editor (step 6), Walk through (step 7), a masked picture for the agents behind a second consent, Record again, sleep and wake, and the packaged app (`pnpm package`) are built. Every section below folds: open the ones you need, or jump from the contents.
+>
+> **Oct 25: Shadow, managed.** Users don't bring an API key any more. They sign in, and the daemon's model calls go through **`shadow-api`**, Shadow's own service on Google Cloud (Cloud Run), which adds Shadow's Nebius key and counts each call against a free tier. Connected apps (Google Sheets, Gmail…) come through **Composio**, behind the same service, as **`mcp` steps** in a workflow. Recording, masking, the agents and runs stay on the Mac. The service itself: [`docs/cloud-architecture.md`](cloud-architecture.md); the sections changed here: [Architecture](#architecture), [The workflow format](#the-workflow-format), [Models](#models), [Other safety rules](#other-safety-rules), [The app](#the-app), [Deployment](#deployment).
 
 Shadow learns a work task from a description and one demonstration, shows the user the workflow it understood, lets them correct it, and then runs it for them, fixing itself when a site changes.
 
@@ -36,7 +38,7 @@ Shadow learns a work task from a description and one demonstration, shows the us
   - [Testing](#testing)
 - [The workflow format](#the-workflow-format): The tree: trigger, action, llm, loop, branch, ask, approval; typed variables, checked twice
   - [Variables](#variables)
-- [Architecture](#architecture): One app on the Mac with the daemon as the hub, three doors, no backend server; built as drawn
+- [Architecture](#architecture): One app on the Mac with the daemon as the hub, three doors; model and connected-app calls through `shadow-api` on Google Cloud
 - [Replay engine](#replay-engine): Matching by role and name, acting like a person, waiting, the interpreter, the run log
 - [Memory](#memory-1): Local SQLite: drill answers, run context, site notes; never secrets
 - [Models](#models): Nemotron 3.5 Lightning, Nemotron 3 Super and GLM-5.3-Flash on Token Factory: profiles, prices, what packages/llm does
@@ -48,7 +50,7 @@ Shadow learns a work task from a description and one demonstration, shows the us
 - [The daemon as a service](#the-daemon-as-a-service): Started by launchd, an inbox instead of a terminal, how a run waits, one API on two doors
 - [The app](#the-app): Shadow.app: the Swift side, the WKWebView window, starting at login, the screens, notifications
 - [Observability](#observability): Logs, the runs index, repair episodes, model usage, health, retention, diagnostics
-- [Deployment](#deployment): The .dmg with Node and the daemon inside, who starts what, first run, scripts, signing
+- [Deployment](#deployment): The .dmg with Node and the daemon inside, who starts what, first run (sign in), the cloud service, scripts, signing
   - [What the user installs](#what-the-user-installs)
   - [Who starts what](#who-starts-what)
   - [First run](#first-run)
@@ -448,10 +450,12 @@ The skill is the contract between record and replay, and a skill **is** a workfl
 
 | `type` | What it does | Fields |
 | --- | --- | --- |
-| `action` | One step in the browser, a Mac app, files or a script | `channel` (`web`, `ax`, `fs`, `script`, `data`), `action`, `target` (a locator, never coordinates), `args`, `wait`, `check`, `output`, `timeout_ms`, `on_fail` |
+| `action` | One step in the browser, a Mac app, files, a script or a connected app | `channel` (`web`, `ax`, `fs`, `script`, `data`, `mcp`), `action`, `target` (a locator, never coordinates), `args`, `wait`, `check`, `output`, `timeout_ms`, `on_fail` |
 | `llm` | **Transform only**: summarise, classify, read text, compute. Never drives the UI, gets no tools | `instruction`, `inputs` (references to the data it reads), `output` (required; never a file or secret). The model's answer is checked against the output's type |
 | `control`, `kind: "loop"` | Runs its `steps` for each item of a list | `over` (a reference to a list), `item` (the current item, a variable visible only inside the loop), `max_items` (100), `on_item_fail` (`stop` or `skip`), `steps` |
 | `control`, `kind: "branch"` | Runs its `steps` if a condition holds, its `else` steps otherwise | `if` (a comparison `{ left, op, right }` with `equals`, `not_equals`, `contains`, `greater_than`, `less_than`, `exists`, `not_exists`; or `all` / `any` / `not` of conditions), `steps`, `else`. No `then` key: an object with one is treated as a promise by `await` |
+
+**`mcp` steps (Oct 25):** `{ type: "action", channel: "mcp", action: "call", args: { tool, arguments } }` calls one tool of an app the user connected (e.g. `tool: "GOOGLESHEETS_BATCH_UPDATE"`), through `shadow-api`'s MCP endpoint and Composio, instead of clicking through the app's page. No `target`; `arguments` may hold references (`{{rows}}`); its `output` is the tool's result (an object, or text). Approval comes from the tool's own annotations: a tool that isn't marked `readOnlyHint`, or is marked `destructiveHint`, gets `requires_approval: true` when the step is made, and the player asks anyway if a tool says it changes things and the step doesn't. A tool of an app that isn't connected fails the run before it starts, saying which app to connect.
 
 ### Variables
 
@@ -483,7 +487,7 @@ Every value a step reads is a **variable declared, with its type, by an earlier 
 ## Architecture
 
 <details>
-<summary>One app on the Mac with the daemon as the hub, three doors, no backend server; built as drawn</summary>
+<summary>One app on the Mac with the daemon as the hub, three doors; model and connected-app calls through shadow-api on Google Cloud</summary>
 
 ```mermaid
 flowchart TB
@@ -498,20 +502,30 @@ flowchart TB
       X["Extension<br/>web capture, tab screenshots,<br/>replay via chrome.debugger"]
     end
     S["native-host shim"]
+    K[("Keychain<br/>device token")]
+  end
+  subgraph gcp["Google Cloud (Shadow's project)"]
+    API["shadow-api (Cloud Run)<br/>sign-in, model relay, MCP endpoint,<br/>quotas (Firestore), keys (Secret Manager)"]
   end
   N[("Nebius Token Factory<br/>Nemotron 3.5 Lightning, Nemotron 3 Super,<br/>GLM-5.3-Flash")]
+  C[("Composio<br/>the user's connected apps")]
   X <--> S <--> D
   L -- starts --> D
   A <-- socket --> D
   W <-- "local HTTP + token" --> D
-  D -- "text; a masked picture only with<br/>the Pictures consent; user's own API key" --> N
+  D --- K
+  D -- "HTTPS + device token: model calls<br/>(text; a masked picture only with the<br/>Pictures consent), mcp tool calls" --> API
+  API -- "Shadow's key" --> N
+  API -- "user = entity" --> C
 ```
 
 The daemon is the hub, reached through three doors because each side allows a different one: Chrome only through native messaging (the shim), the Swift side through the Unix socket, the window through local HTTP ([The daemon as a service](#the-daemon-as-a-service)).
 
-There is **no backend server**: the daemon is the backend. It runs on the user's Mac and calls Token Factory directly with the user's own API key. The extension, the Swift side and the window never call a model; everything goes through the daemon ([Deployment](#deployment)).
+The daemon is still the backend for everything about the user's work: workflows, recordings, runs, memory and both agents live and run on the Mac. Since Oct 25 one thing sits outside it: **`shadow-api`**, a small stateless service on Google Cloud Run that the daemon calls for **model calls** (an OpenAI-compatible relay that adds Shadow's Nebius key) and **connected-app calls** (one MCP server per user, over Composio), and that signs the app in and enforces each user's free-tier quota. The Mac holds a device token, never a key. The extension, the Swift side and the window never call a model or a tool; everything goes through the daemon. The service: [`docs/cloud-architecture.md`](cloud-architecture.md).
 
-**Built as drawn (Oct 13).** `pnpm package` puts the daemon, a Node binary, the shim, the window's pages and the extension inside Shadow.app; the app registers the daemon as a login item, kickstarts it through `launchctl` when it is down, tells it when the Mac sleeps and wakes, and the key comes from the Keychain ([Deployment](#deployment)).
+For development, `NEBIUS_API_KEY` in the repo's `.env` makes the daemon call Token Factory directly, without the service and without caps (the path that existed before Oct 25).
+
+**Built as drawn on the Mac (Oct 13).** `pnpm package` puts the daemon, a Node binary, the shim, the window's pages and the extension inside Shadow.app; the app registers the daemon as a login item, kickstarts it through `launchctl` when it is down, and tells it when the Mac sleeps and wakes ([Deployment](#deployment)).
 
 **Why a native host shim.** Chrome launches a fresh process for every native messaging connection, so it cannot attach to the always-on daemon. The shim (`apps/native-host`) is what Chrome launches; it forwards bytes to the daemon's Unix socket (`~/Library/Application Support/Shadow/daemon.sock`, at most 103 bytes long, a macOS limit). Only the extension can open the connection, so it connects on startup and reconnects with `chrome.alarms`.
 
@@ -567,9 +581,9 @@ Prices are from Token Factory's catalog (Oct 8, 2026) and live in config, not co
 - **Reliability.** Timeouts; retry with backoff on 429 and 5xx; an abort signal.
 - **Images only with the Pictures consent,** and only after masking ([below](#consent-redaction-and-retention)): the picture with its private lines blacked out, when an agent asks `describe_screen` (built Oct 13, `daemon/src/describe.ts`). Without that consent no picture leaves the Mac; the words read from it on the Mac go instead.
 - **Testing.** A scripted fake client for unit tests. `pnpm llm:check` lists the models the key can reach, sends one small call per profile, and reports whether each supports `json_schema` and tool calling.
-- **Config passed in.** Base URL, key and models come from the caller; the daemon builds them from the Keychain and `config.json` (`.env` only in development).
+- **Config passed in.** Base URL, key and models come from the caller; the daemon builds them from the signed-in account (`shadow-api`'s `/v1/llm` and the device's access token) and `config.json`, or from `.env` in development.
 
-**The API key** is the user's own Token Factory key, stored in the **macOS Keychain** (`.env` only for development). The base URL is configurable, so a pass-through gateway could be put in front later without code changes.
+**The API key** is Shadow's own Token Factory key, held by `shadow-api` in Secret Manager (since Oct 25; before, it was the user's key in the Keychain). The daemon sends its calls to `shadow-api`, which checks the user's quota, adds the key, forwards the call unchanged and meters the tokens. `NEBIUS_API_KEY` in `.env` still calls Token Factory directly, for development.
 
 **Token Factory account setting:** turn on **Zero Data Retention** at the organization level. By default Nebius keeps prompts and responses to speed up inference; with it on, nothing is stored after a request and nothing is used for training.
 
@@ -617,7 +631,8 @@ The folder is **deleted 24 hours after the workflow is saved**, immediately if n
 ### Other safety rules
 
 - **Stays on the Mac:** screenshots and audio (until the recording is deleted), workflows and versions, memory, and run logs.
-- **Sent to Token Factory:** text only from a recording: the description, the event trace without sensitive values, the transcript, and with screen consent the masked screen text. For repair: the failure report and what the agent looks at.
+- **Sent to Token Factory** (through `shadow-api`, which logs only sizes, model, tokens and cost, never the prompt): text only from a recording: the description, the event trace without sensitive values, the transcript, and with screen consent the masked screen text. For repair: the failure report and what the agent looks at.
+- **Sent to Composio** (through `shadow-api`): an `mcp` step's arguments and its result, for apps the user connected. Composio holds the user's tokens for those apps; disconnecting an app in Settings removes them.
 - **Secrets:** sensitive field values are never recorded; passwords become secret inputs read from the macOS Keychain at run time.
 - **LLM steps cannot act.** They only transform data, so text on a web page cannot make the model click, send or navigate.
 - **Approvals:** on by default for send, submit, pay, publish and delete, and for anything matching the description's "Never".
@@ -695,7 +710,7 @@ The UI imports `@shadow/core`, so the editor validates with the same `check.ts` 
 2. **Workflows:** each with its state (draft, live, paused, and why it auto-paused), trigger and next run, last result, live version, and Run now.
 3. **Run detail:** the steps as a timeline from the run log (where each ran, match score, time, values with secrets hidden), repair episodes (what failed, what the agent tried, what changed), and model cost.
 4. **Workflow detail:** the tree, description and variables; versions with the diff between them and **one-click rollback**.
-5. **Settings and health** (built Oct 13): the API key (into the Keychain), the three consents, a model check, Connect Chrome, and **memory** (view and delete entries). Not built: budgets.
+5. **Settings and health** (built Oct 13): the three consents, a model check, Connect Chrome, and **memory** (view and delete entries). Since Oct 25: the **account** (signed in as, sign out) instead of the API key; **Connected apps** (connect, see, disconnect); **Usage** (today and this month against the free tier).
 6. **Editor** (built Oct 13): works on the workflow's draft: edit a step's fields and toggle approval, with `check.ts` errors shown on the step; every change is saved at once, undo and redo, Discard; saving makes the next version. Remove and move steps; **Walk through** ([Test](#7-test)). Not built: adding a step.
 7. **Record:** the description form, recording, then the drill questions shown on the draft tree. **Record again** on a workflow's page records it anew as its next version (Oct 13); the pill's trash discards a recording.
 
@@ -708,13 +723,13 @@ The UI imports `@shadow/core`, so the editor validates with the same `check.ts` 
 <details>
 <summary>Logs, the runs index, repair episodes, model usage, health, retention, diagnostics</summary>
 
-Local only: logs, runs and usage stay on the Mac, in line with the privacy promise. Nothing is sent anywhere except model calls.
+Local only: logs, runs and usage stay on the Mac, in line with the privacy promise. Nothing is sent anywhere except model calls and `mcp` tool calls (both through `shadow-api`, which keeps the per-user usage ledger for quotas, metadata only).
 
 - **Logs.** One structured logger for the daemon (time, level, component, run id, message) writing JSON lines to `~/Library/Logs/Shadow/daemon.log`; Shadow.app writes `app.log` there too. Both are rotated (size cap, a few files kept). Console.app shows that folder. Today the daemon logs to the terminal and the app to `NSLog` or `--log`.
 - **Runs.** The per-run JSON lines (`runs/<runId>.jsonl`) stay the detail. A `runs` table indexes them: workflow, version, trigger, status (succeeded, failed, denied, no-op, waiting, cancelled), start, duration, failed step, whether it was repaired, model cost. The window lists runs from it.
 - **Repair episodes** are saved next to their run (`runs/<runId>.repair-N.json`, numbered across the run's legs): the failure report, the agent's transcript and the version diff.
 - **Model usage.** Tokens and estimated cost per call, per run and per day, saved (today `UsageMeter` is in memory only). A daily budget in settings: a warning near it; over it, model calls are refused and the user is told.
-- **Health.** Extension connected; Shadow.app connected and allowed Accessibility; API key present and the model reachable (the last check); triggers and their next times; disk used; the last error. Shown in the window and as the menu bar icon's state.
+- **Health.** Extension connected; Shadow.app connected and allowed Accessibility; signed in and the model reachable (the last check); triggers and their next times; disk used; the last error. Shown in the window and as the menu bar icon's state.
 - **Retention.** Run logs and repair episodes are kept 30 days (a setting), the `ai-cache` is pruned, logs are rotated. Values of type `secret` are never logged, as today.
 - **Diagnostics export.** A zip of the logs, health and a chosen run, without secrets, for bug reports.
 
@@ -727,8 +742,8 @@ Local only: logs, runs and usage stay on the Mac, in line with the privacy promi
 
 *Packaging decided Oct 10, 2026; built Oct 13: `pnpm package` made `dist/Shadow-0.1.0.dmg` (44 MB) and `shadow-extension.zip`. Not yet tried on a clean Mac.*
 
-- **No backend server.** The daemon on the user's Mac is the backend; it holds the workflows and calls Token Factory directly with the user's key. This keeps the data path short: the user's Mac and Nebius only.
-- **Settings** live in `~/Library/Application Support/Shadow/config.json` (model per profile, budgets, prices, retention), with defaults built in; the API key lives in the Keychain.
+- **One small service, Shadow's own (since Oct 25).** The daemon on the user's Mac is still the backend for the user's work; it holds the workflows and runs them. Model calls and connected-app calls go through `shadow-api` on Google Cloud Run ([The cloud service](#the-cloud-service)). Before Oct 25 there was no server and the daemon called Token Factory with the user's own key; that path stays for development.
+- **Settings** live in `~/Library/Application Support/Shadow/config.json` (model per profile, budgets, prices, retention, the service's URL), with defaults built in; the device's refresh token lives in the Keychain.
 - **Updates** ship with the app: a new build of Shadow.app (with the daemon inside) and a new version of the extension.
 
 ### What the user installs
@@ -755,14 +770,22 @@ The user opens Shadow.app. The app registers the daemon's LaunchAgent and itself
 
 ### First run
 
-1. Ask for the Token Factory API key and store it in the **Keychain**.
+1. **Sign in** (since Oct 25; before, it asked for the Token Factory API key): the app shows a short code and opens Shadow's sign-in page in the browser (Google or email); once signed in, the daemon gets a device token and keeps its refresh token in the **Keychain**.
 2. Write Chrome's native-host manifest, pointing at `Resources/node` and `Resources/native-host.js` **inside the app** (in development `pnpm setup:native-host` points at the developer's Node and repo).
 3. Run the connection check (what `pnpm llm:check` does) and show **"connected to Nemotron"**.
 4. Guide the user through loading the extension (Load unpacked from the folder shipped in the app, then **Allow access to file URLs**) and allowing **Accessibility**.
 
 The daemon, the app and the extension each send their version in `hello`; a mismatch is shown in health.
 
-Built Oct 13: `FirstRun.swift` (the setup window: key, Chrome, permissions), `keychain.ts` (the key through `security`, on its stdin, never on a command line), `settings.ts` (`setApiKey`, `checkModel`, `setupChrome`), and `SHADOW_BUNDLE` paths in the daemon (`ipc/src/paths.ts`).
+Built Oct 13: `FirstRun.swift` (the setup window: key, Chrome, permissions), `keychain.ts` (the key through `security`, on its stdin, never on a command line), `settings.ts` (`setApiKey`, `checkModel`, `setupChrome`), and `SHADOW_BUNDLE` paths in the daemon (`ipc/src/paths.ts`). Oct 25: the key step becomes Sign in; `keychain.ts` stores the refresh token the same way.
+
+### The cloud service
+
+`apps/api` in this monorepo, one container on **Cloud Run** (`shadow-api`), with **Identity Platform** (sign-in), **Firestore** (users, devices, connected apps, quotas, the usage ledger) and **Secret Manager** (the Nebius key, the Composio key, the token-signing key). Routes, flows, quotas and the reasons: [`docs/cloud-architecture.md`](cloud-architecture.md). In short:
+
+- **Quotas** live only in Firestore and are checked by the service before every model or tool call (reserve, then settle with the real tokens), so editing the app can't change them. Running without caps: `.env` with `NEBIUS_API_KEY` (no service at all), `QUOTAS=off` with the Firestore emulator when working on `apps/api`, or `developer: true` on a user in Firestore.
+- **Deploy:** Cloud Build makes the image, `gcloud run deploy` ships it; the steps are in `apps/api/README.md`.
+- **Offline:** web and Mac-app steps still run; model and `mcp` steps can't, and the app says so.
 
 ### Scripts
 
@@ -777,7 +800,7 @@ The app is signed ad hoc (no Apple developer account). macOS ties the Accessibil
 
 ### Test build for judges
 
-The GitHub Release above. The first launch runs the first-run steps, so the judge sees "connected to Nemotron" before recording anything.
+The GitHub Release above. The first launch runs the first-run steps, so the judge signs in and sees "connected to Nemotron" before recording anything. If the rules ask judges to use their own Token Factory key, `NEBIUS_API_KEY` in `.env` skips the service.
 
 </details>
 
@@ -898,10 +921,10 @@ Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglo
 | Track requirement | Where we meet it |
 | --- | --- |
 | Always-on | Daemon with triggers from Frequency |
-| Private, data under user control | No backend server: the user's Mac talks only to Token Factory (Zero Data Retention), with the user's own key. Screenshots and audio need consent and never leave the Mac (only masked text and the transcript do), and raw recordings are deleted a day after the workflow is saved |
+| Private, data under user control | Recordings, workflows, runs and memory stay on the Mac. Only model calls (masked text) and connected-app calls leave it, through Shadow's own service (prompts never logged) to Token Factory (Zero Data Retention) and Composio. Screenshots and audio need consent and never leave the Mac (only masked text and the transcript do), and raw recordings are deleted a day after the workflow is saved |
 | Persistent memory | Drill answers, site notes from repairs, run context |
 | Reusable skills | Workflows, with versions improved by the repair agent |
-| Tools across daily workflows | Browser, Mac apps, files, scripts |
+| Tools across daily workflows | Browser, Mac apps, files, scripts, and connected apps (Google Sheets, Gmail, Slack…) as `mcp` steps through Composio |
 | At least one NVIDIA open model | Nemotron 3.5 Lightning (`llm` steps on every run) and Nemotron 3 Super (the repair agent and the design agent), both on Nebius Token Factory |
 
 **Submission checklist:** a working project with Nemotron on Token Factory; the track; a project description; a **test build** (the GitHub Release, since a hosted URL is not required: "a URL to a working demo, hosted application, or test build"); a public demo video of 3 minutes or less showing where Token Factory and Nemotron are used; the public MIT repo whose README has setup instructions and a section on how we use Nemotron and Token Factory; feedback on Token Factory and Nemotron. Judges use their own Token Factory key, so the first-run setup must be smooth.
