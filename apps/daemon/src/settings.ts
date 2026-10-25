@@ -97,7 +97,15 @@ export interface AppCheck {
 }
 
 export interface ConnectedApps {
-  toolkits: { slug: string; name: string }[];
+  // Every app that can be connected (Composio's catalogue, from Shadow's service).
+  toolkits: {
+    slug: string;
+    name: string;
+    logo?: string;
+    description?: string;
+    categories?: string[];
+    actions?: number;
+  }[];
   connections: { id: string; toolkit: string; status: string; created?: string }[];
   // Apps the user said to keep clicking for (connectors.ts): not offered in new designs until asked again.
   declined: string[];

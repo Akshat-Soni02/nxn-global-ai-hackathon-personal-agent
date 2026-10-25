@@ -28,9 +28,20 @@ export interface ToolResult {
   error?: string;
 }
 
+// An app a user may connect, as the Apps screen shows it.
+export interface Toolkit {
+  slug: string;
+  name: string;
+  logo?: string;
+  description?: string;
+  categories?: string[];
+  // How many actions it offers (Composio's count).
+  actions?: number;
+}
+
 export interface ToolProvider {
-  // Toolkits a user may connect: { slug, name }.
-  toolkits(): Promise<{ slug: string; name: string }[]>;
+  // Every app a user may connect.
+  toolkits(): Promise<Toolkit[]>;
   connections(uid: string): Promise<Connection[]>;
   // Starts connecting an app; the user finishes at `redirectUrl` in their browser.
   connect(uid: string, toolkit: string, callbackUrl?: string): Promise<{ id: string; redirectUrl: string }>;

@@ -272,14 +272,9 @@ export function createApp(deps: AppDeps) {
     const allowed = await deps.tools.toolkits();
     if (!allowed.some((t) => t.slug === toolkit))
       return c.json({ error: `${toolkit || "that app"} can't be connected` }, 400);
-    try {
-      const started = await deps.tools.connect(c.get("uid"), toolkit, body.callback_url);
-      log({ event: "tool.connect", uid: c.get("uid"), toolkit });
-      return c.json({ id: started.id, redirect_url: started.redirectUrl });
-    } catch (error) {
-      const status = error instanceof ToolError ? error.status : 502;
-      return c.json({ error: (error as Error).message }, status as 400);
-    }
+    const started = await deps.tools.connect(c.get("uid"), toolkit, body.callback_url);
+    log({ event: "tool.connect", uid: c.get("uid"), toolkit });
+    return c.json({ id: started.id, redirect_url: started.redirectUrl });
   });
 
   app.delete("/v1/tools/connections/:id", async (c) => {
@@ -288,9 +283,12 @@ export function createApp(deps: AppDeps) {
     return removed ? c.json({ ok: true }) : c.json({ error: "no such connection" }, 404);
   });
 
+  // What failed is said, in the reply as in the log: a connected app's failure (ToolError) with its own reason and
+  // status ("Composio refused Shadow's key: …"), anything else with its message.
   app.onError((error, c) => {
     log({ event: "error", path: c.req.path, error: error.message });
-    return c.json({ error: "something went wrong on Shadow's server" }, 500);
+    if (error instanceof ToolError) return c.json({ error: error.message }, error.status as 400);
+    return c.json({ error: `Shadow's server failed: ${error.message.slice(0, 300)}` }, 500);
   });
 
   return app;

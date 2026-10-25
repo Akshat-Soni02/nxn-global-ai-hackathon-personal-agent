@@ -118,7 +118,7 @@ The packaged app needs no Node, no pnpm and no repository on your Mac. The same 
 1. Download `Shadow-<version>.dmg` from the latest GitHub Release ([Deployed Link](#deployed-link)) and open it. Drag **Shadow** to Applications and open it; the first time, right-click → Open (it is signed by us, not by Apple).
 2. The setup window has three steps. **Sign in:** press Sign in; your browser opens Shadow's sign-in page (Google or email), and back in the app you should see "Connected to Nemotron". No API key is needed. **Chrome:** press Connect Chrome, then in `chrome://extensions` turn on Developer mode, Load unpacked, pick the folder the Finder window shows, and in the extension's Details turn on "Allow access to file URLs". **Permissions:** Accessibility if you want Mac apps recorded; Screen Recording and Microphone only if you want screenshots and narration.
 3. Press Open Shadow. From now on Shadow and its daemon start when you log in. Record from the window or the menu bar; while you record, a red button with a clock floats on your screen.
-4. Optional: **Settings → Connected apps** to connect Google Sheets, Gmail and others, so workflows can write to them directly instead of clicking through their pages.
+4. Optional: **Apps** (in the sidebar) to connect Google Sheets, Gmail and others, so workflows can write to them directly instead of clicking through their pages.
 
 ## Running from the repository
 
@@ -163,7 +163,8 @@ Shadow appears in the menu bar (how many things wait for you, Record, health, th
 
 - **Edit** on a workflow's page opens a draft beside it: change what a step is for, its values, an LLM step's instruction, toggle approval, remove or move a step. Each change is checked and saved at once (a refused change says why), with undo, redo and Discard. **Save as the next version** publishes it; the live version keeps running until then.
 - **Walk through** runs the workflow, or its draft, one step at a time in the automation window. Before each step its target is outlined; the Inbox asks **Next** (a step that only reads), **Do it** (a step that acts, which counts as its approval), **Skip** or **Stop**.
-- **Settings** holds your account (signed in as, sign out, with a connection check), **Connected apps** (connect Google Sheets, Gmail…, see and disconnect them), **Usage** against the free tier, the three consents, Connect Chrome, and memory (view and forget entries). With `NEBIUS_API_KEY` in `.env`, the account and usage parts say "developer key" and there are no caps.
+- **Apps** lists every app Shadow can use directly (Composio's catalogue, searchable): connect one in the browser, **Check** that it works, see what it can do, disconnect it.
+- **Settings** holds your account and this month's use, the three recording switches, Chrome, and memory (view and forget entries); **Advanced** folds away the model check, your own Token Factory key, and where the files are. With `NEBIUS_API_KEY` in `.env`, the model says "your key from .env" and there are no caps.
 
 ### 6. Run it, and let it run on its own
 

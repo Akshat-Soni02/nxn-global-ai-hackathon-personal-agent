@@ -142,7 +142,7 @@ describe("the account, through shadow-api", () => {
   });
 });
 
-describe("Settings → Connected apps → Check", () => {
+describe("Apps → Check", () => {
   it("says whether a connected app works the way a run reaches it, without doing anything in it", async () => {
     const w = world();
     const account = await signedIn(w);
