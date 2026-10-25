@@ -63,6 +63,7 @@ function Card({ item }: { item: InboxItem }) {
         </span>
       </div>
       <h2 className="card-title">{item.title}</h2>
+      {typeof item.detail.why === "string" ? <p className="detail">{item.detail.why}</p> : null}
       <Answer item={item} />
       {item.runId ? (
         <a className="card-link" href={`#/runs/${item.runId}`}>
@@ -170,6 +171,10 @@ function Answer({ item }: { item: InboxItem }) {
       </>
     );
   }
+  // The design could use a connected app directly (apps/daemon/src/connectors.ts): sign in, connect, and the daemon
+  // answers this itself once the app is connected; or keep clicking the page.
+  const connect = item.detail.connect as { toolkit: string; name: string } | undefined;
+  if (item.kind === "question" && connect) return <ConnectAnswer connect={connect} options={options} answer={answer} />;
   // A step's question or a question outside a run: its options, and your own words when none of them fits.
   if (options.length > 0) {
     return (
@@ -186,6 +191,59 @@ function Answer({ item }: { item: InboxItem }) {
     );
   }
   return <TextAnswer placeholder={item.detail.default as string | undefined} onSend={answer} />;
+}
+
+function ConnectAnswer({
+  connect,
+  options,
+  answer,
+}: {
+  connect: { toolkit: string; name: string };
+  options: string[];
+  answer: (value: unknown) => Promise<unknown>;
+}) {
+  const session = useSession();
+  const [opened, setOpened] = useState(false);
+  // Signed in or not, and the sign-in code while the browser is open: looked at every two seconds.
+  const settings = useQuery<{ account: { signedIn: boolean; email?: string; pending?: { userCode: string } } }>(
+    "settings",
+    {},
+    { everyMs: 2000 },
+  );
+  const account = settings.data?.account;
+  return (
+    <>
+      <div className="answers">
+        {account && !account.signedIn ? (
+          <Action kind="primary" run={() => session.call("signIn")}>
+            {account.pending ? `Finish signing in (code ${account.pending.userCode})` : "Sign in to Shadow"}
+          </Action>
+        ) : (
+          <Action
+            kind="primary"
+            run={async () => {
+              await session.call("connectApp", { toolkit: connect.toolkit });
+              setOpened(true);
+            }}
+          >
+            {opened ? `Connect ${connect.name} again` : `Connect ${connect.name}`}
+          </Action>
+        )}
+        {options.map((o) => (
+          <Action key={o} run={() => answer(o)}>
+            {o}
+          </Action>
+        ))}
+      </div>
+      <p className="muted small">
+        {opened
+          ? `Finish in your browser: once ${connect.name} is connected, the design goes on by itself.`
+          : account && !account.signedIn
+            ? `Sign in first, then connect ${connect.name}.`
+            : `Opens ${connect.name}'s sign-in page in your browser.`}
+      </p>
+    </>
+  );
 }
 
 function TextAnswer({

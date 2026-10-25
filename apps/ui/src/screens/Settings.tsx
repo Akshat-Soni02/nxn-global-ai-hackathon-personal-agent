@@ -28,6 +28,7 @@ interface Usage {
 interface ConnectedApps {
   toolkits: { slug: string; name: string }[];
   connections: { id: string; toolkit: string; status: string; created?: string }[];
+  declined: string[];
 }
 interface SettingsView {
   consent: Consent;
@@ -410,6 +411,18 @@ function ConnectedAppsView() {
                     : waiting === kit.slug
                       ? "Finish in your browser…"
                       : "Not connected"}
+                  {apps.data?.declined.includes(kit.slug) ? (
+                    <>
+                      {" · not offered when you record "}
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => session.call("offerAppAgain", { toolkit: kit.slug }).then(() => apps.reload())}
+                      >
+                        offer it again
+                      </button>
+                    </>
+                  ) : null}
                 </td>
                 <td className="right">
                   {conn ? (

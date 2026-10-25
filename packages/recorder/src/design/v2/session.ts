@@ -4,6 +4,7 @@
 // found yet, and the questions it queued (asked in one batch after the build). The tools change it; the orchestrator
 // (Task 9) reads it between stages.
 import type { Skill, StepInput } from "@shadow/core";
+import type { UsableApp } from "./connectors.ts";
 import type { DoneReport, EvidenceView, Proposal, TestReport } from "./contracts.ts";
 import type { RecordingFacts } from "./rules.ts";
 
@@ -50,6 +51,8 @@ export interface SessionV2 {
   // How often done was refused, and what was left when it finished anyway (the review lists it).
   refusedDone: number;
   gaps: string[];
+  // Connected apps the user chose to use (connectors.ts): their tools make app steps ({ do: "app" }).
+  apps: UsableApp[];
 }
 
 export function newSession(original: Skill, facts: RecordingFacts, extra: Partial<SessionV2> = {}): SessionV2 {
@@ -68,6 +71,7 @@ export function newSession(original: Skill, facts: RecordingFacts, extra: Partia
     tests: 0,
     refusedDone: 0,
     gaps: [],
+    apps: [],
     ...extra,
   };
 }

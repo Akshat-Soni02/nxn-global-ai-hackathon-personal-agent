@@ -149,6 +149,10 @@ const appMethods = {
     run: (a: AppControl, p: { id: string }) => a.disconnectApp(p.id),
   },
   appTools: { params: z.object({}).default({}), run: (a: AppControl) => a.appTools() },
+  offerAppAgain: {
+    params: z.object({ toolkit: z.string().regex(/^[a-z0-9_]{1,60}$/, "an app's name") }),
+    run: (a: AppControl, p: { toolkit: string }) => a.offerAppAgain(p.toolkit),
+  },
 } as const;
 
 export type Method = keyof typeof methods | keyof typeof recordMethods | keyof typeof appMethods;

@@ -34,30 +34,30 @@ What the user asked for, and how it will work:
 
 | # | Change | Where | Status |
 |---|---|---|---|
-| C1 | **Which recorded steps an app could do.** By the pages the steps worked in: `docs.google.com/spreadsheets` → Google Sheets, `docs.google.com/document` → Google Docs, `mail.google.com` → Gmail, `drive.google.com` → Google Drive, `calendar.google.com` → Google Calendar, `*.slack.com` → Slack, `notion.so` → Notion, `github.com` → GitHub. Only steps that *write or read data* (type, paste, click a cell, read) count, not opening the page. A "connector chance" = { toolkit, name, steps[], why }. | new `packages/recorder/src/design/v2/connectors.ts` | ☐ |
-| C2 | **Ask once, before planning**, one question per chance, only when Shadow's service is configured: *"You wrote into Google Sheets by clicking cells. Shadow can write to it directly, which keeps working when the sheet's layout changes. Use Google Sheets directly?"* Options: **Connect Google Sheets** (recommended) / **Keep clicking the page**. Asked right after stage 1 (understand), since the answer changes how everything is built; not in the end batch. | orchestrator stage 1½ | ☐ |
-| C3 | **The question carries the button.** `Question.connect = { toolkit, name, signedIn, connected }`. The inbox card and the Record screen show **Sign in** (if not signed in) and **Connect Google Sheets**, which open the browser; the daemon watches the connection and **answers the question itself** ("connected") when it turns ACTIVE, so the design goes on without another click. **Keep clicking** answers "classic". Already connected: no question, it is used. | `daemon/types.ts`, `service.ts` (`ask` gives the item id), `record.ts` (the watcher), UI `Inbox.tsx` / `Record.tsx` | ☐ |
-| C4 | **"No" is remembered**: a declined toolkit is saved (config.json `connectors.declined`), not asked again; Settings → Connected apps shows "Not used in new workflows: ask again". | `settings.ts`, UI | ☐ |
-| C5 | **Approval from hints at save**: `finalOf` gets the read-only tools, so a read runs without asking and a write asks. | orchestrator `finalOf` | ☐ |
+| C1 | **Which recorded steps an app could do.** By the pages the steps worked in: `docs.google.com/spreadsheets` → Google Sheets, `docs.google.com/document` → Google Docs, `mail.google.com` → Gmail, `drive.google.com` → Google Drive, `calendar.google.com` → Google Calendar, `*.slack.com` → Slack, `notion.so` → Notion, `github.com` → GitHub. Only steps that *write or read data* (type, paste, click a cell, read) count, not opening the page. A "connector chance" = { toolkit, name, steps[], why }. | new `packages/recorder/src/design/v2/connectors.ts` | ☑ |
+| C2 | **Ask once, before planning**, one question per chance, only when Shadow's service is configured: *"You wrote into Google Sheets by clicking cells. Shadow can write to it directly, which keeps working when the sheet's layout changes. Use Google Sheets directly?"* Options: **Connect Google Sheets** (recommended) / **Keep clicking the page**. Asked right after stage 1 (understand), since the answer changes how everything is built; not in the end batch. | orchestrator stage 1½ | ☑ |
+| C3 | **The question carries the button.** `Question.connect = { toolkit, name, signedIn, connected }`. The inbox card and the Record screen show **Sign in** (if not signed in) and **Connect Google Sheets**, which open the browser; the daemon watches the connection and **answers the question itself** ("connected") when it turns ACTIVE, so the design goes on without another click. **Keep clicking** answers "classic". Already connected: no question, it is used. | `daemon/types.ts`, `service.ts` (`ask` gives the item id), `record.ts` (the watcher), UI `Inbox.tsx` / `Record.tsx` | ☑ |
+| C4 | **"No" is remembered**: a declined toolkit is saved (config.json `connectors.declined`), not asked again; Settings → Connected apps shows "Not used in new workflows: ask again". | `settings.ts`, UI | ☑ |
+| C5 | **Approval from hints at save**: `finalOf` gets the read-only tools, so a read runs without asking and a write asks. | orchestrator `finalOf` | ☑ |
 
 ### 1.2 What the agent gets
 
 | # | Change | Where | Status |
 |---|---|---|---|
-| A1 | **The tools of the connected app**, in the build message: name, one line each, read-only or not (from `mcpTools.list()`, filtered to the chance's toolkit, at most 40), and which recorded steps they can replace. | `buildMessage` | ☐ |
-| A2 | **A look at one tool's arguments**: `look { app_tool: "GOOGLESHEETS_BATCH_UPDATE" }` returns its input schema (masked like every look). | `tools.ts` look | ☐ |
-| A3 | **Adding an app step**: `add { do: "app", tool, arguments, save_as? }` makes `{ channel: "mcp", action: "call", args: { tool, arguments } }`; refused when the tool isn't offered, or its `arguments` miss a required field. The recorded UI steps it replaces are removed with a why (`remove`), as today. | `tools.ts` add, `rules.ts` | ☐ |
-| A4 | **The instruction**, in BUILD and PLAN: *"When the user connected an app, write to it and read from it with one app step instead of the clicks into its page: it doesn't depend on the page's layout. Find the spreadsheet id, sheet name and range from the page's address and what was typed (the recording shows them). Keep the clicks only for what the app's tools can't do. The user said no to an app: build it the classic way, never ask again."* Plus a worked line in the KPI example. | `prompt.ts` | ☐ |
-| A5 | **The test run**: a read-only app step runs for real (it only reads), a writing one is outlined like a click that acts. The final check never writes to an app. | `packages/player/src/rehearse.ts` (`rehearsalChoice`), `daemon/rehearse.ts` passes `tools` | ☐ |
+| A1 | **The tools of the connected app**, in the build message: name, one line each, read-only or not (from `mcpTools.list()`, filtered to the chance's toolkit, at most 40), and which recorded steps they can replace. | `buildMessage` | ☑ |
+| A2 | **A look at one tool's arguments**: `look { app_tool: "GOOGLESHEETS_BATCH_UPDATE" }` returns its input schema (masked like every look). | `tools.ts` look | ☑ |
+| A3 | **Adding an app step**: `add { do: "app", tool, arguments, save_as? }` makes `{ channel: "mcp", action: "call", args: { tool, arguments } }`; refused when the tool isn't offered, or its `arguments` miss a required field. The recorded UI steps it replaces are removed with a why (`remove`), as today. | `tools.ts` add, `rules.ts` | ☑ |
+| A4 | **The instruction**, in BUILD and PLAN: *"When the user connected an app, write to it and read from it with one app step instead of the clicks into its page: it doesn't depend on the page's layout. Find the spreadsheet id, sheet name and range from the page's address and what was typed (the recording shows them). Keep the clicks only for what the app's tools can't do. The user said no to an app: build it the classic way, never ask again."* Plus a worked line in the KPI example. | `prompt.ts` | ☑ |
+| A5 | **The test run**: a read-only app step runs for real (it only reads), a writing one is outlined like a click that acts. The final check never writes to an app. | `packages/player/src/rehearse.ts` (`rehearsalChoice`), `daemon/rehearse.ts` passes `tools` | ☑ |
 | A6 | **The review** names app steps in plain words ("Writes the row to Google Sheets, directly") and shows "asks first" from the hints. | `review.ts` / UI `WorkflowTree.tsx` | ☐ |
 
 ### 1.3 Plumbing
 
 | # | Change | Where | Status |
 |---|---|---|---|
-| P1 | `finishRecording` gets `connectors` (the account's view, `connectedApps`, `connectApp`, the MCP tools) from main.ts; the design gets them through `DesignV2Options.connectors`. Without a service (no `SHADOW_API_URL`) or a developer `.env` key with no service: no chance is offered and nothing changes. | `daemon/record.ts`, `main.ts`, orchestrator | ☐ |
-| P2 | **Fix: the test run passes `tools`** to `runSkillOn` (else the preflight fails every app step). | `daemon/rehearse.ts` | ☐ |
-| P3 | Tests: connectors.ts (hosts → toolkits, which steps), the question with a fake prompter (connected → app tools in the message; declined → none), `add do: app` (made / refused), the test run's choice, the watcher answering the item. | recorder + daemon tests | ☐ |
+| P1 | `finishRecording` gets `connectors` (the account's view, `connectedApps`, `connectApp`, the MCP tools) from main.ts; the design gets them through `DesignV2Options.connectors`. Without a service (no `SHADOW_API_URL`) or a developer `.env` key with no service: no chance is offered and nothing changes. | `daemon/record.ts`, `main.ts`, orchestrator | ☑ |
+| P2 | **Fix: the test run passes `tools`** to `runSkillOn` (else the preflight fails every app step). | `daemon/rehearse.ts` | ☑ |
+| P3 | Tests: connectors.ts (hosts → toolkits, which steps), the question with a fake prompter (connected → app tools in the message; declined → none), `add do: app` (made / refused), the test run's choice, the watcher answering the item. | recorder + daemon tests | ☑ |
 
 ## 2. Replay (mine, from the reports)
 
@@ -90,3 +90,8 @@ timing out at 90 s. **§1 changes Rushil's design agent**: he should review the 
 ## 5. Log
 
 - 25 Oct: PR #18 raised (feat/mcp → main). This review written.
+- 25 Oct: §1 built (all but A6): `design/v2/connectors.ts` (apps by page, document ids written `<id:s4>` and filled by
+  code), the stage before planning (`usableApps`), `add { do: "app" }`, `look { app_tool }`, the prompt, the gate
+  counting an app step as kept work, approvals from read-only tools, the test run (reads done, writes outlined, never
+  in the final check), the daemon's question with Sign in / Connect (answered by the daemon when connected,
+  `daemon/connectors.ts`), "offer it again" in Settings. Tests: 9 recorder, 2 daemon; 725 in all pass.
