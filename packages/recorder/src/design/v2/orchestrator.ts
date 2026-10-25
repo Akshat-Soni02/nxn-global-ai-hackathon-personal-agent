@@ -22,6 +22,7 @@ import { maskText } from "../../mask.ts";
 import { plainChecks } from "../../plain-checks.ts";
 import { skeletonOf, skillInput } from "../../skeleton.ts";
 import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
+import { appsSection, type ConnectorChance, type Connectors, readOnlyTools, type UsableApp } from "./connectors.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
 import { gate, lostWork, runProblems, unmadeProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
@@ -53,6 +54,10 @@ export interface DesignV2Options {
   // The final check: the same run, with the files the workflow makes made for real, then put in the Trash (twice: it
   // runs again, and a second run should make nothing new).
   verify?: (skill: Skill, twice: boolean) => Promise<TestReport>;
+  // Connected apps (connectors.ts): where the recording worked inside an app Shadow can use directly, and the daemon's
+  // side (ask with the connect button, the app's tools). Without connectors nothing is offered: the classic design.
+  chances?: ConnectorChance[];
+  connectors?: Connectors;
   // The design's meter: the pictures' captions are already on it.
   meter?: UsageMeter;
   budget?: { costUsd: number; calls: number };
@@ -110,8 +115,38 @@ export function droppedOf(evidence: Evidence): SessionV2["dropped"] {
   return dropped;
 }
 
-// The workflow as saved: url checks as the player reads them, and approval wherever a step acts outward.
-const finalOf = (draft: Skill) => requireApprovals(plainChecks(withFields(draft))).skill;
+// The workflow as saved: url checks as the player reads them, and approval wherever a step acts outward (a connected
+// app's tool that only reads doesn't ask).
+const finalOf = (draft: Skill, apps: UsableApp[] = []) =>
+  requireApprovals(plainChecks(withFields(draft)), { readOnlyTools: readOnlyTools(apps) }).skill;
+
+// Before planning: the apps the user wants used directly. Already connected: used. Said no before: not asked. Else
+// asked once, with the button to connect; "classic" is remembered so it isn't asked again.
+export async function usableApps(
+  chances: ConnectorChance[],
+  connectors: Connectors,
+  say: (line: string) => void,
+): Promise<{ apps: UsableApp[]; asked: { question: string; answer: string }[] }> {
+  const apps: UsableApp[] = [];
+  const asked: { question: string; answer: string }[] = [];
+  if (chances.length === 0) return { apps, asked };
+  const status = await connectors.status();
+  for (const chance of chances) {
+    if (status.declined.includes(chance.toolkit)) continue;
+    let use = status.connected.includes(chance.toolkit);
+    if (!use) {
+      say(`Asking whether to use ${chance.name} directly`);
+      const answer = await connectors.offer(chance);
+      asked.push({ question: `Use ${chance.name} directly?`, answer });
+      if (answer === "classic") connectors.decline(chance.toolkit);
+      use = answer === "connected";
+    }
+    if (!use) continue;
+    const tools = await connectors.tools(chance.toolkit).catch(() => []);
+    if (tools.length > 0) apps.push({ ...chance, tools });
+  }
+  return { apps, asked };
+}
 
 // An AI step's list of open objects gets the fields its loop reads ({{story.title}}), so the run's model is asked for
 // exactly those (Checkpoint 5: a bare "object" let it name them as it liked, and {{story.title}} would come out empty).
@@ -244,7 +279,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   ): DesignV2Outcome => ({
     ...extra,
     ...(unmadeProblems(session.draft, unmade).length > 0 ? { cantRun: unmadeProblems(session.draft, unmade) } : {}),
-    skill: finalOf(session.draft),
+    skill: finalOf(session.draft, session.apps),
     ...(checked ? { checked } : {}),
     task,
     done,
@@ -267,7 +302,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   // What makes a draft worse than the recording: your work lost, or steps that can't run (the recording's own aside).
   const worse = () => {
     const recorded = new Set(runProblems(finalOf(options.skill)));
-    const broken = runProblems(finalOf(session.draft)).filter((p) => !recorded.has(p));
+    const broken = runProblems(finalOf(session.draft, session.apps)).filter((p) => !recorded.has(p));
     if (lostWork(options.skill, session.draft, session.whys).length > 0) return "had lost work you showed";
     return broken.length > 0 ? `has steps that can't run (${broken[0]})` : undefined;
   };
@@ -449,6 +484,19 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     task = theTask;
     say(`You said ${theTask.rules.length} rule(s); it runs ${cadenceText(theTask)}`);
 
+    // 1½: the apps the recording worked in that Shadow can use directly: asked now, since the answer changes how all of
+    // it is built. A failure here (the service down) designs it the classic way.
+    if (options.connectors && options.chances?.length) {
+      try {
+        const offered = await usableApps(options.chances, options.connectors, say);
+        session.apps = offered.apps;
+        for (const a of offered.asked) asked.push({ ...a, by: "code" });
+        if (offered.apps.length > 0) say(`Using ${offered.apps.map((a) => a.name).join(", ")} directly`);
+      } catch (error) {
+        say(`Connected apps couldn't be checked (${(error as Error).message}): designing it with page steps`);
+      }
+    }
+
     // The task model's unknowns: what the evidence speaks to goes to the agent with the evidence; the rest are queued.
     const seen: string[] = [];
     for (const u of theTask.unknowns) {
@@ -584,7 +632,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
             : undefined;
         return other ? { ...check, outcome: `failed: ${other}` } : check;
       };
-      checked = judged(await options.verify(finalOf(session.draft), twice));
+      checked = judged(await options.verify(finalOf(session.draft, session.apps), twice));
       if (checked.outcome.startsWith("failed")) {
         const failed = checked.steps.filter((s) => s.status === "failed").map((s) => `${s.id}: ${s.error}`);
         session.refusedDone = 0;
@@ -599,7 +647,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
           ),
         );
         if (after) return kept(`it stopped while fixing what the final check found: ${after}`);
-        checked = judged(await options.verify(finalOf(session.draft), twice));
+        checked = judged(await options.verify(finalOf(session.draft, session.apps), twice));
       }
       if (checked.outcome.startsWith("failed")) session.gaps.push(`the final check failed: ${checked.outcome}`);
       if (twice && checked.again?.length) {
@@ -640,6 +688,7 @@ function buildMessage(task: TaskModel, evidence: Evidence, session: SessionV2, s
     ...(left.length > 0 ? left : ["(nothing)"]),
     "",
     ...unknowns,
+    ...appsSection(session.apps),
     `# Pages you can open by name: ${[...session.pages.keys()].join(", ") || "none"}`,
   ].join("\n");
 }

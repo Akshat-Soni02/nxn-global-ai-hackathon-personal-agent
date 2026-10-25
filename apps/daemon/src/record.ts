@@ -14,8 +14,10 @@ import {
   answerFromEvidence,
   applyAnswer,
   buildEvidence,
+  type Connectors,
   changesSummary,
   compile,
+  connectorChances,
   type DesignV2Options,
   type DesignV2Outcome,
   describeChanges,
@@ -127,6 +129,9 @@ export interface FinishOptions {
   progress?: (line: string) => void;
   // Whether Shadow.app is running and may use Accessibility: without it, nothing outside Chrome was recorded.
   mac?: () => { connected: boolean; trusted: boolean };
+  // Connected apps (connectors.ts): offered to the design where the recording worked inside one. Without them (no
+  // service), the design builds page steps only.
+  connectors?: Connectors;
 }
 
 // What the review says about the recording itself, before what was built from it (checkpoint 6: 50 s of voice became
@@ -292,6 +297,9 @@ export async function finishRecording(
         ? (draft, twice) =>
             rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft, places), { twice })
         : undefined,
+      ...(options.connectors
+        ? { connectors: options.connectors, chances: connectorChances(steps, compiled.base.idsByStep) }
+        : {}),
       meter,
       onProgress: progress,
       onEvent: (event) => {

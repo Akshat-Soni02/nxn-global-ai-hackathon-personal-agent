@@ -38,6 +38,13 @@ export function rehearsalChoice(
       : { choice: "skip", why: `at most ${MAX_LLM} AI steps in a test run` };
   }
   const key = `${step.channel}.${step.action}`;
+  // A connected app's tool: before a run, every tool that changes things is made to ask (prepareMcpSteps in the
+  // daemon), so one that doesn't ask only reads, and is done; one that asks is only outlined. Never in the final check.
+  if (key === "mcp.call") {
+    return step.requires_approval || made
+      ? { choice: "skip", why: "it writes to a connected app" }
+      : { choice: "do", why: "it only reads from a connected app" };
+  }
   if (step.requires_approval || isOutward(step)) return { choice: "skip", why: "it needs your approval" };
   // The final check makes the files this run makes, for real, so the outcome is seen; the daemon moves each to the Trash
   // after it (Rushil, 24 Oct). Never a file that was there before, and never anything on a web page.

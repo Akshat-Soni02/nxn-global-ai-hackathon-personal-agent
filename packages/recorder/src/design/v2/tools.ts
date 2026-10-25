@@ -21,6 +21,7 @@ import { z } from "zod";
 import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
 import { maskText } from "../../mask.ts";
+import { missingArguments, readOnlyTools, withIds } from "./connectors.ts";
 import { DoneReport } from "./contracts.ts";
 import { emptyIn, guessed, isCron, joined, roleAlone, sameReads, stepProblems, tabsFixed, unfoundIn } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
@@ -259,7 +260,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         );
       });
     if (unrunnable.length > 0) return { output: { ok: false, problems: unrunnable } };
-    const approved = requireApprovals(result.skill);
+    const approved = requireApprovals(result.skill, { readOnlyTools: readOnlyTools(session.apps) });
     // What it added or changed that may send (an Enter in a message box, a copy of a recorded send): approval too.
     const before = new Map([...walkSteps(session.draft.steps)].map(({ step }) => [step.id, JSON.stringify(step)]));
     const sending = [...walkSteps(approved.skill.steps)]
@@ -337,6 +338,42 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     const { do: verb, intent, target, tab, save_as: named, args, output, ...rest } = spec;
     // A result named the way ai_step names it, { output: { name } } (D2): saved, never sent as an arg.
     const save_as = named ?? (output as { name?: string } | undefined)?.name;
+    // A connected app's tool (connectors.ts): { do: "app", tool, arguments }. No control and no tab: it doesn't touch a
+    // page. Only the tools of an app the user chose to use, with their required arguments.
+    if (verb === "app" || verb === "mcp" || verb === "mcp.call") {
+      const values: Record<string, unknown> = { ...rest, ...(args ?? {}) };
+      const name = String(values.tool ?? "");
+      const tools = session.apps.flatMap((a) => a.tools);
+      const tool = tools.find((t) => t.name === name);
+      if (!tool) {
+        return {
+          error:
+            session.apps.length === 0
+              ? "no app is connected for this workflow: build it with page steps"
+              : `no app tool "${name}". The tools: ${tools.map((t) => t.name).join(", ")}`,
+        };
+      }
+      const given = (values.arguments ?? {}) as Record<string, unknown>;
+      if (typeof given !== "object" || Array.isArray(given))
+        return { error: `arguments is an object of the tool's arguments (look { app_tool: "${name}" })` };
+      const missing = missingArguments(tool, given);
+      if (missing.length > 0)
+        return {
+          error: `${name} needs ${missing.join(", ")} in arguments (look { app_tool: "${name}" } for each one)`,
+        };
+      const filled = withIds(given, session.apps);
+      if (!filled.ok) return { error: filled.error };
+      const step: Record<string, unknown> = {
+        id,
+        type: "action",
+        intent,
+        channel: "mcp",
+        action: "call",
+        args: { tool: name, arguments: filled.value },
+      };
+      if (save_as) step.output = { name: save_as, type: { type: "object" } };
+      return { step, unverified: false };
+    }
     // "web.read" is read, as the model writes it (Checkpoint 5: D's web.read and web.read_all were refused).
     const plain = verb.replace(/^(web|fs|data|ax)\./, "");
     const pair =
@@ -792,7 +829,7 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       name: "add",
       kind: "edit",
       description:
-        'Add any step: { do, intent, target?, values }. do: open, click, type, select, press, read, read_all, read_sheet, wait, upload, find_files, move_file, pick_row, open_app, press_in_app, type_in_app, menu (or channel.action). open takes page: a step that opened it or a tab name ("s1", "KPI Sheet"); code writes the address. target: { like: "s3" } for a control they used, or { role, name } for a new one (unverified until the test run finds it). Where: after, before or into',
+        'Add any step: { do, intent, target?, values }. do: open, click, type, select, press, read, read_all, read_sheet, wait, upload, find_files, move_file, pick_row, open_app, press_in_app, type_in_app, menu (or channel.action), or app (a connected app\'s tool: { do: "app", tool, arguments }, no target). open takes page: a step that opened it or a tab name ("s1", "KPI Sheet"); code writes the address. target: { like: "s3" } for a control they used, or { role, name } for a new one (unverified until the test run finds it). Where: after, before or into',
       input: z.object({ step: StepSpec, ...Where, why: Why }),
       // A step sent with its fields beside where it goes, not inside step (A, 24 Oct: four AI steps and a loop, all
       // refused as "step: expected object"): put inside step, an AI step or a loop marked so it goes to its tool.
@@ -1044,15 +1081,29 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       name: "look",
       kind: "look",
       description:
-        "A step's full evidence (step), a proposal (proposal), the timeline between two steps (from, to), or the workflow as it is now (nothing)",
+        "A step's full evidence (step), a proposal (proposal), the timeline between two steps (from, to), a connected app tool's arguments (app_tool), or the workflow as it is now (nothing)",
       input: z.object({
         step: z.string().optional(),
         proposal: z.string().optional(),
         from: z.string().optional(),
         to: z.string().optional(),
+        app_tool: z.string().optional(),
       }),
       prepare: unstring,
-      run: ({ step, proposal, from, to }) => {
+      run: ({ step, proposal, from, to, app_tool }) => {
+        if (app_tool) {
+          const found = session.apps.flatMap((a) => a.tools).find((t) => t.name === app_tool);
+          return {
+            output: found
+              ? {
+                  name: found.name,
+                  description: found.description,
+                  reads_only: found.readOnly,
+                  arguments: found.inputSchema,
+                }
+              : `no app tool ${app_tool}. The tools: ${session.apps.flatMap((a) => a.tools.map((t) => t.name)).join(", ") || "none (no app connected)"}`,
+          };
+        }
         if (proposal) return { output: session.proposals.get(proposal) ?? `no proposal ${proposal}` };
         if (step) return { output: session.evidence?.step(step) ?? anyStep(step) ?? unknown(step), untrusted: true };
         if (from || to) return { output: session.evidence?.timeline(from, to) ?? "no timeline", untrusted: true };

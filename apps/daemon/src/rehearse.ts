@@ -70,7 +70,8 @@ export async function rehearse(
     // The steps whose control is the one recorded, unchanged: only their links are followed.
     recorded?: Set<string>;
     inputs?: Record<string, unknown>;
-    hooks: Pick<RunHooks, "data" | "llm">;
+    // tools: connected apps (mcp steps). Without them a workflow with an app step can't be tested (runSkillOn says so).
+    hooks: Pick<RunHooks, "data" | "llm" | "tools">;
     logDir: string;
     onLine?: (line: string) => void;
     signal?: AbortSignal;
@@ -108,6 +109,7 @@ export async function rehearse(
           log: r.log,
           data: options.hooks.data,
           llm: options.hooks.llm,
+          tools: options.hooks.tools,
         },
         options.logDir,
       );
