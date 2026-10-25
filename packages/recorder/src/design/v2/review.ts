@@ -1,7 +1,7 @@
 // What the review shows after a design (spec 4.3), kept beside the workflow (skills/<id>/review.json), not in it: what
 // the design did, every change with its why, what you said and what was built for each, what the test run didn't do,
 // and what the finish gate still wanted. Go live waits until you say it looks right.
-import type { Skill } from "@shadow/core";
+import { type Skill, walkSteps } from "@shadow/core";
 import type { DesignV2Outcome } from "./orchestrator.ts";
 import type { ChangeNote } from "./rules.ts";
 
@@ -38,10 +38,18 @@ function checkedText(check: NonNullable<DesignV2Outcome["checked"]>): string {
 }
 
 export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] = [], notices: string[] = []): Review {
+  // Only steps that are really in the workflow: the agent's claims are checked, not repeated (Oct 25).
+  const ids = new Set([...walkSteps(skill.steps)].map(({ step }) => step.id));
   const said = (design.task?.rules ?? []).map((rule, i) => {
     const built = design.done?.rules.find((r) => r.rule === i);
-    const notBuilt = built ? built.not_built : "the design agent didn't say";
-    return { quote: rule.quote, steps: built?.steps ?? [], ...(notBuilt ? { notBuilt } : {}) };
+    const steps = (built?.steps ?? []).map((s) => (s === "trigger" ? "start" : s)).filter((s) => ids.has(s));
+    const invented = (built?.steps.length ?? 0) > 0 && steps.length === 0 && !built?.not_built;
+    const notBuilt = !built
+      ? "the design agent didn't say"
+      : invented
+        ? "not built: the design agent named steps that aren't in the workflow"
+        : built.not_built;
+    return { quote: rule.quote, steps, ...(notBuilt ? { notBuilt } : {}) };
   });
   const test = design.test;
   const untested = (s: NonNullable<DesignV2Outcome["test"]>["steps"][number]) =>

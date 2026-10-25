@@ -1,7 +1,7 @@
 import type { AnyTool } from "@shadow/agent";
 import { findStep, Skill } from "@shadow/core";
-import type { NormalisedStep } from "../../normalise.ts";
 import { describe, expect, it } from "vitest";
+import type { NormalisedStep } from "../../normalise.ts";
 import {
   type AppTool,
   appOf,

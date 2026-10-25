@@ -616,6 +616,16 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // Finished only because the gate stopped refusing (twice): no better than a stopped design when it lost your work or
     // can't run (Checkpoint 5: live A saved three page opens, every write removed).
     if (session.gaps.length > 0 && worse()) return kept("it finished with what the finish gate had refused twice");
+    // A rule you said that no step builds is a design that didn't finish, never "designed" (Oct 25: a design that
+    // only accepted proposals and set the schedule was saved as designed, its summary naming steps that didn't exist).
+    const unbuilt = session.gaps.filter((g) => /^rule \d+ /.test(g));
+    if (unbuilt.length > 0) {
+      return kept(
+        `it didn't build ${unbuilt.length === 1 ? "one of your rules" : `${unbuilt.length} of your rules`} (${unbuilt
+          .map((g) => /^rule \d+ ("[^"]*")/.exec(g)?.[1] ?? g)
+          .join("; ")})`,
+      );
+    }
 
     // 7: the final check (Rushil, 24 Oct: keep-local changes, and remove what the tests saved). A workflow that makes a
     // file runs once for real, with only its files made, then put in the Trash; a failure goes back to the agent once.

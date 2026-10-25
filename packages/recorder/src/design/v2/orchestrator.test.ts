@@ -322,6 +322,17 @@ describe("design agent v2, stage by stage", () => {
     expect(progressOf("start  trigger  when: manual")).toBeUndefined();
   });
 
+  it("keeps the recording, and says why, when it finishes without building a rule you said (Oct 25)", async () => {
+    // The agent sets the schedule, then finishes naming steps it never made, again and again.
+    const invented = call("done", { summary: "top 5, no duplicates", rules: [{ rule: 0, steps: ["loop_jobs"] }] });
+    const script = [call("trigger", { when: { schedule: "0 9 * * *" }, why: "every day" }), invented];
+    const { options } = await setup({ llm: fakeLlm(scriptedDesigner(script, task)) });
+    const out = await designV2(options);
+    expect(out.kind).toBe("kept");
+    expect(out.reason).toMatch(/didn't build one of your rules \("the newest"\)/);
+    expect(reviewOf(out, out.skill).summary).toMatch(/^Kept .*didn't build one of your rules/);
+  });
+
   it("says it can't run yet when the recording shows a file no step makes (checkpoint 6)", async () => {
     const { options } = await setup({ llm: fakeLlm(scriptedDesigner([done("x")], { ...task, rules: [] })) });
     const unmade = ["~/Desktop/Reading/23 Oct - Thuggee.pdf"];

@@ -37,6 +37,30 @@ const design = (extra: Partial<DesignV2Outcome>): DesignV2Outcome => ({
 });
 
 describe("what the review shows", () => {
+  it("says a rule wasn't built when the agent only named steps that aren't in the workflow (Oct 25)", () => {
+    const review = reviewOf(
+      design({
+        task: {
+          outcome: "x",
+          cadence: { kind: "manual" },
+          values: [],
+          rules: [{ quote: "top 5 jobs", where: "said", steps: [] }],
+          proposals: [],
+          unknowns: [],
+        },
+        done: { summary: "x", rules: [{ rule: 0, steps: ["extract_top5", "loop_jobs"] }] },
+      }),
+      skill,
+    );
+    expect(review.said).toEqual([
+      {
+        quote: "top 5 jobs",
+        steps: [],
+        notBuilt: "not built: the design agent named steps that aren't in the workflow",
+      },
+    ]);
+  });
+
   it("says what you said and what was built for it, or why not", () => {
     const review = reviewOf(
       design({
@@ -55,7 +79,7 @@ describe("what the review shows", () => {
         done: {
           summary: "x",
           rules: [
-            { rule: 0, steps: ["s2", "l1"] },
+            { rule: 0, steps: ["s1", "s9"] },
             { rule: 1, steps: [], not_built: "replay can't tell yet" },
           ],
         },
@@ -63,7 +87,8 @@ describe("what the review shows", () => {
       skill,
     );
     expect(review.said).toEqual([
-      { quote: "always the newest one", steps: ["s2", "l1"] },
+      // Only the steps really in the workflow: s9 isn't.
+      { quote: "always the newest one", steps: ["s1"] },
       { quote: "never one already done", steps: [], notBuilt: "replay can't tell yet" },
     ]);
     expect(review.cadence).toBe("every day");
