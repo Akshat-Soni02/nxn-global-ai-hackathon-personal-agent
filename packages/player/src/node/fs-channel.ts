@@ -57,6 +57,15 @@ export async function savePdf(args: Record<string, unknown>, data: string): Prom
   return fileValue(target);
 }
 
+// A file a step reads or moves, checked when it runs (F10: a path built from {{…}} was checked only when designed): one
+// that still holds a {{…}}, or isn't there, fails the step saying which path.
+function source(p: string): string {
+  const full = expandHome(p);
+  if (full.includes("{{")) throw new Error(`the path still has an unfilled value in it: ${p}`);
+  if (!existsSync(full)) throw new Error(`no file at ${p}`);
+  return full;
+}
+
 export async function fsChannel(step: Step, ctx: RunContext): Promise<StepResult> {
   const a = step.args;
   switch (step.action) {
@@ -92,24 +101,24 @@ export async function fsChannel(step: Step, ctx: RunContext): Promise<StepResult
       if (sources.length > 1 && !to.endsWith("/"))
         throw new Error(`moving several files needs a folder ("to" ending in /)`);
       const done: string[] = [];
-      for (const source of sources.map(expandHome)) {
-        const target = await destinationFor(source, to);
-        if (step.action === "move") await moveFile(source, target);
-        else await copyFile(source, target);
+      for (const from of sources.map(source)) {
+        const target = await destinationFor(from, to);
+        if (step.action === "move") await moveFile(from, target);
+        else await copyFile(from, target);
         done.push(target);
       }
       const files = done.map(fileValue);
       return { ok: true, value: Array.isArray(a.from) ? files : files[0] };
     }
     case "rename": {
-      const from = expandHome(path(a.from, "from"));
+      const from = source(path(a.from, "from"));
       const to = str(a.to, "to");
       const target = freePath(to.includes("/") ? expandHome(to) : join(dirname(from), to));
       await moveFile(from, target);
       return { ok: true, value: fileValue(target) };
     }
     case "read":
-      return { ok: true, value: await readFile(expandHome(path(a.path, "path")), "utf8") };
+      return { ok: true, value: await readFile(source(path(a.path, "path")), "utf8") };
     case "write": {
       const target = expandHome(path(a.path, "path"));
       await mkdir(dirname(target), { recursive: true });
