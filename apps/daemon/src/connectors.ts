@@ -2,7 +2,7 @@
 // connected (through the account), the question that carries the Sign in / Connect buttons, and the apps' tools.
 // The question is answered by the daemon itself once the app shows up connected, so the design goes on by itself after
 // the browser; "Keep clicking the page" answers it the other way, and that app isn't offered again (declined, kept in
-// connectors.json; Settings → Connected apps can ask again).
+// connectors.json; Apps can ask again).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ConnectorChance, Connectors } from "@shadow/recorder";

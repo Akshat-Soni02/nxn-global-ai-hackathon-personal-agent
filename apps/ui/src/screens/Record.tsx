@@ -39,8 +39,8 @@ export function Record({ again }: { again?: string }) {
         <h1>{again ? "Record it again" : "Record a task"}</h1>
         <p className="muted">
           {again
-            ? "Do the task once more. The new recording becomes the next version of this workflow; its Frequency and whether it is live stay as they are."
-            : "Say what you want done, then do it once while Shadow watches. Talk as you go: what you say is what it follows."}
+            ? "Do the task once more: it becomes this workflow's next version."
+            : "Do the task once while Shadow watches. Say how often and any rules as you go."}
         </p>
       </header>
       {data.phase === "idle" ? (
@@ -257,10 +257,6 @@ function GoalBox({
           be recorded until it is.
         </p>
       ) : null}
-      <p className="muted small">
-        Say how often it runs and the rules you follow while you record ("every morning", "skip the ones already in the
-        sheet"). Anything still unclear is asked after you stop.
-      </p>
     </>
   );
 }
@@ -270,10 +266,8 @@ function consentNote(screen: boolean, microphone: boolean, pictures: boolean): s
   const senses = [screen ? "read the words on your screen (private ones hidden)" : "", microphone ? "hear you" : ""]
     .filter(Boolean)
     .join(" and ");
-  if (!senses) return "Shadow records your clicks and typing only.";
-  return `While you record, Shadow will ${senses}. Only text leaves your Mac${
-    pictures ? ", and a blacked-out picture when the words aren't enough" : ""
-  }; the recording is deleted a day after the workflow is saved.`;
+  if (!senses) return "Clicks and typing only.";
+  return `Shadow will also ${senses}. Only text leaves your Mac${pictures ? ", and masked pictures when needed" : ""}.`;
 }
 
 function Toggle({

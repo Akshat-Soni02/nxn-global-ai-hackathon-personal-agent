@@ -19,8 +19,9 @@ export interface Config {
   nebius: { apiKey: string; baseUrl: string };
   // Unset: connected apps are off (the tools routes answer 503).
   composioApiKey?: string;
-  // Toolkits a user may connect, by Composio slug.
-  toolkits: string[];
+  // Toolkits a user may connect, by Composio slug (TOOLKITS=googlesheets,gmail). Unset: every app Composio can sign a
+  // user in to by itself.
+  toolkits?: string[];
   // Signs access tokens (HMAC-SHA256). At least 32 characters.
   tokenSecret: string;
   // "firestore" on Cloud Run (and with the emulator); "memory" for tests and a quick local run.
@@ -35,8 +36,6 @@ export interface Config {
   // "composio" or "fake" (a toy Google Sheets for local runs and tests).
   tools: "composio" | "fake";
 }
-
-const DEFAULT_TOOLKITS = ["googlesheets", "gmail", "googledrive", "googlecalendar", "slack", "notion", "github"];
 
 export function configFromEnv(env: Record<string, string | undefined> = process.env): Config {
   const onCloudRun = Boolean(env.K_SERVICE);
@@ -53,7 +52,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
     publicUrl: (env.PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/+$/, ""),
     nebius: { apiKey: env.NEBIUS_API_KEY, baseUrl: (env.NEBIUS_BASE_URL || TOKEN_FACTORY_URL).replace(/\/+$/, "") },
     composioApiKey: env.COMPOSIO_API_KEY || undefined,
-    toolkits: env.TOOLKITS ? env.TOOLKITS.split(",").map((s) => s.trim().toLowerCase()) : DEFAULT_TOOLKITS,
+    ...(env.TOOLKITS ? { toolkits: env.TOOLKITS.split(",").map((s) => s.trim().toLowerCase()) } : {}),
     tokenSecret,
     store: env.STORE === "memory" ? "memory" : "firestore",
     auth,

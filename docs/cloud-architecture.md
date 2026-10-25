@@ -132,7 +132,7 @@ sequenceDiagram
 ```
 
 ### Connecting an app
-Settings → Connected apps → **Google Sheets** → `POST /v1/tools/connect` → Composio's sign-in page in your browser → you allow access → Composio keeps the tokens → the daemon's MCP tool list now has the Sheets tools.
+Apps → **Google Sheets** → `POST /v1/tools/connect` → Composio's sign-in page in your browser → you allow access → Composio keeps the tokens → the daemon's MCP tool list now has the Sheets tools.
 
 ### Recording → workflow
 The recording, screenshots, narration and masking all happen **on the Mac**, as today. The design agent runs in the daemon:
@@ -238,7 +238,7 @@ Cloud Run gives a TLS endpoint from a container in one command, scales to zero, 
 |---|---|---|
 | 1 | GCP project, Secret Manager (Nebius + Composio keys), Firestore, Identity Platform; `apps/api` with `/v1/llm` relay + device sign-in; deploy to Cloud Run | 1 day |
 | 2 | Daemon: sign-in + token refresh; model client → `/v1/llm`; first-run screen | ½ day |
-| 3 | Composio: Google Sheets toolkit; `/v1/tools/connect` + `/v1/tools/mcp`; daemon MCP client; Settings → Connected apps | 1 day |
+| 3 | Composio: Google Sheets toolkit; `/v1/tools/connect` + `/v1/tools/mcp`; daemon MCP client; Apps | 1 day |
 | 4 | `mcp` step in core + player, approvals from annotations; design agent proposes it for sheet writes (with Rushil) | 1 day |
 | 5 | Quotas, privacy text, re-record the KPI → sheet task, demo | ½ day |
 

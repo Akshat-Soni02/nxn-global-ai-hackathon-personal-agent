@@ -96,7 +96,7 @@ connect Chrome again, see and forget what Shadow remembers, and where its files 
 - **"Not signed in".** Settings → Sign in, and finish in the browser.
 - **"Free tier used up".** Settings → Usage shows when it starts again (tomorrow, or next month). Web and Mac-app
   steps still run; AI steps and connected-app steps wait.
-- **"Connect Google Sheets first".** A workflow writes to an app you haven't connected: Settings → Connected apps.
+- **"Connect Google Sheets first".** A workflow writes to an app you haven't connected: Apps.
 - **Chrome: "not connected".** Settings → Connect Chrome, then reload the extension in `chrome://extensions`.
 - **Mac apps are not recorded.** System Settings → Privacy & Security → Accessibility → turn Shadow on. After an
   update, turn it off and on again.
