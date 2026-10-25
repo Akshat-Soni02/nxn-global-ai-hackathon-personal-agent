@@ -3,7 +3,7 @@
 > Written after `oct25-yc-jobs-to-sheet.md`. The recording and the understanding worked; the build, the finish check
 > and the repair didn't, and a policy (text masking) hid the one value the task needed. This plan changes how the
 > agents are set up rather than patching one more case. Owners: **R** = Rushil (record, design agent), **A** = Akshat
-> (replay, repair, connectors, service). Status marks: ☐ planned · ◐ doing · ☑ done.
+> (replay, repair, connectors, service); since the evening of Oct 25 Akshat builds all of it, Rushil reviews. Status marks: ☐ planned · ◐ doing · ☑ done.
 
 ## 0. The diagnosis in one paragraph
 
@@ -64,36 +64,46 @@ runs with Zero Data Retention; the user chose to show the task. Masking text cos
 | P4 | **The finish check is honest**: after its refusals it no longer saves "designed". If rules aren't built by real steps, or nothing beyond proposals and the schedule changed, the result is **kept** (the recording), the Record screen says "The design didn't finish: <what's missing>. You can edit it, or record again", and the review lists the agent's claims it couldn't back | `gate.ts`, `orchestrator.ts`, Record screen | R | ☐ |
 | P5 | Question budget: from "5, then defaults" to "as many as the design needs, grouped on one screen"; "how to build it" questions allowed when the answer is the user's (which sheet, which tab, use the app or click) | `questions.ts`, prompt | R | ☐ |
 
-### 3.2 The design agent: from one big agent to a small team
+### 3.2 The design agent: one designer that edits the workflow like a file, and a critic
 
-Today: one big-model agent does understand → plan → build → test → ask → finish, one long conversation, with 27 k
-characters up front. Proposed: **a pipeline of focused roles**, each with its own short prompt and only the context
-it needs. Code (not a model) moves the work between them.
+*Revised the same day: six roles would lose context at every hand-off, and today's failures weren't from too few
+agents. Two model-driven parts, both seeing the full context; the rest is code.*
 
-| Role | Model | Gets | Produces |
-|---|---|---|---|
-| **Understand** | smart | the full evidence (timeline, narration, captions, pages, apps connected or available) | the task model: outcome, cadence, values and where each comes from, rules, **the pages that matter** (the sheet, the jobs list) and the steps that only reach them |
-| **Ask** | smart, short | the task model + open questions | one batch on the Record screen, **before** building: the user's decisions (which row, every day or weekdays), **app offers** ("Write to Google Sheets directly?" with Connect) and any id it can't find |
-| **Plan** | smart, big budget, retry with thinking off | the task model + answers + a shortlist of tools | the target workflow as a **tree** (not a list of edit calls): steps, loops, AI steps, app steps; code validates it and makes it |
-| **Fix** | fast | each validation problem, one at a time ("needs spreadsheet_id", "{{story}} used outside its loop") | the corrected step; up to N rounds |
-| **Test** | code | the workflow | the safe test run (reads done, writes outlined, app reads done) |
-| **Critic** | smart, short | task model + workflow + test report | "rule 2 isn't built", "this step only reaches a page: open it directly", "use the app here": back to Plan, at most twice |
-| **Explain** | fast | the final diff | the review's plain words, from the real steps only |
+**The designer** (smart model, one conversation from start to finish): understand → ask (app offers, ids, the user's
+decisions) → write the workflow → fix what the checks say → test → done. Nothing is summarised away between stages.
 
-Why this works better than one agent: the plan step stops being a single point of failure (it has room, a retry and a
-critic); small fixes stop costing big-model turns; each prompt is short enough to follow; and asking happens before
-building, so the user's answers (and app connections) shape the design instead of patching it.
+**The critic** (smart model, one short call): the task model, the finished workflow and the test report in; specific
+gaps out ("rule 1 isn't built by any step", "s2–s5 only reach the sheet: open it directly", "use the Sheets app
+here"). The designer gets them back, at most twice. Replaces "refuse done twice, then save".
+
+**The small model** only for mechanical side jobs: captions, choosing ~8 relevant app tools from a long list, fixing a
+malformed tool call. Never for a judgment.
+
+**The workflow is a file** (as an agentic IDE edits code):
+
+| Tool | Does |
+|---|---|
+| `read_workflow` | the workflow as JSON, formatted the same way every time (one key per line), whole or one step by id |
+| `write_workflow` | replace the whole workflow: the plan, or a big restructure |
+| `edit_workflow` | exact text replacements on that JSON (`old` → `new`, each must match exactly once), several per call, all or nothing; a miss shows the nearest real text |
+| `look`, `test`, `ask`, `done` | evidence, the safe test run, questions (any time, including app offers), finishing |
+
+Every write is checked before it is kept: the schema, the variable check (`check.ts`), the safety rules, and whether
+the player can run each step. A failed check changes nothing and returns exact problems ("s7: {{job.title}} is used
+outside the loop that declares job"). Approval on anything that sends, writes or pays is added by code and can't be
+taken off. Short forms the model may write, expanded by code on save: `"page": "s9"` (the real address),
+`"target": {"like": "s14"}` (a recorded control), `"target": {"place": "s7"}` (whatever is in that spot today),
+`"<id:s9>"` (a document's id), `"do": "click"` instead of channel and action.
 
 | # | Change | Where | Who | Status |
 |---|---|---|---|---|
-| D1 | Token budgets per role; cut-off replies retried with thinking off, then said | `orchestrator.ts`, `catalog.ts` | R | ☐ |
-| D2 | **Reach vs work**: code marks steps that only navigate toward a page later steps work on (across tabs, too); Understand states the target pages; Plan opens them directly. A file opened from Recent or search is one fixed file | `evidence/proposals.ts`, prompts | R + A | ☐ |
-| D3 | The Ask stage before Plan, with app offers inside it (the question with the Connect button exists: `daemon/connectors.ts`) and asking for ids allowed | `orchestrator.ts`, `questions.ts` | R + A | ☐ |
-| D4 | Plan writes a workflow tree (JSON) that code validates and diffs, instead of 30 edit calls | new `plan.ts` | R | ☐ |
-| D5 | Fix and Explain on the fast model | new `fix.ts`, `review.ts` | R | ☐ |
-| D6 | Critic replaces the "refuse done twice, then save" loop | `gate.ts` → `critic.ts` | R | ☐ |
-| D7 | Prompts rewritten for the roles: shorter, the goal first, examples with app steps and with "open it directly", no lists of don'ts the code enforces anyway | `prompt.ts` | R | ☐ |
-| D8 | App tools shortlist: at most ~8 per app, chosen by the fast model from the recorded work (writes → append / update; reads → get), the rest by `look` | `connectors.ts` | A | ☐ |
+| D1 | Room to think: big budgets for the designer and plan; a cut-off reply asked again with thinking off, then said | `orchestrator.ts`, `catalog.ts`, `packages/agent` | A | ☐ |
+| D2 | **Reach vs work**: code proposes opening the page directly for a chain of steps that only reach a page later steps work on, across tabs too; the prompt says a file opened from Recent or search is one fixed file | `evidence/proposals.ts`, `prompt.ts` | A | ☐ |
+| D3 | Ask any time, including ids and app offers; app offers before building (exists) | `orchestrator.ts`, `questions.ts`, prompt | A | ☐ |
+| D4 | **read / write / edit_workflow** replace the ~16 edit verbs for the designer (the verbs stay for tests and old transcripts) | new `design/v2/file.ts` | A | ☐ |
+| D6 | The critic replaces "refuse done twice, then save" | new `design/v2/critic.ts`, `gate.ts` | A | ☐ |
+| D7 | Prompts rewritten: shorter, the goal first, examples with app steps and "open it directly", no lists of don'ts code enforces | `prompt.ts` | A (R reviews) | ☐ |
+| D8 | App tools shortlist: ~8 per app, by the recorded work (writes → append / update; reads → get), the rest by `look` | `connectors.ts` | A | ☐ |
 | D9 | Connectors offered only for real work in the app (typing, pasting, copying, reading), never for navigation clicks | `connectors.ts` | A | ☐ |
 
 ### 3.3 The repair agent: from "fix a locator" to "get the run done"
@@ -128,15 +138,19 @@ Where: `packages/player/src/repair/*`, `core/guard.ts` (the guard follows P3's t
    re-recorded should at least fail honestly, or work.
 2. **D2, D3, D8, X2** (a day): reach vs work, ask before building with app offers, the tool shortlist, skipping reach
    steps in replay. Expected: the YC task designs as "read jobs → AI picks 5 → read sheet → AI keeps new → append".
-3. **P3, P5, D7** (a day, both): the rules table and the prompts, reviewed together.
-4. **D4–D6, X1, X3–X7** (two to three days): the role pipeline and the repair agent's new powers.
+3. **D4, D6, D7, P3, P5**: the workflow as a file, the critic, the prompts, the rules table and the questions.
+4. **X1, X3–X7**: the repair agent's new powers.
 5. After each step: §6.
+
+*Oct 25, evening: Akshat has the whole codebase for this (record side included); Rushil reviews the design agent's
+prompt and tools after.*
 
 ## 5. What it costs
 
-Design today: ~$0.12 for this task (33 caption calls, ~10 big-model calls). The pipeline adds a critic pass and moves
-fixes to the fast model: expected about the same or less. Repair: up to $0.20 per episode (from $0.10). Text masking
-off: no cost; a trust question, answered by Zero Data Retention and the user's own Private words.
+Design today: ~$0.12 for this task (33 caption calls, ~10 big-model calls). Writing the workflow in one go instead of
+one change per turn needs fewer big-model calls; the critic adds one or two short ones: about the same or less.
+Repair: up to $0.20 per episode (from $0.10). Text masking off: no cost; a trust question, answered by Zero Data
+Retention and the user's own Private words.
 
 ## 6. How we'll know it works
 
