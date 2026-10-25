@@ -573,7 +573,7 @@ export function normaliseAll(trace: TraceEvent[]): { steps: NormalisedStep[]; no
 // only in its own state (a switch); a link's page may land later (a single-page app, 780 ms): those are kept.
 function quiet(s: Draft, next?: Draft): boolean {
   const e = s.effect;
-  if (!e || e.changed !== "none" || e.navigated || e.expanded || e.opened) return false;
+  if (e?.changed !== "none" || e.navigated || e.expanded || e.opened) return false;
   if (s.navigatesTo || s.submits || s.checked !== undefined || s.opensTab !== undefined || s.produces?.length) {
     return false;
   }

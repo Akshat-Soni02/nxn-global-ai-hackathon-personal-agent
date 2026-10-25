@@ -177,10 +177,12 @@ describe("what made a file", () => {
       ...printed(),
       file("fs_create", 60_000, { path: "/Users/me/Desktop/Reading/notes.txt" }),
     ]).steps;
-    expect(describeStep(steps[2]!)).toBe(
+    expect(describeStep(steps[2] as NonNullable<(typeof steps)[2]>)).toBe(
       'save the page "Thuggee - Wikipedia" as PDF → ~/Desktop/Reading/23 Oct - Thuggee.pdf',
     );
-    expect(describeStep(steps[3]!)).toBe("a file appeared: ~/Desktop/Reading/notes.txt (what made it wasn't recorded)");
+    expect(describeStep(steps[3] as NonNullable<(typeof steps)[3]>)).toBe(
+      "a file appeared: ~/Desktop/Reading/notes.txt (what made it wasn't recorded)",
+    );
     const { idsByStep } = skeletonOf(steps);
     const lines = timelineOf({
       start: T0,
