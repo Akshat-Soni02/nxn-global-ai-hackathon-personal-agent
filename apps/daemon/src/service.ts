@@ -57,6 +57,8 @@ export interface ServiceOptions {
   runsDir?: string;
   // Dollars the model has spent since the daemon started (UsageMeter), to count each run's cost.
   spent?: () => number;
+  // A waiting run that ends without another leg (stopped from its question, or cancelled): its tabs are let go.
+  release?: (runId: string) => void;
   // What main.ts knows about the outside: connected extension and app, model configured.
   health?: () => Record<string, unknown>;
   now?: () => number;
@@ -493,6 +495,7 @@ export function createService(options: ServiceOptions): Service {
       emit({ type: "inbox", item: store.getItem(itemId) as InboxItem });
       if (!resume) {
         updateRun(run.id, { status: "cancelled", endedAt: now(), error: "you stopped it", checkpoint: undefined });
+        options.release?.(run.id);
         return;
       }
       const tree = checkpoint.skill ? Skill.parse(checkpoint.skill) : undefined;
@@ -517,7 +520,14 @@ export function createService(options: ServiceOptions): Service {
         store.answerItem(item.id, { cancelled: true }, now());
         emit({ type: "inbox", item: store.getItem(item.id) as InboxItem });
       }
-      return updateRun(runId, { status: "cancelled", endedAt: now(), error: "cancelled", checkpoint: undefined });
+      const cancelled = updateRun(runId, {
+        status: "cancelled",
+        endedAt: now(),
+        error: "cancelled",
+        checkpoint: undefined,
+      });
+      options.release?.(runId);
+      return cancelled;
     },
 
     state: (id) => readState(dataDir, id),

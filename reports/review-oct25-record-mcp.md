@@ -49,7 +49,7 @@ What the user asked for, and how it will work:
 | A3 | **Adding an app step**: `add { do: "app", tool, arguments, save_as? }` makes `{ channel: "mcp", action: "call", args: { tool, arguments } }`; refused when the tool isn't offered, or its `arguments` miss a required field. The recorded UI steps it replaces are removed with a why (`remove`), as today. | `tools.ts` add, `rules.ts` | ☑ |
 | A4 | **The instruction**, in BUILD and PLAN: *"When the user connected an app, write to it and read from it with one app step instead of the clicks into its page: it doesn't depend on the page's layout. Find the spreadsheet id, sheet name and range from the page's address and what was typed (the recording shows them). Keep the clicks only for what the app's tools can't do. The user said no to an app: build it the classic way, never ask again."* Plus a worked line in the KPI example. | `prompt.ts` | ☑ |
 | A5 | **The test run**: a read-only app step runs for real (it only reads), a writing one is outlined like a click that acts. The final check never writes to an app. | `packages/player/src/rehearse.ts` (`rehearsalChoice`), `daemon/rehearse.ts` passes `tools` | ☑ |
-| A6 | **The review** names app steps in plain words ("Writes the row to Google Sheets, directly") and shows "asks first" from the hints. | `review.ts` / UI `WorkflowTree.tsx` | ☐ |
+| A6 | **The review** names app steps in plain words ("Writes the row to Google Sheets, directly") and shows "asks first" from the hints. | `review.ts` / UI `WorkflowTree.tsx` | ☑ |
 
 ### 1.3 Plumbing
 
@@ -66,9 +66,9 @@ What the user asked for, and how it will work:
 | R1 (F8) | `web/match.ts` scores only role+name, attrs and fallback selectors; `text`, `label` and `near` are written by the recorder and **never read** (its own header says "Not yet used"). A control whose name changed but whose text or label didn't is lost; two same-named buttons are always ambiguous. | Add three signals: **text** (the element's own text, like name similarity), **label** (the `<label for>` / `aria-labelledby` text, through the AX name of the labelled control's label), and **near** (candidates ranked by DOM distance to an element matching the near text; used as the tie-break that lifts one of two ambiguous candidates past `MIN_MARGIN`). Weights normalised as today. | ☑ |
 | R2 | The walk-through logs `highlighted: false` for every step answered from the inbox (`run.ts` ~329): the resumed leg doesn't know the first leg highlighted it. | Keep `highlighted` in the walk answer (`Answer { kind: "walk", choice, highlighted? }`), filled from the waiting item, logged as it was. | ☑ |
 | R3 | In the test run, a step that uses a file this run would download fails with "has no value yet": `runLeaf` resolves `{{…}}` before the walk decides to skip it. | Resolve after the walk's choice; a skipped step is never resolved (the highlight uses the step as written). | ☑ |
-| R4 (F6) | A run waiting for an OK loses its named tabs (the extension forgets tab names when the leg ends). | To check first: whether record-v3's tab work fixed it (`tab` in skill.ts, the extension's per-name tabs). If not: keep the name→tab map per run id until the run ends, not per leg. | ☐ check |
-| R5 (F10) | A file path with `{{…}}` is checked only when designed. | Check resolved `fs.*` paths before the step (exists for `from`, folder writable for `to`), failing with the path. | ☐ check |
-| R6 | DevTools hang: a step with a role, when the automation window isn't in front (seen Oct 19). | To check if still there; if so, bring the target tab forward before `Accessibility.queryAXTree`. | ☐ check |
+| R4 (F6) | A run waiting for an OK loses its named tabs (the extension forgets tab names when the leg ends). | To check first: whether record-v3's tab work fixed it (`tab` in skill.ts, the extension's per-name tabs). If not: keep the name→tab map per run id until the run ends, not per leg. | ☑ |
+| R5 (F10) | A file path with `{{…}}` is checked only when designed. | Check resolved `fs.*` paths before the step (exists for `from`, folder writable for `to`), failing with the path. | ☑ |
+| R6 | DevTools hang: a step with a role, when the automation window isn't in front (seen Oct 19). | To check if still there; if so, bring the target tab forward before `Accessibility.queryAXTree`. | ☑ already fixed |
 
 ## 3. Record, still open (Rushil's area; listed so nothing is lost)
 
@@ -95,3 +95,20 @@ timing out at 90 s. **§1 changes Rushil's design agent**: he should review the 
   counting an app step as kept work, approvals from read-only tools, the test run (reads done, writes outlined, never
   in the final check), the daemon's question with Sign in / Connect (answered by the daemon when connected,
   `daemon/connectors.ts`), "offer it again" in Settings. Tests: 9 recorder, 2 daemon; 725 in all pass.
+- 25 Oct, later: §2 done.
+  - R1: the matcher scores the label (as the name with a role, and as an accessible name of its own) and the
+    element's own text (case-insensitive XPath on its direct text). `near` breaks a tie by the distance from each tied
+    control to the nearest edge of the box showing those words. Tested in headless Chrome: two "Save" buttons, a
+    field by its label, a cell by its text.
+  - R2: a walk answer keeps `highlighted`.
+  - R3: a step whose `{{…}}` has no value yet fails only if the walk does it.
+  - R4 (F6, still real): every leg sent `run.end`, which closes the run's named tabs, even a leg waiting for an OK.
+    Now only a run that ended sends it, and a waiting run stopped or cancelled from the inbox releases its tabs
+    (`release`).
+  - R5: move, copy, rename and read check their file when they run ("no file at …", "the path still has an unfilled
+    value").
+  - R6: already handled. The extension brings the window forward on attach and on a slow command.
+  - A6: app steps in the tree ("Google Sheets · batch update, directly (asks first)") and in the change history.
+  - 735 tests pass.
+- Left for a person: try a recording on a real Google Sheet with Composio connected (needs the deployed service), and
+  Rushil's review of `design/v2` (prompt.ts, tools.ts, orchestrator.ts, connectors.ts).
