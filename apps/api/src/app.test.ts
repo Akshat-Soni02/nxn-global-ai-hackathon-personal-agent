@@ -315,7 +315,7 @@ describe("connected apps", () => {
 
   it("without a tools provider the routes say so", async () => {
     const t = setup();
-    const app = createApp({ config: t.config, store: t.store, verifyIdentity: devIdentity, log: () => {} });
+    const app = createApp({ config: t.config, store: t.store, verifyIdentity: devIdentity, log: () => {}, now: t.now });
     const { access_token } = await t.signIn();
     const res = await app.request("/v1/tools/connections", { headers: { authorization: `Bearer ${access_token}` } });
     expect(res.status).toBe(503);
