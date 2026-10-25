@@ -671,8 +671,10 @@ function resumeWith(checkpoint: Checkpoint, raw: unknown): Resume | undefined {
   if (waiting.kind === "walk") {
     const text = String(raw).trim().toLowerCase();
     if (text === "stop") return undefined;
-    if (text === "skip") return add({ kind: "walk", choice: "skip" });
-    if (["do it", "do", "next", "yes", "ok"].includes(text)) return add({ kind: "walk", choice: "do" });
+    // Whether its target was outlined before it waited, so the resumed leg logs it as it was.
+    const { highlighted } = waiting;
+    if (text === "skip") return add({ kind: "walk", choice: "skip", highlighted });
+    if (["do it", "do", "next", "yes", "ok"].includes(text)) return add({ kind: "walk", choice: "do", highlighted });
     throw new Error("answer do it (or next), skip or stop");
   }
   if (raw === "retry") return resume;

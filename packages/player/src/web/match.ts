@@ -1,7 +1,9 @@
-// Matcher v0: turns a stored Locator into scored candidates on the live page.
-// Signals: Chrome's own accessibility tree (role + accessible name), stored attributes, fallback selectors.
-// Positions are never stored; they are looked up after matching. See "Per-step loop" step 3 in the design doc.
-// Not yet used: `near`, `text`, `label`, frames and shadow roots (TODO).
+// Matcher: turns a stored Locator into scored candidates on the live page.
+// Signals: Chrome's own accessibility tree (role + accessible name, or the label when there is no name), the label as
+// an accessible name of its own, the element's own text, stored attributes, fallback selectors. `near` breaks a tie:
+// of two candidates that score alike, the one closest on the page to the words it was recorded near wins (two "Save"
+// buttons, one under "Billing"). Positions are never stored; they are looked up after matching. See "Per-step loop"
+// step 3 in the design doc. Not yet used: frames and shadow roots (TODO).
 import type { Locator } from "@shadow/core";
 import type { Cdp } from "./cdp.ts";
 
@@ -17,7 +19,9 @@ export function equivalentRoles(role: string): string[] {
   return ROLE_GROUPS.find((g) => g.includes(role)) ?? [role];
 }
 
-const WEIGHTS = { roleName: 0.45, attrs: 0.25, fallback: 0.3 };
+const WEIGHTS = { roleName: 0.45, attrs: 0.25, fallback: 0.3, text: 0.3, label: 0.25 };
+// A tie broken by `near`: the closest candidate must be this much closer than the next one.
+const NEAR_RATIO = 0.7;
 export const ACCEPT_SCORE = 0.5;
 export const MIN_MARGIN = 0.15;
 
@@ -118,7 +122,8 @@ export async function match(cdp: Cdp, target: Locator): Promise<MatchOutcome> {
 
   let possible = 0;
 
-  // 1. Role and accessible name, as Chrome computes them.
+  // 1. Role and accessible name, as Chrome computes them. A field recorded by its label has that label as its name.
+  const wantedName = target.name ?? target.label;
   if (target.role) {
     possible += WEIGHTS.roleName;
     const root = await rootNodeId(cdp);
@@ -126,9 +131,46 @@ export async function match(cdp: Cdp, target: Locator): Promise<MatchOutcome> {
       const { nodes } = await cdp.send<{ nodes: AXNode[] }>("Accessibility.queryAXTree", { nodeId: root, role });
       for (const n of nodes) {
         if (n.ignored || !n.backendDOMNodeId) continue;
-        const sim = target.name ? nameSimilarity(target.name, n.name?.value ?? "") : 1;
+        const sim = wantedName ? nameSimilarity(wantedName, n.name?.value ?? "") : 1;
         if (sim > 0) bump(n.backendDOMNodeId, WEIGHTS.roleName * sim, `role+name(${sim})`);
       }
+    }
+  }
+
+  // 1b. The label as an accessible name, whatever the role (a field whose role was recorded differently).
+  if (target.label) {
+    possible += WEIGHTS.label;
+    const root = await rootNodeId(cdp);
+    const { nodes } = await cdp
+      .send<{ nodes: AXNode[] }>("Accessibility.queryAXTree", { nodeId: root, accessibleName: target.label })
+      .catch(() => ({ nodes: [] as AXNode[] }));
+    for (const n of nodes) {
+      // The label's own text node is named after it too: only controls count.
+      if (
+        n.ignored ||
+        !n.backendDOMNodeId ||
+        ["StaticText", "LabelText", "InlineTextBox", "generic"].includes(n.role?.value ?? "")
+      )
+        continue;
+      bump(n.backendDOMNodeId, WEIGHTS.label, "label");
+    }
+  }
+
+  // 1c. The element's own text: a link or a cell known by what it says.
+  if (target.text) {
+    possible += WEIGHTS.text;
+    const literal = xpathLiteral(normalize(target.text));
+    const exact = await selectAll(
+      cdp,
+      `//*[text()[translate(normalize-space(.), ${UPPER}, ${LOWER}) = ${literal}]]`,
+    ).catch(() => [] as number[]);
+    for (const id of exact) bump(id, WEIGHTS.text, "text(1)");
+    if (exact.length === 0) {
+      const partial = await selectAll(
+        cdp,
+        `//*[text()[contains(translate(normalize-space(.), ${UPPER}, ${LOWER}), ${literal})]]`,
+      ).catch(() => [] as number[]);
+      for (const id of partial.slice(0, 50)) bump(id, WEIGHTS.text * 0.6, "text(0.6)");
     }
   }
 
@@ -166,8 +208,82 @@ export async function match(cdp: Cdp, target: Locator): Promise<MatchOutcome> {
     .sort((a, b) => b.score - a.score);
   const [best, second] = candidates;
   if (!best || best.score < ACCEPT_SCORE) return { status: "none", candidates };
-  if (second && best.score - second.score < MIN_MARGIN) return { status: "ambiguous", candidates };
+  if (second && best.score - second.score < MIN_MARGIN) {
+    const near = target.near ? await nearest(cdp, candidates, best.score, target.near) : undefined;
+    if (near) return { status: "found", best: near, candidates };
+    return { status: "ambiguous", candidates };
+  }
   return { status: "found", best, candidates };
+}
+
+// XPath has no lowercase(): translate() over the letters, so text matches whatever its case.
+const UPPER = `"ABCDEFGHIJKLMNOPQRSTUVWXYZ"`;
+const LOWER = `"abcdefghijklmnopqrstuvwxyz"`;
+
+// A string as an XPath literal, quotes and all (XPath 1.0 has no escapes: concat() joins the pieces).
+export function xpathLiteral(s: string): string {
+  if (!s.includes('"')) return `"${s}"`;
+  if (!s.includes("'")) return `'${s}'`;
+  return `concat(${s
+    .split('"')
+    .map((part) => `"${part}"`)
+    .join(`, '"', `)})`;
+}
+
+interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+async function boxOf(cdp: Cdp, backendNodeId: number): Promise<Box | undefined> {
+  try {
+    const { model } = await cdp.send<{ model: { content: number[] } }>("DOM.getBoxModel", { backendNodeId });
+    const q = model.content;
+    return { left: q[0] ?? 0, top: q[1] ?? 0, right: q[4] ?? 0, bottom: q[5] ?? 0 };
+  } catch {
+    return undefined; // not rendered
+  }
+}
+
+// From a control's centre to the nearest edge of the words' box: a heading as wide as the page is as near to a
+// button under it at the left as at the right.
+function distance(anchor: Box, control: Box): number {
+  const x = (control.left + control.right) / 2;
+  const y = (control.top + control.bottom) / 2;
+  const dx = Math.max(anchor.left - x, 0, x - anchor.right);
+  const dy = Math.max(anchor.top - y, 0, y - anchor.bottom);
+  return Math.hypot(dx, dy);
+}
+
+// Of the candidates tied with the best, the one closest to an element showing the `near` words, when it is clearly the
+// closest; undefined when nothing shows them or two are about as close.
+async function nearest(
+  cdp: Cdp,
+  candidates: Candidate[],
+  bestScore: number,
+  near: string,
+): Promise<Candidate | undefined> {
+  const literal = xpathLiteral(normalize(near));
+  const anchors = (
+    await selectAll(cdp, `//*[text()[contains(translate(normalize-space(.), ${UPPER}, ${LOWER}), ${literal})]]`).catch(
+      () => [] as number[],
+    )
+  ).slice(0, 5);
+  const boxes = (await Promise.all(anchors.map((id) => boxOf(cdp, id)))).filter((b): b is Box => b !== undefined);
+  if (boxes.length === 0) return undefined;
+  const tied = candidates.filter((c) => bestScore - c.score < MIN_MARGIN).slice(0, 10);
+  const measured: { c: Candidate; d: number }[] = [];
+  for (const c of tied) {
+    const box = await boxOf(cdp, c.backendNodeId);
+    if (!box) continue;
+    measured.push({ c, d: Math.min(...boxes.map((a) => distance(a, box))) });
+  }
+  measured.sort((a, b) => a.d - b.d);
+  const [first, next] = measured;
+  if (!first || (next && first.d > next.d * NEAR_RATIO)) return undefined;
+  return { ...first.c, matchedBy: [...first.c.matchedBy, "near"] };
 }
 
 // For extract with `all`: every element the first fallback selects (document order), filtered by role.
