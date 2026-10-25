@@ -3,6 +3,8 @@
 // user once, before planning, whether to use that app directly. The question carries the button to sign in and connect
 // (the daemon's `offer`); finishing in the browser answers it. Yes: the agent gets that app's tools and builds app steps
 // ({ channel: "mcp" }) instead of the clicks into its page. No: it builds the classic way, and the app isn't offered again.
+import { classOf, type StepClass } from "../../evidence/classes.ts";
+import type { NormalisedStep } from "../../normalise.ts";
 
 // An app a workflow can use directly, by the pages it lives on. The toolkit is Composio's slug.
 export interface App {
@@ -75,14 +77,9 @@ export function appOf(url: string | undefined): App | undefined {
   return APPS.find((app) => app.pages(parsed));
 }
 
-// A recording's steps as code sees them: what kind of step, and the page it acted on.
-export interface PagedStep {
-  kind: string;
-  url?: string;
-}
-
-// Where an app could do the recording's work: the steps (by draft id) that acted inside it. Opening the page alone
-// isn't work: the app is offered only when something was typed, pasted, clicked or read there.
+// Where an app could do the recording's work: the steps (by draft id) that acted inside it. Only work counts: typing,
+// pasting, pressing or sending (`act`) and copying (`read`). Getting somewhere never does (Oct 25: clicking Drive's
+// "Recent" and opening a file from it offered Drive for a task that only worked in a sheet).
 export interface ConnectorChance {
   toolkit: string;
   name: string;
@@ -93,7 +90,7 @@ export interface ConnectorChance {
   ids: Record<string, string>;
 }
 
-const OPENS = new Set(["navigate", "tab_switch", "app_open"]);
+const WORK = new Set<StepClass>(["act", "read"]);
 
 // A document's id in its address: docs.google.com/spreadsheets/d/<id>/…, /document/d/<id>/…
 export function documentIdOf(url: string | undefined): string | undefined {
@@ -102,10 +99,10 @@ export function documentIdOf(url: string | undefined): string | undefined {
     : undefined;
 }
 
-export function connectorChances(steps: PagedStep[], idsByStep: string[][]): ConnectorChance[] {
+export function connectorChances(steps: NormalisedStep[], idsByStep: string[][]): ConnectorChance[] {
   const found = new Map<string, ConnectorChance>();
   steps.forEach((step, i) => {
-    if (OPENS.has(step.kind)) return;
+    if (!WORK.has(classOf(step))) return;
     const app = appOf(step.url);
     const id = idsByStep[i]?.[0];
     if (!app || !id) return;

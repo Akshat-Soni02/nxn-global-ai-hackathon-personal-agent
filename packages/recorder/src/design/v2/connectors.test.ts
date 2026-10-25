@@ -1,5 +1,6 @@
 import type { AnyTool } from "@shadow/agent";
 import { findStep, Skill } from "@shadow/core";
+import type { NormalisedStep } from "../../normalise.ts";
 import { describe, expect, it } from "vitest";
 import {
   type AppTool,
@@ -84,25 +85,32 @@ describe("where an app could do the work", () => {
     expect(appOf("https://mail.google.com/mail/u/0/#inbox")?.toolkit).toBe("gmail");
     expect(appOf("https://docs.google.com/document/d/abcdefghijkl/edit")?.toolkit).toBe("googledocs");
     expect(appOf("https://news.ycombinator.com")).toBeUndefined();
+    const DRIVE = "https://drive.google.com/drive/my-drive";
+    const step = (kind: string, url: string, extra: Record<string, unknown> = {}) =>
+      ({ index: 0, kind, at: 0, events: [], url, ...extra }) as NormalisedStep;
     const chances = connectorChances(
       [
-        { kind: "navigate", url: SHEET },
-        { kind: "click", url: SHEET },
-        { kind: "type", url: SHEET },
-        { kind: "click", url: "https://news.ycombinator.com" },
+        step("navigate", DRIVE),
+        // Getting to the sheet through Drive: navigation, not work in Drive (Oct 25).
+        step("click", DRIVE, { navigatesTo: "https://drive.google.com/drive/recent" }),
+        step("click", DRIVE, { opensTab: 2 }),
+        step("navigate", SHEET),
+        step("type", SHEET),
+        step("copy", SHEET),
+        step("click", "https://news.ycombinator.com", { navigatesTo: "https://news.ycombinator.com/item" }),
       ],
-      [["s1"], ["s2"], ["s3"], ["s4"]],
+      [["s1"], ["s2"], ["s3"], ["s4"], ["s5"], ["s6"], ["s7"]],
     );
     expect(chances).toEqual([
       {
         toolkit: "googlesheets",
         name: "Google Sheets",
         why: expect.any(String),
-        steps: ["s2", "s3"],
-        ids: { s2: "1AbCdEfGhIjKlMnOpQrStUv", s3: "1AbCdEfGhIjKlMnOpQrStUv" },
+        steps: ["s5", "s6"],
+        ids: { s5: "1AbCdEfGhIjKlMnOpQrStUv", s6: "1AbCdEfGhIjKlMnOpQrStUv" },
       },
     ]);
-    expect(connectorChances([{ kind: "navigate", url: SHEET }], [["s1"]])).toEqual([]);
+    expect(connectorChances([step("navigate", SHEET)], [["s1"]])).toEqual([]);
   });
 
   it("reads a document's id from its address, and puts it where the agent wrote <id:…>", () => {
