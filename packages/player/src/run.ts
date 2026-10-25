@@ -314,10 +314,15 @@ async function runLeaf(
 ): Promise<Halt | undefined> {
   const fail = (error: string, status: Halt["status"] = "failed"): Halt => ({ status, failedStep: path, error });
   let resolved: ActionStep | LlmStep;
+  // A value no step has made yet (the test run skipped the download that makes it) fails the step only if it is done:
+  // in a walk the choice is made on the step as written, and a skipped step never needs its values.
+  let unresolved: string | undefined;
   try {
     resolved = resolveTemplates(step, { vars }, env.now());
   } catch (error) {
-    return fail((error as Error).message);
+    if (!env.deps.walk) return fail((error as Error).message);
+    unresolved = (error as Error).message;
+    resolved = step;
   }
 
   // A walk-through: show where the step would act, then wait for the user's choice. "do" also counts as the
@@ -327,8 +332,10 @@ async function runLeaf(
     const prior = answered(env, path, "walk");
     let choice: WalkChoice | Wait;
     let highlighted = false;
-    if (prior) choice = prior.choice;
-    else {
+    if (prior) {
+      choice = prior.choice;
+      highlighted = prior.highlighted ?? false;
+    } else {
       if (isAction(resolved) && resolved.target && env.deps.highlight) {
         highlighted = await env.deps.highlight(resolved).then(
           () => true,
@@ -350,6 +357,7 @@ async function runLeaf(
       env.log({ type: "step.skipped", stepId: step.id, path, reason: "walked past" });
       return undefined;
     }
+    if (unresolved) return fail(unresolved);
     walked = true;
   }
 

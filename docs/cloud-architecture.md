@@ -137,8 +137,9 @@ Settings → Connected apps → **Google Sheets** → `POST /v1/tools/connect` �
 ### Recording → workflow
 The recording, screenshots, narration and masking all happen **on the Mac**, as today. The design agent runs in the daemon:
 - its model calls go to `/v1/llm` (masked text only, as today);
-- it also sees the MCP tools you've connected, and may propose an **`mcp` step** (e.g. `GOOGLESHEETS_APPEND_ROW`) in place of the clicks into the sheet;
-- you confirm it in the review.
+- where the recording worked inside an app it can reach (code finds it by the pages: a Google Sheet, Gmail…), it asks once, before planning, **"Use Google Sheets directly?"**, with **Sign in** and **Connect** buttons on the question; finishing in the browser answers it (the daemon sees the connection and goes on). **Keep clicking the page** builds it the classic way and isn't asked again;
+- with the app connected it gets that app's tools and builds an **`mcp` step** (e.g. `GOOGLESHEETS_BATCH_UPDATE`) in place of the clicks into the sheet; the sheet's id is filled in by code from the recorded address;
+- you confirm it in the review, where it shows as "Google Sheets · batch update, directly (asks first)".
 
 ### A run
 Steps run in order on the Mac:

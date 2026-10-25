@@ -101,3 +101,15 @@ describe("file inputs resolved without asking", () => {
     ).rejects.toThrow(/no file matches \*\.pdf .* \(taking video\/\*\)/);
   });
 });
+
+describe("a file's path, checked when it runs (F10)", () => {
+  it("says which file isn't there, and when a value was never filled", async () => {
+    const d = mkdtempSync(join(tmpdir(), "tp-fs-"));
+    await expect(fsChannel(step("move", { from: join(d, "gone.pdf"), to: `${d}/out/` }), ctx())).rejects.toThrow(
+      `no file at ${join(d, "gone.pdf")}`,
+    );
+    // As the runner would hand it over if a value was never filled (the schema refuses it in a saved workflow).
+    const unfilled = { ...step("read", { path: "x" }), args: { path: join(d, "{{pdf.path}}") } };
+    await expect(fsChannel(unfilled, ctx())).rejects.toThrow(/unfilled value/);
+  });
+});

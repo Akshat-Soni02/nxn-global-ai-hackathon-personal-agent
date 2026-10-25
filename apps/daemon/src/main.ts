@@ -206,6 +206,8 @@ const service = createService({
   store,
   execute,
   spent: () => usage.usage.costUsd,
+  // A waiting run kept its tabs (runner.ts); ended from the inbox, the extension lets them go.
+  release: (runId) => daemon.notify({ id: randomUUID(), type: "run.end", runId }),
   health: () => ({
     extensions: daemon.extensions.size,
     macApp: daemon.mac(),

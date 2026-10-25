@@ -4,6 +4,11 @@
 > automation window → ask once → the finish gate; spec `docs/superpowers/specs/2026-10-19-record-v2-design.md`, Phase 3;
 > plan `docs/superpowers/plans/2026-10-20-record-v2-plan3.md`). This page describes v1, whose `design.ts` and `tools.ts`
 > were removed; it is kept for the reports that cite it.
+>
+> **25 Oct: v2 offers connected apps** (stage 1½, between understand and plan): where the recording worked inside an
+> app Shadow can reach directly, the user is asked once, with Sign in / Connect buttons on the question, and the agent
+> then builds app steps (`add { do: "app" }`, `look { app_tool }`). See design.md "3. Understand" and
+> `reports/review-oct25-record-mcp.md` §1.
 
 **Job:** turn one recording into the workflow the user meant. The input is a flat replay of what they did, plus their own words (the description form) and what they said and saw while doing it. The output is a workflow tree in which:
 - values that change become **inputs**,

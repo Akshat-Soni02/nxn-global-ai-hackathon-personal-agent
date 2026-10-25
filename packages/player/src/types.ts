@@ -108,7 +108,8 @@ export interface Resume {
 export type Answer =
   | { kind: "approval"; approved: boolean }
   | { kind: "ask"; value: string | boolean }
-  | { kind: "walk"; choice: WalkChoice };
+  // highlighted: whether the step's target was outlined before it waited (logged with the choice).
+  | { kind: "walk"; choice: WalkChoice; highlighted?: boolean };
 
 // What a waiting run waits for, at `path`. recovery: a failure repair couldn't fix, or something only the user can do
 // (log in); answered with retry, skip or stop. walk: a walk-through stopped before a step, its target highlighted;
