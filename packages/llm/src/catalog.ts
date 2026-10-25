@@ -73,7 +73,8 @@ export const DEFAULT_PROFILES: Record<ProfileName, Profile> = {
   smart: {
     model: "nvidia/nemotron-3-super-120b-a12b",
     thinking: true,
-    maxTokens: 8_192,
+    // Room to reason and answer: the plan writes a whole workflow (Oct 25: 8 192 was used up by reasoning alone).
+    maxTokens: 16_384,
     temperature: 0,
     timeoutMs: 180_000,
   },

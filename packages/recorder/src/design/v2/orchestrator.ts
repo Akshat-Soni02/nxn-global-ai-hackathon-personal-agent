@@ -388,6 +388,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
       const reply = await options.llm.generate({
         profile: "smart",
         system: PLAN,
+        // A whole workflow, after reasoning over the whole recording: the largest reply the design asks for.
+        maxTokens: 32_768,
         user: [message, "", "# The tools a plan can use", ...catalogue].join("\n"),
         json: true,
         meter,

@@ -112,6 +112,9 @@ export interface ClientDeps {
   backoffMs?: number;
 }
 
+// The most a reply cut off by its reasoning is given on its second try (models without a thinking switch).
+const MAX_RETRY_TOKENS = 32_768;
+
 // ---- The client ----------------------------------------------------------------------------------------------
 
 export function createLlm(config: LlmConfig, deps: ClientDeps = {}): Llm {
@@ -183,17 +186,22 @@ export function createLlm(config: LlmConfig, deps: ClientDeps = {}): Llm {
     const usage = { input: 0, output: 0 };
     let cost = 0;
     let validationRetried = false;
+    // A reply whose reasoning used the whole budget is asked once more: with thinking off where the model allows it,
+    // else with twice the budget (Oct 25: the design's plan and two captions came back empty, and the work stopped).
+    let thinking = request.thinking ?? profile.thinking;
+    let maxTokens = request.maxTokens ?? profile.maxTokens;
+    let cutOffRetried = false;
 
     for (;;) {
       const body: Record<string, unknown> = {
         model: profile.model,
         messages: toWire(messages, request.images),
         temperature: request.temperature ?? profile.temperature,
-        max_tokens: request.maxTokens ?? profile.maxTokens,
+        max_tokens: maxTokens,
       };
       // Only to models known to take it: an unknown model (swapped in by config) might reject the parameter.
       if (model?.thinkingControl) {
-        body.chat_template_kwargs = { enable_thinking: request.thinking ?? profile.thinking };
+        body.chat_template_kwargs = { enable_thinking: thinking };
       }
       if (mode === "json_schema" && jsonSchema) {
         body.response_format = {
@@ -241,18 +249,24 @@ export function createLlm(config: LlmConfig, deps: ClientDeps = {}): Llm {
       const message = choice?.message ?? {};
       const raw = typeof message.content === "string" ? message.content : "";
       const text = stripThinking(raw);
-      const thinking = [
+      const thinkBlocks = [
         ...[...raw.matchAll(/<think>([\s\S]*?)<\/think>/gi)].map((m) => m[1] ?? ""),
         // A reply whose opening <think> was in the prompt template: everything before the closing tag.
         ...(/<think>/i.test(raw) ? [] : [/^([\s\S]*?)<\/think>/i.exec(raw)?.[1] ?? ""]),
       ];
       const reasoning =
-        [message.reasoning_content, message.reasoning, ...thinking]
+        [message.reasoning_content, message.reasoning, ...thinkBlocks]
           .filter((r): r is string => typeof r === "string" && r.trim() !== "")
           .map((r) => r.trim())
           .join("\n") || undefined;
       const toolCalls = (message.tool_calls ?? []).map(parseToolCall);
       if (!text && toolCalls.length === 0 && choice?.finish_reason === "length") {
+        if (!cutOffRetried) {
+          cutOffRetried = true;
+          if (model?.thinkingControl && thinking) thinking = false;
+          else maxTokens = Math.min(maxTokens * 2, MAX_RETRY_TOKENS);
+          continue;
+        }
         throw new LlmError(
           "the model used its whole token budget (reasoning counts too) and gave no answer: raise maxTokens or turn thinking off",
         );
