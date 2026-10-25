@@ -136,6 +136,36 @@ describe("other generalisations", () => {
     expect(open?.summary).toMatch(/only if it is always this same page/i);
   });
 
+  it("opens a document directly when the recording reached it through Drive's list into a new tab (Oct 25)", async () => {
+    const DRIVE = "https://drive.google.com/drive/my-drive";
+    const RECENT = "https://drive.google.com/drive/recent";
+    const DOC = "https://docs.google.com/spreadsheets/d/1JSPFFabcdefghijk/edit";
+    const { skill, proposals } = await propose([
+      step("navigate", { url: DRIVE, events: [] }),
+      step("click", { url: DRIVE, target: el("link", "Recent items", DRIVE), navigatesTo: RECENT }),
+      step("click", {
+        url: RECENT,
+        target: el("gridcell", "Ycomb jobs Google Sheets", RECENT),
+        navigatesTo: DOC,
+        opensTab: 2,
+        list: {
+          container: { tag: "div", url: RECENT, role: "grid", fallbacks: [], selectors: {} },
+          index: 0,
+          count: 12,
+          itemText: "Ycomb jobs",
+        },
+      }),
+      step("type", { url: DOC, tabId: 2, value: "25 Oct", target: el("textbox", "A4", DOC), cell: { ref: "A4" } }),
+    ]);
+    const open = proposals.find((p) => p.kind === "open_directly");
+    expect(open?.steps).toEqual(["s1", "s2", "s3"]);
+    expect(open?.summary).toMatch(/same file every time/);
+    // Not offered as "the first file in the list" too.
+    expect(proposals.filter((p) => p.kind === "list_item")).toEqual([]);
+    const applied = applyEdits(skill, open?.edits ?? []);
+    expect(applied.ok && findStep(applied.skill, "s1")).toMatchObject({ action: "navigate", args: { url: DOC } });
+  });
+
   it("notes a value you said is always the same", async () => {
     const { proposals } = await propose(
       [step("navigate", { events: [] }), step("type", { value: "NX-202", target: el("textbox", "Project") })],
