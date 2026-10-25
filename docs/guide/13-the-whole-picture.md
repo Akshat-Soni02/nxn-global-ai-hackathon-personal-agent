@@ -1,22 +1,18 @@
 # Shadow: the whole picture
 
-> Written 12 Oct 2026, after milestones 6 and 7 (the daemon as a service, the inbox and API, the window, the menu bar).
-> The design itself is [`docs/design.md`](../design.md); this page is a map of it.
->
-> **Since 13 Oct:** no screenshot from a recording goes to Nebius, only the words read from it on the Mac, with private ones masked (design.md, "Redaction"). Whether the repair agent may send a redacted picture is an open question; it doesn't today. The diagram's box "Is it secure?" predates this.
->
-> **Since 13 Oct, evening:** decided and built. A masked picture goes to the model only with a separate **Pictures** consent, when the design agent or the repair agent asks to see the screen (design.md, "Consent"). The app is packaged (`pnpm package` makes a `.dmg` with the daemon, Node and the extension inside; the key goes to the Keychain on first run), and the window has the editor, Walk through and Settings. The diagram's note "runs from the repo for now" was updated; the rest holds.
+> Redrawn 25 Oct 2026 for **Shadow, managed**: no API key on the Mac, model calls and connected-app calls go through Shadow's own service on Google Cloud. The full design of that service is [`docs/cloud-architecture.md`](../cloud-architecture.md); the rest of Shadow is [`docs/design.md`](../design.md).
+> The 12 Oct version (the local pieces only, how one approval travels, the locks on each door) is kept in [`history/13-the-whole-picture-oct12.md`](history/13-the-whole-picture-oct12.md); what it says about the Mac still holds.
 
-![Shadow: the whole picture](13-the-whole-picture.png)
+![Shadow, managed: what runs where](13-the-whole-picture.png)
 
-Edit it: open [`13-the-whole-picture.excalidraw`](13-the-whole-picture.excalidraw) at [excalidraw.com](https://excalidraw.com) (menu → Open) or in the VS Code Excalidraw extension.
+Edit it: [`13-the-whole-picture.svg`](13-the-whole-picture.svg) is plain SVG; change it in any editor and render it again to the PNG (any browser can print it, or headless Chrome).
 
 ## How to read it
 
-1. **Where everything runs, and how they talk.** Every piece talks only to the daemon, and every arrow says which door it uses: the Unix socket (programs), local HTTP with a token (the window), native messaging (Chrome to the shim). Inside the daemon, a request goes from a door to the API, to the service, to the workers.
-2. **Why each piece is separate.** Each box is there because of one thing only it can do: macOS gives permissions to an *app*; only an *extension* can drive your logged-in Chrome; Chrome starts a fresh *native host* per connection; only *launchd* is there at login; a *web page* can't open a Unix socket, so the daemon also speaks HTTP.
-3. **One approval, end to end.** The run never waits in memory: it stops, its checkpoint and an inbox item are saved, you are told (notification, menu bar, window), you answer, and it goes on from where it stopped, also after a restart.
-4. **Is it secure?** One lock per door, and what the locks don't cover.
-5. **Before milestone 6, now, and what is still true.** What the old terminal-only setup could not do, what changed, and the constraints that remain (one acting run at a time, no stop mid-step, Chrome must be open, a sleeping Mac runs nothing, the packaged app not yet tried on a clean Mac).
+1. **Your Mac (left), unchanged in what it does.** Shadow.app, the daemon, the Chrome extension and the native host work as before: recording, masking, the design and repair agents, runs, the inbox and memory all stay here. Two things are new in the daemon: an **account** (a device token in the Keychain, where the Nebius key used to be) and an **MCP client** that runs the new `mcp` steps.
+2. **Google Cloud (middle), new.** One stateless Cloud Run service, `shadow-api`. It signs the app in, relays model calls to Nebius with Shadow's key, offers each user one MCP server with the tools of the apps they connected, and counts every call against the free tier before making it (Firestore: reserve, then settle). Keys live in Secret Manager; logs hold metadata only.
+3. **Outside services (right).** Nebius Token Factory (Zero Data Retention on Shadow's organisation) and Composio, which holds each user's connected accounts and runs the tools against the apps' own APIs. Only `shadow-api` talks to them.
+4. **The browser, twice.** Once to sign in, once per app you connect (Composio's sign-in page). Nothing else happens there.
+5. **What leaves the Mac** (bottom right): masked screen words, narration text, workflow steps and AI-step inputs to Nebius; a tool's arguments and result to Composio. Everything else stays (bottom left).
 
-**Words** at the bottom right: daemon, service, launchd, socket, token, native messaging, inbox, checkpoint, web view.
+**No caps when developing:** `NEBIUS_API_KEY` in `.env` makes the daemon call Nebius directly, without the service. See [`docs/cloud-architecture.md`](../cloud-architecture.md), "Running locally (no caps)".
