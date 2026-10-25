@@ -24,6 +24,7 @@ import { skeletonOf, skillInput } from "../../skeleton.ts";
 import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
 import { appsSection, type ConnectorChance, type Connectors, readOnlyTools, type UsableApp } from "./connectors.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
+import { critique } from "./critic.ts";
 import { gate, lostWork, runProblems, unmadeProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { BUILD, BUILD_FILE, PLAN, PLAN_FILE } from "./prompt.ts";
@@ -65,6 +66,8 @@ export interface DesignV2Options {
   // How the agent edits (tools.ts): "file", the workflow as JSON it reads, writes and edits; "verbs" (the default),
   // one tool per kind of change.
   mode?: DesignMode;
+  // The critic's second look at done (critic.ts): on in file mode unless false.
+  critic?: boolean;
   signal?: AbortSignal;
   onEvent?: (event: AgentEvent) => void;
   // Plain-language lines for the Record screen.
@@ -83,6 +86,8 @@ export interface DesignV2Outcome {
   notes: ChangeNote[];
   // What the finish gate still wanted when it was saved anyway.
   gaps: string[];
+  // What the critic still found missing when done could no longer be refused (critic.ts): for the review, never a block.
+  critique?: string[];
   test?: TestReport;
   asked: { question: string; answer: string; by: "code" | "agent" }[];
   // Code's questions and their answers, for memory (a lasting answer is remembered).
@@ -293,6 +298,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     decisions: [...session.decisions].map(([proposal, d]) => ({ proposal, ...d })),
     notes: changeNotes(options.skill, session.draft, session.whys, session.unverified),
     gaps: session.gaps,
+    ...(session.critique.length > 0 ? { critique: session.critique } : {}),
     test: session.lastTest,
     asked,
     answered,
@@ -542,6 +548,24 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         unmade,
       });
     };
+    if (options.critic ?? mode === "file") {
+      session.critic = (report) =>
+        critique(
+          options.llm,
+          {
+            task: theTask,
+            // Masked like everything the agent reads.
+            workflow: maskText(
+              mode === "file" ? workflowFile(session.draft) : outlineOf(session.draft),
+              session.maskTerms ?? [],
+            ).text,
+            done: report,
+            test: session.lastTest,
+            apps: appsSection(session.apps).join("\n") || undefined,
+          },
+          { meter, signal: options.signal },
+        );
+    }
     const test = options.test;
     if (test) {
       session.runTest = async () => {

@@ -743,6 +743,21 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         session.refusedDone++;
         return { output: { refused: "not finished yet", problems: left } };
       }
+      // Code's checks pass: the critic reads it whole. Its gaps go back while done may be refused; then the review
+      // lists them, and they never hold up the save.
+      if (left.length === 0 && session.critic) {
+        const gaps = await session.critic(report);
+        if (gaps.length > 0 && session.refusedDone < MAX_DONE_REFUSALS) {
+          session.refusedDone++;
+          return {
+            output: {
+              refused: "a second look found gaps: fix them, or say in done why not (not_built, with why)",
+              problems: gaps,
+            },
+          };
+        }
+        session.critique = gaps;
+      }
       // Refused twice: saved with what is left listed for the user, never lost.
       session.gaps = left;
       return {

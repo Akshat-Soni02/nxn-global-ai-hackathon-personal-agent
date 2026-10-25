@@ -2,11 +2,17 @@
 // planned calls (none by default), the build episode gets the scripted calls in order, then done. Nothing here calls a
 // model.
 import type { FakeReply } from "@shadow/llm";
+import { CRITIC } from "./critic.ts";
 import { PLAN, UNDERSTAND } from "./prompt.ts";
 
 const QUIET = { outcome: "the task, as recorded", cadence: { kind: "manual" } };
 
-export function scriptedDesigner(build: FakeReply[] = [], task: object = QUIET, plan: FakeReply | object[] = []) {
+export function scriptedDesigner(
+  build: FakeReply[] = [],
+  task: object = QUIET,
+  plan: FakeReply | object[] = [],
+  critic: string[][] = [],
+) {
   const script = [...build];
   // When the script runs out, the agent sends its last done again (as a real one does after a refusal), so the rules it
   // said it built stay said; with none scripted, a done that builds nothing.
@@ -20,6 +26,9 @@ export function scriptedDesigner(build: FakeReply[] = [], task: object = QUIET, 
     // The plan call: its calls ({ tool, input }), or a reply as given (a failure); none, and the episode builds alone.
     if (typeof system === "string" && system.startsWith(PLAN.slice(0, 60)))
       return Array.isArray(plan) ? JSON.stringify({ calls: plan }) : plan;
+    // The critic (critic.ts): the gaps scripted for each of its calls in turn, then none.
+    if (typeof system === "string" && system.startsWith(CRITIC.slice(0, 60)))
+      return JSON.stringify({ gaps: critic.shift() ?? [] });
     const next = script.shift();
     if (!next) return lastDone;
     if (typeof next === "object" && next.toolCalls?.some((c) => c.name === "done")) lastDone = next;

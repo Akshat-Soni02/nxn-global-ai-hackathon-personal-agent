@@ -51,6 +51,10 @@ export interface SessionV2 {
   // How often done was refused, and what was left when it finished anyway (the review lists it).
   refusedDone: number;
   gaps: string[];
+  // The critic (critic.ts; the orchestrator binds it): what it found missing once code's checks passed. Sent back while
+  // done may still be refused; after that, kept for the review.
+  critic?: (report: DoneReport) => Promise<string[]>;
+  critique: string[];
   // Connected apps the user chose to use (connectors.ts): their tools make app steps ({ do: "app" }).
   apps: UsableApp[];
 }
@@ -71,6 +75,7 @@ export function newSession(original: Skill, facts: RecordingFacts, extra: Partia
     tests: 0,
     refusedDone: 0,
     gaps: [],
+    critique: [],
     apps: [],
     ...extra,
   };

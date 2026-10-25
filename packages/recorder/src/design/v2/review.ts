@@ -17,7 +17,7 @@ export interface Review {
   cadence?: string;
   // The feed's lines while it was made (spec 4.1): "How this was made" on the workflow page.
   made?: string[];
-  // Questions not asked (another one changed the same step, or past five): each took its default.
+  // Questions not asked (another one changed the same step, or past MAX_QUESTIONS): each took its default.
   notAsked?: string[];
   // Why it can't do the task yet: the page shows this instead of "Looks right", and it can't go live (checkpoint 6).
   cantRun?: string[];
@@ -77,7 +77,8 @@ export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] =
     notes: design.notes,
     said,
     notTested,
-    gaps: design.gaps,
+    // The critic's notes it never got to fix: a second look, said as such (critic.ts).
+    gaps: [...design.gaps, ...(design.critique ?? []).map((c) => `a second look: ${c}`)],
     ...(cadence ? { cadence } : {}),
     ...(made.length > 0 ? { made } : {}),
     ...(design.skipped.length > 0 ? { notAsked: design.skipped } : {}),

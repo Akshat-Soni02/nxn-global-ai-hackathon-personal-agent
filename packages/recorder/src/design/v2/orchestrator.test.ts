@@ -116,6 +116,30 @@ describe("design agent v2, stage by stage", () => {
     expect(out.transcript.some((e) => e.type === "call" && e.tool === "trigger")).toBe(true);
   });
 
+  it("a second look: the critic's gaps go back to the designer, at most twice, then the review lists them", async () => {
+    const script = [call("trigger", { when: { schedule: "0 9 * * *" }, why: "every day" }), done("runs every morning")];
+    const gap = "s2 clicks the email recorded, not the newest one";
+    // Found once, then fixed: designed, nothing left for the review.
+    const once = await setup({ llm: fakeLlm(scriptedDesigner(script, task, [], [[gap], []])), critic: true });
+    const fixed = await designV2(once.options);
+    expect(fixed.kind).toBe("designed");
+    expect(fixed.critique).toBeUndefined();
+    const sentBack = fixed.transcript.find((e) => e.type === "result" && e.output.includes(gap));
+    expect(sentBack).toBeDefined();
+    // Found every time: refused twice, then saved, and said in the review; never a reason to lose the design.
+    const always = await setup({
+      llm: fakeLlm(scriptedDesigner(script, task, [], [[gap], [gap], [gap]])),
+      critic: true,
+    });
+    const listed = await designV2(always.options);
+    expect(listed.kind).toBe("designed");
+    expect(listed.critique).toEqual([gap]);
+    expect(reviewOf(listed, listed.skill).gaps).toContain(`a second look: ${gap}`);
+    // Off by default with the verbs: no call.
+    const off = await designV2((await setup({ llm: fakeLlm(scriptedDesigner(script, task, [], [[gap]])) })).options);
+    expect(off.critique).toBeUndefined();
+  });
+
   it("never loses a recording: no task model, a used-up budget or an error keeps the plain list", async () => {
     const plain = await setup({ llm: fakeLlm(() => "not a task model") });
     const noTask = await designV2(plain.options);
