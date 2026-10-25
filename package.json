@@ -20,6 +20,7 @@
     "setup:native-host": "tsx scripts/install-native-host.ts",
     "setup:mac": "tsx scripts/build-mac.ts",
     "setup:daemon": "tsx scripts/install-daemon.ts",
+    "reset:shadow": "tsx scripts/reset.ts",
     "seed:sandbox": "tsx scripts/seed-sandbox.ts",
     "snapshot:pages": "tsx scripts/snapshot-pages.ts",
     "replay": "tsx scripts/replay.ts",

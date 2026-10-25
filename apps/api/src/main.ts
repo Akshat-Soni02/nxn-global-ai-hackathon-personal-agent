@@ -36,4 +36,11 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
       quotas: config.quotas,
     }),
   );
+  // The Composio key, tried once at start (listing the apps), so a wrong one is said here, not by the first user.
+  if (tools && config.tools === "composio") {
+    tools.toolkits().then(
+      (kits) => console.log(JSON.stringify({ event: "composio", ok: true, apps: kits.length })),
+      (error: Error) => console.error(JSON.stringify({ event: "composio", ok: false, error: error.message })),
+    );
+  }
 });

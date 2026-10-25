@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { call, SessionContext, takeToken, useEvents, useQuery } from "./api.ts";
 import { money } from "./format.ts";
+import { Apps } from "./screens/Apps.tsx";
 import { Inbox } from "./screens/Inbox.tsx";
 import { Record } from "./screens/Record.tsx";
 import { Run } from "./screens/Run.tsx";
@@ -107,6 +108,7 @@ function Shell({ connected }: { connected: boolean }) {
     { to: "workflows", label: "Workflows" },
     { to: "runs", label: "Runs" },
     { to: "record", label: "Record" },
+    { to: "apps", label: "Apps" },
     { to: "settings", label: "Settings" },
   ] as const;
   return (
@@ -154,6 +156,7 @@ function Shell({ connected }: { connected: boolean }) {
         {screen === "runs" && !id && <Runs />}
         {screen === "runs" && id && <Run id={id} />}
         {screen === "record" && <Record again={id === "again" ? sub : undefined} />}
+        {screen === "apps" && <Apps />}
         {screen === "settings" && <Settings />}
       </main>
     </div>
@@ -192,6 +195,14 @@ const NAV_ICONS: Record<string, ReactNode> = {
     <>
       <circle cx="8" cy="8" r="6.25" />
       <circle cx="8" cy="8" r="2.5" fill="currentColor" />
+    </>
+  ),
+  apps: (
+    <>
+      <rect x="2" y="2" width="5" height="5" rx="1.25" />
+      <rect x="9" y="2" width="5" height="5" rx="1.25" />
+      <rect x="2" y="9" width="5" height="5" rx="1.25" />
+      <path d="M11.5 9v5M9 11.5h5" />
     </>
   ),
   settings: (

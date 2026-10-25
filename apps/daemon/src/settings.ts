@@ -82,10 +82,30 @@ export interface AppControl {
   // A declined app is offered again in new designs.
   offerAppAgain(toolkit: string): Promise<ConnectedApps>;
   appTools(): Promise<McpTool[]>;
+  // Whether a connected app works end to end: its sign-in at Composio is active, and its actions reach this Mac the
+  // way a run reaches them (through Shadow's service). Nothing is done in the app.
+  checkApp(toolkit: string): Promise<AppCheck>;
+}
+
+export interface AppCheck {
+  ok: boolean;
+  // How many actions it offers, and how many of them only read.
+  actions?: number;
+  reads?: number;
+  error?: string;
+  ms: number;
 }
 
 export interface ConnectedApps {
-  toolkits: { slug: string; name: string }[];
+  // Every app that can be connected (Composio's catalogue, from Shadow's service).
+  toolkits: {
+    slug: string;
+    name: string;
+    logo?: string;
+    description?: string;
+    categories?: string[];
+    actions?: number;
+  }[];
   connections: { id: string; toolkit: string; status: string; created?: string }[];
   // Apps the user said to keep clicking for (connectors.ts): not offered in new designs until asked again.
   declined: string[];
@@ -187,6 +207,37 @@ export function createAppControl(deps: SettingsDeps): AppControl {
       const tools = deps.tools?.();
       if (!tools) return [];
       return tools.list(true);
+    },
+    async checkApp(toolkit) {
+      const started = Date.now();
+      const done = (result: Omit<AppCheck, "ms">): AppCheck => ({ ...result, ms: Date.now() - started });
+      try {
+        const account = needAccount();
+        if (!account.view().signedIn) return done({ ok: false, error: "not signed in to Shadow" });
+        // 1. Composio holds a working sign-in to the app.
+        const conns = await account.call<{ connections: ConnectedApps["connections"] }>("GET", "/v1/tools/connections");
+        const mine = conns.connections.filter((c) => c.toolkit === toolkit);
+        if (mine.length === 0) return done({ ok: false, error: "not connected" });
+        if (!mine.some((c) => c.status === "ACTIVE")) {
+          return done({
+            ok: false,
+            error: `the connection is ${mine[0]?.status.toLowerCase() ?? "not active"}: connect it again`,
+          });
+        }
+        // 2. The same way a run reaches it: this Mac → Shadow's service → Composio, through MCP.
+        const tools = deps.tools?.();
+        if (!tools) return done({ ok: false, error: "the app's tools can't be reached: sign in again" });
+        const offered = (await tools.list(true)).filter((t) => t.toolkit === toolkit);
+        if (offered.length === 0)
+          return done({ ok: false, error: "connected, but Shadow's service offers none of its actions" });
+        return done({
+          ok: true,
+          actions: offered.length,
+          reads: offered.filter((t) => t.readOnly && !t.destructive).length,
+        });
+      } catch (error) {
+        return done({ ok: false, error: (error as Error).message });
+      }
     },
   };
 

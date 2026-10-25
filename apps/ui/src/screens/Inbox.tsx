@@ -15,9 +15,7 @@ export function Inbox() {
     <>
       <header className="page-header">
         <h1>Waiting for you</h1>
-        <p className="muted">
-          {data.length === 0 ? "Runs go on by themselves until one needs you." : `${data.length} to look at`}
-        </p>
+        <p className="muted">{data.length === 0 ? null : `${data.length} to look at`}</p>
       </header>
       {data.length === 0 ? (
         <Empty title="Nothing waits for you." />

@@ -145,7 +145,7 @@ export async function prepareMcpSteps(
     const tool = offered.find((t) => t.name === name);
     if (!tool) {
       const app = name.split("_")[0]?.toLowerCase() ?? name;
-      return { skill, error: `step ${step.id} uses ${name}: connect ${app} in Settings → Connected apps first` };
+      return { skill, error: `step ${step.id} uses ${name}: connect ${app} in Apps first` };
     }
     if (toolNeedsApproval(tool)) step.requires_approval = true;
   }
