@@ -31,6 +31,7 @@ import type { RunLogEvent } from "@shadow/player";
 import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@shadow/player/node";
 import { createRepairer } from "@shadow/player/repair";
 import type { Prompter, Question } from "@shadow/recorder";
+import { createAccount } from "./account.ts";
 import { type Api, createApi } from "./api.ts";
 import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
 import { startDaemon } from "./daemon.ts";
@@ -39,6 +40,7 @@ import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
 import { startHttp } from "./http.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
+import { type McpTools, mcpTools } from "./mcp-tools.ts";
 import { finishRecording } from "./record.ts";
 import { createRecordControl, type RecordControl } from "./record-control.ts";
 import { maskTermsOf, readConsent, readForm, recordingDir, sweepRecordings } from "./recording-store.ts";
@@ -105,24 +107,46 @@ if (process.stderr.isTTY && !existsSync(join(homedir(), "Library", "LaunchAgents
 }
 const memory = openMemory(join(home, "memory.db"));
 const store = openStore(join(home, "shadow.db"));
-// One model client for everything (compile, llm steps, repair), and one meter counting what it spends. The key comes
-// from .env in development, else from the Keychain (settings.ts); a key pasted in Settings replaces the client.
+// One model client for everything (compile, llm steps, repair), and one meter counting what it spends.
+// Since Oct 25 (docs/cloud-architecture.md): a .env key first (development, no caps), else the signed-in Shadow
+// account (calls go through shadow-api, which adds Shadow's key and counts them), else a key pasted in Settings
+// earlier. Signing in or out, or pasting a key, replaces the client.
 const usage = new UsageMeter();
 const envConfig = configFromEnv();
 let model: Llm | undefined = envConfig ? createLlm(envConfig) : undefined;
 let keySource: KeySource = envConfig ? "env" : "none";
-if (!model) {
-  model = await llmFromKeychain();
-  if (model) keySource = "keychain";
-}
+let keychainModel = model ? undefined : await llmFromKeychain();
 // data.pick rules are free; llm steps call the model on every run, so they are capped (calls per run, input size)
 // and their answers are cached by question and data.
 const data = dataChannel();
 const llmStep = () =>
   llmExecutor({ llm: model, cacheDir: join(home, "ai-cache"), limits: aiLimitsFromEnv(), meter: usage });
 let llm = llmStep();
+// Connected apps (mcp steps): only through the account.
+const apiUrl = process.env.SHADOW_API_URL?.replace(/\/+$/, "") || undefined;
+let tools: McpTools | undefined;
+const account = createAccount({
+  apiUrl,
+  log,
+  onChange: () => pickModel(),
+});
+await account.load();
+const pickModel = () => {
+  const viaAccount = account.llm();
+  tools = viaAccount && apiUrl ? mcpTools(`${apiUrl}/v1/tools/mcp`, account.fetch) : undefined;
+  if (keySource === "env") return;
+  model = viaAccount ?? keychainModel;
+  keySource = viaAccount ? "account" : keychainModel ? "keychain" : "none";
+  llm = llmStep();
+};
+pickModel();
 const applyKey = (config: LlmConfig) => {
-  model = createLlm(config);
+  keychainModel = createLlm(config);
+  if (keySource === "account" || keySource === "env") {
+    log("model: the key is saved; the signed-in account (or .env) stays in use");
+    return;
+  }
+  model = keychainModel;
   keySource = "keychain";
   llm = llmStep();
   log(`model: a new key is in use (${config.profiles.smart.model})`);
@@ -300,6 +324,8 @@ const app = createAppControl({
   model: () => model,
   keySource: () => keySource,
   applyKey,
+  account,
+  tools: () => tools,
   memory,
 });
 api = createApi(service, recordControl, app);

@@ -8,14 +8,19 @@ import { join } from "node:path";
 import { EXTENSION_ID, NATIVE_HOST_NAME } from "@shadow/core";
 import { createLlm, type Llm, type LlmConfig, llmConfig } from "@shadow/llm";
 import type { MemoryEntry, MemoryStore } from "@shadow/memory";
+import { type Account, type AccountView, openInBrowser, type Usage } from "./account.ts";
 import { readApiKey, runSecurity, type SecurityRunner, writeApiKey } from "./keychain.ts";
+import type { McpTool, McpTools } from "./mcp-tools.ts";
 import { type Consent, readConsent, saveConsent } from "./recording-store.ts";
 
-export type KeySource = "keychain" | "env" | "none";
+// account: the signed-in Shadow account (calls through shadow-api). env: NEBIUS_API_KEY in .env (development).
+// keychain: a Token Factory key pasted in Settings (before Oct 25, or a developer's own key).
+export type KeySource = "account" | "keychain" | "env" | "none";
 
 export interface SettingsView {
   consent: Consent;
   key: { present: boolean; source: KeySource };
+  account: AccountView;
   // Each profile's model id, when a key is configured.
   models: Record<string, string>;
   dataDir: string;
@@ -46,9 +51,13 @@ export interface SettingsDeps {
   keySource: () => KeySource;
   // A new key: main.ts makes a new client from it and hands it to everything that calls the model.
   applyKey: (config: LlmConfig) => void;
+  // The Shadow account and its connected apps (account.ts, mcp-tools.ts). Absent in tests that don't need them.
+  account?: Account;
+  tools?: () => McpTools | undefined;
   memory: MemoryStore;
   security?: SecurityRunner;
   chromeManifestDir?: string;
+  openUrl?: (url: string) => void;
 }
 
 export interface AppControl {
@@ -60,6 +69,21 @@ export interface AppControl {
   forget(id: string): Promise<void>;
   // Writes Chrome's native-host manifest, so the extension can reach the daemon (first run).
   setupChrome(): SettingsView;
+  // The account: sign in opens the browser and answers with the code it shows; the daemon finishes in the background.
+  signIn(): Promise<SettingsView>;
+  signOut(): Promise<SettingsView>;
+  accountUsage(): Promise<Usage>;
+  // Connected apps: what can be connected, what is, and the tools they offer.
+  connectedApps(): Promise<ConnectedApps>;
+  // Opens the app's sign-in page (Composio's) in the browser.
+  connectApp(toolkit: string): Promise<{ redirectUrl: string }>;
+  disconnectApp(connectionId: string): Promise<ConnectedApps>;
+  appTools(): Promise<McpTool[]>;
+}
+
+export interface ConnectedApps {
+  toolkits: { slug: string; name: string }[];
+  connections: { id: string; toolkit: string; status: string; created?: string }[];
 }
 
 export function createAppControl(deps: SettingsDeps): AppControl {
@@ -72,6 +96,7 @@ export function createAppControl(deps: SettingsDeps): AppControl {
     return {
       consent: readConsent(deps.dataDir),
       key: { present: model !== undefined, source: deps.keySource() },
+      account: deps.account?.view() ?? { signedIn: false },
       models: model
         ? Object.fromEntries(Object.entries(model.config.profiles).map(([name, p]) => [name, p.model]))
         : {},
@@ -95,7 +120,7 @@ export function createAppControl(deps: SettingsDeps): AppControl {
     async checkModel() {
       const started = Date.now();
       const model = deps.model();
-      if (!model) return { ok: false, reachable: 0, profiles: [], error: "no API key yet", ms: 0 };
+      if (!model) return { ok: false, reachable: 0, profiles: [], error: "not signed in yet", ms: 0 };
       try {
         const listed = await model.listModels();
         const profiles = Object.entries(model.config.profiles).map(([name, p]) => ({
@@ -128,7 +153,48 @@ export function createAppControl(deps: SettingsDeps): AppControl {
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
       return settings();
     },
+    async signIn() {
+      await needAccount().signIn();
+      return settings();
+    },
+    async signOut() {
+      await needAccount().signOut();
+      return settings();
+    },
+    accountUsage: () => needAccount().call<Usage>("GET", "/v1/usage"),
+    connectedApps,
+    async connectApp(toolkit) {
+      const res = await needAccount().call<{ redirect_url: string }>("POST", "/v1/tools/connect", { toolkit });
+      (deps.openUrl ?? openInBrowser)(res.redirect_url);
+      deps.tools?.()?.invalidate();
+      return { redirectUrl: res.redirect_url };
+    },
+    async disconnectApp(connectionId) {
+      await needAccount().call("DELETE", `/v1/tools/connections/${encodeURIComponent(connectionId)}`);
+      deps.tools?.()?.invalidate();
+      return connectedApps();
+    },
+    async appTools() {
+      const tools = deps.tools?.();
+      if (!tools) return [];
+      return tools.list(true);
+    },
   };
+
+  function needAccount(): Account {
+    if (!deps.account?.view().apiUrl) throw new Error("this build of Shadow has no service to sign in to");
+    return deps.account;
+  }
+
+  async function connectedApps(): Promise<ConnectedApps> {
+    const account = needAccount();
+    if (!account.view().signedIn) throw new Error("sign in to Shadow first");
+    const [kits, conns] = await Promise.all([
+      account.call<{ toolkits: ConnectedApps["toolkits"] }>("GET", "/v1/tools/toolkits"),
+      account.call<{ connections: ConnectedApps["connections"] }>("GET", "/v1/tools/connections"),
+    ]);
+    return { toolkits: kits.toolkits, connections: conns.connections };
+  }
 }
 
 // The client for the key in the Keychain, when there is one (and no .env key took precedence).

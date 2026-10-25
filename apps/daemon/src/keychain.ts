@@ -26,22 +26,44 @@ export const runSecurity: SecurityRunner = (args, stdin) =>
 // A quoted argument for `security -i`: the key is escaped so it reads as one argument.
 const quote = (text: string) => `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
-export async function readApiKey(run: SecurityRunner = runSecurity): Promise<string | undefined> {
-  const { stdout, code } = await run(["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w"]);
+// Since Oct 25 the signed-in account's refresh token sits beside the key, under its own account name (account.ts).
+export const KEYCHAIN_SESSION = "shadow-account";
+
+export async function readSecret(account: string, run: SecurityRunner = runSecurity): Promise<string | undefined> {
+  const { stdout, code } = await run(["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account, "-w"]);
   if (code !== 0) return undefined; // 44: not found
-  const key = stdout.trim();
-  return key || undefined;
+  const value = stdout.trim();
+  return value || undefined;
+}
+
+export async function writeSecret(
+  account: string,
+  label: string,
+  value: string,
+  run: SecurityRunner = runSecurity,
+): Promise<void> {
+  // -U updates the item if it exists. The command goes to security's interactive mode, not argv.
+  const command = `add-generic-password -U -s ${quote(KEYCHAIN_SERVICE)} -a ${quote(account)} -l ${quote(label)} -w ${quote(value)}\n`;
+  const { code } = await run(["-i"], command);
+  if (code !== 0) throw new Error("the Keychain refused to store it");
+}
+
+export async function deleteSecret(account: string, run: SecurityRunner = runSecurity): Promise<void> {
+  await run(["delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account]);
+}
+
+export function readApiKey(run: SecurityRunner = runSecurity): Promise<string | undefined> {
+  return readSecret(KEYCHAIN_ACCOUNT, run);
 }
 
 export async function writeApiKey(key: string, run: SecurityRunner = runSecurity): Promise<void> {
   const trimmed = key.trim();
   if (!trimmed || /\s/.test(trimmed)) throw new Error("that doesn't look like an API key");
-  // -U updates the item if it exists. The command goes to security's interactive mode, not argv.
-  const command = `add-generic-password -U -s ${quote(KEYCHAIN_SERVICE)} -a ${quote(KEYCHAIN_ACCOUNT)} -l ${quote("Shadow: Nebius Token Factory key")} -w ${quote(trimmed)}\n`;
-  const { code } = await run(["-i"], command);
-  if (code !== 0) throw new Error("the Keychain refused to store the key");
+  await writeSecret(KEYCHAIN_ACCOUNT, "Shadow: Nebius Token Factory key", trimmed, run).catch(() => {
+    throw new Error("the Keychain refused to store the key");
+  });
 }
 
 export async function deleteApiKey(run: SecurityRunner = runSecurity): Promise<void> {
-  await run(["delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT]);
+  await deleteSecret(KEYCHAIN_ACCOUNT, run);
 }
