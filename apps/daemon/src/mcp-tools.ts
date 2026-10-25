@@ -110,7 +110,7 @@ export function mcpTools(url: string, authedFetch: typeof fetch, now: () => numb
 
 // Whether a step calling this tool must ask first. Unknown tools ask.
 export function toolNeedsApproval(tool: McpTool | undefined): boolean {
-  return !tool || !tool.readOnly || tool.destructive;
+  return !tool?.readOnly || tool.destructive;
 }
 
 // The player's mcp channel: one tool call, its arguments already resolved by the player.

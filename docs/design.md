@@ -813,6 +813,7 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 
 | Part | In the code today | For the new design |
 | --- | --- | --- |
+| Shadow, managed (Oct 25) | ✅ `apps/api` (sign-in, model relay with quotas, per-user MCP over Composio; tested with memory and fakes), the daemon's account and MCP client (tested against it), `mcp` steps in core and the player, Sign in / Connected apps / Usage in Settings and first run, the deploy kit | Deploy to Cloud Run with real keys (`apps/api/README.md`); try Composio's Google Sheets for real; the design agent proposing `mcp` steps (record-v3, with Rushil) |
 | Web, Mac app and file capture | ✅ extension, Shadow.app, daemon file watcher | Stays |
 | Replay engine (matching, acting, waiting) | ✅ `packages/player`, extension, Shadow.app | Stays; called by the new interpreter |
 | Approvals, run log, memory, IPC, native host | ✅ | Stays; run log adds the version |
