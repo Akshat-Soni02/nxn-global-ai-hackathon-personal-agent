@@ -24,6 +24,9 @@ export async function failureReport(
     failure.result.matchScore !== undefined ? `Best match score for its target: ${failure.result.matchScore}` : "",
     `Cheap signals say: ${classification.class} (${classification.reason})`,
   ];
+  // What the user showed at this step when they recorded it (Oct 25, X1): what it looked like, what was said.
+  const shown = env.recorded?.(failure.stepId);
+  if (shown) lines.push("", "# When it was recorded", "<untrusted_data>", shown, "</untrusted_data>");
 
   if (env.page && step.type === "action" && step.channel === "web") {
     const signals = await env.page({ op: "signals" });

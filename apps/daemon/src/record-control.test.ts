@@ -313,10 +313,16 @@ describe("after Stop, with a model", () => {
     const field = { ...button("Week", "week"), tag: "input", role: "textbox", name: "Week" };
     appendTrace(home, { id: "e1", sessionId, at: 1000, event: "type", url: PAGE, target: field, value: "2026-W41" });
     appendTrace(home, { id: "e2", sessionId, at: 3000, event: "click", url: PAGE, target: button("Save", "save") });
-    const week = call("input", { name: "week", type: "text", about: "the ISO week", why: "the week changes each run" });
+    const week = input({ type: { type: "text" }, description: "the ISO week" }, "the week changes each run");
     return { sessionId, week };
   }
   const call = (name: string, args: unknown) => ({ toolCalls: [{ name, arguments: args }] });
+  // The design edits the workflow as a file: the week, put in the trigger's inputs.
+  const input = (week: Record<string, unknown>, why: string) =>
+    call("edit_workflow", {
+      edits: [{ old: '"inputs": {}', new: `"inputs": { "week": ${JSON.stringify(week)} }` }],
+      why,
+    });
 
   const task = {
     outcome: "this week's hours are logged",
@@ -336,14 +342,11 @@ describe("after Stop, with a model", () => {
             step: "s2",
             confirm: true,
           }),
-          call("input", {
-            name: "week",
-            type: "text",
-            // A real value: a {{today}} default is refused (Checkpoint 4: the runner doesn't fill templates in defaults).
-            default: "2026-W41",
-            about: "the ISO week",
-            why: "a scheduled run logs the current week",
-          }),
+          // A real value: a {{today}} default is refused (Checkpoint 4: the runner doesn't fill templates in defaults).
+          input(
+            { type: { type: "text" }, description: "the ISO week", default: "2026-W41" },
+            "a scheduled run logs the current week",
+          ),
           call("done", { summary: "Built; one question for you", rules: [] }),
           // After the answer: the apply episode's done is the design's last word.
           call("done", { summary: "A scheduled run logs the current week", rules: [] }),
@@ -373,9 +376,11 @@ describe("after Stop, with a model", () => {
     expect(kept).toMatchObject({ kind: "designed", summary: "A scheduled run logs the current week" });
     expect(kept.asked).toEqual([{ question: "Which week should a scheduled run log?", answer: "", by: "agent" }]);
     // One AI read the recording: stage 1 wrote the task model, the next call planned its changes (none here), every
-    // later call was the agent's, with its tools.
+    // later call was the agent's, with its tools, or the critic's second look at done (critic.ts).
     expect(kept.task).toMatchObject({ cadence: { kind: "schedule" } });
-    expect(llm.requests.slice(2).every((r) => Array.isArray((r as { tools?: unknown }).tools))).toBe(true);
+    const critic = (r: unknown) => JSON.stringify(r).includes("You check a workflow");
+    expect(llm.requests.slice(2).every((r) => critic(r) || Array.isArray((r as { tools?: unknown }).tools))).toBe(true);
+    expect(llm.requests.some(critic)).toBe(true);
     // What the agent was told is kept, so a poor result can be explained (Oct 14: it couldn't be).
     expect(kept.system).toMatch(/^You are Shadow's design agent/);
   });

@@ -4,7 +4,9 @@ import type { Question } from "../../compile.ts";
 import type { Prompter } from "../../drill.ts";
 import type { QueuedQuestion } from "./session.ts";
 
-export const MAX_QUESTIONS = 5;
+// As many as the design needs, all on one screen (Oct 25, P5: five, then defaults, dropped questions that mattered); a
+// ceiling only against a runaway list.
+export const MAX_QUESTIONS = 12;
 
 // What sits where a question's answer goes ("steps.start.inputs.invoice.resolve.dir"), as JSON, so the agent's
 // change to it can be noticed; null when the step or input the question is about is gone (nothing left to ask).

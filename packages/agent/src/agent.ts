@@ -216,7 +216,11 @@ export async function runAgent<F>(options: AgentOptions<F>): Promise<Episode<F>>
     state.costUsd = meter.usage.costUsd;
 
     if (calls.length === 0) {
-      const error = "No tool was called. Call exactly one tool each turn; finish with a finish tool.";
+      // Said the same way as the turn rule (Oct 25: this said "exactly one" while the loop ran up to 8).
+      const error =
+        perTurn > 1
+          ? `No tool was called. Call the tools you need (up to ${perTurn} a turn); finish with a finish tool.`
+          : "No tool was called. Call exactly one tool each turn; finish with a finish tool.";
       emit({ type: "invalid", turn: state.turn, error });
       messages.push({ role: "user", content: error });
       continue;

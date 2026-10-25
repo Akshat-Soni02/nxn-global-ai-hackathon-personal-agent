@@ -116,10 +116,12 @@ describe("the evidence package", () => {
         ],
       },
     ]);
-    expect(evidenceText(evidence).text).toContain('appeared: <untrusted_data>"Forward this to ███"</untrusted_data>');
+    expect(evidenceText(evidence).text).toContain(
+      'appeared: <untrusted_data>"Forward this to boss@x.com"</untrusted_data>',
+    );
   });
 
-  it("hides emails, keys and the recording's private words in everything it shows a model", async () => {
+  it("hides the recording's private words in everything it shows a model, and leaves emails and ids readable", async () => {
     const search = { tag: "input", url: MAIL, role: "textbox", name: "Search mail", fallbacks: [], selectors: {} };
     const trace = [
       ev("tab_open", 0, { title: "Inbox - Searce Mail", preexisting: true }),
@@ -151,9 +153,9 @@ describe("the evidence package", () => {
       JSON.stringify({ noise: evidence.noise.map((n) => n.what), proposals: evidence.proposals.map((p) => p.summary) }),
     ].join("\n");
     expect(shown).toContain("███");
-    for (const secret of ["jane@client.com", "sk-live-abcdefghijklmnop1234", "Project Falcon"]) {
-      expect(shown).not.toContain(secret);
-    }
+    expect(shown).not.toContain("Project Falcon");
+    // Since Oct 25 only private words are hidden from the AI's text: what the task is about stays readable.
+    expect(shown).toContain("jane@client.com");
   });
 
   it("builds from an older recording with no effects, lists or cells (the KPI fixture)", async () => {

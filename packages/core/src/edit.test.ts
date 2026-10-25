@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ACTION_DOCS, briefing } from "./briefing.ts";
 import { applyEdit, applyEdits, describeEdit, type EditInput as Edit } from "./edit.ts";
-import { isOutward, repairViolations } from "./guard.ts";
+import { isOutward, repairCheck, repairViolations } from "./guard.ts";
 import { ACTIONS, findStep, Skill, walkSteps } from "./skill.ts";
 
 // An invoice upload: a trigger input, a web form, an llm step, and a submit that needs approval.
@@ -221,6 +221,22 @@ describe("what a repair may never change", () => {
         { op: "set", step: "s2", field: "wait", value: { text_visible: "Upload" } },
       ]),
     ).toEqual([]);
+  });
+
+  it("sorts them: what is never allowed, and what the user may allow (docs/agents/rules.md)", () => {
+    const check = (edits: Edit[]) => repairCheck(skill, ok(applyEdits(skill, edits)));
+    const send = check([
+      {
+        op: "insert",
+        at: { after: "s4" },
+        step: { type: "action", intent: "x", channel: "web", action: "click", target: { name: "Send now" } },
+      },
+    ]);
+    expect(send.never).toEqual([]);
+    expect(send.ask.join(" ")).toMatch(/can't act outward/);
+    const trigger = check([{ op: "set", step: "start", field: "intent", value: "another" }]);
+    expect(trigger.never.join(" ")).toMatch(/the trigger/);
+    expect(trigger.ask).toEqual([]);
   });
 
   it("refuses outward steps, the user's decisions, safety switches and new reach", () => {

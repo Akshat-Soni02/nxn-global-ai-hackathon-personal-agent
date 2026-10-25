@@ -1,6 +1,7 @@
 import type { AnyTool } from "@shadow/agent";
 import { findStep, Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
+import type { NormalisedStep } from "../../normalise.ts";
 import {
   type AppTool,
   appOf,
@@ -9,6 +10,7 @@ import {
   type Connectors,
   connectorChances,
   documentIdOf,
+  shortlist,
   type UsableApp,
   withIds,
 } from "./connectors.ts";
@@ -84,25 +86,33 @@ describe("where an app could do the work", () => {
     expect(appOf("https://mail.google.com/mail/u/0/#inbox")?.toolkit).toBe("gmail");
     expect(appOf("https://docs.google.com/document/d/abcdefghijkl/edit")?.toolkit).toBe("googledocs");
     expect(appOf("https://news.ycombinator.com")).toBeUndefined();
+    const DRIVE = "https://drive.google.com/drive/my-drive";
+    const step = (kind: string, url: string, extra: Record<string, unknown> = {}) =>
+      ({ index: 0, kind, at: 0, events: [], url, ...extra }) as NormalisedStep;
     const chances = connectorChances(
       [
-        { kind: "navigate", url: SHEET },
-        { kind: "click", url: SHEET },
-        { kind: "type", url: SHEET },
-        { kind: "click", url: "https://news.ycombinator.com" },
+        step("navigate", DRIVE),
+        // Getting to the sheet through Drive: navigation, not work in Drive (Oct 25).
+        step("click", DRIVE, { navigatesTo: "https://drive.google.com/drive/recent" }),
+        step("click", DRIVE, { opensTab: 2 }),
+        step("navigate", SHEET),
+        step("type", SHEET),
+        step("copy", SHEET),
+        step("click", "https://news.ycombinator.com", { navigatesTo: "https://news.ycombinator.com/item" }),
       ],
-      [["s1"], ["s2"], ["s3"], ["s4"]],
+      [["s1"], ["s2"], ["s3"], ["s4"], ["s5"], ["s6"], ["s7"]],
     );
     expect(chances).toEqual([
       {
         toolkit: "googlesheets",
         name: "Google Sheets",
         why: expect.any(String),
-        steps: ["s2", "s3"],
-        ids: { s2: "1AbCdEfGhIjKlMnOpQrStUv", s3: "1AbCdEfGhIjKlMnOpQrStUv" },
+        steps: ["s5", "s6"],
+        ids: { s5: "1AbCdEfGhIjKlMnOpQrStUv", s6: "1AbCdEfGhIjKlMnOpQrStUv" },
+        work: { writes: true, reads: true },
       },
     ]);
-    expect(connectorChances([{ kind: "navigate", url: SHEET }], [["s1"]])).toEqual([]);
+    expect(connectorChances([step("navigate", SHEET)], [["s1"]])).toEqual([]);
   });
 
   it("reads a document's id from its address, and puts it where the agent wrote <id:…>", () => {
@@ -119,6 +129,43 @@ describe("where an app could do the work", () => {
     expect(text).toContain("GOOGLESHEETS_GET_VALUES (reads only)");
     expect(text).toContain("<id:s3>");
     expect(appsSection([])).toEqual([]);
+  });
+});
+
+describe("the tools listed", () => {
+  it("lists the few that fit what was done there, never a delete first, and the rest by look", () => {
+    const t = (name: string, readOnly = false): AppTool => ({
+      name,
+      description: name,
+      inputSchema: {},
+      readOnly,
+      destructive: /DELETE|CLEAR/.test(name),
+    });
+    const tools = [
+      t("GOOGLESHEETS_DELETE_SHEET"),
+      t("GOOGLESHEETS_CLEAR_VALUES"),
+      t("GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND"),
+      t("GOOGLESHEETS_BATCH_UPDATE"),
+      t("GOOGLESHEETS_GET_VALUES", true),
+      t("GOOGLESHEETS_LOOKUP_SPREADSHEET_ROW", true),
+      t("GOOGLESHEETS_CREATE_CHART"),
+      t("GOOGLESHEETS_SET_BASIC_FILTER"),
+      t("GOOGLESHEETS_FORMAT_CELL"),
+      t("GOOGLESHEETS_SHEET_FROM_JSON"),
+    ];
+    const writes = shortlist({ tools, work: { writes: true, reads: false } }, 3).map((x) => x.name);
+    expect(writes).toEqual([
+      "GOOGLESHEETS_BATCH_UPDATE",
+      "GOOGLESHEETS_CREATE_CHART",
+      "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+    ]);
+    const both = shortlist({ tools, work: { writes: true, reads: true } }, 8).map((x) => x.name);
+    expect(both.slice(0, 2)).toContain("GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND");
+    expect(both).not.toContain("GOOGLESHEETS_DELETE_SHEET");
+    const text = appsSection([{ ...app, tools, work: { writes: true, reads: true } }]).join("\n");
+    expect(text).toContain('look { app_tools: "googlesheets" }');
+    // One line for one document, however many steps worked in it.
+    expect(text.match(/<id:/g)).toHaveLength(1);
   });
 });
 

@@ -12,6 +12,7 @@ import {
   isAction,
   isLlm,
   type Locator,
+  Skill,
   type Step,
   triggerOf,
   type VarType,
@@ -20,7 +21,7 @@ import {
 import { z } from "zod";
 import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
-import { maskText } from "../../mask.ts";
+import { MASK, maskText } from "../../mask.ts";
 import { missingArguments, readOnlyTools, withIds } from "./connectors.ts";
 import { DoneReport } from "./contracts.ts";
 import { emptyIn, guessed, isCron, joined, roleAlone, sameReads, stepProblems, tabsFixed, unfoundIn } from "./gate.ts";
@@ -156,7 +157,17 @@ export const isTimeOfDay = (question: string) => /\b(what|which) time\b|\btime o
 export const isHowTo = (question: string) =>
   /\b(method|approach|technique|library|puppeteer|wkhtmltopdf|pandoc|selenium|the script|an api)\b/i.test(question);
 
-export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
+// The tools the design agent edits with: "file" (Oct 25), the workflow as JSON it reads, writes whole or edits by exact
+// text, as an agentic IDE edits code; "verbs", one tool per kind of change (add, change, loop…), kept for older evals.
+export type DesignMode = "file" | "verbs";
+
+// The workflow as the model reads and edits it in file mode: the same formatting every time, so exact text matches.
+export const workflowFile = (skill: Skill) => JSON.stringify({ steps: skill.steps, success: skill.success }, null, 2);
+
+// What file mode keeps from the verbs: looking, testing, asking, proposals, and finishing.
+const FILE_MODE = new Set(["accept", "reject", "restore", "look", "test", "ask", "done", "finish", "ask_user"]);
+
+export function designToolsV2(session: SessionV2, options: { mode?: DesignMode } = {}): AnyTool<DoneReport>[] {
   const ids = () => [...walkSteps(session.draft.steps)].map(({ step }) => step.id);
   const known = (id: string) => ids().includes(id);
   const unknown = (id: string) =>
@@ -241,6 +252,11 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
   const apply = (edits: EditInput[], why: string, touched: string[], unverified: string[] = []) => {
     const result = applyEdits(session.draft, edits);
     if (!result.ok) return { output: { ok: false, problems: result.problems.map(hint) } };
+    return commit(result.skill, why, touched, unverified);
+  };
+  // A new workflow, from edits or written whole (write_workflow, edit_workflow): checked like every change, then kept.
+  const commit = (next: Skill, why: string, touched: string[], unverified: string[] = []) => {
+    const result = { skill: next };
     // Said, so a change that didn't take isn't read as done (Checkpoint 5: C sent eight that changed nothing).
     const unchanged = JSON.stringify(result.skill) === JSON.stringify(session.draft);
     const refused = refusals(session.original, result.skill, session.facts);
@@ -727,6 +743,21 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
         session.refusedDone++;
         return { output: { refused: "not finished yet", problems: left } };
       }
+      // Code's checks pass: the critic reads it whole. Its gaps go back while done may be refused; then the review
+      // lists them, and they never hold up the save.
+      if (left.length === 0 && session.critic) {
+        const gaps = await session.critic(report);
+        if (gaps.length > 0 && session.refusedDone < MAX_DONE_REFUSALS) {
+          session.refusedDone++;
+          return {
+            output: {
+              refused: "a second look found gaps: fix them, or say in done why not (not_built, with why)",
+              problems: gaps,
+            },
+          };
+        }
+        session.critique = gaps;
+      }
       // Refused twice: saved with what is left listed for the user, never lost.
       session.gaps = left;
       return {
@@ -735,6 +766,343 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       };
     },
   });
+
+  // ---- The workflow as a file (Oct 25): read it, write it whole, or replace exact text in it, as an agentic IDE edits
+  // code. Every write goes through the same checks as every other change (commit). Short forms are expanded by code.
+
+  const canonical = workflowFile;
+
+  // How often it runs, as the model may write it: "manual", a cron, { schedule }, { folder, glob }, or the list itself.
+  const whenOf = (when: unknown): unknown => {
+    const w = when as { schedule?: string; folder?: string; glob?: string };
+    if (when === "manual") return [{ type: "manual" }];
+    if (typeof when === "string") return [{ type: "schedule", cron: when }];
+    if (Array.isArray(when)) return when;
+    if (w?.schedule) return [{ type: "schedule", cron: w.schedule }];
+    if (w?.folder) return [{ type: "folder_watch", dir: w.folder, ...(w.glob ? { glob: w.glob } : {}) }];
+    return when;
+  };
+
+  // One step as written, with its short forms made real: { do: "click" } → channel and action, page names → addresses,
+  // { like | place | css } targets → locators, "<id:s4>" → a document's id, AI steps' and loops' types filled in. A
+  // `why` on a step is the reason the review shows, kept apart (the workflow has no such field).
+  const expandStep = (
+    raw: unknown,
+    out: {
+      problems: string[];
+      taken: string[];
+      unverified: string[];
+      whys: Map<string, string>;
+      lists: Map<string, unknown>;
+    },
+  ): unknown => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+    const { why, ...s } = raw as Record<string, unknown>;
+    const newId = (prefix: string) => {
+      const id = nextId(prefix, out.taken);
+      out.taken.push(id);
+      return id;
+    };
+    const keepWhy = (id: unknown) => {
+      if (typeof why === "string" && why && typeof id === "string") out.whys.set(id, why);
+    };
+    if (s.type === "trigger") {
+      if ("when" in s) s.when = whenOf(s.when);
+      // The runner doesn't fill templates in defaults (Checkpoint 4), as the input tool says.
+      for (const [name, input] of Object.entries((s.inputs ?? {}) as Record<string, { default?: unknown }>))
+        if (JSON.stringify(input?.default ?? "").includes("{{"))
+          out.problems.push(
+            `inputs.${name}: a default can't be a {{…}} value: use {{today}} in the step itself ({{today|D MMM}}), no input needed`,
+          );
+      keepWhy(s.id);
+      return s;
+    }
+    // Loops and branches: their inner steps too.
+    if (s.type === "control" || "over" in s || ("if" in s && Array.isArray(s.steps))) {
+      const kind = s.kind ?? ("over" in s ? "loop" : "branch");
+      const step: Record<string, unknown> = { ...s, type: "control", kind };
+      step.id ??= newId(kind === "loop" ? "l" : "b");
+      step.steps = Array.isArray(s.steps) ? s.steps.map((x) => expandStep(x, out)) : [];
+      if (kind === "branch") step.else = Array.isArray(s.else) ? s.else.map((x) => expandStep(x, out)) : [];
+      if (kind === "loop") {
+        const item = typeof s.item === "string" ? { name: s.item } : ((s.item ?? {}) as Record<string, unknown>);
+        step.item = {
+          ...item,
+          type: item.type
+            ? typeFrom(item.type)
+            : (out.lists.get(
+                String(s.over ?? "")
+                  .replace(/^\{\{|\}\}$/g, "")
+                  .trim(),
+              ) ??
+              itemType(String(s.over ?? "")) ?? { type: "text" }),
+        };
+        step.intent ??= `for each ${item.name ?? "item"} in ${s.over}`;
+      } else step.intent ??= "if it holds";
+      keepWhy(step.id);
+      return step;
+    }
+    // AI steps: { instruction, inputs, output } is enough.
+    if (s.type === "llm" || "instruction" in s) {
+      const step: Record<string, unknown> = { ...s, type: "llm" };
+      step.id ??= newId("ai");
+      step.intent ??= String(s.instruction ?? "").slice(0, 80);
+      const output = typeof s.output === "string" ? { name: s.output } : ((s.output ?? {}) as Record<string, unknown>);
+      step.output = { ...output, type: output.type === undefined ? { type: "text" } : typeFrom(output.type) };
+      const made = (step.output as { name?: unknown; type: { type?: string; items?: unknown } }).type;
+      if (made.type === "list") out.lists.set(String(output.name), made.items);
+      const vague = vaguePick(String(s.instruction ?? ""));
+      if (vague) out.problems.push(`${step.id}: ${vague}`);
+      keepWhy(step.id);
+      return step;
+    }
+    // A step written with `do`: code makes it what it does.
+    if ("do" in s) {
+      const id = typeof s.id === "string" ? s.id : newId("s");
+      const spec = StepSpec.safeParse({ intent: `${s.do}`, ...s });
+      if (!spec.success) {
+        out.problems.push(
+          `${id}: ${spec.error.issues.map((i) => `${i.path.join(".") || "step"}: ${i.message}`).join("; ")}`,
+        );
+        return s;
+      }
+      const built = compile(spec.data, id);
+      if ("error" in built) {
+        out.problems.push(`${id}: ${built.error}`);
+        return s;
+      }
+      if (built.unverified) out.unverified.push(id);
+      const keep = Object.fromEntries(
+        ["requires_approval", "ask", "wait", "check", "timeout_ms", "on_fail"]
+          .filter((k) => k in s)
+          .map((k) => [k, s[k]]),
+      );
+      keepWhy(id);
+      return { ...built.step, ...keep };
+    }
+    // A full action step: its page and target short forms only.
+    if (s.type === "action") {
+      const step: Record<string, unknown> = { ...s };
+      const args = { ...((s.args ?? {}) as Record<string, unknown>) };
+      if (s.action === "navigate" && typeof args.page === "string") {
+        const url = session.pages.get(args.page);
+        if (!url)
+          out.problems.push(`${s.id}: no page ${args.page}. Pages: ${[...session.pages.keys()].join(", ") || "none"}`);
+        else {
+          args.url = url;
+          delete args.page;
+        }
+      }
+      if (s.channel === "mcp") {
+        const filled = withIds(args.arguments ?? {}, session.apps);
+        if (!filled.ok) out.problems.push(`${s.id}: ${filled.error}`);
+        else args.arguments = filled.value;
+      }
+      step.args = args;
+      const target = s.target as Record<string, unknown> | undefined;
+      if (target && ("like" in target || "place" in target || "css" in target)) {
+        const parsed = TargetSpec.safeParse(target);
+        const found = parsed.success
+          ? locatorOf(parsed.data)
+          : { error: "a target is { like }, { place }, { css } or a locator" };
+        if ("error" in found) out.problems.push(`${s.id}: ${found.error}`);
+        else {
+          step.target = found.locator;
+          if (found.unverified && typeof s.id === "string") out.unverified.push(s.id);
+        }
+      }
+      keepWhy(s.id);
+      return step;
+    }
+    return s;
+  };
+
+  // The agent reads the workflow masked (a private word is ███), so what it writes back has ███ where those words were.
+  // Code puts each back from the draft: by the same step and field, else by the one value that masks so. A masked value
+  // it can't place is refused, never saved: ███ would be typed into the page.
+  const unmasked = (written: unknown, problems: string[]): unknown => {
+    const hidden = (text: string) => maskText(text, session.maskTerms ?? []).text;
+    // A step (anything with an id) starts its own path, so a step moved or wrapped in a loop keeps its values.
+    const at = (v: unknown, path: string) => {
+      const id = v && typeof v === "object" && !Array.isArray(v) ? (v as { id?: unknown }).id : undefined;
+      return typeof id === "string" ? id : path;
+    };
+    const byPath = new Map<string, string>();
+    const byMasked = new Map<string, Set<string>>();
+    const collect = (v: unknown, path: string) => {
+      if (typeof v === "string") {
+        const m = hidden(v);
+        if (m === v) return;
+        byPath.set(path, v);
+        byMasked.set(m, (byMasked.get(m) ?? new Set()).add(v));
+      } else if (Array.isArray(v)) for (const [i, x] of v.entries()) collect(x, at(x, `${path}.${i}`));
+      else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) collect(x, at(x, `${path}.${k}`));
+    };
+    collect(session.draft.steps, "steps");
+    const put = (v: unknown, path: string): unknown => {
+      if (typeof v === "string") {
+        if (!v.includes(MASK)) return v;
+        const same = byPath.get(path);
+        if (same !== undefined && hidden(same) === v) return same;
+        const only = byMasked.get(v);
+        if (only?.size === 1) return [...only][0];
+        problems.push(
+          `${path}: "${v}" holds ${MASK}, a private value you can't see: keep that field as it was (read_workflow), or take the value from a step or an input`,
+        );
+        return v;
+      }
+      if (Array.isArray(v)) return v.map((x, i) => put(x, at(x, `${path}.${i}`)));
+      if (v && typeof v === "object")
+        return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, put(x, at(x, `${path}.${k}`))]));
+      return v;
+    };
+    return put(written, "steps");
+  };
+
+  // A workflow as written, made real and checked; kept only if every check passes.
+  const writeWorkflow = (written: unknown, why: string) => {
+    const given = unstring(written);
+    const body = Array.isArray(given) ? { steps: given } : ((given ?? {}) as Record<string, unknown>);
+    if (!Array.isArray(body.steps)) {
+      return { output: { ok: false, problems: ['write the workflow as { "steps": [ … ] } (read_workflow shows it)'] } };
+    }
+    const out = {
+      problems: [] as string[],
+      taken: [] as string[],
+      unverified: [] as string[],
+      whys: new Map<string, string>(),
+      lists: new Map<string, unknown>(),
+    };
+    const plain = unmasked(body.steps, out.problems) as unknown[];
+    let steps = plain.map((s) => expandStep(s, out)) as Record<string, unknown>[];
+    // The trigger stays first: a workflow written without it keeps the one it had.
+    if (steps[0]?.type !== "trigger") steps = [session.draft.steps[0] as unknown as Record<string, unknown>, ...steps];
+    if (out.problems.length > 0) return { output: { ok: false, problems: out.problems } };
+    // What code owns stays as it is: the id, the name, the version, the description (the user's) and the history.
+    const parsed = Skill.safeParse({
+      ...session.draft,
+      steps,
+      success: Array.isArray(body.success) ? body.success : session.draft.success,
+    });
+    if (!parsed.success) {
+      return {
+        output: {
+          ok: false,
+          problems: parsed.error.issues
+            .slice(0, 12)
+            .map((i) => hint(`${i.path.join(".") || "workflow"}: ${i.message}`)),
+        },
+      };
+    }
+    // Every step added, changed or removed carries the why (its own, else the change's).
+    const json = (skill: Skill) =>
+      new Map([...walkSteps(skill.steps)].map(({ step }) => [step.id, JSON.stringify(step)]));
+    const before = json(session.draft);
+    const after = json(parsed.data);
+    const touched = [
+      ...[...after].filter(([id, s]) => before.get(id) !== s).map(([id]) => id),
+      ...[...before.keys()].filter((id) => !after.has(id)),
+    ];
+    const result = commit(parsed.data, why, touched, out.unverified);
+    if ((result.output as { ok?: boolean }).ok) {
+      for (const [id, reason] of out.whys) {
+        session.whys.set(id, reason);
+        session.sinceTest.set(id, reason);
+      }
+    }
+    return result;
+  };
+
+  // The nearest real line to text that didn't match, so the next try copies it exactly.
+  const nearest = (text: string, wanted: string): string => {
+    const first = wanted.trim().split("\n")[0]?.trim() ?? "";
+    const lines = text.split("\n");
+    let best = "";
+    let score = 0;
+    for (const line of lines) {
+      const l = line.trim();
+      let n = 0;
+      while (n < Math.min(l.length, first.length) && l[n] === first[n]) n++;
+      if (n > score) {
+        score = n;
+        best = line;
+      }
+    }
+    return best ? ` The nearest line: ${JSON.stringify(best)}` : "";
+  };
+
+  const fileTools: AnyTool<DoneReport>[] = [
+    tool({
+      name: "read_workflow",
+      kind: "look",
+      description:
+        "The workflow as JSON, exactly as edit_workflow matches it: the whole of it, or one step by id (step). Read before you edit",
+      input: z.object({ step: z.string().optional() }),
+      prepare: unstring,
+      run: ({ step }) => {
+        if (!step) return { output: canonical(session.draft) };
+        const found = findStep(session.draft, step === "trigger" ? "start" : step);
+        return { output: found ? JSON.stringify(found, null, 2) : unknown(step) };
+      },
+    }),
+    tool({
+      name: "write_workflow",
+      kind: "edit",
+      description:
+        'Replace the whole workflow: { "steps": [ … ] } (and "success" if you change the final checks), with the trigger first. For a plan or a big restructure. Short forms are fine: { "do": "click", "target": { "like": "s3" } }, { "do": "open", "page": "s9" }, { "do": "app", "tool": "…", "arguments": { … } }, an AI step as { "instruction", "inputs", "output" }, a loop as { "over": "{{list}}", "item": "job", "steps": [ … ] }, and a "why" on any step for the review. Every write is checked; a failed check changes nothing and says what to fix',
+      input: z.object({ workflow: z.unknown(), why: Why }),
+      prepare: unstring,
+      run: ({ workflow, why }) => writeWorkflow(workflow, why),
+    }),
+    tool({
+      name: "edit_workflow",
+      kind: "edit",
+      description:
+        "Change part of the workflow by exact text: edits [{ old, new }], applied in order, all or none. Each old must appear exactly once in what read_workflow shows (copy it, with enough lines around it to be unique); new replaces it (empty removes it). For small changes: a value, one step, a field",
+      input: z.object({
+        edits: z.union([
+          z.array(z.object({ old: z.string().min(1), new: z.string() })).min(1),
+          z.object({ old: z.string().min(1), new: z.string() }),
+        ]),
+        why: Why,
+      }),
+      prepare: unstring,
+      run: ({ edits, why }) => {
+        // Matched on the text as the agent read it (masked); writeWorkflow puts the private values back.
+        let text = maskText(canonical(session.draft), session.maskTerms ?? []).text;
+        for (const [i, e] of (Array.isArray(edits) ? edits : [edits]).entries()) {
+          const count = text.split(e.old).length - 1;
+          if (count !== 1) {
+            return {
+              output: {
+                ok: false,
+                problems: [
+                  count === 0
+                    ? `edit ${i + 1}: its old text isn't in the workflow (read_workflow shows it exactly).${nearest(text, e.old)}`
+                    : `edit ${i + 1}: its old text appears ${count} times: include more lines around it so it is unique`,
+                ],
+              },
+            };
+          }
+          text = text.replace(e.old, () => e.new);
+        }
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(text);
+        } catch (error) {
+          const at = Number(/position (\d+)/.exec((error as Error).message)?.[1] ?? -1);
+          const around = at >= 0 ? `: near ${JSON.stringify(text.slice(Math.max(0, at - 60), at + 60))}` : "";
+          return {
+            output: {
+              ok: false,
+              problems: [`after the edits it isn't valid JSON (${(error as Error).message})${around}`],
+            },
+          };
+        }
+        return writeWorkflow(parsed, why);
+      },
+    }),
+  ];
 
   const tools: AnyTool<DoneReport>[] = [
     tool({
@@ -1081,16 +1449,29 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
       name: "look",
       kind: "look",
       description:
-        "A step's full evidence (step), a proposal (proposal), the timeline between two steps (from, to), a connected app tool's arguments (app_tool), or the workflow as it is now (nothing)",
+        "A step's full evidence (step), a proposal (proposal), the timeline between two steps (from, to), a connected app tool's arguments (app_tool), every tool of a connected app (app_tools: its name), or the workflow as it is now (nothing)",
       input: z.object({
         step: z.string().optional(),
         proposal: z.string().optional(),
         from: z.string().optional(),
         to: z.string().optional(),
         app_tool: z.string().optional(),
+        app_tools: z.string().optional(),
       }),
       prepare: unstring,
-      run: ({ step, proposal, from, to, app_tool }) => {
+      run: ({ step, proposal, from, to, app_tool, app_tools }) => {
+        // Every tool of a connected app (the message lists only the few that fit the recorded work).
+        if (app_tools) {
+          const app = session.apps.find((a) => a.toolkit === app_tools.toLowerCase() || a.name === app_tools);
+          return {
+            output: app
+              ? app.tools.map(
+                  (t) =>
+                    `${t.name}${t.readOnly ? " (reads only)" : ""}: ${t.description.split("\n")[0]?.slice(0, 120) ?? ""}`,
+                )
+              : `no connected app ${app_tools}. Apps: ${session.apps.map((a) => a.toolkit).join(", ") || "none"}`,
+          };
+        }
         if (app_tool) {
           const found = session.apps.flatMap((a) => a.tools).find((t) => t.name === app_tool);
           return {
@@ -1170,7 +1551,8 @@ export function designToolsV2(session: SessionV2): AnyTool<DoneReport>[] {
     const o = input as Record<string, unknown>;
     return { ...o, ...Object.fromEntries(fields.filter((f) => o[f] === "trigger").map((f) => [f, trigger])) };
   };
-  return tools.map((t) => ({
+  const listed = options.mode === "file" ? [...fileTools, ...tools.filter((t) => FILE_MODE.has(t.name))] : tools;
+  return listed.map((t) => ({
     ...t,
     prepare: (raw: unknown) => {
       const input = named(t.prepare ? t.prepare(raw) : raw);

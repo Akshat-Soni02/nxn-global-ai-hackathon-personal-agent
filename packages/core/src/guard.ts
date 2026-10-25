@@ -61,9 +61,13 @@ export function neverMatch(step: Step, never: string[]): string | undefined {
   });
 }
 
-// Every way the draft breaks the rules, as sentences the repair agent reads; empty when it may be saved.
-export function repairViolations(original: Skill, draft: Skill): string[] {
+// Every way the draft breaks the rules, as sentences the repair agent reads, sorted as docs/agents/rules.md sorts them
+// (Oct 25): `never`, whatever the reason (the user's decisions, safety switches, scripts, their Never list); `ask`,
+// not repair's to decide alone (a new step that acts outward, a connected-app call, a new site, removing an AI step, a
+// loop or a step that needs approval): the repair agent asks the user, and commits on yes.
+export function repairCheck(original: Skill, draft: Skill): { never: string[]; ask: string[] } {
   const problems: string[] = [];
+  const ask: string[] = [];
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
   if (!same(triggerOf(original), triggerOf(draft))) {
@@ -78,11 +82,10 @@ export function repairViolations(original: Skill, draft: Skill): string[] {
   for (const [id, old] of before) {
     const now = after.get(id);
     if (!now) {
-      if (old.type === "llm") problems.push(`${id}: an llm step is the user's decision: it can't be removed`);
-      if (old.type === "control" && old.kind === "loop") problems.push(`${id}: a loop can't be removed`);
-      if ("requires_approval" in old && old.requires_approval) {
-        problems.push(`${id}: a step that needs approval can't be removed`);
-      }
+      const ok = "can't be removed without the user's OK";
+      if (old.type === "llm") ask.push(`${id}: an llm step is the user's decision: it ${ok}`);
+      if (old.type === "control" && old.kind === "loop") ask.push(`${id}: a loop ${ok}`);
+      if ("requires_approval" in old && old.requires_approval) ask.push(`${id}: a step that needs approval ${ok}`);
       if ("ask" in old && old.ask) problems.push(`${id}: a step with a question for the user can't be removed`);
       continue;
     }
@@ -108,14 +111,14 @@ export function repairViolations(original: Skill, draft: Skill): string[] {
       // An outward step may be retargeted (the same action on a changed control), never turned into another action.
       const sameAction = old.channel === now.channel && old.action === now.action;
       if (isOutward(now) && !(isOutward(old) && sameAction)) {
-        problems.push(`${id}: it would now act outward (${actionText(now)})`);
+        ask.push(`${id}: it would now act outward (${actionText(now)})`);
       }
     }
     if (isAction(now) && !(isAction(old) && old.channel === "script") && now.channel === "script") {
       problems.push(`${id}: repairs can't add scripts`);
     }
     if (isAction(now) && !(isAction(old) && old.channel === "mcp") && now.channel === "mcp") {
-      problems.push(`${id}: repairs can't add connected-app calls`);
+      ask.push(`${id}: a connected-app call in place of the page (repairs can't add connected-app calls alone)`);
     }
   }
 
@@ -123,10 +126,11 @@ export function repairViolations(original: Skill, draft: Skill): string[] {
     const old = before.get(id);
     if (!old) {
       if (isAction(step) && step.channel === "script") problems.push(`${id}: repairs can't add scripts`);
-      if (isAction(step) && step.channel === "mcp") problems.push(`${id}: repairs can't add connected-app calls`);
+      if (isAction(step) && step.channel === "mcp")
+        ask.push(`${id}: a new connected-app call (repairs can't add connected-app calls alone)`);
       if (isOutward(step) && !completesOutward(draft, step, before)) {
-        problems.push(
-          `${id}: a new step can't act outward (${actionText(step)}), except to finish an outward step it directly follows, with requires_approval`,
+        ask.push(
+          `${id}: a new step can't act outward (${actionText(step)}) without the user's OK, except to finish an outward step it directly follows, with requires_approval`,
         );
       }
     }
@@ -135,9 +139,15 @@ export function repairViolations(original: Skill, draft: Skill): string[] {
       problems.push(`${id}: it matches the user's Never rule "${never}"`);
     }
     const host = hostOf(step);
-    if (host && !hosts.has(host)) problems.push(`${id}: ${host} is a site this workflow doesn't use`);
+    if (host && !hosts.has(host)) ask.push(`${id}: ${host} is a site this workflow doesn't use`);
   }
-  return problems;
+  return { never: problems, ask };
+}
+
+// Every rule the draft breaks, both kinds: what a repair with nobody to ask (the ladder) may never do.
+export function repairViolations(original: Skill, draft: Skill): string[] {
+  const { never, ask } = repairCheck(original, draft);
+  return [...never, ...ask];
 }
 
 // A new outward step is allowed in one case: it finishes what an existing outward step started (a "Confirm" after

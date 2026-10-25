@@ -41,9 +41,29 @@ describe("requests", () => {
     expect(meter.usage.costUsd).toBeCloseTo(1.2); // the parent counts the child's calls
   });
 
-  it("says when reasoning used up the whole budget", async () => {
-    const llm = fakeLlm([{ text: "", finishReason: "length" }]);
+  it("asks once more when reasoning used up the whole budget, then says so", async () => {
+    const llm = fakeLlm([
+      { text: "", finishReason: "length" },
+      { text: "", finishReason: "length" },
+    ]);
     await expect(llm.generate({ profile: "smart", user: "x" })).rejects.toThrow(/whole token budget/);
+    expect(llm.requests).toHaveLength(2);
+  });
+
+  it("a cut-off reply is asked again with thinking off where the model allows it", async () => {
+    const llm = fakeLlm([{ text: "", finishReason: "length" }, "the plan"]);
+    const reply = await llm.generate({ profile: "smart", user: "plan it" });
+    expect(reply.text).toBe("the plan");
+    expect(llm.requests.map((r) => (r.chat_template_kwargs as { enable_thinking?: boolean })?.enable_thinking)).toEqual(
+      [true, false],
+    );
+  });
+
+  it("a cut-off reply from a model with no thinking switch is asked again with twice the budget", async () => {
+    const llm = fakeLlm([{ text: "", finishReason: "length" }, "a caption"]);
+    const reply = await llm.generate({ profile: "vision", user: "describe", maxTokens: 1000 });
+    expect(reply.text).toBe("a caption");
+    expect(llm.requests.map((r) => r.max_tokens)).toEqual([1000, 2000]);
   });
 
   it("keeps the model's reasoning apart from its answer: the server's field and any <think> block", async () => {

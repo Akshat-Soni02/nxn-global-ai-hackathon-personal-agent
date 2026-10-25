@@ -7,7 +7,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { type ActionStep, type Message, Skill } from "@shadow/core";
 import { APP_SUPPORT_DIR } from "@shadow/ipc";
 import type { MemoryStore } from "@shadow/memory";
@@ -70,6 +70,18 @@ export type Recovery = Omit<
   // Site notes for the repair agent.
   memory?: MemoryStore;
 };
+
+// What the recording showed at each step, from the workflow's folder (skills/<id>/recorded.json, written when it was
+// saved; the skills folder is beside the runs folder); empty for a workflow saved before it.
+function recordedOf(logDir: string, skillId: string): Record<string, string> {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(skillId)) return {};
+  try {
+    const path = join(dirname(logDir), "skills", skillId, "recorded.json");
+    return JSON.parse(readFileSync(path, "utf8")) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
 
 export async function runSkillFile(
   daemon: Daemon,
@@ -292,6 +304,8 @@ export async function runSkillOn(
             await memory.add({ kind: "site_note", text, skillId });
           }),
         describeScreen,
+        // What the recording showed at the step, kept beside the workflow's versions (review-store.ts).
+        recorded: (stepId) => recordedOf(logDir, skill.id)[stepId],
         available: () => ({
           extension: daemon.extensions.size > 0,
           macApp: daemon.mac().connected,

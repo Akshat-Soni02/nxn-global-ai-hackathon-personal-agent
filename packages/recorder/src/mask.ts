@@ -1,7 +1,7 @@
-// Masking the words read from a screenshot before they leave the Mac (docs/design.md, "Redaction"): emails, phone
-// numbers, card numbers (Luhn-checked), IBANs, API keys and tokens, and the user's Never terms become ███. Only the
-// masked text is ever sent to the model; the lines that had something masked are also blacked out in the saved
-// picture. Conservative on purpose: masking a harmless number costs a little context, missing a card number leaks it.
+// Masking (docs/design.md, "Redaction"). In pictures: emails, phone numbers, card numbers (Luhn-checked), IBANs, API
+// keys and tokens, and the user's private words are blacked out before a picture can leave the Mac. In text the AI
+// reads (screen words, narration, the timeline, tool results): only the user's private words become ███ (since Oct
+// 25; see maskText).
 export const MASK = "███";
 
 export interface Box {
@@ -56,16 +56,26 @@ const RULES: { pattern: RegExp; keep?: (match: string) => boolean }[] = [
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// The text with everything sensitive replaced by ███, and how many things were masked.
-export function maskText(text: string, never: string[] = []): { text: string; hits: number } {
+// The text with the user's private words replaced by ███, and how many were. With `patterns`, also everything that
+// looks sensitive (emails, keys, long ids, cards, IBANs, phones).
+//
+// Oct 25: text the AI reads is masked with the user's own private words only. Pattern masking hid what tasks need (a
+// Google Sheet's id read as a key, the email a task is about), and Nebius keeps nothing (Zero Data Retention). Pictures
+// still have every pattern blacked out (maskLines), as before.
+export function maskText(
+  text: string,
+  terms: string[] = [],
+  options: { patterns?: boolean } = {},
+): { text: string; hits: number } {
   let hits = 0;
   let out = text;
-  for (const term of never.map((t) => t.trim()).filter((t) => t.length >= 3)) {
+  for (const term of terms.map((t) => t.trim()).filter((t) => t.length >= 3)) {
     out = out.replace(new RegExp(`\\b${escapeRegExp(term)}\\b`, "gi"), () => {
       hits++;
       return MASK;
     });
   }
+  if (!options.patterns) return { text: out, hits };
   for (const rule of RULES) {
     out = out.replace(rule.pattern, (match) => {
       if (rule.keep?.(match)) return match;
@@ -76,16 +86,17 @@ export function maskText(text: string, never: string[] = []): { text: string; hi
   return { text: out, hits };
 }
 
-// Lines read from a picture, masked; `boxes` are the lines that had something masked, to black out in the picture.
-export function maskLines(lines: Line[], never: string[] = []): { lines: Line[]; boxes: Box[]; hits: number } {
+// Lines read from a picture: their text with the private words masked (what the AI may read), and `boxes`, the lines
+// with anything sensitive in them (patterns too), to black out in the picture.
+export function maskLines(lines: Line[], terms: string[] = []): { lines: Line[]; boxes: Box[]; hits: number } {
   const masked: Line[] = [];
   const boxes: Box[] = [];
   let hits = 0;
   for (const line of lines) {
-    const result = maskText(line.text, never);
-    masked.push({ text: result.text, box: line.box });
-    if (result.hits > 0) boxes.push(line.box);
-    hits += result.hits;
+    const inPicture = maskText(line.text, terms, { patterns: true });
+    masked.push({ text: maskText(line.text, terms).text, box: line.box });
+    if (inPicture.hits > 0) boxes.push(line.box);
+    hits += inPicture.hits;
   }
   return { lines: masked, boxes, hits };
 }

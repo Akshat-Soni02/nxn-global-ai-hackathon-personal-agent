@@ -175,6 +175,16 @@ const samePage = (a: string, b: string) => {
 };
 const shortUrl = (u: string) => u.replace(/^https?:\/\/(www\.)?/, "").slice(0, 80);
 const idLike = (u: string) => /\/(?=[\w-]*\d)[\w-]{12,}|#\w*\/[\w-]{12,}/.test(u);
+// A document by its id (a Google Sheet, Doc, Slide or Drive file): the same file every time it is opened by that
+// address, however the recording reached it (Oct 25: Drive → Recent → the sheet was taken for "the first file in Recent").
+const isDocument = (u: string) => /\/(?:spreadsheets|document|presentation|file)\/d\/[\w-]{10,}/.test(u);
+// The click that ends a way to a document, in a tab of its own or by picking it from a list (a file in Drive's
+// Recent): where it went, and the tab the work then happens in. Only a document: a page picked from a list in a new tab
+// is usually "the newest one" (a job, a video), which must stay a pick.
+const endsAt = (s?: NormalisedStep): { url: string; tab?: number } | undefined =>
+  s?.kind === "click" && s.navigatesTo && isDocument(s.navigatesTo) && !s.submits
+    ? { url: s.navigatesTo, tab: s.opensTab ?? s.tabId }
+    : undefined;
 
 function openDirectly(input: ProposalInput): Found[] {
   const { steps } = input;
@@ -186,11 +196,21 @@ function openDirectly(input: ProposalInput): Found[] {
     }
     let j = i;
     while (j + 1 < steps.length && goes(steps[j + 1]) && steps[j + 1]?.tabId === steps[i]?.tabId) j++;
-    const last = steps[j];
-    const url = last?.kind === "navigate" ? (last.navigatesTo ?? last.url) : last?.navigatesTo;
-    const usedAfter = Boolean(
-      url && steps.slice(j + 1).some((s) => s.tabId === last?.tabId && s.url && samePage(s.url, url)),
-    );
+    let last = steps[j];
+    let url = last?.kind === "navigate" ? (last.navigatesTo ?? last.url) : last?.navigatesTo;
+    let tab = last?.tabId;
+    // The way may end with the click that opens the page (in a new tab, or from a list), when the work then happens on
+    // that very page: the whole way is replaced by opening it.
+    const end = endsAt(steps[j + 1]);
+    const workedOn = (where: string, inTab: number | undefined, from: number) =>
+      steps.slice(from).some((s) => s.tabId === inTab && s.url && samePage(s.url, where));
+    if (end && steps[j + 1]?.tabId === steps[i]?.tabId && workedOn(end.url, end.tab, j + 2)) {
+      j++;
+      last = steps[j];
+      url = end.url;
+      tab = end.tab;
+    }
+    const usedAfter = Boolean(url && workedOn(url, tab, j + 1));
     const ids = idsOf(input, i, j);
     const [first, ...rest] = ids;
     if (j > i && first && url && /^https?:/.test(url) && usedAfter) {
@@ -204,7 +224,9 @@ function openDirectly(input: ProposalInput): Found[] {
       ];
       found.push({
         kind: "open_directly",
-        summary: `${first}–${ids.at(-1)} go through ${j - i + 1} pages to reach ${shortUrl(url)}: open it directly${idLike(url) ? " (its address holds an id: it may differ next time)" : ""}. Only if it is always this same page, not "the newest" or "today's" (Checkpoint 4: it would have fixed today's video in place)`,
+        summary: isDocument(url)
+          ? `${first}–${ids.at(-1)} go through ${j - i + 1} pages to reach a document (${shortUrl(url)}): open it directly. A document opened by its address is the same file every time, however it was reached (a list of recent files, a search): accept this unless they said they want a different file each time`
+          : `${first}–${ids.at(-1)} go through ${j - i + 1} pages to reach ${shortUrl(url)}: open it directly${idLike(url) ? " (its address holds an id: it may differ next time)" : ""}. Only if it is always this same page, not "the newest" or "today's" (Checkpoint 4: it would have fixed today's video in place)`,
         steps: ids,
         evidence: steps.slice(i, j + 1).flatMap((s) => s.events),
         edits,
@@ -272,6 +294,8 @@ function listItems(input: ProposalInput): Found[] {
     if (!id || !list || list.count < 3 || PAGE_CHROME.has(role)) return;
     if ((!LISTISH.has(role) && list.count < 5) || (list.itemText ?? "").length < ITEM_TEXT_MIN) return;
     if (s.kind !== "click" && s.kind !== "copy") return;
+    // Opening a document from a list of files (Drive's Recent) picks that file, not "the first one" (Oct 25).
+    if (s.navigatesTo && isDocument(s.navigatesTo)) return;
     const where = list.container.name ?? list.container.role ?? list.container.tag;
     // The item's text is what the page showed (an email's subject): data, never an instruction.
     const item = list.itemText ? ` (<untrusted_data>"${list.itemText.slice(0, 60)}"</untrusted_data>)` : "";

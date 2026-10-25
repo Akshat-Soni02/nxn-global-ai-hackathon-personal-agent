@@ -1,7 +1,7 @@
 import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import type { Question } from "../../compile.ts";
-import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
+import { askBatch, batchOf, MAX_QUESTIONS, openCodeQuestions } from "./questions.ts";
 import type { QueuedQuestion } from "./session.ts";
 
 const skill = (pick: string) =>
@@ -42,11 +42,11 @@ describe("the questions left after a design", () => {
     expect(openCodeQuestions([file], skill("ask"), skill("all"))).toEqual([]); // the agent decided: all of them
   });
 
-  it("asks once about a step code and the agent both ask about, five at most", () => {
-    const many = ["a", "b", "c", "d"].map((x) => theirs(x, x));
+  it("asks once about a step code and the agent both ask about, MAX_QUESTIONS at most", () => {
+    const many = Array.from({ length: MAX_QUESTIONS - 1 }, (_, i) => theirs(`m${i}`, `m${i}`));
     const batch = batchOf([row], [theirs("q1", "s5"), theirs("q2", "s2"), ...many]);
     expect(batch.code).toEqual([row]);
-    expect(batch.agent.map((q) => q.id)).toEqual(["q2", "a", "b", "c"]);
+    expect(batch.agent.map((q) => q.id)).toEqual(["q2", ...many.slice(0, -1).map((q) => q.id)]);
   });
 
   it("asks about the start of a workflow from both: code's input question doesn't silence the agent's on cadence", () => {
@@ -56,9 +56,9 @@ describe("the questions left after a design", () => {
   });
 
   it("keeps what it didn't ask, so the defaults are taken and the review lists them", () => {
-    const many = ["a", "b", "c", "d"].map((x) => theirs(x, x));
+    const many = Array.from({ length: MAX_QUESTIONS - 1 }, (_, i) => theirs(`m${i}`, `m${i}`));
     const batch = batchOf([row], [theirs("q1", "s5"), theirs("q2", "s2"), ...many]);
-    expect(batch.skipped.agent.map((q) => q.id)).toEqual(["q1", "d"]);
+    expect(batch.skipped.agent.map((q) => q.id)).toEqual(["q1", `m${MAX_QUESTIONS - 2}`]);
     expect(batch.skipped.code).toEqual([]);
   });
 

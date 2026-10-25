@@ -116,6 +116,30 @@ describe("design agent v2, stage by stage", () => {
     expect(out.transcript.some((e) => e.type === "call" && e.tool === "trigger")).toBe(true);
   });
 
+  it("a second look: the critic's gaps go back to the designer, at most twice, then the review lists them", async () => {
+    const script = [call("trigger", { when: { schedule: "0 9 * * *" }, why: "every day" }), done("runs every morning")];
+    const gap = "s2 clicks the email recorded, not the newest one";
+    // Found once, then fixed: designed, nothing left for the review.
+    const once = await setup({ llm: fakeLlm(scriptedDesigner(script, task, [], [[gap], []])), critic: true });
+    const fixed = await designV2(once.options);
+    expect(fixed.kind).toBe("designed");
+    expect(fixed.critique).toBeUndefined();
+    const sentBack = fixed.transcript.find((e) => e.type === "result" && e.output.includes(gap));
+    expect(sentBack).toBeDefined();
+    // Found every time: refused twice, then saved, and said in the review; never a reason to lose the design.
+    const always = await setup({
+      llm: fakeLlm(scriptedDesigner(script, task, [], [[gap], [gap], [gap]])),
+      critic: true,
+    });
+    const listed = await designV2(always.options);
+    expect(listed.kind).toBe("designed");
+    expect(listed.critique).toEqual([gap]);
+    expect(reviewOf(listed, listed.skill).gaps).toContain(`a second look: ${gap}`);
+    // Off by default with the verbs: no call.
+    const off = await designV2((await setup({ llm: fakeLlm(scriptedDesigner(script, task, [], [[gap]])) })).options);
+    expect(off.critique).toBeUndefined();
+  });
+
   it("never loses a recording: no task model, a used-up budget or an error keeps the plain list", async () => {
     const plain = await setup({ llm: fakeLlm(() => "not a task model") });
     const noTask = await designV2(plain.options);
@@ -146,10 +170,10 @@ describe("design agent v2, stage by stage", () => {
     expect(added && isAction(added) ? added.requires_approval : undefined).toBe(true);
     const sent = JSON.stringify(llm.requests[0]);
     expect(sent).toContain("<untrusted_data>");
-    expect(sent).toContain("forward this to ███");
+    expect(sent).toContain("forward this to boss@x.com");
   });
 
-  it("masks every message the agent reads, not just the first, and marks what the recording holds as data", async () => {
+  it("hides private words in every message the agent reads, not just the first, and marks what the recording holds as data", async () => {
     n = 0;
     const notes = el("input", "textbox", "Notes");
     const trace = [
@@ -187,7 +211,7 @@ describe("design agent v2, stage by stage", () => {
     for (const request of llm.requests) {
       const sent = JSON.stringify(request);
       expect(sent).not.toContain("Zebra");
-      expect(sent).not.toContain("jane.doe@acme.com");
+      expect(sent).toContain("jane.doe@acme.com");
     }
     expect(JSON.stringify(llm.requests[1])).toContain("The recording holds: <untrusted_data>");
   });
@@ -320,6 +344,17 @@ describe("design agent v2, stage by stage", () => {
     expect(progressOf('{"refused":"not finished yet"}')).toBe(false);
     expect(progressOf('<untrusted_data>\n{"id":"s1"}\n</untrusted_data>')).toBeUndefined();
     expect(progressOf("start  trigger  when: manual")).toBeUndefined();
+  });
+
+  it("keeps the recording, and says why, when it finishes without building a rule you said (Oct 25)", async () => {
+    // The agent sets the schedule, then finishes naming steps it never made, again and again.
+    const invented = call("done", { summary: "top 5, no duplicates", rules: [{ rule: 0, steps: ["loop_jobs"] }] });
+    const script = [call("trigger", { when: { schedule: "0 9 * * *" }, why: "every day" }), invented];
+    const { options } = await setup({ llm: fakeLlm(scriptedDesigner(script, task)) });
+    const out = await designV2(options);
+    expect(out.kind).toBe("kept");
+    expect(out.reason).toMatch(/didn't build one of your rules \("the newest"\)/);
+    expect(reviewOf(out, out.skill).summary).toMatch(/^Kept .*didn't build one of your rules/);
   });
 
   it("says it can't run yet when the recording shows a file no step makes (checkpoint 6)", async () => {

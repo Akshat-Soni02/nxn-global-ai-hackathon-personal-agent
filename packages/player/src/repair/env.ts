@@ -18,6 +18,8 @@ export interface RepairEnv {
   // A masked picture of the page or window as it is now, described by the vision model (describe_screen). Present
   // only when the user allowed pictures to be sent; the daemon masks the picture before it leaves the Mac.
   describeScreen?(question: string): Promise<string>;
+  // What the recording showed at a step (skills/<id>/recorded.json): what it looked like and what was said then.
+  recorded?(stepId: string): string | undefined;
   // What is connected and allowed right now, for the briefing.
   available?: Availability;
 }

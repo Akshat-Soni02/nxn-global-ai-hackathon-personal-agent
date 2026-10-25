@@ -51,10 +51,9 @@ export const RecordForm = Description.extend({
 export type RecordForm = z.infer<typeof RecordForm>;
 
 // Everything masked by name in a recording's words: the Never list and the private words.
-export const maskTermsOf = (form?: Pick<RecordForm, "never" | "private">): string[] => [
-  ...(form?.never ?? []),
-  ...(form?.private ?? []),
-];
+// The words hidden from the AI: the ones the user typed as private. Not the Never rules: a rule hidden from the agent
+// ("never email ███") can't be followed (Oct 25).
+export const maskTermsOf = (form?: Pick<RecordForm, "never" | "private">): string[] => [...(form?.private ?? [])];
 export type RecordFormInput = z.input<typeof RecordForm>;
 
 export function recordingDir(dataDir: string, sessionId: string): string {
