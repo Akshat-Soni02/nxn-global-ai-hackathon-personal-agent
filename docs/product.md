@@ -14,8 +14,8 @@ Mac apps, with your files. When a website changes, it fixes the task itself and 
 1. Download `Shadow-<version>.dmg` from the latest GitHub Release and open it.
 2. Drag **Shadow** to Applications and open it. The first time, right-click → Open (it is signed by us, not by Apple).
 3. A setup window appears with three steps:
-   - **Your key.** Paste your Nebius Token Factory key and press Save and check. It goes into your Keychain. You
-     should see "Connected to Nemotron".
+   - **Sign in.** Press Sign in. Your browser opens Shadow's sign-in page: use Google or your email. Back in the
+     app you should see "Connected to Nemotron". You don't need an API key; Shadow's free tier covers everyday use.
    - **Chrome.** Press Connect Chrome. A Finder window shows the extension folder. In Chrome open
      `chrome://extensions`, turn on Developer mode, press Load unpacked, pick that folder, then open the extension's
      Details and turn on "Allow access to file URLs".
@@ -74,22 +74,29 @@ Mac apps, with your files. When a website changes, it fixes the task itself and 
 | The inbox and the runs list | `…/Shadow/shadow.db` | Kept |
 | What Shadow remembers from your answers | `…/Shadow/memory.db` | Until you press Forget in Settings |
 | A recording's raw files (events, pictures, audio) | `…/Shadow/recordings/<session>/` | Deleted 24 hours after the workflow is saved |
-| Your model key | The macOS Keychain | Until you replace it |
+| Your sign-in (a device token, not a password or a key) | The macOS Keychain | Until you sign out |
 
-What leaves your Mac: text only, to Nebius Token Factory, with your own key: the form, the recorded steps without
+What leaves your Mac goes through Shadow's own service, which counts it against your free tier and never stores
+what you send. To the model (Nebius Token Factory, which keeps nothing), text only: the form, the recorded steps without
 secret values, the narration's text, the masked words from screenshots, and for a repair the failed step and an
 outline of the page. Pictures leave only if you turn that on, blacked out first. Passwords are never recorded.
+To the apps you connect (through Composio, which keeps your sign-in to them): what a step writes or reads there,
+such as the row it adds to a sheet.
 
 ## Settings
 
-Shadow in the menu bar → Open Shadow → **Settings**: replace the key, check the connection, the three switches,
+Shadow in the menu bar → Open Shadow → **Settings**: your account (sign out), check the connection, **Connected
+apps** (connect Google Sheets, Gmail and others, or disconnect them), **Usage** this month, the three switches,
 connect Chrome again, see and forget what Shadow remembers, and where its files are.
 
 ## If something is off
 
 - **Record does nothing.** Shadow's daemon is not running. The menu bar says so and offers Start; it also
   starts by itself within seconds.
-- **"No API key".** Settings → paste the key → Save and check.
+- **"Not signed in".** Settings → Sign in, and finish in the browser.
+- **"Free tier used up".** Settings → Usage shows when it starts again (tomorrow, or next month). Web and Mac-app
+  steps still run; AI steps and connected-app steps wait.
+- **"Connect Google Sheets first".** A workflow writes to an app you haven't connected: Settings → Connected apps.
 - **Chrome: "not connected".** Settings → Connect Chrome, then reload the extension in `chrome://extensions`.
 - **Mac apps are not recorded.** System Settings → Privacy & Security → Accessibility → turn Shadow on. After an
   update, turn it off and on again.

@@ -1454,3 +1454,25 @@ button.wf-arm-label:hover {
   margin: 4px 0;
   padding-left: 18px;
 }
+
+/* Usage against the free tier (Settings → Account). */
+.meter {
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--quiet-bg);
+  overflow: hidden;
+}
+.meter::-webkit-meter-bar {
+  background: var(--quiet-bg);
+  border: 0;
+  border-radius: 3px;
+}
+.meter::-webkit-meter-optimum-value,
+.meter::-webkit-meter-suboptimum-value,
+.meter::-webkit-meter-even-less-good-value {
+  background: var(--accent);
+  border-radius: 3px;
+}

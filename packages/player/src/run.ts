@@ -586,7 +586,9 @@ async function executeOnce(step: ActionStep, ctx: RunContext, deps: RunDeps): Pr
             ? deps.data
             : step.channel === "ax"
               ? deps.ax
-              : undefined;
+              : step.channel === "mcp"
+                ? deps.mcp
+                : undefined;
   if (!channel) return { ok: false, error: `channel ${step.channel} is not supported yet` };
 
   let result: StepResult;

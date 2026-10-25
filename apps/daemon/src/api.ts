@@ -135,6 +135,20 @@ const appMethods = {
     },
   },
   setupChrome: { params: z.object({}).default({}), run: (a: AppControl) => a.setupChrome() },
+  // The Shadow account and connected apps (since Oct 25; docs/cloud-architecture.md).
+  signIn: { params: z.object({}).default({}), run: (a: AppControl) => a.signIn() },
+  signOut: { params: z.object({}).default({}), run: (a: AppControl) => a.signOut() },
+  accountUsage: { params: z.object({}).default({}), run: (a: AppControl) => a.accountUsage() },
+  connectedApps: { params: z.object({}).default({}), run: (a: AppControl) => a.connectedApps() },
+  connectApp: {
+    params: z.object({ toolkit: z.string().regex(/^[a-z0-9_]{1,60}$/, "an app's name") }),
+    run: (a: AppControl, p: { toolkit: string }) => a.connectApp(p.toolkit),
+  },
+  disconnectApp: {
+    params: z.object({ id: z.string().min(1).max(200) }),
+    run: (a: AppControl, p: { id: string }) => a.disconnectApp(p.id),
+  },
+  appTools: { params: z.object({}).default({}), run: (a: AppControl) => a.appTools() },
 } as const;
 
 export type Method = keyof typeof methods | keyof typeof recordMethods | keyof typeof appMethods;

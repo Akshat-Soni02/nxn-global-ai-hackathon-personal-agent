@@ -1,0 +1,52 @@
+// Connected apps, behind one interface so the MCP endpoint and the routes don't know Composio: composio.ts for real,
+// fake.ts (a toy Google Sheet) for tests and local runs without a Composio key.
+
+export interface ToolInfo {
+  // The name the MCP client calls, e.g. GOOGLESHEETS_BATCH_UPDATE.
+  name: string;
+  title?: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  // The toolkit (app) it belongs to, e.g. googlesheets.
+  toolkit: string;
+  // From the provider's hints. Neither set: treated as changing things (needs approval in a workflow).
+  readOnly: boolean;
+  destructive: boolean;
+}
+
+export interface Connection {
+  id: string;
+  toolkit: string;
+  // ACTIVE once the user finished signing in; INITIATED while the sign-in page is open; others are failures.
+  status: string;
+  created?: string;
+}
+
+export interface ToolResult {
+  ok: boolean;
+  data?: unknown;
+  error?: string;
+}
+
+export interface ToolProvider {
+  // Toolkits a user may connect: { slug, name }.
+  toolkits(): Promise<{ slug: string; name: string }[]>;
+  connections(uid: string): Promise<Connection[]>;
+  // Starts connecting an app; the user finishes at `redirectUrl` in their browser.
+  connect(uid: string, toolkit: string, callbackUrl?: string): Promise<{ id: string; redirectUrl: string }>;
+  // Only the user's own connection; false when it isn't theirs or doesn't exist.
+  disconnect(uid: string, connectionId: string): Promise<boolean>;
+  // The tools of the apps this user connected (ACTIVE only).
+  tools(uid: string): Promise<ToolInfo[]>;
+  execute(uid: string, tool: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult>;
+}
+
+export class ToolError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ToolError";
+  }
+}

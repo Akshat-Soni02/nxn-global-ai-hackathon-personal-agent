@@ -56,13 +56,29 @@ export const ACTION_DOCS: Record<string, ActionDoc> = {
   "ax.focus": { args: "{}" },
   "ax.menu": { args: '{ app, path: string[] }  e.g. ["File", "Export As…"]' },
   "ax.key": { args: '{ app, key, modifiers?: ("cmd" | "shift" | "option" | "ctrl")[] }' },
+  "mcp.call": {
+    args: "{ tool, arguments? }  one tool of an app the user connected (listed under Available now), no target; arguments may hold references",
+    output: "object (the tool's result), list of object, or text",
+  },
 };
+
+// A connected app's tool, as the briefing lists it.
+export interface ConnectedTool {
+  name: string;
+  description: string;
+  readOnly: boolean;
+}
 
 export interface Availability {
   extension?: boolean;
   macApp?: boolean;
   screenConsent?: boolean;
+  // The tools of the apps the user connected (mcp.call). Omitted or empty: no mcp steps.
+  connectedTools?: ConnectedTool[];
 }
+
+// The briefing names this many connected tools at most; an agent asks for more with its own tool.
+const MAX_LISTED_TOOLS = 60;
 
 export interface BriefingOptions {
   // What is connected and allowed right now; omitted, the section is left out.
@@ -134,6 +150,20 @@ export function briefing(options: BriefingOptions = {}): string {
       yes(a.macApp, "Shadow.app running", "ax steps can't run or be tried"),
       yes(a.screenConsent, "Screen consent", "no screenshots may be described"),
     );
+    const tools = a.connectedTools ?? [];
+    if (tools.length === 0) {
+      out.push("- Connected apps: none (don't write mcp.call steps)");
+    } else {
+      out.push(
+        "- Connected apps' tools (mcp.call; one replaces the clicks that write to the same app, and asks first unless read-only):",
+      );
+      for (const t of tools.slice(0, MAX_LISTED_TOOLS)) {
+        out.push(
+          `  - ${t.name}${t.readOnly ? " (read-only)" : ""}: ${t.description.split("\n")[0]?.slice(0, 160) ?? ""}`,
+        );
+      }
+      if (tools.length > MAX_LISTED_TOOLS) out.push(`  - …and ${tools.length - MAX_LISTED_TOOLS} more`);
+    }
   }
   return out.join("\n");
 }

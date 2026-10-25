@@ -3,13 +3,19 @@
 // the user's OK. No model decides this, and nothing later turns it off (core/guard.ts keeps repair from doing so).
 import { isAction, isOutward, neverMatch, type Skill, walkSteps } from "@shadow/core";
 
-export function requireApprovals(skill: Skill): { skill: Skill; added: string[] } {
+// readOnlyTools: connected apps' tools whose hints say they only read (mcp-tools.ts in the daemon); an mcp step
+// calling one of them doesn't need approval. Every other mcp step does.
+export function requireApprovals(
+  skill: Skill,
+  options: { readOnlyTools?: ReadonlySet<string> } = {},
+): { skill: Skill; added: string[] } {
   const copy = structuredClone(skill);
   const added: string[] = [];
   for (const { step } of walkSteps(copy.steps)) {
     if (!isAction(step) || step.requires_approval) continue;
     // An upload only hands a file to the page; the click that sends it is the step that needs approval.
-    const outward = isOutward(step) && !(step.channel === "web" && step.action === "upload");
+    const readOnlyTool = step.channel === "mcp" && options.readOnlyTools?.has(String(step.args.tool));
+    const outward = isOutward(step) && !(step.channel === "web" && step.action === "upload") && !readOnlyTool;
     if (outward || neverMatch(step, copy.description.never)) {
       step.requires_approval = true;
       added.push(step.id);

@@ -1,0 +1,18 @@
+# Builds shadow-api's image and pushes it to Artifact Registry. Run from the repository root:
+#   gcloud builds submit --config apps/api/cloudbuild.yaml --substitutions=_REGION=europe-west1
+# then deploy it with `gcloud run deploy` (apps/api/README.md, step 6).
+substitutions:
+  _REGION: europe-west1
+  _REPO: shadow
+  _IMAGE: shadow-api
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - apps/api/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:latest
+      - .
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:latest

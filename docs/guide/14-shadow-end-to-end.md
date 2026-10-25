@@ -1,6 +1,8 @@
 # 14 · Record, replay and AI
 
-> Updated 13 Oct 2026, evening, after sprint 4: the editor, Walk through, pictures for the agents, Record again, the packaged app. The design is [`docs/design.md`](../design.md); this page says the same in short, and what is built.
+> Updated 13 Oct 2026, evening, after sprint 4: the editor, Walk through, pictures for the agents, Record again, the packaged app.
+>
+> **Since 25 Oct (managed):** wherever this page says "one Nemotron call" or "the model", the call now goes through `shadow-api` on Google Cloud, which adds Shadow's Nebius key and counts it against the free tier; there is no key in the Keychain, only a device token. Workflows can also have `mcp` steps that call a connected app (Google Sheets, Gmail…) through Composio. See [13 · The whole picture](13-the-whole-picture.md) and [`docs/cloud-architecture.md`](../cloud-architecture.md). The design is [`docs/design.md`](../design.md); this page says the same in short, and what is built.
 
 ![Shadow end to end](14-shadow-architecture.png)
 

@@ -136,6 +136,9 @@ function produces(step: ActionStep): VarType[] {
     case "script.shortcut":
     case "script.shell":
       return [TEXT];
+    // A tool's result: usually an object (rows written, a message), sometimes rows or text.
+    case "mcp.call":
+      return [{ type: "object" }, listOf({ type: "object" }), TEXT];
     default:
       return [];
   }

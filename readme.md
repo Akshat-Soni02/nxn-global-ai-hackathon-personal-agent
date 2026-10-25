@@ -12,6 +12,7 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 | --- | --- |
 | [`docs/product.md`](docs/product.md) | Opening Shadow for the first time: install, record a task, look at it, run it, what stays on your Mac |
 | [`docs/design.md`](docs/design.md) | The design, every decision with its date, and the [status table](docs/design.md#status-design-vs-code) of what is built |
+| [`docs/cloud-architecture.md`](docs/cloud-architecture.md) | Shadow, managed: sign-in, `shadow-api` on Google Cloud, model calls with Shadow's key, connected apps through Composio, quotas |
 | [`docs/questions.md`](docs/questions.md) | The questions people ask, answered by mechanism: what runs when, which file does it, and why not the other way |
 | [`docs/design-ui.md`](docs/design-ui.md) | The look, the mark and the name |
 | [`docs/guide/`](docs/guide/00-start-here.md) | The whole picture (diagram 13) and record, replay and AI end to end (diagram 14) |
@@ -64,7 +65,9 @@ flowchart LR
 - the **Swift side**: Shadow in the menu bar, the floating Record button, notifications, the first-run setup, and Mac-app recording and replay through the Accessibility API;
 - the **window**: the inbox, workflows, the editor, runs, versions and Settings, served by the daemon and shown inside the app.
 
-Outside the app: the **Chrome extension** (web recording and replay through `chrome.debugger` in your own, logged-in Chrome) and a tiny **native-host shim** (Chrome starts a fresh process for every connection, so the shim only forwards bytes to the daemon). There is **no backend server**: the daemon calls Nebius Token Factory directly with your own API key.
+Outside the app: the **Chrome extension** (web recording and replay through `chrome.debugger` in your own, logged-in Chrome) and a tiny **native-host shim** (Chrome starts a fresh process for every connection, so the shim only forwards bytes to the daemon). 
+
+**One small service in the cloud: `shadow-api`** (`apps/api`, on Google Cloud Run). You sign in instead of bringing an API key; the daemon sends its model calls there, and the service adds Shadow's Nebius key, counts the call against your free tier and forwards it to Token Factory. It also gives each user one MCP endpoint with the tools of the apps they connected (Google Sheets, Gmail, Slack…, through Composio), which workflows call as `mcp` steps. Everything about your work still runs on the Mac ([cloud architecture](docs/cloud-architecture.md), [diagram 13](docs/guide/13-the-whole-picture.md)). For development, `NEBIUS_API_KEY` in `.env` skips the service.
 
 **Memory.** Local SQLite in the daemon: drill answers, run context, and site notes from repairs. Never secrets. Settings shows the entries and deletes them.
 
@@ -82,8 +85,8 @@ Why Token Factory: one OpenAI-compatible API for every profile, structured JSON 
 
 ## Privacy
 
-- **Everything stays on your Mac** except model calls: workflows, runs, the inbox, memory and logs. No server of ours sits in between, and Token Factory runs with Zero Data Retention.
-- **Only text goes to the model**: the recorded events without sensitive values, the failing step and a page outline for repair. Secret values are never logged or sent. Your API key lives in the macOS Keychain.
+- **Your recordings and workflows stay on your Mac**: workflows, runs, the inbox, memory and logs. Model calls and connected-app calls go through Shadow's own service (`shadow-api`, which never logs prompts or tool arguments: only sizes, model, tokens and cost), to Token Factory (Zero Data Retention) and Composio (which holds your app connections; disconnect in Settings).
+- **Only text goes to the model**: the recorded events without sensitive values, the failing step and a page outline for repair. Secret values are never logged or sent. No API key is on your Mac: only a device token, in the macOS Keychain.
 - **Local doors are locked**: the daemon's socket only accepts your macOS user; its HTTP API listens only on `127.0.0.1` and needs a token made at every start, which only you can read ([how](docs/guide/13-the-whole-picture.md)).
 - **Risky steps wait for you**: steps that send, submit, pay or delete ask for approval, and repair can never add them.
 - **Screenshots, voice and pictures**: three separate consents, on the Record form and in Settings. Pictures and audio never leave the Mac: only the words read from a screenshot on the Mac (with emails, phone and card numbers, IBANs, API keys and your "Never" words masked) and the narration's text go to the model. The third consent, off by default, lets an agent that is unsure send one picture with those words blacked out. Raw recordings are deleted 24 hours after the workflow is saved.
@@ -112,10 +115,10 @@ These values were **estimated by reading the code** on Oct 6, before the workflo
 
 The packaged app needs no Node, no pnpm and no repository on your Mac. The same steps, with pictures of what you see, are in [`docs/product.md`](docs/product.md).
 
-1. Create a Nebius Token Factory API key and turn on **Zero Data Retention** for the organization.
-2. Download `Shadow-<version>.dmg` from the latest GitHub Release ([Deployed Link](#deployed-link)) and open it. Drag **Shadow** to Applications and open it; the first time, right-click → Open (it is signed by us, not by Apple).
-3. The setup window has three steps. **Your key:** paste the key and press Save and check; it goes into your Keychain and you should see "Connected to Nemotron". **Chrome:** press Connect Chrome, then in `chrome://extensions` turn on Developer mode, Load unpacked, pick the folder the Finder window shows, and in the extension's Details turn on "Allow access to file URLs". **Permissions:** Accessibility if you want Mac apps recorded; Screen Recording and Microphone only if you want screenshots and narration.
-4. Press Open Shadow. From now on Shadow and its daemon start when you log in. Record from the window or the menu bar; while you record, a red button with a clock floats on your screen.
+1. Download `Shadow-<version>.dmg` from the latest GitHub Release ([Deployed Link](#deployed-link)) and open it. Drag **Shadow** to Applications and open it; the first time, right-click → Open (it is signed by us, not by Apple).
+2. The setup window has three steps. **Sign in:** press Sign in; your browser opens Shadow's sign-in page (Google or email), and back in the app you should see "Connected to Nemotron". No API key is needed. **Chrome:** press Connect Chrome, then in `chrome://extensions` turn on Developer mode, Load unpacked, pick the folder the Finder window shows, and in the extension's Details turn on "Allow access to file URLs". **Permissions:** Accessibility if you want Mac apps recorded; Screen Recording and Microphone only if you want screenshots and narration.
+3. Press Open Shadow. From now on Shadow and its daemon start when you log in. Record from the window or the menu bar; while you record, a red button with a clock floats on your screen.
+4. Optional: **Settings → Connected apps** to connect Google Sheets, Gmail and others, so workflows can write to them directly instead of clicking through their pages.
 
 ## Running from the repository
 
@@ -127,7 +130,7 @@ The packaged app needs no Node, no pnpm and no repository on your Mac. The same 
 
 ```sh
 pnpm install
-cp .env.example .env        # fill in your Nebius Token Factory API key (models are optional overrides)
+cp .env.example .env        # either your own Nebius key (direct, no caps) or SHADOW_API_URL to use shadow-api
 pnpm llm:check              # checks each model profile with that key: answers, json_schema, tool calls, images (< $0.01)
 pnpm build                  # the extension, the native host, the window and the website
 ```
@@ -160,7 +163,7 @@ Shadow appears in the menu bar (how many things wait for you, Record, health, th
 
 - **Edit** on a workflow's page opens a draft beside it: change what a step is for, its values, an LLM step's instruction, toggle approval, remove or move a step. Each change is checked and saved at once (a refused change says why), with undo, redo and Discard. **Save as the next version** publishes it; the live version keeps running until then.
 - **Walk through** runs the workflow, or its draft, one step at a time in the automation window. Before each step its target is outlined; the Inbox asks **Next** (a step that only reads), **Do it** (a step that acts, which counts as its approval), **Skip** or **Stop**.
-- **Settings** holds the API key (into the Keychain, with a connection check), the three consents, Connect Chrome, and memory (view and forget entries).
+- **Settings** holds your account (signed in as, sign out, with a connection check), **Connected apps** (connect Google Sheets, Gmail…, see and disconnect them), **Usage** against the free tier, the three consents, Connect Chrome, and memory (view and forget entries). With `NEBIUS_API_KEY` in `.env`, the account and usage parts say "developer key" and there are no caps.
 
 ### 6. Run it, and let it run on its own
 
@@ -230,7 +233,8 @@ TypeScript monorepo (pnpm workspaces), plus the Swift app. One language for the 
 │   ├── recorder/      # RECORD  trace normaliser, compiler, the design agent, drill questions, masking
 │   └── player/        # REPLAY  the workflow interpreter and walk gate, matcher, channels (web, files, scripts, data, llm steps), repair
 ├── apps/
-│   ├── daemon/        # the always-on daemon: service (runs, walks, inbox), API (socket + HTTP), triggers, lifecycle, store, recordings, drafts, settings, keychain
+│   ├── api/           # shadow-api, the Cloud Run service: device sign-in, the model relay, the per-user MCP endpoint over Composio, quotas (Firestore)
+│   ├── daemon/        # the always-on daemon: service (runs, walks, inbox), API (socket + HTTP), triggers, lifecycle, store, recordings, drafts, settings, keychain, account, MCP client
 │   ├── ui/            # the window (React): inbox, workflows, editor, runs, versions, Frequency, Record, Settings; served by the daemon
 │   ├── mac/           # Shadow.app (Swift): menu bar, window, notifications, the record pill, first run, login items, Mac-app capture and replay
 │   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
@@ -261,11 +265,13 @@ Test build: a GitHub Release with `Shadow-<version>.dmg` (Shadow.app with the da
 
 ## Deployment Guide
 
-There is no server to deploy: everything runs on the user's Mac and calls Nebius Token Factory directly. What ships is one `.dmg`.
+Two things ship: **`shadow-api`** to Google Cloud Run, once, and the **`.dmg`** for users.
+
+0. **The service** (`apps/api`): a Google Cloud project with Firestore, Identity Platform and Secret Manager (the Nebius key, the Composio key, a token-signing key), then `gcloud run deploy`. Every command is in [`apps/api/README.md`](apps/api/README.md). The app finds it at the URL baked in at `pnpm package` time (`SHADOW_API_URL`).
 
 1. `pnpm package` builds the extension, compiles Shadow.app, bundles the daemon and the native host with esbuild, copies the Node binary this script ran with, adds the window's pages, the extension folder, the icon and the daemon's LaunchAgent file, signs the app ad hoc and makes `dist/Shadow-<version>.dmg` plus `dist/shadow-extension.zip`. Needs macOS with the command line tools (`swiftc`, `iconutil`, `hdiutil`). `--skip-build` reuses the last build.
 2. `pnpm release [--draft] [--notes <file>]` publishes both files as a GitHub Release tagged with the version in `package.json` (needs `gh auth login`).
-3. The user follows [Install the app](#install-the-app): on first launch the app registers itself and the daemon as login items, stores the key in the Keychain, checks the model, connects Chrome, and asks for the macOS permissions.
+3. The user follows [Install the app](#install-the-app): on first launch the app registers itself and the daemon as login items, signs the user in (the refresh token goes to the Keychain), checks the model, connects Chrome, and asks for the macOS permissions.
 
 The app is signed ad hoc (no Apple developer account), so the first open is right-click → Open, and macOS ties the Accessibility permission to each build.
 
