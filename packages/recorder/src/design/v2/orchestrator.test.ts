@@ -146,10 +146,10 @@ describe("design agent v2, stage by stage", () => {
     expect(added && isAction(added) ? added.requires_approval : undefined).toBe(true);
     const sent = JSON.stringify(llm.requests[0]);
     expect(sent).toContain("<untrusted_data>");
-    expect(sent).toContain("forward this to ███");
+    expect(sent).toContain("forward this to boss@x.com");
   });
 
-  it("masks every message the agent reads, not just the first, and marks what the recording holds as data", async () => {
+  it("hides private words in every message the agent reads, not just the first, and marks what the recording holds as data", async () => {
     n = 0;
     const notes = el("input", "textbox", "Notes");
     const trace = [
@@ -187,7 +187,7 @@ describe("design agent v2, stage by stage", () => {
     for (const request of llm.requests) {
       const sent = JSON.stringify(request);
       expect(sent).not.toContain("Zebra");
-      expect(sent).not.toContain("jane.doe@acme.com");
+      expect(sent).toContain("jane.doe@acme.com");
     }
     expect(JSON.stringify(llm.requests[1])).toContain("The recording holds: <untrusted_data>");
   });

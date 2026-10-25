@@ -44,7 +44,7 @@ describe("captions", () => {
     expect(asked[0]).toContain("The user did: click");
   });
 
-  it("hides what was typed or copied in the question: an email, a key, a private word", async () => {
+  it("hides private words in the question, and only those", async () => {
     const typed: NormalisedStep = {
       index: 0,
       kind: "type",
@@ -64,8 +64,8 @@ describe("captions", () => {
       ["Project Falcon"],
     );
     expect(asked[0]).toContain("███");
-    expect(asked[0]).not.toContain("jane@client.com");
     expect(asked[0]).not.toContain("Project Falcon");
+    expect(asked[0]).toContain("jane@client.com");
   });
 
   it("says the picture is from just before the step, so the model names what was acted on, not an outcome", () => {

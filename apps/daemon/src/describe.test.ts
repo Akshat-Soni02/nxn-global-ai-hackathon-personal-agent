@@ -67,8 +67,8 @@ describe("describing a picture for the model", () => {
     const { dataDir, llm, describer, tools } = setup(true);
     const result = await describer.describe({ image: asDataUrl(ORIGINAL) }, "what is this?", ["metrics"]);
     expect(result.description).toBe("A compose window with the To field empty and a blue Send button.");
-    // The words: the email masked, and the Never term too.
-    expect(result.words).toBe("Weekly ███\nFrom ███");
+    // The words: the private word masked (the email stays readable since Oct 25).
+    expect(result.words).toBe("Weekly ███\nFrom jane@acme.com");
     // Both lines had something masked, so both were blacked out in the picture.
     expect(tools.blackedOut).toEqual([
       [

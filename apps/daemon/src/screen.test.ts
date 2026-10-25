@@ -57,15 +57,16 @@ describe("screenshots", () => {
     await reader.idle();
 
     const saved = readFileSync(join(home, "recordings", sessionId, "screen.jsonl"), "utf8");
-    expect(saved).not.toMatch(/jane|acme|4242|Falcon/);
+    // The words keep everything but the private words (since Oct 25); the picture is still blacked out.
+    expect(saved).not.toMatch(/Falcon/);
     expect(JSON.parse(saved)).toMatchObject({
       at: 1500,
       eventId: "e1",
-      text: "Weekly metrics\nFrom: ███\nCard ███\nRe: ███ budget",
+      text: "Weekly metrics\nFrom: jane.doe@acme.com\nCard 4242 4242 4242 4242\nRe: ███ budget",
       lines: [
         { text: "Weekly metrics", box: box(0) },
-        { text: "From: ███", box: box(30) },
-        { text: "Card ███", box: box(60) },
+        { text: "From: jane.doe@acme.com", box: box(30) },
+        { text: "Card 4242 4242 4242 4242", box: box(60) },
         { text: "Re: ███ budget", box: box(90) },
       ],
     });
@@ -94,10 +95,9 @@ describe("screenshots", () => {
     const sent = JSON.stringify(llm.requests);
     // What appeared on screen after the click, as data (the evidence the design agent reads first).
     expect(sent).toMatch(/appeared: <untrusted_data>\\"Weekly metrics\\"/);
-    expect(sent).not.toContain("jane");
-    expect(sent).not.toContain("acme.com");
-    expect(sent).not.toContain("4242 4242");
-    // The Never term itself is the user's own words on the form, which the model reads; from the screen it is masked.
+    // Since Oct 25 the screen's words reach the agent as they were read, but for the words the screen reader was told
+    // to hide (here "Project Falcon"): the email is readable, the private word isn't.
+    expect(sent).toContain("jane.doe@acme.com");
     expect(sent).not.toContain("Project Falcon budget");
   });
 

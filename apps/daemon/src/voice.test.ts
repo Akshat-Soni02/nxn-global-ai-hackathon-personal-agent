@@ -38,11 +38,13 @@ describe("narration", () => {
     });
     expect(count).toBe(2);
     const saved = readFileSync(join(dir, "transcript.jsonl"), "utf8");
-    expect(saved).not.toMatch(/jane|acme|Falcon/);
+    // Only the private words are hidden in text (since Oct 25): the email stays readable.
+    expect(saved).not.toMatch(/Falcon/);
+    expect(saved).toMatch(/jane@acme.com/);
     // Each piece keeps when it ended too, so it can span the steps it was said over.
     expect(readNotes(home, "s1")).toEqual([
       { at: 1_000_500, until: 1_003_000, kind: "said", text: "I always take the newest email from Reporting Bot" },
-      { at: 1_004_000, until: 1_006_000, kind: "said", text: "send it to ███ about ███" },
+      { at: 1_004_000, until: 1_006_000, kind: "said", text: "send it to jane@acme.com about ███" },
     ]);
   });
 

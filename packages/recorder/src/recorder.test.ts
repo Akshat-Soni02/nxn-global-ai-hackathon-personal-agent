@@ -815,7 +815,7 @@ describe("Move to Trash in Finder", () => {
 });
 
 describe("the compile view", () => {
-  it("masks keys and private words in what was typed or copied before the model reads it", () => {
+  it("masks private words in what was typed or copied before the model reads it, and only those", () => {
     const steps = normalise([
       ev("navigate", 0, { url: PAGE }),
       ev("copy", 1_000, { value: "sk-proj-abcdefghijklmnopqrstuvwx12345678 for ACME-2231", target: submitButton }),
@@ -828,7 +828,7 @@ describe("the compile view", () => {
       ),
     );
     expect(view).not.toContain("ACME-2231");
-    expect(view).not.toContain("sk-proj-abcdefgh");
+    expect(view).toContain("sk-proj-abcdefgh");
   });
 });
 
