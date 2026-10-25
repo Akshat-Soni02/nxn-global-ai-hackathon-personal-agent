@@ -111,6 +111,7 @@ const NEEDS: Record<string, string[]> = {
   "fs.rename": ["from", "to"],
   "fs.read": ["path"],
   "data.pick": ["from"],
+  "mcp.call": ["tool"],
 };
 const findable = (t: Locator | undefined) =>
   Boolean(t && (t.role || Object.keys(t.attrs ?? {}).length > 0 || t.fallbacks.length > 0));
@@ -372,7 +373,10 @@ export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string
   const shown = [...walkSteps(recorded.steps)]
     .map(({ step }) => step)
     .filter((s) => isAction(s) && (WRITES.has(`${s.channel}.${s.action}`) || isOutward(s) || s.requires_approval));
-  const noneKept = shown.length > 0 && shown.every((s) => !now.has(s.id) && !doing.has(sig(s)));
+  // A connected app's step does the work the clicks into its page did (connectors.ts): the recorded writes it replaced
+  // are removed with a why, and that is the work kept, not lost.
+  const appStep = [...walkSteps(workflow.steps)].some(({ step }) => isAction(step) && step.channel === "mcp");
+  const noneKept = shown.length > 0 && !appStep && shown.every((s) => !now.has(s.id) && !doing.has(sig(s)));
   for (const step of shown) {
     if (now.has(step.id) || doing.has(sig(step)) || (explained.has(step.id) && !noneKept)) continue;
     problems.push(

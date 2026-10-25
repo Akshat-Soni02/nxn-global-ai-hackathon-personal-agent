@@ -23,6 +23,14 @@ export {
 export { DESIGN_V2_BUDGET, remaining } from "./design/v2/budget.ts";
 export { changesSummary, describeChanges } from "./design/v2/changes.ts";
 export {
+  APPS,
+  type AppTool,
+  appOf,
+  type ConnectorChance,
+  type Connectors,
+  connectorChances,
+} from "./design/v2/connectors.ts";
+export {
   DoneReport,
   type EvidenceView,
   PROPOSAL_KINDS,

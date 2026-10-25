@@ -49,6 +49,14 @@ Principles
   programs or libraries.
 - A file the recording shows appearing (a PDF saved, a download) is made by a step next time; a date in its name is
   {{today|…}}.
+- Connected apps: when the message lists one, do the work inside that app with its tools (add { do: "app", tool,
+  arguments }) instead of the clicks into its page: one app step for each write or read, and remove the recorded steps
+  it replaces with why "done directly in <app>". App steps don't depend on the page's layout, so they keep working.
+  A document's id is written <id:s4> (the document step s4 worked in: the message lists them; code puts the real id
+  in); the sheet's tab and the cells come from what was typed and where, and values from earlier steps as usual
+  ({{rows}}). Look at
+  a tool's arguments first (look { app_tool }). Keep page steps for what no listed tool does. No app listed: page
+  steps only, and never ask about connecting one.
 - Remove what isn't part of the task (a click that changed nothing, a detour), with why. Put back a step code left
   out (restore x2) if it mattered.
 - Open pages by name: { do: "open", page: "s1" } or { page: "KPI Sheet" }. Code writes the address. These are names of
@@ -86,7 +94,11 @@ Sheet", s5 type "19 Oct" into A4, s6 paste into B4. Code proposed p1 list_item (
 - trigger { schedule: "0 9 * * 1-5" }, why "every day: a weekday morning"
 - ask "Which row should each day's numbers go in?", why "the recording wrote A4; the next empty row isn't
   supported yet", step "s5", options ["A4", "the next empty row"]
-- test, then done { summary, rules: [{ rule: 0, steps: ["s2", "l1"] }, { rule: 1, steps: ["ai1"] }] }`;
+- test, then done { summary, rules: [{ rule: 0, steps: ["s2", "l1"] }, { rule: 1, steps: ["ai1"] }] }
+If Google Sheets were listed as connected: instead of s4–s6 inside the loop, one app step
+add { do: "app", tool: "GOOGLESHEETS_BATCH_UPDATE", intent: "write the date and the email's numbers to the sheet",
+arguments: { spreadsheet_id: "<id:s5>", sheet_name: "Sheet1", values: [["{{today|D MMM}}", "{{email.subject}}"]] } }
+into the loop, then remove s4, s5, s6 with why "written to the sheet directly", and no question about the row.`;
 
 // Plan, then apply (step 5): one call writes every change as tool calls, code makes them all, and the build episode
 // starts from what happened (checkpoint 5: one change per call spent 40 calls on D). Its first line tells it apart. The

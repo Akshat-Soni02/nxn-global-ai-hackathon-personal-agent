@@ -9,6 +9,7 @@ import { EXTENSION_ID, NATIVE_HOST_NAME } from "@shadow/core";
 import { createLlm, type Llm, type LlmConfig, llmConfig } from "@shadow/llm";
 import type { MemoryEntry, MemoryStore } from "@shadow/memory";
 import { type Account, type AccountView, openInBrowser, type Usage } from "./account.ts";
+import { declinedApps, setDeclined } from "./connectors.ts";
 import { readApiKey, runSecurity, type SecurityRunner, writeApiKey } from "./keychain.ts";
 import type { McpTool, McpTools } from "./mcp-tools.ts";
 import { type Consent, readConsent, saveConsent } from "./recording-store.ts";
@@ -78,12 +79,16 @@ export interface AppControl {
   // Opens the app's sign-in page (Composio's) in the browser.
   connectApp(toolkit: string): Promise<{ redirectUrl: string }>;
   disconnectApp(connectionId: string): Promise<ConnectedApps>;
+  // A declined app is offered again in new designs.
+  offerAppAgain(toolkit: string): Promise<ConnectedApps>;
   appTools(): Promise<McpTool[]>;
 }
 
 export interface ConnectedApps {
   toolkits: { slug: string; name: string }[];
   connections: { id: string; toolkit: string; status: string; created?: string }[];
+  // Apps the user said to keep clicking for (connectors.ts): not offered in new designs until asked again.
+  declined: string[];
 }
 
 export function createAppControl(deps: SettingsDeps): AppControl {
@@ -174,6 +179,10 @@ export function createAppControl(deps: SettingsDeps): AppControl {
       deps.tools?.()?.invalidate();
       return connectedApps();
     },
+    async offerAppAgain(toolkit) {
+      setDeclined(deps.dataDir, toolkit, false);
+      return connectedApps();
+    },
     async appTools() {
       const tools = deps.tools?.();
       if (!tools) return [];
@@ -193,7 +202,7 @@ export function createAppControl(deps: SettingsDeps): AppControl {
       account.call<{ toolkits: ConnectedApps["toolkits"] }>("GET", "/v1/tools/toolkits"),
       account.call<{ connections: ConnectedApps["connections"] }>("GET", "/v1/tools/connections"),
     ]);
-    return { toolkits: kits.toolkits, connections: conns.connections };
+    return { toolkits: kits.toolkits, connections: conns.connections, declined: declinedApps(deps.dataDir) };
   }
 }
 

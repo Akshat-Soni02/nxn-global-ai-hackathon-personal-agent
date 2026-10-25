@@ -77,6 +77,8 @@ export function changesSummary(lines: string[]): string {
 }
 
 function kindOf(step: Step): string {
+  // A connected app's tool by its name ("app GOOGLESHEETS_BATCH_UPDATE"): mcp.call alone says nothing.
+  if (step.type === "action" && step.channel === "mcp") return `app ${String(step.args.tool ?? "")}`;
   if (step.type === "action") return `${step.channel}.${step.action}`;
   if (step.type === "control") return step.kind;
   return step.type;

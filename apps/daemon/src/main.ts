@@ -34,6 +34,7 @@ import type { Prompter, Question } from "@shadow/recorder";
 import { createAccount } from "./account.ts";
 import { type Api, createApi } from "./api.ts";
 import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
+import { daemonConnectors } from "./connectors.ts";
 import { startDaemon } from "./daemon.ts";
 import { createScreenDescriber } from "./describe.ts";
 import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
@@ -205,6 +206,8 @@ const service = createService({
   store,
   execute,
   spent: () => usage.usage.costUsd,
+  // A waiting run kept its tabs (runner.ts); ended from the inbox, the extension lets them go.
+  release: (runId) => daemon.notify({ id: randomUUID(), type: "run.end", runId }),
   health: () => ({
     extensions: daemon.extensions.size,
     macApp: daemon.mac(),
@@ -288,7 +291,7 @@ record = createRecordControl({
             recorded,
             local: Boolean(final),
             twice: final?.twice ?? false,
-            hooks: { data, llm },
+            hooks: { data, llm, tools },
             logDir: recordingDir(home, sessionId),
             onLine: (line) => {
               onLine(line);
@@ -298,6 +301,18 @@ record = createRecordControl({
         ),
       progress,
       mac: () => daemon.mac(),
+      // Connected apps: offered where the recording worked inside one, only when Shadow's service is configured.
+      connectors: apiUrl
+        ? daemonConnectors({
+            dataDir: home,
+            account,
+            tools: () => tools,
+            ask: (question, onItem) => service.ask({ ...question, sessionId }, onItem),
+            answer: (itemId, answer) => service.answer(itemId, answer),
+            sessionId: () => sessionId,
+            log,
+          })
+        : undefined,
       log,
     });
   },

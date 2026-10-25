@@ -125,6 +125,11 @@ export interface Question {
   draft?: unknown;
   // The recording the question is about: the Record screen shows only its questions.
   sessionId?: string;
+  // Why it is asked, in a line under the question.
+  why?: string;
+  // A connected app the design could use directly (connectors.ts): the card shows Sign in and Connect <name>, and the
+  // daemon answers the question itself ("connected") once the app is connected.
+  connect?: { toolkit: string; name: string };
 }
 
 // Recording (record-control.ts), as the window's Record screen gets it from `recording`.

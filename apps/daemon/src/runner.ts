@@ -205,6 +205,7 @@ export async function runSkillOn(
     }
   };
 
+  let ended: RunOutcome | undefined;
   try {
     const deps: RunDeps = {
       web,
@@ -241,7 +242,10 @@ export async function runSkillOn(
     };
     const resume = options.resume;
     const inputs = resume ? provided : await resolveInputs(skill, provided);
-    if (!hooks.recovery) return await runSkill(skill, deps, { runId, inputs, resume, signal });
+    if (!hooks.recovery) {
+      ended = await runSkill(skill, deps, { runId, inputs, resume, signal });
+      return ended;
+    }
     const { memory, ...recovery } = hooks.recovery;
     // Episodes are numbered across the run's legs, so a leg after a wait doesn't overwrite an earlier transcript.
     const earlier = readdirSync(logDir).filter((f) => f.startsWith(`${runId}.repair-`)).length;
@@ -272,7 +276,7 @@ export async function runSkillOn(
           return `${described.description}\n\nWords on screen (private ones masked):\n${described.words}`;
         }
       : undefined;
-    return await runWithRecovery(skill, deps, {
+    ended = await runWithRecovery(skill, deps, {
       runId,
       inputs,
       resume,
@@ -300,8 +304,11 @@ export async function runSkillOn(
           ),
       },
     });
+    return ended;
   } finally {
     signal?.removeEventListener("abort", stopped);
-    daemon.notify({ id: randomUUID(), type: "run.end", runId });
+    // The extension lets go of the run's tabs (and closes its named ones) only when the run is over: a leg that waits
+    // for an answer keeps them, so the next leg goes on in the same tabs (F6: a run waiting for an OK lost them).
+    if (ended?.status !== "waiting") daemon.notify({ id: randomUUID(), type: "run.end", runId });
   }
 }

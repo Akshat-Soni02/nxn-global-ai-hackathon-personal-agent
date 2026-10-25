@@ -1476,3 +1476,13 @@ button.wf-arm-label:hover {
   background: var(--accent);
   border-radius: 3px;
 }
+
+/* A button that reads as a link (Settings → Connected apps: offer it again). */
+.link-button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}

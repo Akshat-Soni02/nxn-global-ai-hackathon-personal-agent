@@ -57,6 +57,8 @@ export interface ServiceOptions {
   runsDir?: string;
   // Dollars the model has spent since the daemon started (UsageMeter), to count each run's cost.
   spent?: () => number;
+  // A waiting run that ends without another leg (stopped from its question, or cancelled): its tabs are let go.
+  release?: (runId: string) => void;
   // What main.ts knows about the outside: connected extension and app, model configured.
   health?: () => Record<string, unknown>;
   now?: () => number;
@@ -80,7 +82,8 @@ export interface Service {
   cancel(runId: string): RunRow;
   rollback(skillId: string): { id: string; version: number; summary: string };
   // Puts a question in the inbox and resolves with the answer.
-  ask(question: Question): Promise<string>;
+  // onItem: the inbox item's id, as soon as it exists (a question the daemon may answer itself: connectors.ts).
+  ask(question: Question, onItem?: (itemId: string) => void): Promise<string>;
   subscribe(listener: (event: ServiceEvent) => void): () => void;
   // Startup: runs the daemon left going are interrupted; questions asked before the restart can't be answered.
   recover(): { interrupted: string[]; expired: string[] };
@@ -492,6 +495,7 @@ export function createService(options: ServiceOptions): Service {
       emit({ type: "inbox", item: store.getItem(itemId) as InboxItem });
       if (!resume) {
         updateRun(run.id, { status: "cancelled", endedAt: now(), error: "you stopped it", checkpoint: undefined });
+        options.release?.(run.id);
         return;
       }
       const tree = checkpoint.skill ? Skill.parse(checkpoint.skill) : undefined;
@@ -516,7 +520,14 @@ export function createService(options: ServiceOptions): Service {
         store.answerItem(item.id, { cancelled: true }, now());
         emit({ type: "inbox", item: store.getItem(item.id) as InboxItem });
       }
-      return updateRun(runId, { status: "cancelled", endedAt: now(), error: "cancelled", checkpoint: undefined });
+      const cancelled = updateRun(runId, {
+        status: "cancelled",
+        endedAt: now(),
+        error: "cancelled",
+        checkpoint: undefined,
+      });
+      options.release?.(runId);
+      return cancelled;
     },
 
     state: (id) => readState(dataDir, id),
@@ -592,7 +603,7 @@ export function createService(options: ServiceOptions): Service {
       };
     },
 
-    ask(question) {
+    ask(question, onItem) {
       const item = addItem({
         kind: "question",
         title: question.title,
@@ -603,9 +614,13 @@ export function createService(options: ServiceOptions): Service {
           step: question.step,
           draft: question.draft,
           sessionId: question.sessionId,
+          ...(question.connect ? { connect: question.connect } : {}),
+          ...(question.why ? { why: question.why } : {}),
         },
       });
-      return new Promise((resolve) => questions.set(item.id, resolve));
+      const answered = new Promise<string>((resolve) => questions.set(item.id, resolve));
+      onItem?.(item.id);
+      return answered;
     },
 
     subscribe(listener) {
@@ -666,8 +681,10 @@ function resumeWith(checkpoint: Checkpoint, raw: unknown): Resume | undefined {
   if (waiting.kind === "walk") {
     const text = String(raw).trim().toLowerCase();
     if (text === "stop") return undefined;
-    if (text === "skip") return add({ kind: "walk", choice: "skip" });
-    if (["do it", "do", "next", "yes", "ok"].includes(text)) return add({ kind: "walk", choice: "do" });
+    // Whether its target was outlined before it waited, so the resumed leg logs it as it was.
+    const { highlighted } = waiting;
+    if (text === "skip") return add({ kind: "walk", choice: "skip", highlighted });
+    if (["do it", "do", "next", "yes", "ok"].includes(text)) return add({ kind: "walk", choice: "do", highlighted });
     throw new Error("answer do it (or next), skip or stop");
   }
   if (raw === "retry") return resume;

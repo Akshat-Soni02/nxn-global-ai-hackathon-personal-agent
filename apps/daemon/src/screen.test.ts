@@ -135,7 +135,13 @@ describe("screenshots", () => {
     writeFileSync(elsewhere, "x");
     const { tools } = fakeTools(["anything"]);
     let read = 0;
-    const counting: ScreenTools = { ...tools, read: async (p) => (read++, tools.read(p)) };
+    const counting: ScreenTools = {
+      ...tools,
+      read: async (p) => {
+        read++;
+        return tools.read(p);
+      },
+    };
     const reader = createScreenReader({ dataDir: home, tools: counting, never: () => [], log: () => {} });
     reader.add({ sessionId, eventId: "e1", at: 1, path: elsewhere });
     reader.add({ sessionId, eventId: "../e2", at: 2, image: JPEG });

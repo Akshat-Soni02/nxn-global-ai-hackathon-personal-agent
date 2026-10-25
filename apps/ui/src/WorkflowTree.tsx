@@ -153,11 +153,14 @@ function Node({ step, marks }: { step: Step; marks: Marks }) {
     );
   }
   // A leaf: one thing done (an action) or worked out (an AI step).
-  const kind = step.type === "llm" ? "AI" : (KIND[step.channel] ?? step.channel);
+  const app = step.type === "action" && step.channel === "mcp" ? appStep(String(step.args.tool ?? "")) : undefined;
+  const kind = step.type === "llm" ? "AI" : (app?.app ?? KIND[step.channel] ?? step.channel);
   const detail =
     step.type === "llm"
       ? `reads ${step.inputs.join(", ") || "nothing"} → ${step.output.name}`
-      : `${step.action}${step.target?.name ? ` "${step.target.name}"` : ""}${step.output ? ` → ${step.output.name}` : ""}`;
+      : app
+        ? `${app.does}, directly${step.requires_approval ? " (asks first)" : ""}${step.output ? ` → ${step.output.name}` : ""}`
+        : `${step.action}${step.target?.name ? ` "${step.target.name}"` : ""}${step.output ? ` → ${step.output.name}` : ""}`;
   return (
     <div className={`wf-node wf-leaf${step.type === "llm" ? " wf-ai" : ""}${state(step.id, marks)}`}>
       <Face kind={kind} step={step} sub={detail} marks={marks} />
@@ -243,6 +246,26 @@ function Face({ kind, step, sub, marks }: { kind: string; step: Body; sub: strin
 }
 
 const KIND: Record<string, string> = { web: "web", ax: "mac app", fs: "files", script: "script", data: "data" };
+
+// A connected app's tool in plain words: GOOGLESHEETS_BATCH_UPDATE is Google Sheets, "batch update".
+const APP_NAMES: Record<string, string> = {
+  GOOGLESHEETS: "Google Sheets",
+  GOOGLEDOCS: "Google Docs",
+  GOOGLEDRIVE: "Google Drive",
+  GOOGLECALENDAR: "Google Calendar",
+  GMAIL: "Gmail",
+  SLACK: "Slack",
+  NOTION: "Notion",
+  GITHUB: "GitHub",
+};
+export function appStep(tool: string): { app: string; does: string } {
+  const [prefix = "", ...rest] = tool.split("_");
+  const known = APP_NAMES[prefix.toUpperCase()];
+  return {
+    app: known ?? "app",
+    does: (known ? rest : [prefix, ...rest]).join(" ").toLowerCase() || "a tool",
+  };
+}
 
 const short = (value: unknown): string => {
   const text = typeof value === "string" ? value : JSON.stringify(value);

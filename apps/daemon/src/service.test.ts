@@ -53,13 +53,19 @@ function setup(steps: unknown[]) {
     return runSkill(skill, deps, { runId: leg.runId, inputs: leg.provided, resume: leg.resume });
   };
   const db = join(dataDir, "shadow.db");
+  const released: string[] = [];
   const open = (exec: Execute = execute) => {
     const events: ServiceEvent[] = [];
-    const service = createService({ dataDir, store: openStore(db), execute: exec });
+    const service = createService({
+      dataDir,
+      store: openStore(db),
+      execute: exec,
+      release: (runId) => released.push(runId),
+    });
     service.subscribe((e) => events.push(e));
     return { service, events };
   };
-  return { open, ran, dataDir };
+  return { open, ran, dataDir, released };
 }
 
 describe("the daemon as a service", () => {
@@ -157,7 +163,7 @@ describe("the daemon as a service", () => {
       resume: { at: "s1", vars: {} },
       waiting: { kind: "recovery", path: "s1", stepId: "s1", message: "s1 needs you: log in to Xero." },
     };
-    const { open } = setup([write("s1"), write("s2", { requires_approval: true })]);
+    const { open, released } = setup([write("s1"), write("s2", { requires_approval: true })]);
     const recovery = open(async () => waitingForRecovery);
     recovery.service.start("report");
     await recovery.service.idle();
@@ -173,6 +179,8 @@ describe("the daemon as a service", () => {
     expect(service.cancel(run.id).status).toBe("cancelled");
     expect(service.inbox({ open: true })).toEqual([]);
     expect(() => service.cancel(run.id)).toThrow("already ended");
+    // Both waiting runs kept their tabs while they waited; ended from the inbox, the tabs are let go.
+    expect(released).toEqual([recovery.service.runs().at(-1)?.id, run.id]);
   });
 
   it("marks runs left going by a stopped daemon as interrupted, and expires questions nobody can receive", async () => {
