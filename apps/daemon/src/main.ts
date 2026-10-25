@@ -179,6 +179,7 @@ const execute: Execute = (skill, leg) =>
       log: leg.log,
       data,
       llm,
+      tools,
       approve: leg.hooks.approve,
       ask: leg.hooks.ask,
       // A walk-through: every step waits for you, with its target outlined. A failing step just fails: nothing is

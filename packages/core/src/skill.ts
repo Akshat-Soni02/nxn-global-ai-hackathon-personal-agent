@@ -57,11 +57,14 @@
 //   script.shortcut    { name, input? }
 //   script.shell       { command }                      allow-listed commands only
 //   data.pick  { from, where: { Column: value }, column, pick?: "first"|"last" }   a rule over rows; no model call
+//   mcp.call   { tool, arguments? }                     a tool of an app the user connected (Google Sheets, Gmail…),
+//                                                       through shadow-api and Composio; no target. Its approval comes
+//                                                       from the tool's hints (docs/cloud-architecture.md)
 import { z } from "zod";
 import { checkVariables } from "./check.ts";
 import { VarName, VarType } from "./vars.ts";
 
-export const CHANNELS = ["web", "fs", "script", "data", "ax", "vision"] as const;
+export const CHANNELS = ["web", "fs", "script", "data", "ax", "vision", "mcp"] as const;
 export const Channel = z.enum(CHANNELS);
 export type Channel = z.infer<typeof Channel>;
 
@@ -75,7 +78,12 @@ export const ACTIONS = {
   // Mac apps through the Accessibility API, run by Shadow.app (apps/mac).
   ax: ["open", "press", "set_value", "focus", "menu", "key"],
   vision: ["click", "type"],
+  // A connected app's tool, by name (args.tool), run by the daemon's MCP client (apps/daemon/src/mcp-tools.ts).
+  mcp: ["call"],
 } as const satisfies Record<Channel, readonly string[]>;
+
+// A connected app's tool name, as Composio and MCP give it: GOOGLESHEETS_APPEND_VALUES.
+export const MCP_TOOL_NAME = /^[A-Za-z][A-Za-z0-9_.-]{1,127}$/;
 
 // How a control is remembered. Never pixel coordinates.
 export const Locator = z.object({
@@ -205,7 +213,16 @@ export const ActionStep = z
   .refine((s) => s.channel !== "vision", {
     message: "vision steps are chosen by replay at run time, never written into a skill",
     path: ["channel"],
-  });
+  })
+  .refine(
+    (s) =>
+      s.channel !== "mcp" ||
+      (typeof s.args.tool === "string" &&
+        MCP_TOOL_NAME.test(s.args.tool) &&
+        (s.args.arguments === undefined ||
+          (typeof s.args.arguments === "object" && s.args.arguments !== null && !Array.isArray(s.args.arguments)))),
+    { message: "an mcp step needs args.tool (a tool's name) and args.arguments as an object, if any", path: ["args"] },
+  );
 export type ActionStep = z.infer<typeof ActionStep>;
 
 export const LlmStep = z

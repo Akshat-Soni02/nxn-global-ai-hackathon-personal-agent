@@ -5,7 +5,8 @@
 //   user's decisions  the trigger, inputs and defaults, the description, args the user set, llm instructions,
 //                     max_items, on_item_fail
 //   safety switches   approval never turned off, no ask removed
-//   reach             no script steps added, no navigating to a site the workflow doesn't already use
+//   reach             no script or connected-app (mcp) steps added, no navigating to a site the workflow doesn't
+//                     already use
 import { isAction, type Locator, type Skill, type Step, triggerOf, walkSteps } from "./skill.ts";
 
 // Words on a control that mean the action leaves a mark outside (conservative on purpose: a false alarm sends the
@@ -35,6 +36,9 @@ export function isOutward(step: Step): boolean {
   }
   if (key === "ax.menu") return ((step.args.path as string[] | undefined) ?? []).some((w) => OUTWARD.test(w));
   if (key === "web.upload") return true;
+  // A connected app's tool writes to the app unless its hints say it only reads: code here can't see the hints, so
+  // every tool counts as outward (requireApprovals exempts the read-only ones it is told about).
+  if (key === "mcp.call") return true;
   if (key === "fs.move" && /\.Trash/.test(String(step.args.to ?? ""))) return true;
   return false;
 }
@@ -42,7 +46,13 @@ export function isOutward(step: Step): boolean {
 // The Never entry a step's control or action matches, if any ("Never click Archive" and a target named "Archive").
 export function neverMatch(step: Step, never: string[]): string | undefined {
   if (!isAction(step)) return undefined;
-  const words = [...targetWords(step.target), ...(((step.args.path as string[] | undefined) ?? []) as string[])]
+  // A connected app's tool by the words in its name: GMAIL_SEND_EMAIL is "gmail", "send", "email".
+  const toolWords = step.channel === "mcp" ? String(step.args.tool ?? "").split(/[_.-]+/) : [];
+  const words = [
+    ...targetWords(step.target),
+    ...(((step.args.path as string[] | undefined) ?? []) as string[]),
+    ...toolWords,
+  ]
     .map((w) => w.trim().toLowerCase())
     .filter((w) => w.length >= 3);
   return never.find((entry) => {
@@ -104,12 +114,16 @@ export function repairViolations(original: Skill, draft: Skill): string[] {
     if (isAction(now) && !(isAction(old) && old.channel === "script") && now.channel === "script") {
       problems.push(`${id}: repairs can't add scripts`);
     }
+    if (isAction(now) && !(isAction(old) && old.channel === "mcp") && now.channel === "mcp") {
+      problems.push(`${id}: repairs can't add connected-app calls`);
+    }
   }
 
   for (const [id, step] of after) {
     const old = before.get(id);
     if (!old) {
       if (isAction(step) && step.channel === "script") problems.push(`${id}: repairs can't add scripts`);
+      if (isAction(step) && step.channel === "mcp") problems.push(`${id}: repairs can't add connected-app calls`);
       if (isOutward(step) && !completesOutward(draft, step, before)) {
         problems.push(
           `${id}: a new step can't act outward (${actionText(step)}), except to finish an outward step it directly follows, with requires_approval`,

@@ -34,6 +34,7 @@ import { type Recovery as PlayerRecovery, runWithRecovery } from "@shadow/player
 import type { PageOp, PageOpResult } from "@shadow/player/web";
 import type { Daemon } from "./daemon.ts";
 import type { ScreenDescriber } from "./describe.ts";
+import { type McpTools, mcpChannel, prepareMcpSteps } from "./mcp-tools.ts";
 
 // Extra time on top of a step's own timeout for the round trip and the extension's work.
 const EXTENSION_MARGIN_MS = 20_000;
@@ -57,6 +58,8 @@ export interface RunHooks {
   recovery?: Recovery;
   // Masked pictures for the repair agent's describe_screen (describe.ts). Used only when the user allowed pictures.
   describer?: ScreenDescriber;
+  // Connected apps (mcp steps), through the signed-in account. Without it a workflow with mcp steps doesn't start.
+  tools?: McpTools;
 }
 
 // Recovery as the daemon sets it up: the page, site notes, pictures and transcripts are filled in here.
@@ -88,11 +91,15 @@ export const newRunId = (skillId: string, now = new Date()) =>
 // share one log file. Going on from a checkpoint doesn't resolve inputs again: the saved variables carry on.
 export async function runSkillOn(
   daemon: Daemon,
-  skill: Skill,
+  saved: Skill,
   options: { runId?: string; provided?: Record<string, unknown>; resume?: Resume; signal?: AbortSignal },
   hooks: RunHooks,
   logDir = join(APP_SUPPORT_DIR, "runs"),
 ): Promise<RunOutcome> {
+  // Connected-app steps: their apps must be connected, and a tool that changes things asks first.
+  const prepared = await prepareMcpSteps(saved, hooks.tools);
+  if (prepared.error) return { status: "failed", vars: {}, error: prepared.error };
+  const skill = prepared.skill;
   const runId = options.runId ?? newRunId(skill.id);
   const provided = options.provided ?? {};
   const { signal } = options;
@@ -215,6 +222,7 @@ export async function runSkillOn(
       data: hooks.data,
       llm: hooks.llm,
       ax,
+      mcp: hooks.tools ? mcpChannel(hooks.tools) : undefined,
       approve: hooks.approve,
       ask: hooks.ask,
       walk: hooks.walk,

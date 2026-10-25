@@ -39,6 +39,8 @@ export interface RunDeps {
   llm?: (step: LlmStep, ctx: RunContext, names?: string[]) => Promise<StepResult>;
   // Mac apps through the Accessibility API (Shadow.app). Optional: web-and-file skills never need it.
   ax?: ChannelExecutor;
+  // Connected apps' tools (mcp.call), through the daemon's MCP client. Optional: without it an mcp step fails.
+  mcp?: ChannelExecutor;
   // Polls a file_exists check (a path or glob) until it holds or the timeout passes.
   fileExists(pattern: string, timeoutMs: number): Promise<boolean>;
   // Web checks used by the skill's `success` list (text_visible, url_matches, element_visible).

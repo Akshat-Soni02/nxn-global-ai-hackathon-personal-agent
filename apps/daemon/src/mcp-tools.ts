@@ -4,6 +4,8 @@
 // marked readOnlyHint (and not destructiveHint) runs without asking.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { isAction, type Skill, walkSteps } from "@shadow/core";
+import type { ChannelExecutor } from "@shadow/player";
 
 export interface McpTool {
   name: string;
@@ -109,4 +111,43 @@ export function mcpTools(url: string, authedFetch: typeof fetch, now: () => numb
 // Whether a step calling this tool must ask first. Unknown tools ask.
 export function toolNeedsApproval(tool: McpTool | undefined): boolean {
   return !tool || !tool.readOnly || tool.destructive;
+}
+
+// The player's mcp channel: one tool call, its arguments already resolved by the player.
+export function mcpChannel(tools: McpTools): ChannelExecutor {
+  return async (step) => {
+    const args = (step.args.arguments ?? {}) as Record<string, unknown>;
+    const result = await tools.call(String(step.args.tool), args);
+    return result.ok ? { ok: true, value: result.value } : { ok: false, error: result.error };
+  };
+}
+
+// Before a run: every mcp step's tool must be offered (its app connected), and a tool that changes things asks first
+// even if the step was saved without approval (approval is only ever added here, never removed). Undefined tools:
+// the user isn't signed in, so a workflow with mcp steps can't run.
+export async function prepareMcpSteps(
+  skill: Skill,
+  tools: McpTools | undefined,
+): Promise<{ skill: Skill; error?: string }> {
+  const steps = [...walkSteps(skill.steps)].map(({ step }) => step).filter((s) => isAction(s) && s.channel === "mcp");
+  if (steps.length === 0) return { skill };
+  if (!tools) return { skill, error: "this workflow uses a connected app: sign in to Shadow in Settings first" };
+  const copy = structuredClone(skill);
+  let offered: McpTool[];
+  try {
+    offered = await tools.list(true);
+  } catch (error) {
+    return { skill, error: `Shadow's service could not list your connected apps: ${(error as Error).message}` };
+  }
+  for (const { step } of walkSteps(copy.steps)) {
+    if (!isAction(step) || step.channel !== "mcp") continue;
+    const name = String(step.args.tool);
+    const tool = offered.find((t) => t.name === name);
+    if (!tool) {
+      const app = name.split("_")[0]?.toLowerCase() ?? name;
+      return { skill, error: `step ${step.id} uses ${name}: connect ${app} in Settings → Connected apps first` };
+    }
+    if (toolNeedsApproval(tool)) step.requires_approval = true;
+  }
+  return { skill: copy };
 }
