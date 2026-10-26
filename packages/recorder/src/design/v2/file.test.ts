@@ -113,6 +113,8 @@ describe("the workflow as a file", () => {
     expect(s.draft.steps[0]).toMatchObject({ when: [{ type: "schedule", cron: "0 9 * * 1-5" }] });
     expect(s.draft.steps[1]).toMatchObject({ action: "navigate", args: { url: INBOX } });
     expect(s.draft.steps[2]).toMatchObject({ action: "extract", output: { name: "subjects" } });
+    // Only the action's values in its args, never the step's own fields (the fifth YC design).
+    expect(Object.keys((s.draft.steps[2] as { args: object }).args)).not.toContain("id");
     expect(s.draft.steps[3]).toMatchObject({ type: "llm", output: { type: { type: "list" } } });
     const loop = s.draft.steps[4] as { kind: string; item: unknown; steps: { id: string }[] };
     // The item has the type of the AI step's list, made in the same write.

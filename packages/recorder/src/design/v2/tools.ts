@@ -908,7 +908,14 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     // A step written with `do`: code makes it what it does.
     if ("do" in s) {
       const id = typeof s.id === "string" ? s.id : newId("s");
-      const spec = StepSpec.safeParse({ intent: `${s.do}`, ...s });
+      // The step's own fields aren't the action's values (the fifth YC design, Oct 25: "id" and "requires_approval"
+      // landed in its args): they are put on the step after it is built.
+      const KEPT = ["id", "type", "requires_approval", "ask", "wait", "check", "timeout_ms", "on_fail", "output"];
+      const values = Object.fromEntries(Object.entries(s).filter(([k]) => !KEPT.includes(k)));
+      // { output: { name } } on a do step is its save_as.
+      const named = (s.output as { name?: unknown } | undefined)?.name;
+      if (values.save_as === undefined && typeof named === "string") values.save_as = named;
+      const spec = StepSpec.safeParse({ intent: `${s.do}`, ...values });
       if (!spec.success) {
         out.problems.push(
           `${id}: ${spec.error.issues.map((i) => `${i.path.join(".") || "step"}: ${i.message}`).join("; ")}`,
@@ -922,9 +929,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       }
       if (built.unverified) out.unverified.push(id);
       const keep = Object.fromEntries(
-        ["requires_approval", "ask", "wait", "check", "timeout_ms", "on_fail"]
-          .filter((k) => k in s)
-          .map((k) => [k, s[k]]),
+        KEPT.filter((k) => k !== "id" && k !== "type" && k !== "output" && k in s).map((k) => [k, s[k]]),
       );
       keepWhy(id);
       return { ...built.step, ...keep };
