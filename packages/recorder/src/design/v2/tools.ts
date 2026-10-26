@@ -632,8 +632,13 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       confirm: z.boolean().optional(),
     }),
     prepare: unstring,
-    run: ({ question, why, step, options, default: fallback, confirm }) => {
-      if (step !== "start" && !known(step)) return { output: { ok: false, problems: [unknown(step)] } };
+    // `confirm` is still accepted from older prompts, and means nothing now.
+    run: ({ question, why, step: named, options, default: fallback }) => {
+      // A step written as words ("after opening the jobs page"; the YC design sent one six times, refused each time):
+      // asked about the workflow's start, and said so.
+      const step = named === "start" || known(named) ? named : "start";
+      const moved =
+        step !== named ? `"${named}" is no step id, so it is asked about the start (${unknown(named)})` : "";
       if (isTimeOfDay(question))
         return {
           output: {
@@ -654,8 +659,6 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         };
       // What the recording says about it, shown with the answer, never a reason not to ask (Oct 25, P3: the YC design's
       // "which fields say a job is already in the sheet?" was held back because the narration mentioned the sheet).
-      // `confirm` is still accepted from older prompts, and means nothing now.
-      void confirm;
       const seen = session.evidence?.about(question) ?? [];
       const key = (s: string, q: string) =>
         `${s}|${q
@@ -677,7 +680,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       return {
         output: {
           queued: id,
-          note: "asked after you build, with the other questions, in one batch",
+          note: `asked after you build, with the other questions, in one batch${moved ? `; ${moved}` : ""}`,
           ...(seen.length > 0 ? { the_recording_says: seen } : {}),
         },
         ...(seen.length > 0 ? { untrusted: true } : {}),
@@ -734,7 +737,14 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     description:
       "The workflow does what they meant: one sentence on what you changed, and for each rule of the task model (by its number) the steps that build it, or not_built with why",
     input: DoneReport,
-    prepare: unstring,
+    // A long summary is cut, not refused (the YC design, Oct 25: 600 characters made done invalid).
+    prepare: (raw) => {
+      const input = unstring(raw) as { summary?: unknown } | undefined;
+      const summary = input?.summary;
+      return typeof summary === "string" && summary.length > 500
+        ? { ...input, summary: `${summary.slice(0, 497)}...` }
+        : input;
+    },
     run: async (report) => {
       // A workflow changed since its last test is tested once more first: the gate reads the report.
       if (session.runTest && session.testedDraft !== JSON.stringify(session.draft.steps) && session.tests < MAX_TESTS) {
@@ -783,9 +793,10 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     if (Array.isArray(when))
       return when.map((w) => {
         const e = w as { type?: string; cron?: string; expr?: string; schedule?: string; expression?: string };
-        return e?.type === "schedule" && !e.cron
+        return (e?.type === "schedule" || e?.type === "cron") && !e.cron
           ? {
               ...e,
+              type: "schedule",
               cron: e.expr ?? e.schedule ?? e.expression,
               expr: undefined,
               schedule: undefined,
@@ -819,6 +830,19 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     }
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
     const { why, ...s } = raw as Record<string, unknown>;
+    // The full form written with the short form's names (the YC design, Oct 25: type "ai_step", type "condition",
+    // action "read_all"): what they say.
+    if (typeof s.type === "string" && /^(ai|ai_step|llm_step)$/.test(s.type)) s.type = "llm";
+    if (s.type === "loop") Object.assign(s, { type: "control", kind: "loop" });
+    if (typeof s.type === "string" && /^(branch|condition|if)$/.test(s.type))
+      Object.assign(s, { type: "control", kind: "branch" });
+    const short = typeof s.action === "string" ? DO[s.action] : undefined;
+    if (s.type === "action" && !("do" in s) && short && short[1] !== s.action) {
+      s.do = s.action;
+      delete s.type;
+      delete s.channel;
+      delete s.action;
+    }
     const newId = (prefix: string) => {
       const id = nextId(prefix, out.taken);
       out.taken.push(id);

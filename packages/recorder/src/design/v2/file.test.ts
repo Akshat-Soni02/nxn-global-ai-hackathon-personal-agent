@@ -152,16 +152,62 @@ describe("the workflow as a file", () => {
     expect(text.problems?.[0]).toMatch(/isn't valid JSON .*near/);
   });
 
+  it("takes the full form written with short names (the second YC design): cron triggers, ai_step, read_all", async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const written = await run(s, "write_workflow", {
+      workflow: {
+        steps: [
+          { ...trigger, when: [{ type: "cron", expr: "0 9 * * *" }] },
+          s1,
+          {
+            id: "read_jobs",
+            type: "action",
+            channel: "web",
+            action: "read_all",
+            intent: "read the list",
+            target: { like: "s2" },
+            save_as: "jobs",
+          },
+          {
+            id: "pick",
+            type: "ai_step",
+            intent: "pick",
+            instruction: "the first 5 in the list's order",
+            inputs: ["{{jobs}}"],
+            output: { name: "top", type: "list" },
+          },
+        ],
+      },
+      why: "x",
+    });
+    expect(written.problems).toBeUndefined();
+    expect(s.draft.steps[0]).toMatchObject({ when: [{ type: "schedule", cron: "0 9 * * *" }] });
+    expect(s.draft.steps[2]).toMatchObject({ channel: "web", action: "extract" });
+    expect(s.draft.steps[3]).toMatchObject({ type: "llm" });
+  });
+
+  it("asks a question about a step written as words about the start, and cuts a long done summary", async () => {
+    const s = session();
+    const asked = await run(s, "ask", { question: "How many jobs?", why: "x", step: "after opening the jobs page" });
+    expect(asked).toMatchObject({ queued: "q1" });
+    expect(String(asked.note)).toContain("asked about the start");
+    expect(s.questions[0]?.step).toBe("start");
+    const t = designToolsV2(s, { mode: "file" }).find((x) => x.name === "done") as AnyTool<DoneReport>;
+    const long = t.prepare?.({ summary: "x".repeat(700), rules: [] }) as { summary: string };
+    expect(t.input.safeParse(long).success).toBe(true);
+  });
+
   it("names the step a problem is in, with what it does", async () => {
     const s = session();
     const [trigger, s1] = steps(s) as Record<string, unknown>[];
     const bad = await run(s, "write_workflow", {
       workflow: {
-        steps: [trigger, s1, { id: "s7", type: "action", intent: "x", channel: "web", action: "read", args: {} }],
+        steps: [trigger, s1, { id: "s7", type: "action", intent: "x", channel: "web", action: "hover", args: {} }],
       },
       why: "x",
     });
-    expect(bad.problems?.join(" ")).toContain("s7 (web.read)");
+    expect(bad.problems?.join(" ")).toContain("s7 (web.hover)");
   });
 
   it("says what's wrong, by path, and changes nothing", async () => {
