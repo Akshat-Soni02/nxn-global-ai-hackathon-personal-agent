@@ -112,6 +112,10 @@ const StepSpec = z
 type StepSpec = z.infer<typeof StepSpec>;
 const Where = { after: z.string().optional(), before: z.string().optional(), into: z.string().optional() };
 const Why = z.string().default("");
+// A write to the workflow file always says why: a recorded step it leaves out is explained by it (the third YC design,
+// Oct 25, sent writes without one and its removals counted as lost work). whys: a why by step id, for any step.
+const FileWhy = z.string().min(1, "say why (the user reads it; it explains every recorded step this leaves out)");
+const Whys = z.record(z.string(), z.string()).optional();
 // Step ids as a list, or in one string ("s2, s3", "[s2, s3]"): the real runs sent all three.
 const split = (ids: string) => ids.split(/[\s,[\]"']+/).filter(Boolean);
 const Ids = z.union([z.string(), z.array(z.string())]).transform((s) => (Array.isArray(s) ? s : [s]).flatMap(split));
@@ -1025,7 +1029,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
   };
 
   // A workflow as written, made real and checked; kept only if every check passes.
-  const writeWorkflow = (written: unknown, why: string) => {
+  const writeWorkflow = (written: unknown, why: string, whys: Record<string, string> = {}) => {
     const given = unstring(written);
     // Sent as text that isn't JSON (the YC design sent one five times, told only "write it as { steps }"): where it broke.
     if (typeof given === "string") {
@@ -1084,11 +1088,19 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       ...[...before.keys()].filter((id) => !after.has(id)),
     ];
     const result = commit(parsed.data, why, touched, out.unverified);
-    if ((result.output as { ok?: boolean }).ok) {
-      for (const [id, reason] of out.whys) {
+    const output = result.output as { ok?: boolean } & Record<string, unknown>;
+    if (output.ok) {
+      // A why by id, for any step: one this write changes, or one an earlier write left out (the third YC design,
+      // Oct 25, had no way to explain the typing steps it had already replaced, and sent done six times).
+      for (const [id, reason] of [...out.whys, ...Object.entries(whys)]) {
+        if (!reason.trim()) continue;
         session.whys.set(id, reason);
         session.sinceTest.set(id, reason);
       }
+      // The recorded steps this write left out, so the agent knows what its why now explains.
+      const recorded = new Set([...walkSteps(session.original.steps)].map(({ step }) => step.id));
+      const removed = [...before.keys()].filter((id) => !after.has(id) && recorded.has(id));
+      if (removed.length > 0) output.recorded_steps_left_out = removed;
     }
     return result;
   };
@@ -1130,9 +1142,9 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       kind: "edit",
       description:
         'Replace the whole workflow: { "steps": [ … ] } (and "success" if you change the final checks), with the trigger first. For a plan or a big restructure. Short forms are fine: { "do": "click", "target": { "like": "s3" } }, { "do": "open", "page": "s9" }, { "do": "app", "tool": "…", "arguments": { … } }, an AI step as { "instruction", "inputs", "output" }, a loop as { "over": "{{list}}", "item": "job", "steps": [ … ] }, and a "why" on any step for the review. Every write is checked; a failed check changes nothing and says what to fix',
-      input: z.object({ workflow: z.unknown(), why: Why }),
+      input: z.object({ workflow: z.unknown(), why: FileWhy, whys: Whys }),
       prepare: unstring,
-      run: ({ workflow, why }) => writeWorkflow(workflow, why),
+      run: ({ workflow, why, whys }) => writeWorkflow(workflow, why, whys),
     }),
     tool({
       name: "edit_workflow",
@@ -1144,10 +1156,11 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
           z.array(z.object({ old: z.string().min(1), new: z.string() })).min(1),
           z.object({ old: z.string().min(1), new: z.string() }),
         ]),
-        why: Why,
+        why: FileWhy,
+        whys: Whys,
       }),
       prepare: unstring,
-      run: ({ edits, why }) => {
+      run: ({ edits, why, whys }) => {
         // Matched on the text as the agent read it (masked); writeWorkflow puts the private values back.
         let text = maskText(canonical(session.draft), session.maskTerms ?? []).text;
         for (const [i, e] of (Array.isArray(edits) ? edits : [edits]).entries()) {
@@ -1179,7 +1192,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
             },
           };
         }
-        return writeWorkflow(parsed, why);
+        return writeWorkflow(parsed, why, whys);
       },
     }),
   ];

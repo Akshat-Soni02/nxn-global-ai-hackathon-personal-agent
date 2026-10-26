@@ -198,6 +198,40 @@ describe("the workflow as a file", () => {
     expect(t.input.safeParse(long).success).toBe(true);
   });
 
+  it("always says why, and explains a step left out earlier by id (the third YC design)", async () => {
+    const s = session();
+    const t = designToolsV2(s, { mode: "file" }).find((x) => x.name === "write_workflow") as AnyTool<DoneReport>;
+    expect(t.input.safeParse({ workflow: { steps: [] } }).success).toBe(false);
+    const [trigger, s1, s2] = steps(s) as Record<string, unknown>[];
+    // s3 replaced by typing into the row's cell, named from a value: its work is kept, and its removal is said.
+    const typing = {
+      id: "type_date",
+      do: "type",
+      intent: "type the date in the row",
+      target: { role: "textbox", name: "Date {{row}}" },
+      text: "{{today|D MMM}}",
+    };
+    const row = {
+      instruction: "the number of the sheet's next empty row",
+      inputs: [],
+      output: { name: "row", type: "number" },
+    };
+    const left = await run(s, "write_workflow", {
+      workflow: { steps: [trigger, s1, s2, row, typing] },
+      why: "the row",
+    });
+    expect(left.problems).toBeUndefined();
+    expect(left.recorded_steps_left_out).toEqual(["s3"]);
+    const again = steps(s);
+    await run(s, "write_workflow", {
+      workflow: { steps: again },
+      why: "no change",
+      whys: { s3: "the date is typed by the new step" },
+    });
+    expect(s.whys.get("s3")).toBe("the date is typed by the new step");
+    expect(lostWork(recorded, s.draft, s.whys)).toEqual([]);
+  });
+
   it("names the step a problem is in, with what it does", async () => {
     const s = session();
     const [trigger, s1] = steps(s) as Record<string, unknown>[];

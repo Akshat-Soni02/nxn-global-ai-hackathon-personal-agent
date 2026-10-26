@@ -128,7 +128,8 @@ const FILE = `The workflow is a file
   (exact old text → new text, for a value, a field, a step) or write_workflow (the whole of it: a plan, a loop around
   several steps, a big restructure). Every write is checked; a refused one changes nothing and says what to fix.
 - Keep each recorded step's id. A new step needs no id: code gives it one. Put "why" on each step you add or change:
-  the user reads it. A recorded step you leave out is removed: the change's why says why.
+  the user reads it. A recorded step you leave out is removed: the write's why says why, or "whys": { "s11": "…" } on
+  any write explains a step by id, also one an earlier write left out.
 - ███ is a private value you can't see. Copy it as it is and code keeps the real value; never put it in a new value.
 - Steps as you may write them (code fills in the rest):
   { "do": "open", "intent": "…", "page": "s1" }   pages by name, never an address
