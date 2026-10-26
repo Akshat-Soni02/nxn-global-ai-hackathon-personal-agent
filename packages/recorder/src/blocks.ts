@@ -5,58 +5,12 @@
 // A page segment starts at each step that opens a page (web.navigate) and takes the web steps after it, up to the next
 // open or the next step that isn't a web step. AI steps, app steps, files, Mac apps, loops and ifs stay nodes of their
 // own; a segment of one step stays a step. Blocks already there (the design's) are kept as they are.
-import { isAction, isGroup, Skill, type Step } from "@shadow/core";
+import { cleanName as clean, isAction, isGroup, type PageNames, pageName, Skill, type Step } from "@shadow/core";
 
-export interface BlockNames {
-  // A page's name by its address (the recording's tab names: "Ycomb jobs", "Jobs | Y Combinator").
-  titles?: Map<string, string>;
-}
+export type BlockNames = PageNames;
+export { clean, pageName };
 
 type Body = Exclude<Step, { type: "trigger" }>;
-
-const KNOWN: [RegExp, string][] = [
-  [/^docs\.google\.com\/spreadsheets/, "Google Sheets"],
-  [/^docs\.google\.com\/document/, "Google Docs"],
-  [/^docs\.google\.com\/presentation/, "Google Slides"],
-  [/^drive\.google\.com/, "Google Drive"],
-  [/^mail\.google\.com/, "Gmail"],
-  [/^calendar\.google\.com/, "Google Calendar"],
-];
-
-// A page by name, never its address: the tab's name, else the app it is in, else the site.
-export function pageName(url: string, names: BlockNames = {}): string {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return "the page";
-  }
-  const exact = names.titles?.get(url) ?? names.titles?.get(`${u.origin}${u.pathname}`);
-  const byPath = [...(names.titles ?? [])].find(([at]) => {
-    try {
-      const t = new URL(at);
-      return t.origin === u.origin && t.pathname === u.pathname;
-    } catch {
-      return false;
-    }
-  })?.[1];
-  // A tab "named" by its site ("docs.google.com", "ycombinator.com (2)": a tab with no title) is no title.
-  const title = clean(exact ?? byPath ?? "");
-  if (title && !/^[\w.-]+\.[a-z]{2,}(\s*\(\d+\))?$/i.test(title)) return title;
-  const host = u.hostname.replace(/^www\./, "");
-  return KNOWN.find(([re]) => re.test(`${host}${u.pathname}`))?.[1] ?? host;
-}
-
-// A control's or tab's words without what only the screen reader needed: "Ycomb jobs Google Sheets More info
-// (Option + →)" → "Ycomb jobs".
-export function clean(text: string): string {
-  return text
-    .replace(/\s*\((?:Option|Alt|Ctrl|Control|Cmd|Command|Shift|⌘|⌥)[^)]*\)/gi, "")
-    .replace(/\s+More info\b.*$/i, "")
-    .replace(/\s+(?:-\s+)?Google (?:Sheets|Docs|Slides|Drive)$/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 const short = (text: string, max = 48) => (text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`);
 

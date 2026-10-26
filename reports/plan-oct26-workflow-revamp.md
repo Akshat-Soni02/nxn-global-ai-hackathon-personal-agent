@@ -95,14 +95,14 @@ commit that does it.
 
 | # | Item | Where | Status |
 |---|---|---|---|
-| R3.1 | Node face: kind icon (web, app, AI, files, if, for each, ask), the name, one quiet line; no ids, no channel/action; text wraps, never spills (`overflow-wrap: anywhere`, max two lines) | `apps/ui/src/WorkflowTree.tsx`, `styles.css` | ☐ |
-| R3.2 | A block is one node; its steps open in the side panel, not in the tree | `WorkflowTree.tsx` | ☐ |
-| R3.3 | Side panel on the workflow page (the editor has one): **Details** (what it does, inputs, what it makes, asks first) and **Debug** (its steps with ids, locators, values; last run's result per step) | new `apps/ui/src/NodePanel.tsx` | ☐ |
-| R3.4 | Addresses shown as site + page title ("Google Sheets · Ycomb jobs"), never a document's id | `apps/ui/src/format.ts` | ☐ |
+| R3.1 | Node face: kind icon (web, app, AI, files, if, for each, ask), the name, one quiet line; no ids, no channel/action; text wraps, never spills (`overflow-wrap: anywhere`, max two lines) | `apps/ui/src/WorkflowTree.tsx`, `styles.css` | ☑ R3 (icons as SVG paths in WorkflowTree.tsx; titles from `stepTitle` in core) |
+| R3.2 | A block is one node; its steps open in the side panel, not in the tree | `WorkflowTree.tsx` | ☑ R3 (`blocks: "fold"` on the page, `"open"` in the editor, where its steps are still edited one by one) |
+| R3.3 | Side panel on the workflow page (the editor has one): **Details** (what it does, inputs, what it makes, asks first) and **Debug** (its steps with ids, locators, values; last run's result per step) | new `apps/ui/src/NodePanel.tsx` | ☑ R3 (`apps/ui/src/NodePanel.tsx`; Debug lists each step's id, action, target, args; last run's result per step: not yet) |
+| R3.4 | Addresses shown as site + page title ("Google Sheets · Ycomb jobs"), never a document's id | `apps/ui/src/format.ts` | ☑ R3 (`pageName` / `stepTitle` in `packages/core/src/names.ts`, shared with the recorder) |
 | R3.5 | Problems on nodes: a badge on the node, a plain sentence in its panel; the page shows "2 things to check" with links to the nodes | `apps/ui/src/review.ts`, `Workflow.tsx`; the daemon's review gets `{ step, plain }` per problem | ☐ |
 | R3.6 | Plain words for the agent's checks (`gate.ts` messages → a user sentence each): "didn't find it in the test" → "Couldn't find ‹what› on the page when testing" | `packages/recorder/src/design/v2/review.ts` | ☐ |
 | R3.7 | Versions in plain words by node name: "Runs every day at 9:00 (was: by hand) · Skips 'Open Drive' · The date is today's" | `packages/recorder/src/design/v2/rules.ts` (`changeNotes`), `Workflow.tsx` | ☐ |
-| R3.8 | Screenshots before/after with the YC workflow (`shoot.mts`, MOCK=1), in this file | — | ☐ |
+| R3.8 | Screenshots before/after with the YC workflow (`shoot.mts`, MOCK=1), in this file | — | ◐ taken locally (they show the user's goal sentence, so not committed); described in the log |
 
 ### R4. Build and fix by hand: "+" and node types
 
@@ -131,7 +131,7 @@ commit that does it.
 | # | Item | Where | Status |
 |---|---|---|---|
 | R6.1 | A chat box on the workflow page: the design agent in file mode on the saved workflow's draft (no recording needed: evidence optional), one episode per message, the changes shown on the nodes before saving | daemon `draft.chat`, `designV2` with an existing skill, UI | ☐ |
-| R6.2 | Undo / redo on the draft (edit history), as in the reference | daemon draft store, UI | ☐ |
+| R6.2 | Undo / redo on the draft (edit history), as in the reference | daemon draft store, UI | ◐ the editor already has undo / redo on its draft (`undoDraft` / `redoDraft`) |
 
 ### R7. Repair and runs in blocks
 
@@ -153,11 +153,16 @@ commit that does it.
 
 ## Resume here
 
-**Next:** R3.1–R3.2, the tree draws a block as **one node** (name, kind icon, one quiet line), its steps only in a
-side panel (R3.3). Today (`apps/ui/src/WorkflowTree.tsx`, `Node`) a block is a container with its steps inside it,
-like a loop. Take before/after screenshots with `shoot.mts` and `MOCK=1` (the mock needs a workflow with blocks:
-`apps/ui` mock data, or a saved eval skill). R1 and R2 are done: `kind: "group"` with `wrap`/`unwrap`, and every
-saved workflow is grouped by `blocksOf` (`packages/recorder/src/blocks.ts`).
+**Next:** R3.5–R3.6, problems on the nodes they're about. The review (`packages/recorder/src/design/v2/review.ts`,
+`Review.gaps` / `notTested`) is a list of the agent's sentences that start with a step id ("s5: the test run didn't find
+it…", "rule 0 …"). Give each a `{ step, plain }` (the step's block id when it sits in one, and a user sentence), draw
+a badge on that node (`WorkflowTree` `marks`), the sentence in its panel, and "N things to check" at the top. Then R3.7
+(versions in plain words) and the workflow's own name (it is the user's whole goal sentence today: a short name is
+R2-style code work, `skill.name`).
+
+Done so far: R1 (blocks in the core), R2 (code groups every saved workflow), R3.1–R3.4 (one node per block, icon +
+plain title, details panel with Details / Debug, no addresses). Screenshots: `shoot.mts` with
+`MOCK_SKILL=<a saved workflow json>` serves that workflow at `/workflows/<id>`; `CLICK=<n>` picks the nth node first.
 
 How to check work: `pnpm exec vitest run` (all packages), `pnpm exec tsc -p <package>`, `pnpm exec biome check packages
 apps`; the UI with `MOCK=1 tsx …/shoot.mts` (see `reports/` for how screenshots were taken before); the design with
@@ -176,3 +181,10 @@ Never commit a real document id, email or recording: use made-up ones in tests.
   Google Sheets · Copy from ycombinator.com · Fill in Google Sheets · Copy from ycombinator.com · Fill in Google
   Sheets · Copy from ycombinator.com · Fill in Google Sheets (+ the first open). The repetition is the recording's (one
   field at a time); the design's loop is what folds it (R5). 776 tests pass.
+- **Oct 26, R3.1–R3.4**: the workflow page draws one card per node: an icon, a plain title, at most one quiet line
+  ("4 steps", "→ top jobs", "asks you first"); no ids, no `WEB` / `navigate`, no addresses (titles wrap, two lines
+  at most). Before (screenshot of the YC workflow): 33 cards, each "WEB Open www.ycombinator.com/jobs s1 navigate",
+  a sheet's address running out of its card. After: 10 cards, "Open Ycomb jobs · 4 steps", "Fill in Google Sheets ·
+  4 steps", "Copy from ycombinator.com · 2 steps"; clicking one opens its panel: "Its steps: 1. Open
+  ycombinator.com/jobs 2. Open ycombinator.com/companies/just-appraised…", and Debug with ids, actions and values.
+  A test caught `stepTitle` cutting "Click 'Ycomb jobs … More info (Option + →)'" at its quote: fixed.

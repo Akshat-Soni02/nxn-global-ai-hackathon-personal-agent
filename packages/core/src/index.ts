@@ -6,6 +6,7 @@ export * from "./descriptor.ts";
 export * from "./edit.ts";
 export * from "./guard.ts";
 export * from "./messages.ts";
+export * from "./names.ts";
 export * from "./skill.ts";
 export * from "./trace.ts";
 export * from "./vars.ts";

@@ -1,5 +1,5 @@
 // One workflow: what it is for, its steps as a tree, its versions (who made each and why), and its runs.
-import type { Skill } from "@shadow/core";
+import { findStep, type Skill } from "@shadow/core";
 import type { Review, RunRow, WorkflowSummary } from "@shadow/daemon/src/types.ts";
 import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
@@ -7,6 +7,7 @@ import { Action, Loading, StateChip, StatusChip } from "../components.tsx";
 import { FrequencyPicker } from "../FrequencyPicker.tsx";
 import { ago, duration, money, when } from "../format.ts";
 import { describe } from "../frequency.ts";
+import { NodePanel } from "../NodePanel.tsx";
 import { badgesOf, cantRunNow, summaryOf } from "../review.ts";
 import { WorkflowTree } from "../WorkflowTree.tsx";
 import { Editor } from "./Editor.tsx";
@@ -22,10 +23,13 @@ export function Workflow({ id }: { id: string }) {
   const review = useQuery<Review | null>("review", { id });
   const [picking, setPicking] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [nodeId, setNodeId] = useState<string>();
   if (workflow.data === null) return <p className="error">No workflow {id}.</p>;
   if (!workflow.data) return <Loading error={workflow.error} />;
   const { latest, versions } = workflow.data;
   const trigger = latest.steps.find((s) => s.type === "trigger");
+  const picked = nodeId ? findStep(latest, nodeId) : undefined;
+  const node = picked && picked.type !== "trigger" ? picked : undefined;
   const triggers = trigger?.type === "trigger" ? trigger.when : [];
   const history = [...latest.history].reverse();
   const mine = summary.data?.find((w) => w.id === id);
@@ -153,7 +157,19 @@ export function Workflow({ id }: { id: string }) {
       ) : (
         <section className="section">
           <h2>Steps</h2>
-          <WorkflowTree steps={latest.steps} />
+          {/* A node picked shows its details beside the tree (reports/plan-oct26-workflow-revamp.md, R3.3). */}
+          <div className={node ? "edit-layout" : undefined}>
+            <WorkflowTree
+              steps={latest.steps}
+              selected={node?.id}
+              onSelect={(picked) => setNodeId(picked === nodeId ? undefined : picked)}
+            />
+            {node ? (
+              <aside className="inspector" aria-label="The picked step">
+                <NodePanel key={node.id} step={node} close={() => setNodeId(undefined)} />
+              </aside>
+            ) : null}
+          </div>
         </section>
       )}
 

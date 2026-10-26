@@ -86,6 +86,8 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
       {error ? <p className="error">{error}</p> : null}
       <div className="edit-layout">
         <WorkflowTree
+          // Each step of a block can be picked and changed here, so blocks are drawn open.
+          blocks="open"
           steps={d.skill.steps}
           selected={spot?.step.id}
           onSelect={(step) => setPicked(step === picked ? undefined : step)}
