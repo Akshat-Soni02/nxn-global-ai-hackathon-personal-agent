@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isAction, Skill, triggerOf } from "@shadow/core";
+import { isAction, Skill, triggerOf, walkSteps } from "@shadow/core";
 import { createDecoder, encode } from "@shadow/ipc";
 import { fakeLlm } from "@shadow/llm";
 import { scriptedDesigner } from "@shadow/recorder";
@@ -217,7 +217,7 @@ describe("recording from the window's API", () => {
     });
     expect(triggerOf(skill).when).toEqual([{ type: "schedule", cron: "0 9 * * 1", missed: "skip" }]);
     // "Archive" matches Never, "Send report" sends: both wait for approval when it runs.
-    const actions = skill.steps.filter(isAction);
+    const actions = [...walkSteps(skill.steps)].map(({ step }) => step).filter(isAction);
     expect(actions.map((s) => [s.target?.name, s.requires_approval])).toEqual([
       [undefined, false],
       ["Archive", true],

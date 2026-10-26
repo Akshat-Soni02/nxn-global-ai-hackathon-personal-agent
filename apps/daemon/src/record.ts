@@ -13,6 +13,7 @@ import type { MemoryStore } from "@shadow/memory";
 import {
   answerFromEvidence,
   applyAnswer,
+  blocksOf,
   buildEvidence,
   type Connectors,
   changesSummary,
@@ -25,6 +26,7 @@ import {
   drill,
   type Evidence,
   effectsOf,
+  nodeCount,
   normaliseAll,
   type Prompter,
   pagesOf,
@@ -360,8 +362,14 @@ export async function finishRecording(
             },
           ],
         };
-  const saved = saveSkill(dataDir, noted);
-  log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
+  // Its browser steps in named blocks, by code: one node per thing done on a page, named by the page's tab, never its
+  // address (reports/plan-oct26-workflow-revamp.md, R2). After the change summary, so blocks aren't a change.
+  const titles = new Map(
+    tabsOf(trace, steps).tabs.flatMap((t) => (t.firstUrl ? [[t.firstUrl, t.name] as [string, string]] : [])),
+  );
+  const blocked = blocksOf(noted as Skill, { titles });
+  const saved = saveSkill(dataDir, blocked);
+  log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path} (${nodeCount(blocked.steps)} nodes)`);
   if (evidence) writeRecordedSteps(dataDir, saved.skill.id, recordedSteps(evidence));
   progress(`Saved ${saved.skill.name}`);
   if (design) {

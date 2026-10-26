@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, utime
 import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { isAction, Skill, triggerOf } from "@shadow/core";
+import { isAction, Skill, triggerOf, walkSteps } from "@shadow/core";
 import { createDecoder, encode } from "@shadow/ipc";
 import { fakeLlm } from "@shadow/llm";
 import { scriptedDesigner } from "@shadow/recorder";
@@ -347,8 +347,11 @@ describe("record end to end", () => {
     expect(asked).toEqual(["file-invoice", "dir-invoice", "intent"]); // which file next time, then where they arrive
     expect(saved?.skill.id).toMatch(/^upload-invoice-[a-z0-9]{6}$/);
     expect(saved?.skill.version).toBe(1);
-    expect(saved?.skill.steps.map((s) => (isAction(s) ? s.action : s.type))).toEqual([
+    // Saved in a named block: one thing done on the page (reports/plan-oct26-workflow-revamp.md, R2).
+    expect(saved?.skill.steps.map((s) => (s.type === "control" ? s.kind : s.type))).toEqual(["trigger", "group"]);
+    expect([...walkSteps(saved?.skill.steps ?? [])].map(({ step: s }) => (isAction(s) ? s.action : s.type))).toEqual([
       "trigger",
+      "control",
       "navigate",
       "upload",
       "click",

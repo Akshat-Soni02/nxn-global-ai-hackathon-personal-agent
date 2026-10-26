@@ -80,16 +80,16 @@ commit that does it.
 | R1.4 | The guard: a block is a container (removing one removes its steps, judged step by step) | `packages/core/src/guard.ts` | ☑ R1 |
 | R1.5 | The player runs a group's steps in order; resume inside a group; the run log names the block | `packages/player/src/run.ts` | ☑ R1 |
 | R1.6 | Everything that walks steps by kind: outline, approvals, rules, gate, review, tabsFixed, compile | `packages/recorder/src/**`, `packages/core/src/briefing.ts` | ◐ outline, report, editor, tree done; the rest walk with `walkSteps` and need no change; the ladder's detour stops at a block's edge |
-| R1.7 | Tests: schema, edits, run with a failure inside a block and resume, repair inside a block | each package | ☑ R1 (repair inside a block: not yet) |
+| R1.7 | Tests: schema, edits, run with a failure inside a block and resume, repair inside a block | each package | ☑ R1; repair inside a block: the e2e test's drift is fixed by the ladder inside one (R2) |
 
 ### R2. Code groups and names a recording (the YC task: 33 → ≤ 8)
 
 | # | Item | Where | Status |
 |---|---|---|---|
-| R2.1 | `blocksOf(steps, evidence)`: consecutive steps grouped by what they do: a *reach* chain (navigate + clicks that only get somewhere, `isDocument`/`endsAt` in proposals.ts already finds these) → "Open ‹page›"; reads on one page → "Copy ‹what› from ‹page›"; typing/pasting/Enter into one form or sheet → "Fill in ‹form/sheet›"; an outward click → its own block | new `packages/recorder/src/blocks.ts` | ☐ |
-| R2.2 | Names by code: the page's title or site name, never the URL ("Open the YC jobs page", "Open 'Ycomb jobs' sheet"); a document by its title from the tab | `blocks.ts`, `evidence/pages.ts` | ☐ |
-| R2.3 | The recorded workflow is saved with blocks (compile), so even a design that does nothing is readable | `packages/recorder/src/compile.ts` | ☐ |
-| R2.4 | Measure on the YC recording offline (`pnpm design:eval`, fake model, free): node count and names, in the log below | `scripts/design-eval.ts` | ☐ |
+| R2.1 | `blocksOf(steps, evidence)`: consecutive steps grouped by what they do: a *reach* chain (navigate + clicks that only get somewhere, `isDocument`/`endsAt` in proposals.ts already finds these) → "Open ‹page›"; reads on one page → "Copy ‹what› from ‹page›"; typing/pasting/Enter into one form or sheet → "Fill in ‹form/sheet›"; an outward click → its own block | new `packages/recorder/src/blocks.ts` | ☑ R2 (on the saved workflow, `blocksOf(skill, { titles })`: a navigate starts a block once the last one did work or the site changes) |
+| R2.2 | Names by code: the page's title or site name, never the URL ("Open the YC jobs page", "Open 'Ycomb jobs' sheet"); a document by its title from the tab | `blocks.ts`, `evidence/pages.ts` | ☑ R2 (Open / Copy from / Fill in / the outward step's words; a tab named only by its site is ignored) |
+| R2.3 | The recorded workflow is saved with blocks (compile), so even a design that does nothing is readable | `packages/recorder/src/compile.ts` | ☑ R2 (at save in `apps/daemon/src/record.ts`, after the change summary, not in compile: a design could empty a block) |
+| R2.4 | Measure on the YC recording offline (`pnpm design:eval`, fake model, free): node count and names, in the log below | `scripts/design-eval.ts` | ☑ R2: 33 steps → 10 nodes, all named (see log) |
 
 ### R3. The workflow page: clean nodes, details on the side
 
@@ -153,10 +153,11 @@ commit that does it.
 
 ## Resume here
 
-**Next:** R2.1, `blocksOf` in a new `packages/recorder/src/blocks.ts`. Start from the YC recording's steps (33; the
-evidence's `steps[].class`, `isDocument`/`endsAt` in `evidence/proposals.ts` already find the reach chains) and group
-them; then R2.2 names, R2.3 apply in compile. R1 is done: `kind: "group"` exists, with `wrap`/`unwrap` edits
-(`packages/core/src/blocks.test.ts`), and the tree draws a block as a container until R3.
+**Next:** R3.1–R3.2, the tree draws a block as **one node** (name, kind icon, one quiet line), its steps only in a
+side panel (R3.3). Today (`apps/ui/src/WorkflowTree.tsx`, `Node`) a block is a container with its steps inside it,
+like a loop. Take before/after screenshots with `shoot.mts` and `MOCK=1` (the mock needs a workflow with blocks:
+`apps/ui` mock data, or a saved eval skill). R1 and R2 are done: `kind: "group"` with `wrap`/`unwrap`, and every
+saved workflow is grouped by `blocksOf` (`packages/recorder/src/blocks.ts`).
 
 How to check work: `pnpm exec vitest run` (all packages), `pnpm exec tsc -p <package>`, `pnpm exec biome check packages
 apps`; the UI with `MOCK=1 tsx …/shoot.mts` (see `reports/` for how screenshots were taken before); the design with
@@ -170,3 +171,8 @@ Never commit a real document id, email or recording: use made-up ones in tests.
 - **Oct 26, R1**: blocks in the core. `kind: "group"` (one level, ≥ 1 step), no scope; edits `wrap` / `unwrap` and
   `set intent`; the player runs a block's steps with their own ids as paths (pause/resume tested); outline, repair's
   report, the tree and the editor know it. 772 tests pass.
+- **Oct 26, R2**: code groups every saved workflow (`blocksOf`, at save in `record.ts`). The YC recording, with no
+  design (fake model, free): **33 steps → 10 nodes**, all named: Open Ycomb jobs · Open ycombinator.com · Fill in
+  Google Sheets · Copy from ycombinator.com · Fill in Google Sheets · Copy from ycombinator.com · Fill in Google
+  Sheets · Copy from ycombinator.com · Fill in Google Sheets (+ the first open). The repetition is the recording's (one
+  field at a time); the design's loop is what folds it (R5). 776 tests pass.

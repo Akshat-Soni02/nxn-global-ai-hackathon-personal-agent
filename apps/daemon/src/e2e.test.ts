@@ -7,7 +7,7 @@ import { request } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type ActionStep, isAction, triggerOf } from "@shadow/core";
+import { type ActionStep, findStep, isAction, triggerOf, walkSteps } from "@shadow/core";
 import { createDecoder, encode } from "@shadow/ipc";
 import { fakeLlm } from "@shadow/llm";
 import type { RunDeps } from "@shadow/player";
@@ -159,7 +159,12 @@ describe("the whole loop on a scratch daemon", () => {
     const v1 = loadSkill(home, id);
     expect(v1).toMatchObject({ version: 1, description: { goal: form.goal, never: ["pay"] } });
     expect(v1?.history.map((h) => h.by)).toEqual(["record"]);
-    expect(v1?.steps.filter(isAction).map((s) => s.action)).toEqual(["navigate", "click", "upload", "click"]);
+    expect(
+      [...walkSteps(v1?.steps ?? [])]
+        .map(({ step }) => step)
+        .filter(isAction)
+        .map((s) => s.action),
+    ).toEqual(["navigate", "click", "upload", "click"]);
     expect(triggerOf(v1 as NonNullable<typeof v1>).when).toEqual(form.when);
     expect(llm.requests.length).toBeGreaterThanOrEqual(1); // the design agent, the only AI call
     expect(readState(home, id).state).toBe("draft");
@@ -206,7 +211,9 @@ describe("the whole loop on a scratch daemon", () => {
 
     // 6 Edit: a draft beside the workflow; what Submit is for, reworded; saved as v2 by the user. (Approval on Submit
     // was forced on by code when the recording was saved: it sends something.)
-    const submitStep = v1?.steps.find((s) => isAction(s) && s.target?.name === "Submit") as ActionStep;
+    const submitStep = [...walkSteps(v1?.steps ?? [])]
+      .map(({ step }) => step)
+      .find((s) => isAction(s) && s.target?.name === "Submit") as ActionStep;
     expect(submitStep.requires_approval).toBe(true);
     service.draft(id);
     const edited = service.editDraft(id, [
@@ -216,9 +223,7 @@ describe("the whole loop on a scratch daemon", () => {
     expect(service.publishDraft(id, "reworded Submit")).toEqual({ version: 2 });
     const v2 = loadSkill(home, id) as NonNullable<ReturnType<typeof loadSkill>>;
     expect(v2.history.at(-1)).toMatchObject({ version: 2, by: "user" });
-    expect((v2.steps.find((s) => s.id === submitStep.id) as ActionStep).intent).toBe(
-      "Submit the invoice, once a person has looked",
-    );
+    expect((findStep(v2, submitStep.id) as ActionStep).intent).toBe("Submit the invoice, once a person has looked");
 
     // Go live: the Frequency from the form is the trigger, so the checks pass.
     // The design is reviewed first: Go live waits for Looks right, whatever was saved on top of it (the edit, v2).
