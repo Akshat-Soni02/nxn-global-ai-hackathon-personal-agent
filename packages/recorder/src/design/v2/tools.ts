@@ -639,7 +639,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
           output: {
             ok: false,
             problems: [
-              'a time they didn\'t say is 9:00: set it with the trigger tool ({ when: { schedule: "0 9 * * *" } } is every day at 9:00), never ask it',
+              'a time they didn\'t say is 9:00: set it in the trigger (the cron "0 9 * * *" is every day at 9:00), never ask it',
             ],
           },
         };
@@ -652,16 +652,11 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
             ],
           },
         };
+      // What the recording says about it, shown with the answer, never a reason not to ask (Oct 25, P3: the YC design's
+      // "which fields say a job is already in the sheet?" was held back because the narration mentioned the sheet).
+      // `confirm` is still accepted from older prompts, and means nothing now.
+      void confirm;
       const seen = session.evidence?.about(question) ?? [];
-      if (seen.length > 0 && !confirm) {
-        return {
-          output: {
-            not_asked: "The recording may already answer this: use it. If it doesn't, ask again with confirm: true.",
-            seen,
-          },
-          untrusted: true,
-        };
-      }
       const key = (s: string, q: string) =>
         `${s}|${q
           .toLowerCase()
@@ -679,7 +674,14 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         options: options ?? [],
         ...(fallback ? { default: fallback } : {}),
       });
-      return { output: { queued: id, note: "asked after you build, with the other questions, in one batch" } };
+      return {
+        output: {
+          queued: id,
+          note: "asked after you build, with the other questions, in one batch",
+          ...(seen.length > 0 ? { the_recording_says: seen } : {}),
+        },
+        ...(seen.length > 0 ? { untrusted: true } : {}),
+      };
     },
   });
 
@@ -777,7 +779,20 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     const w = when as { schedule?: string; folder?: string; glob?: string };
     if (when === "manual") return [{ type: "manual" }];
     if (typeof when === "string") return [{ type: "schedule", cron: when }];
-    if (Array.isArray(when)) return when;
+    // A schedule's cron under another name (the YC design, Oct 25: { type: "schedule", expr: "0 9 * * *" }).
+    if (Array.isArray(when))
+      return when.map((w) => {
+        const e = w as { type?: string; cron?: string; expr?: string; schedule?: string; expression?: string };
+        return e?.type === "schedule" && !e.cron
+          ? {
+              ...e,
+              cron: e.expr ?? e.schedule ?? e.expression,
+              expr: undefined,
+              schedule: undefined,
+              expression: undefined,
+            }
+          : w;
+      });
     if (w?.schedule) return [{ type: "schedule", cron: w.schedule }];
     if (w?.folder) return [{ type: "folder_watch", dir: w.folder, ...(w.glob ? { glob: w.glob } : {}) }];
     return when;
@@ -796,6 +811,12 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       lists: Map<string, unknown>;
     },
   ): unknown => {
+    // A step named by its id: that step as it is, moved here (the YC design, Oct 25, wrote a loop's steps so).
+    if (typeof raw === "string") {
+      const found = anyStep(raw.trim());
+      if (!found) out.problems.push(`"${raw}" in a steps list: ${unknown(raw.trim())}`);
+      return found ?? raw;
+    }
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
     const { why, ...s } = raw as Record<string, unknown>;
     const newId = (prefix: string) => {
@@ -959,9 +980,46 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     return put(written, "steps");
   };
 
+  // A schema problem's place by the step it is in, not its position (the YC design read "steps.9.steps.1.steps.9"):
+  // "s12 (web.read), action" for steps.4.action.
+  const placeOf = (steps: unknown[], path: PropertyKey[]): string => {
+    if (path[0] !== "steps") return path.join(".") || "workflow";
+    let node: unknown = { steps };
+    let step = "";
+    let rest: string[] = [];
+    for (const key of path) {
+      node = (node as Record<string, unknown> | undefined)?.[key as string];
+      rest.push(String(key));
+      const s = node as { id?: unknown; type?: unknown; channel?: unknown; action?: unknown } | undefined;
+      if (s && typeof s === "object" && !Array.isArray(s) && (typeof s.id === "string" || "type" in s)) {
+        const kind = s.channel ? ` (${s.channel}.${s.action})` : "";
+        step = `${typeof s.id === "string" ? s.id : "a step"}${kind}`;
+        rest = [];
+      }
+    }
+    return step ? `${step}${rest.length > 0 ? `, ${rest.join(".")}` : ""}` : path.join(".");
+  };
+
   // A workflow as written, made real and checked; kept only if every check passes.
   const writeWorkflow = (written: unknown, why: string) => {
     const given = unstring(written);
+    // Sent as text that isn't JSON (the YC design sent one five times, told only "write it as { steps }"): where it broke.
+    if (typeof given === "string") {
+      try {
+        JSON.parse(given);
+      } catch (error) {
+        const at = Number(/position (\d+)/.exec((error as Error).message)?.[1] ?? -1);
+        const around = at >= 0 ? `, near ${JSON.stringify(given.slice(Math.max(0, at - 80), at + 40))}` : "";
+        return {
+          output: {
+            ok: false,
+            problems: [
+              `the workflow was sent as text that isn't valid JSON (${(error as Error).message})${around}: send it as an object { "steps": [ … ] }, not a string`,
+            ],
+          },
+        };
+      }
+    }
     const body = Array.isArray(given) ? { steps: given } : ((given ?? {}) as Record<string, unknown>);
     if (!Array.isArray(body.steps)) {
       return { output: { ok: false, problems: ['write the workflow as { "steps": [ … ] } (read_workflow shows it)'] } };
@@ -988,9 +1046,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       return {
         output: {
           ok: false,
-          problems: parsed.error.issues
-            .slice(0, 12)
-            .map((i) => hint(`${i.path.join(".") || "workflow"}: ${i.message}`)),
+          problems: parsed.error.issues.slice(0, 12).map((i) => hint(`${placeOf(steps, i.path)}: ${i.message}`)),
         },
       };
     }

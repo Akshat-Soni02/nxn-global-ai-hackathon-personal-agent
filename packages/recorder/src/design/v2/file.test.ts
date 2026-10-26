@@ -125,6 +125,45 @@ describe("the workflow as a file", () => {
     void s1;
   });
 
+  it("takes what the YC design wrote (Oct 25): steps named by id in a loop, a cron as expr, a bad JSON string said so", async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const written = await run(s, "write_workflow", {
+      workflow: {
+        steps: [
+          { ...trigger, when: [{ type: "schedule", expr: "0 9 * * *" }] },
+          s1,
+          { do: "read_all", intent: "read the reports", target: { like: "s2" }, save_as: "reports" },
+          { over: "{{reports}}", item: "report", steps: ["s2", "s3"] },
+        ],
+      },
+      why: "each report, each morning",
+    });
+    expect(written.problems).toBeUndefined();
+    expect(s.draft.steps[0]).toMatchObject({ when: [{ type: "schedule", cron: "0 9 * * *" }] });
+    expect((s.draft.steps[3] as { steps: { id: string }[] }).steps.map((x) => x.id)).toEqual(["s2", "s3"]);
+
+    const unknownId = await run(session(), "write_workflow", {
+      workflow: { steps: [s1, { over: "{{x}}", item: "y", steps: ["s9"] }] },
+      why: "x",
+    });
+    expect(unknownId.problems?.[0]).toContain("no step s9");
+    const text = await run(session(), "write_workflow", { workflow: '{"steps": [{"id": "s1",}]}', why: "x" });
+    expect(text.problems?.[0]).toMatch(/isn't valid JSON .*near/);
+  });
+
+  it("names the step a problem is in, with what it does", async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const bad = await run(s, "write_workflow", {
+      workflow: {
+        steps: [trigger, s1, { id: "s7", type: "action", intent: "x", channel: "web", action: "read", args: {} }],
+      },
+      why: "x",
+    });
+    expect(bad.problems?.join(" ")).toContain("s7 (web.read)");
+  });
+
   it("says what's wrong, by path, and changes nothing", async () => {
     const s = session();
     const before = workflowFile(s.draft);
@@ -133,7 +172,7 @@ describe("the workflow as a file", () => {
       why: "x",
     });
     expect(bad.ok).toBe(false);
-    expect(bad.problems?.join(" ")).toMatch(/steps\.1/);
+    expect(bad.problems?.join(" ")).toMatch(/s9 \(web\.click\), intent/);
     expect(workflowFile(s.draft)).toBe(before);
     expect((await run(s, "write_workflow", { workflow: "nonsense", why: "x" })).ok).toBe(false);
     // A default the runner wouldn't fill, as the input tool refuses it.
