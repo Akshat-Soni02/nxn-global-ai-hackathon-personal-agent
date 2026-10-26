@@ -1141,8 +1141,20 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       name: "write_workflow",
       kind: "edit",
       description:
-        'Replace the whole workflow: { "steps": [ … ] } (and "success" if you change the final checks), with the trigger first. For a plan or a big restructure. Short forms are fine: { "do": "click", "target": { "like": "s3" } }, { "do": "open", "page": "s9" }, { "do": "app", "tool": "…", "arguments": { … } }, an AI step as { "instruction", "inputs", "output" }, a loop as { "over": "{{list}}", "item": "job", "steps": [ … ] }, and a "why" on any step for the review. Every write is checked; a failed check changes nothing and says what to fix',
-      input: z.object({ workflow: z.unknown(), why: FileWhy, whys: Whys }),
+        'Replace the whole workflow: { "steps": [ … ] } (and "success" if you change the final checks), with the trigger first. Every step it doesn\'t list is removed: for one step or a value, use edit_workflow. For a plan or a big restructure. Short forms are fine: { "do": "click", "target": { "like": "s3" } }, { "do": "open", "page": "s9" }, { "do": "app", "tool": "…", "arguments": { … } }, an AI step as { "instruction", "inputs", "output" }, a loop as { "over": "{{list}}", "item": "job", "steps": [ … ] }, and a "why" on any step for the review. Every write is checked; a failed check changes nothing and says what to fix',
+      // An object in the schema, so the model sends one (the fourth YC design, Oct 25: `workflow` as "anything" was sent
+      // as a JSON string 12 times, broken each time at the same nesting). Text is still read, and its error said.
+      input: z.object({
+        workflow: z
+          .union([
+            z.object({ steps: z.array(z.unknown()), success: z.array(z.unknown()).optional() }).passthrough(),
+            z.array(z.unknown()),
+            z.string(),
+          ])
+          .describe('the workflow as a JSON object { "steps": [ … ] }, never a string'),
+        why: FileWhy,
+        whys: Whys,
+      }),
       prepare: unstring,
       run: ({ workflow, why, whys }) => writeWorkflow(workflow, why, whys),
     }),
