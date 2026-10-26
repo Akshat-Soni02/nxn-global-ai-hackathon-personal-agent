@@ -19,7 +19,7 @@ describe("masking", () => {
   });
 
   it("in text the AI reads: only the user's private words, so a sheet's id or an email stays readable", () => {
-    const sheet = "docs.google.com/spreadsheets/d/1JSPFF_APsgPZ_3QjPWcvOupSbiXsufevLpDm__7SLX8/edit";
+    const sheet = "docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcd/edit";
     expect(maskText(sheet).text).toBe(sheet);
     expect(maskText("From jane@acme.com about Project Falcon", ["project falcon"]).text).toBe(
       `From jane@acme.com about ${MASK}`,
