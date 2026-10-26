@@ -114,7 +114,7 @@ commit that does it.
 | R4.2 | The node-type menu: Open a page · Do something on a page (click/type, by target or **Show me**) · Read from a page · AI step · App action (connected apps) · Files · Ask me · If · For each · Wait for my OK | new `apps/ui/src/AddNode.tsx` | ◐ R4 (Open, Click, Type, Read, AI step, Find files, App action; not yet: Ask me, Wait for my OK, Show me; For each / If come by wrapping, R4.5) |
 | R4.3 | A form per type, compiled to steps by the same short forms the agent uses (`{ do: … }` → `compile`), so hand-built steps are as runnable as agent-built ones; the daemon applies them as edit ops on the draft | `AddNode.tsx`, daemon `draft.*` API, a shared `compile` export from the recorder | ☑ R4 (`stepOf` in `apps/ui/src/AddNode.tsx` makes the step; the daemon inserts it with `editDraft`, checked like any edit; not through the agent's compile, which needs a design session) |
 | R4.4 | App action form from the tool's JSON schema (pick app → tool → arguments; `<id:…>` picker for recorded documents) | `AddNode.tsx`, daemon `apps.tools` | ☐ |
-| R4.5 | Rename, remove, move up/down, wrap in "for each" / "if", unwrap, from the node's panel | `NodePanel.tsx`, edit ops from R1.3 | ☐ |
+| R4.5 | Rename, remove, move up/down, wrap in "for each" / "if", unwrap, from the node's panel | `NodePanel.tsx`, edit ops from R1.3 | ◐ R4.5 in the editor's step panel: rename, Take the steps out (unwrap), Group it: in a block / for each item of a list / only if a value is there, with the next N steps (core `wrap` with `as`); move up/down and remove were there. To do: hide "Put in a block" for a step already in one (core refuses it) |
 | R4.6 | Edit / Test as two modes of the page (Test runs the safe test and puts results on the nodes); Turn on as one button | `Workflow.tsx` | ☐ |
 | R4.7 | **Show me**: record just one block (start/stop around a short demonstration), compiled and named like R2, inserted at the "+" | recorder session with a `scope`, daemon, UI | ☐ |
 
@@ -155,17 +155,20 @@ commit that does it.
 
 ## Resume here
 
-**Next:** R4.5, from the editor's step panel (`EditStep` in `apps/ui/src/screens/Editor.tsx`): rename a block, "Put
-in a block" (the `wrap` edit on the picked step and the ones after it the user ticks), "Take out of the block"
-(`unwrap`), "Repeat for each…" (wrap in a loop: needs an `insert` of a loop holding the steps, or a core
-`wrap_loop` edit like `wrap`) and "Only if…" (the same for a branch). Then R2.6 (names for copied values), R2.5 (tidy up
-old workflows), R4.6 (Edit/Test as modes of the page).
+**Next:** R2.6, names for copied values: compile saves a recorded copy as `copied_1`…`copied_4`
+(`packages/recorder/src/compile.ts`, look for `copied_`). Name it by what was copied: the copied control's label or
+name, or the words before it on the page (the evidence's `near`), as a variable (`company`, `pay`); keep `copied_N`
+only when nothing names it. Then R2.5 (Tidy up workflows saved before blocks), R4.6 (Edit / Test as modes of the page,
+"+" on the page), R5 (the design agent writes blocks).
 
-Done so far: R1 (blocks in the core), R2 (code groups every saved workflow), R3 (one node per block, icon + plain
-title, details panel with Details / Debug, no addresses; the review's problems as badges on their nodes; the history
-note and the workflow's name in plain words), R4.1–R4.3 ("+" in the editor with seven kinds of step and their forms).
-Screenshots of the editor: `EVAL='<js>;;<js>'` in `shoot.mts` runs page script first (press Edit, a "+", a kind). Screenshots: `shoot.mts` with
-`MOCK_SKILL=<a saved workflow json>` serves that workflow at `/workflows/<id>`; `CLICK=<n>` picks the nth node first.
+Done so far: R1 (blocks in the core), R2.1–R2.4 (code groups every saved workflow), R3 (one node per block, icon +
+plain title, details panel with Details / Debug, no addresses; the review's problems as badges on their nodes; the
+history note and the workflow's name in plain words), R4.1–R4.3 and R4.5 ("+" in the editor with seven kinds of step;
+from a step's panel: put in a block, repeat for each item of a list, only if a value is there, take out of a block).
+
+Screenshots: `shoot.mts` with `MOCK_SKILL=<a saved workflow json>` (and `MOCK_REVIEW=<review json>`) serves that
+workflow at `/workflows/<id>`; `CLICK=<n>` picks the nth node first; `EVAL='<js>;;<js>'` runs page script first
+(press Edit, a "+", a kind).
 
 How to check work: `pnpm exec vitest run` (all packages), `pnpm exec tsc -p <package>`, `pnpm exec biome check packages
 apps`; the UI with `MOCK=1 tsx …/shoot.mts` (see `reports/` for how screenshots were taken before); the design with
@@ -211,3 +214,8 @@ Never commit a real document id, email or recording: use made-up ones in tests.
   earlier steps saved: …", "It makes", "Save it as"); `stepOf` makes the step, the daemon inserts it into the draft
   like any edit, so a step that reads what nothing saves is refused with the reason, and Undo takes it back. Seen in the
   screenshot: the recorded copies are named `copied_1`…`copied_4`, so R2.6. 786 tests pass.
+- **Oct 26, R4.5**: a step's panel in the editor has "Group it": put it and the next N steps in a block, repeat them
+  for each item of a list a step saves, or do them only if a value is there; a block's panel has "Take the steps out
+  of this block" and no approval switch (a block has only a name). One core edit does it: `wrap` with `as: group |
+  loop | branch` (the loop's `over` and `item`, the if's condition), so it is one change, undone as one. The panel
+  header said "IF" for a block: fixed. 787 tests pass.

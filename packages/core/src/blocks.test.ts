@@ -76,6 +76,47 @@ describe("blocks", () => {
     expect(undone.skill.steps.map((s) => s.id)).toEqual(["start", "s1", "s2", "s3", "s4"]);
   });
 
+  it("wrap steps in a loop or an if too (the step panel's Repeat for each / Only if, R4.5)", () => {
+    const w = workflow([
+      {
+        id: "ai1",
+        type: "llm",
+        intent: "pick",
+        instruction: "the first 5",
+        inputs: [],
+        output: { name: "jobs", type: { type: "list", items: { type: "text" } } },
+      },
+      click("s2", "Next"),
+      open("s3"),
+    ]);
+    const looped = applyEdits(w, [
+      {
+        op: "wrap",
+        steps: ["s2"],
+        intent: "For each job",
+        as: "loop",
+        over: "{{jobs}}",
+        item: { name: "job", type: { type: "text" } },
+      },
+    ]);
+    if (!looped.ok) throw new Error(looped.problems.join("; "));
+    expect(findStep(looped.skill, "l1")).toMatchObject({ kind: "loop", over: "{{jobs}}" });
+    const iffed = applyEdits(w, [
+      {
+        op: "wrap",
+        steps: ["s3"],
+        intent: "Only if there are jobs",
+        as: "branch",
+        if: { left: "{{jobs}}", op: "exists" },
+      },
+    ]);
+    if (!iffed.ok) throw new Error(iffed.problems.join("; "));
+    expect(findStep(iffed.skill, "b1")).toMatchObject({ kind: "branch", else: [] });
+    // Without what a loop needs, said.
+    const bare = applyEdits(w, [{ op: "wrap", steps: ["s3"], intent: "x", as: "loop" }]);
+    expect(bare.ok ? "" : bare.problems.join(" ")).toMatch(/needs over/);
+  });
+
   it("are refused for steps that aren't next to each other, the trigger, or a block", () => {
     const w = workflow([open("s1"), click("s2", "a"), click("s3", "b")]);
     const gap = applyEdits(w, [{ op: "wrap", steps: ["s1", "s3"], intent: "x" }]);

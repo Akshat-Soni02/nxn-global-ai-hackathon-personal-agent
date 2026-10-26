@@ -47,6 +47,11 @@ export const Edit = z.discriminatedUnion("op", [
       steps: z.array(z.string()).min(1),
       intent: z.string().min(1),
       id: z.string().optional(),
+      // What wraps them: a block (the default), a loop (with over and item), or an if (with its condition, if).
+      as: z.enum(["group", "loop", "branch"]).default("group"),
+      over: z.string().optional(),
+      item: z.unknown().optional(),
+      if: z.unknown().optional(),
     })
     .strict(),
   // A block's steps put back where it was.
@@ -68,7 +73,7 @@ export const EDIT_DOCS: Record<Edit["op"], string> = {
   replace: "{ op: replace, step, with }  swap a step for another; it keeps the old id",
   remove: "{ op: remove, step }  remove a step (not the trigger)",
   move: "{ op: move, step, to: Position }  move a step, with everything inside it",
-  wrap: "{ op: wrap, steps: [ids], intent, id? }  put steps next to each other into a new block named intent",
+  wrap: "{ op: wrap, steps: [ids], intent, id?, as?: group | loop | branch, over?, item?, if? }  put steps next to each other into a new block (or a loop over a list, or an if)",
   unwrap: "{ op: unwrap, step }  put a block's steps back where it was",
   set: "{ op: set, step, field, value }  change one field; null removes an optional one",
   set_skill: "{ op: set_skill, field: name | description | success, value }  change the workflow itself",
@@ -117,7 +122,7 @@ export function describeEdit(edit: EditInput): string {
     case "move":
       return `moved ${edit.step} ${positionText(edit.to)}`;
     case "wrap":
-      return `put ${edit.steps.join(", ")} in a block "${edit.intent}"`;
+      return `put ${edit.steps.join(", ")} in ${edit.as === "loop" ? "a loop" : edit.as === "branch" ? "an if" : "a block"} "${edit.intent}"`;
     case "unwrap":
       return `took the steps out of ${edit.step}`;
     case "set":
@@ -147,7 +152,7 @@ function applyOne(draft: Draft, edit: Edit): string | undefined {
     if (step.type === "trigger") return "a workflow has one trigger, the first step";
     return place(draft, edit.at, step as unknown as Step);
   }
-  if (edit.op === "wrap") return wrap(draft, edit.steps, edit.intent, edit.id);
+  if (edit.op === "wrap") return wrap(draft, edit);
 
   const found = locate(draft.steps, edit.step);
   if (!found) return `no step ${edit.step}`;
@@ -236,7 +241,8 @@ function place(draft: Draft, at: Position, step: Step): string | undefined {
 }
 
 // Steps next to each other in one list, in their order, into a new block in their place.
-function wrap(draft: Draft, ids: string[], intent: string, id?: string): string | undefined {
+function wrap(draft: Draft, edit: Extract<Edit, { op: "wrap" }>): string | undefined {
+  const { steps: ids, intent, id, as } = edit;
   const found = ids.map((x) => ({ id: x, at: locate(draft.steps, x) }));
   const missing = found.filter((f) => !f.at).map((f) => f.id);
   if (missing.length > 0) return `no step ${missing.join(", ")}`;
@@ -248,17 +254,24 @@ function wrap(draft: Draft, ids: string[], intent: string, id?: string): string 
   if (sorted.some((n, i) => n !== start + i)) return "a block holds steps next to each other, with none between them";
   const steps = first.list.slice(start, start + ids.length);
   if (steps.some((s) => s.type === "trigger")) return "the trigger can't go in a block";
-  if (steps.some((s) => s.type === "control" && s.kind === "group")) return "a block can't hold a block";
+  if (as === "group" && steps.some((s) => s.type === "control" && s.kind === "group"))
+    return "a block can't hold a block";
+  if (as === "loop" && (!edit.over || !edit.item))
+    return "a loop needs over (a list: {{jobs}}) and item ({ name, type })";
+  if (as === "branch" && !edit.if) return "an if needs its condition (if: { left, op, right })";
   const used = new Set(idsIn(draft.steps));
+  const prefix = as === "loop" ? "l" : "b";
   let n = 1;
-  while (used.has(`b${n}`)) n++;
-  const blockId = id ?? `b${n}`;
-  if (used.has(blockId)) return `the id ${blockId} is taken`;
+  while (used.has(`${prefix}${n}`)) n++;
+  const newId = id ?? `${prefix}${n}`;
+  if (used.has(newId)) return `the id ${newId} is taken`;
+  const extra = as === "loop" ? { over: edit.over, item: edit.item } : as === "branch" ? { if: edit.if, else: [] } : {};
   first.list.splice(start, ids.length, {
-    id: blockId,
+    id: newId,
     type: "control",
-    kind: "group",
+    kind: as,
     intent,
+    ...extra,
     steps,
   } as unknown as Step);
   return undefined;

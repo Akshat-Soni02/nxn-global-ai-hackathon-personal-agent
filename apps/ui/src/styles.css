@@ -1270,6 +1270,18 @@ nav a.active .badge {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* The step panel's "Group it" (Editor.tsx, R4.5). */
+.wrap-steps {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.wrap-steps .field select,
+.wrap-steps .field input {
+  width: 100%;
+  box-sizing: border-box;
+}
 .node-kinds {
   display: grid;
   gap: 6px;
