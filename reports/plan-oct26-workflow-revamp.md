@@ -90,7 +90,7 @@ commit that does it.
 | R2.2 | Names by code: the page's title or site name, never the URL ("Open the YC jobs page", "Open 'Ycomb jobs' sheet"); a document by its title from the tab | `blocks.ts`, `evidence/pages.ts` | ☑ R2 (Open / Copy from / Fill in / the outward step's words; a tab named only by its site is ignored) |
 | R2.3 | The recorded workflow is saved with blocks (compile), so even a design that does nothing is readable | `packages/recorder/src/compile.ts` | ☑ R2 (at save in `apps/daemon/src/record.ts`, after the change summary, not in compile: a design could empty a block) |
 | R2.4 | Measure on the YC recording offline (`pnpm design:eval`, fake model, free): node count and names, in the log below | `scripts/design-eval.ts` | ☑ R2: 33 steps → 10 nodes, all named (see log) |
-| R2.6 | Values a recording copied are saved as `copied_1`…`copied_4` (seen in the "+" AI form's "It reads"): name each by what was copied (the control's label or the text's role: "company", "pay"), by code in compile, the design agent renaming when it knows better | `packages/recorder/src/compile.ts` (`save_as` for copies) | ☐ |
+| R2.6 | Values a recording copied are saved as `copied_1`…`copied_4` (seen in the "+" AI form's "It reads"): name each by what was copied (the control's label or the text's role: "company", "pay"), by code in compile, the design agent renaming when it knows better | `packages/recorder/src/compile.ts` (`save_as` for copies) | ◐ R2.6 (`copyName` in `skeleton.ts`: the sheet's column, the label, the words before it, its kind, the value's shape; the YC copies: amount, amount_2, link, copied_1 (the company: nothing says what it is; the design agent's to rename)) |
 | R2.5 | Workflows saved before blocks keep their flat steps and long names: a "Tidy up" on their page that groups them (`blocksOf` as `wrap` edits on a draft, so it is a version the user saves) and gives a short name | `Workflow.tsx`, daemon draft API | ☐ |
 
 ### R3. The workflow page: clean nodes, details on the side
@@ -155,11 +155,12 @@ commit that does it.
 
 ## Resume here
 
-**Next:** R2.6, names for copied values: compile saves a recorded copy as `copied_1`…`copied_4`
-(`packages/recorder/src/compile.ts`, look for `copied_`). Name it by what was copied: the copied control's label or
-name, or the words before it on the page (the evidence's `near`), as a variable (`company`, `pay`); keep `copied_N`
-only when nothing names it. Then R2.5 (Tidy up workflows saved before blocks), R4.6 (Edit / Test as modes of the page,
-"+" on the page), R5 (the design agent writes blocks).
+**Next:** R2.5, "Tidy up" for workflows saved before blocks (your real YC workflow is one: flat 33 steps, long name).
+On the workflow page, when its top level has no block and more than ~8 steps: a button that opens the editor's draft
+and applies `blocksOf`'s grouping as `wrap` edits (needs the grouping as edits: return `{ steps, intent }[]` from a
+`blockPlan(skill)` beside `blocksOf`, so the daemon or the window can apply them) plus `set_skill name` from
+`shortName(goal)`; the user sees it in the editor and saves it as the next version. Then R4.6 (Edit / Test as modes
+of the page, "+" on the page), R5 (the design agent writes blocks).
 
 Done so far: R1 (blocks in the core), R2.1–R2.4 (code groups every saved workflow), R3 (one node per block, icon +
 plain title, details panel with Details / Debug, no addresses; the review's problems as badges on their nodes; the
@@ -219,3 +220,7 @@ Never commit a real document id, email or recording: use made-up ones in tests.
   of this block" and no approval switch (a block has only a name). One core edit does it: `wrap` with `as: group |
   loop | branch` (the loop's `over` and `item`, the if's condition), so it is one change, undone as one. The panel
   header said "IF" for a block: fixed. 787 tests pass.
+- **Oct 26, R2.6**: a copy is named for what it is, never its value (`copyName`): the sheet's column, the control's
+  label, the words before it, its kind (a heading is a title), the value's shape (an amount, a date, an email, a link),
+  else `copied_N` as before. The YC copies: `copied_1`…`copied_4` → `copied_1` (the company: nothing says so),
+  `link`, `amount`, `amount_2`. 788 tests pass.

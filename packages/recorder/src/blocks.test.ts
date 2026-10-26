@@ -2,6 +2,7 @@ import { isGroup, Skill, type Step } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { blocksOf, clean, nodeCount, pageName } from "./blocks.ts";
 import { shortName } from "./compile.ts";
+import { copyName } from "./skeleton.ts";
 
 const SHEET = "https://docs.google.com/spreadsheets/d/1XyZexampleDocId/edit";
 const nav = (id: string, url: string) => ({
@@ -47,6 +48,31 @@ const workflow = (steps: unknown[]) =>
     steps: [{ id: "start", type: "trigger", intent: "t" }, ...steps],
   });
 const names = (steps: Step[]) => steps.filter((s) => s.type !== "trigger").map((s) => (isGroup(s) ? s.intent : s.id));
+
+describe("what a copy is called (R2.6: the YC copies were copied_1…copied_4)", () => {
+  const taken = new Set<string>();
+  it("is what it is, never its value", () => {
+    expect(
+      copyName({ value: "$160K - $200K", target: { role: "generic", near: "Salary" } as never }, undefined, taken, 1),
+    ).toBe("salary");
+    expect(
+      copyName(
+        { value: "Account Executive", target: { role: "heading", name: "Account Executive" } as never },
+        undefined,
+        taken,
+        2,
+      ),
+    ).toBe("title");
+    expect(copyName({ value: "12", target: { role: "gridcell" } as never }, "Amount", taken, 3)).toBe("amount");
+    // A bare selection, by its shape.
+    expect(copyName({ value: "$160K - $200K" }, undefined, taken, 6)).toBe("amount");
+    // Nothing names it: as before.
+    expect(copyName({ value: "x" }, undefined, taken, 4)).toBe("copied_4");
+    expect(copyName({ value: "y", target: { role: "heading" } as never }, undefined, new Set(["title"]), 5)).toBe(
+      "title_2",
+    );
+  });
+});
 
 describe("a workflow's name from its goal (R3.7)", () => {
   it("is what they want done, in a few words, without the frequency or the story", () => {
