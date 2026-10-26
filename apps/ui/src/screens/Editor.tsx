@@ -194,7 +194,7 @@ function EditStep({
           <span className="muted small">Shadow asks you before this step runs.</span>
         </span>
       </label>
-      <Fields step={step} set={set} />
+      {step.type === "control" && step.kind === "group" ? null : <Fields step={step} set={set} />}
       <footer className="inspector-foot">
         <button
           type="button"
@@ -234,7 +234,7 @@ const FIELD = {
 } as const;
 
 // The step's own fields, as JSON where they are structured (args, a condition), as text where they are text.
-function Fields({ step, set }: { step: Body; set(field: string, value: unknown): void }) {
+function Fields({ step, set }: { step: Exclude<Body, { kind: "group" }>; set(field: string, value: unknown): void }) {
   const field = step.type === "action" ? "args" : step.type === "llm" ? "inputs" : step.kind === "loop" ? "over" : "if";
   const [json, setJson] = useState(() =>
     JSON.stringify(

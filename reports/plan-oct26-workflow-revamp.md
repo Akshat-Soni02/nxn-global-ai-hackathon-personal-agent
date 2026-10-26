@@ -54,7 +54,8 @@ that do one thing:
   "steps": [ { "id": "s2", "…": "navigate drive" }, { "id": "s4", "…": "click Recent" }, { "id": "s5", "…": "open the sheet" } ] }
 ```
 
-- It runs its steps in order, like the body of an `if` that always holds. Paths read `b2 > s5`.
+- It runs its steps in order, like the body of an `if` that always holds. Its steps' run paths are their own ids
+  (`s5`, as in a branch's arm), so pausing, resuming and repair work unchanged (decided in R1).
 - Inner steps keep their ids: repair, the ladder, approvals, `{{vars}}` and the run log work unchanged.
 - A block is the unit of moving, removing, wrapping in a loop, renaming and adding.
 - Loops and ifs hold blocks; a block holds plain steps (no blocks inside blocks: one level keeps it readable).
@@ -73,13 +74,13 @@ commit that does it.
 
 | # | Item | Where | Status |
 |---|---|---|---|
-| R1.1 | `kind: "group"` in the Step schema (id, intent, steps ≥ 1), in `StepInput`, `walkSteps`, `findStep`, the discriminated union | `packages/core/src/skill.ts` | ☐ |
-| R1.2 | Variables: a block doesn't scope (what its steps save is visible after it) | `packages/core/src/check.ts`, `vars.ts` | ☐ |
-| R1.3 | Edit operations: insert / move / remove a group, `wrap` steps into a new group, `unwrap`, `set intent`; positions `into` a group | `packages/core/src/edit.ts` (+ `describeEdit`) | ☐ |
-| R1.4 | The guard: a block is a container (removing one removes its steps, judged step by step) | `packages/core/src/guard.ts` | ☐ |
-| R1.5 | The player runs a group's steps in order; resume inside a group; the run log names the block | `packages/player/src/run.ts` | ☐ |
-| R1.6 | Everything that walks steps by kind: outline, approvals, rules, gate, review, tabsFixed, compile | `packages/recorder/src/**`, `packages/core/src/briefing.ts` | ☐ |
-| R1.7 | Tests: schema, edits, run with a failure inside a block and resume, repair inside a block | each package | ☐ |
+| R1.1 | `kind: "group"` in the Step schema (id, intent, steps ≥ 1), in `StepInput`, `walkSteps`, `findStep`, the discriminated union | `packages/core/src/skill.ts` | ☑ R1 |
+| R1.2 | Variables: a block doesn't scope (what its steps save is visible after it) | `packages/core/src/check.ts`, `vars.ts` | ☑ R1 |
+| R1.3 | Edit operations: insert / move / remove a group, `wrap` steps into a new group, `unwrap`, `set intent`; positions `into` a group | `packages/core/src/edit.ts` (+ `describeEdit`) | ☑ R1 |
+| R1.4 | The guard: a block is a container (removing one removes its steps, judged step by step) | `packages/core/src/guard.ts` | ☑ R1 |
+| R1.5 | The player runs a group's steps in order; resume inside a group; the run log names the block | `packages/player/src/run.ts` | ☑ R1 |
+| R1.6 | Everything that walks steps by kind: outline, approvals, rules, gate, review, tabsFixed, compile | `packages/recorder/src/**`, `packages/core/src/briefing.ts` | ◐ outline, report, editor, tree done; the rest walk with `walkSteps` and need no change; the ladder's detour stops at a block's edge |
+| R1.7 | Tests: schema, edits, run with a failure inside a block and resume, repair inside a block | each package | ☑ R1 (repair inside a block: not yet) |
 
 ### R2. Code groups and names a recording (the YC task: 33 → ≤ 8)
 
@@ -152,8 +153,10 @@ commit that does it.
 
 ## Resume here
 
-**Next:** R1.1. Read `packages/core/src/skill.ts` (LoopFields, BranchFields, the `Step` union, `walkSteps`), add the
-`group` kind, and follow the type errors (`pnpm -r exec tsc --noEmit`) through R1.2–R1.6.
+**Next:** R2.1, `blocksOf` in a new `packages/recorder/src/blocks.ts`. Start from the YC recording's steps (33; the
+evidence's `steps[].class`, `isDocument`/`endsAt` in `evidence/proposals.ts` already find the reach chains) and group
+them; then R2.2 names, R2.3 apply in compile. R1 is done: `kind: "group"` exists, with `wrap`/`unwrap` edits
+(`packages/core/src/blocks.test.ts`), and the tree draws a block as a container until R3.
 
 How to check work: `pnpm exec vitest run` (all packages), `pnpm exec tsc -p <package>`, `pnpm exec biome check packages
 apps`; the UI with `MOCK=1 tsx …/shoot.mts` (see `reports/` for how screenshots were taken before); the design with
@@ -164,3 +167,6 @@ Never commit a real document id, email or recording: use made-up ones in tests.
 
 - **Oct 26**: plan written from the YC workflow's screenshots and Gemini Enterprise's builder. Branch
   `feat/workflow-revamp` from `feat/record-mcp` (`ce2bdbe`).
+- **Oct 26, R1**: blocks in the core. `kind: "group"` (one level, ≥ 1 step), no scope; edits `wrap` / `unwrap` and
+  `set intent`; the player runs a block's steps with their own ids as paths (pause/resume tested); outline, repair's
+  report, the tree and the editor know it. 772 tests pass.

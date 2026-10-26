@@ -133,6 +133,26 @@ function Node({ step, marks }: { step: Step; marks: Marks }) {
   // The start is drawn once, as the root; inside loops and arms there is none.
   if (step.type === "trigger") return null;
   if (step.type === "control" && step.kind === "branch") return <Fork step={step} marks={marks} />;
+  // A block (reports/plan-oct26-workflow-revamp.md): its name, and its steps inside it. R3 draws it as one node.
+  if (step.type === "control" && step.kind === "group") {
+    return (
+      <div className={`wf-node wf-loop${state(step.id, marks)}`}>
+        <Face
+          kind="block"
+          step={step}
+          sub={`${step.steps.length} step${step.steps.length === 1 ? "" : "s"}`}
+          marks={marks}
+        />
+        <div className="wf-inside">
+          <div className="wf-seq">
+            {step.steps.map((s) => (
+              <Node key={s.id} step={s} marks={marks} />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (step.type === "control") {
     return (
       <div className={`wf-node wf-loop${state(step.id, marks)}`}>

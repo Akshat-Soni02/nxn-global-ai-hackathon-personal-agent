@@ -26,6 +26,8 @@ export const STEP_FIELDS = {
   llm: ["intent", "requires_approval", "ask", "instruction", "inputs", "output"],
   loop: ["intent", "requires_approval", "ask", "over", "item", "max_items", "on_item_fail"],
   branch: ["intent", "requires_approval", "ask", "if"],
+  // A block's intent is its name.
+  group: ["intent"],
 } as const;
 const ALL_FIELDS = [...new Set(Object.values(STEP_FIELDS).flat())] as [string, ...string[]];
 
@@ -38,6 +40,17 @@ export const Edit = z.discriminatedUnion("op", [
   z.object({ op: z.literal("replace"), step: z.string(), with: StepJson }).strict(),
   z.object({ op: z.literal("remove"), step: z.string() }).strict(),
   z.object({ op: z.literal("move"), step: z.string(), to: Position }).strict(),
+  // Steps next to each other, in order, put into a new block named `intent` (its id: `id`, else b1, b2…).
+  z
+    .object({
+      op: z.literal("wrap"),
+      steps: z.array(z.string()).min(1),
+      intent: z.string().min(1),
+      id: z.string().optional(),
+    })
+    .strict(),
+  // A block's steps put back where it was.
+  z.object({ op: z.literal("unwrap"), step: z.string() }).strict(),
   // null removes an optional field (a wait, a check, an ask).
   z.object({ op: z.literal("set"), step: z.string(), field: z.enum(ALL_FIELDS), value: z.unknown() }).strict(),
   z
@@ -55,6 +68,8 @@ export const EDIT_DOCS: Record<Edit["op"], string> = {
   replace: "{ op: replace, step, with }  swap a step for another; it keeps the old id",
   remove: "{ op: remove, step }  remove a step (not the trigger)",
   move: "{ op: move, step, to: Position }  move a step, with everything inside it",
+  wrap: "{ op: wrap, steps: [ids], intent, id? }  put steps next to each other into a new block named intent",
+  unwrap: "{ op: unwrap, step }  put a block's steps back where it was",
   set: "{ op: set, step, field, value }  change one field; null removes an optional one",
   set_skill: "{ op: set_skill, field: name | description | success, value }  change the workflow itself",
 };
@@ -101,6 +116,10 @@ export function describeEdit(edit: EditInput): string {
       return `removed ${edit.step}`;
     case "move":
       return `moved ${edit.step} ${positionText(edit.to)}`;
+    case "wrap":
+      return `put ${edit.steps.join(", ")} in a block "${edit.intent}"`;
+    case "unwrap":
+      return `took the steps out of ${edit.step}`;
     case "set":
       return edit.value === null ? `${edit.step}: removed ${edit.field}` : `${edit.step}: set ${edit.field}`;
     case "set_skill":
@@ -128,6 +147,7 @@ function applyOne(draft: Draft, edit: Edit): string | undefined {
     if (step.type === "trigger") return "a workflow has one trigger, the first step";
     return place(draft, edit.at, step as unknown as Step);
   }
+  if (edit.op === "wrap") return wrap(draft, edit.steps, edit.intent, edit.id);
 
   const found = locate(draft.steps, edit.step);
   if (!found) return `no step ${edit.step}`;
@@ -159,6 +179,10 @@ function applyOne(draft: Draft, edit: Edit): string | undefined {
       if (problem) found.list.splice(found.index, 0, step); // put it back; the edit is refused anyway
       return problem;
     }
+    case "unwrap":
+      if (step.type !== "control" || step.kind !== "group") return `${edit.step} is a ${kind} step, not a block`;
+      found.list.splice(found.index, 1, ...step.steps);
+      return undefined;
     case "set": {
       const allowed = STEP_FIELDS[kind] as readonly string[];
       if (!allowed.includes(edit.field)) {
@@ -197,7 +221,7 @@ function place(draft: Draft, at: Position, step: Step): string | undefined {
     const parent = found?.list[found.index];
     if (!parent) return `no step ${at.into}`;
     if (parent.type !== "control") return `${at.into} is not a loop or branch: steps go before or after it`;
-    if (at.arm === "else" && parent.kind !== "branch") return `${at.into} is a loop: it has no else`;
+    if (at.arm === "else" && parent.kind !== "branch") return `${at.into} is a ${parent.kind}: it has no else`;
     const list = at.arm === "else" && parent.kind === "branch" ? parent.else : parent.steps;
     if (at.at === "start") list.unshift(step);
     else list.push(step);
@@ -208,6 +232,35 @@ function place(draft: Draft, at: Position, step: Step): string | undefined {
   if (!found) return `no step ${anchor}`;
   if ("before" in at && found.list === draft.steps && found.index === 0) return "nothing goes before the trigger";
   found.list.splice("before" in at ? found.index : found.index + 1, 0, step);
+  return undefined;
+}
+
+// Steps next to each other in one list, in their order, into a new block in their place.
+function wrap(draft: Draft, ids: string[], intent: string, id?: string): string | undefined {
+  const found = ids.map((x) => ({ id: x, at: locate(draft.steps, x) }));
+  const missing = found.filter((f) => !f.at).map((f) => f.id);
+  if (missing.length > 0) return `no step ${missing.join(", ")}`;
+  const first = found[0]?.at as Container;
+  if (found.some((f) => f.at?.list !== first.list)) return "a block holds steps from one list: next to each other";
+  const indexes = found.map((f) => (f.at as Container).index);
+  const start = Math.min(...indexes);
+  const sorted = [...indexes].sort((a, b) => a - b);
+  if (sorted.some((n, i) => n !== start + i)) return "a block holds steps next to each other, with none between them";
+  const steps = first.list.slice(start, start + ids.length);
+  if (steps.some((s) => s.type === "trigger")) return "the trigger can't go in a block";
+  if (steps.some((s) => s.type === "control" && s.kind === "group")) return "a block can't hold a block";
+  const used = new Set(idsIn(draft.steps));
+  let n = 1;
+  while (used.has(`b${n}`)) n++;
+  const blockId = id ?? `b${n}`;
+  if (used.has(blockId)) return `the id ${blockId} is taken`;
+  first.list.splice(start, ids.length, {
+    id: blockId,
+    type: "control",
+    kind: "group",
+    intent,
+    steps,
+  } as unknown as Step);
   return undefined;
 }
 
