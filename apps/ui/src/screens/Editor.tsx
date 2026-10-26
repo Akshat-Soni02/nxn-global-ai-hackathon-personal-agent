@@ -7,9 +7,10 @@
 import type { EditInput, Step } from "@shadow/core";
 import type { DraftView } from "@shadow/daemon/src/types.ts";
 import { useEffect, useState } from "react";
+import { AddNode } from "../AddNode.tsx";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
-import { WorkflowTree } from "../WorkflowTree.tsx";
+import { type At, WorkflowTree } from "../WorkflowTree.tsx";
 
 type Body = Exclude<Step, { type: "trigger" }>;
 
@@ -18,6 +19,9 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
   const draft = useQuery<DraftView>("draft", { id });
   const [error, setError] = useState<string>();
   const [picked, setPicked] = useState<string>();
+  // Where a step is being added ("+" in the tree), its form in the panel.
+  const [adding, setAdding] = useState<At>();
+  const tools = useQuery<{ name: string; description: string }[]>("appTools");
   // Escape puts the step down, as it closes a panel anywhere else on the Mac. The field being typed in loses focus
   // first, so what was typed is saved (on blur) before the panel goes.
   useEffect(() => {
@@ -90,17 +94,36 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
           blocks="open"
           steps={d.skill.steps}
           selected={spot?.step.id}
-          onSelect={(step) => setPicked(step === picked ? undefined : step)}
+          onSelect={(step) => {
+            setAdding(undefined);
+            setPicked(step === picked ? undefined : step);
+          }}
+          onAdd={(at) => {
+            setPicked(undefined);
+            setAdding(at);
+          }}
         />
         <aside className="inspector" aria-label="The picked step">
-          {spot ? (
+          {adding ? (
+            <AddNode
+              key={JSON.stringify(adding)}
+              at={adding}
+              skill={d.skill}
+              tools={tools.data ?? []}
+              add={(step) =>
+                session.call("editDraft", { id, edits: [{ op: "insert", at: adding, step }] }).then(draft.reload)
+              }
+              close={() => setAdding(undefined)}
+            />
+          ) : spot ? (
             // Keyed on the step itself: after any change (or undo) the panel starts again from what was saved.
             <EditStep key={JSON.stringify(spot.step)} {...spot} edit={edit} close={() => setPicked(undefined)} />
           ) : (
             <div className="inspector-empty">
               <span className="inspector-empty-title">No step picked</span>
               <span className="muted small">
-                Click a step in the tree to change what it is for, have it wait for your approval, move it or remove it.
+                Click a step in the tree to change what it is for, have it wait for your approval, move it or remove it;
+                + adds one.
               </span>
             </div>
           )}

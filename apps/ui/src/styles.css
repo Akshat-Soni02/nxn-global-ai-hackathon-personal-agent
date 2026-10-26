@@ -1248,6 +1248,57 @@ nav a.active .badge {
 .wf-ai .wf-icon {
   stroke: var(--accent);
 }
+/* "+" between steps in the editor (AddNode.tsx, R4): quiet until hovered. */
+.wf-plus {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: 2px auto;
+  padding: 0;
+  border: 1px dashed var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wf-plus:hover,
+.wf-plus:focus-visible {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.node-kinds {
+  display: grid;
+  gap: 6px;
+}
+.node-kind {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.node-kind:hover {
+  border-color: var(--accent);
+}
+.node-form {
+  display: grid;
+  gap: 12px;
+}
+.node-form .field input,
+.node-form .field textarea,
+.node-form .field select {
+  width: 100%;
+  box-sizing: border-box;
+}
 /* Something to check on this node (the review's problems, in its panel). */
 .wf-badge {
   flex: none;

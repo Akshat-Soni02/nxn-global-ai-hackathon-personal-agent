@@ -8,10 +8,15 @@
 // its title in plain words (never an id, a channel or an address), and at most one quiet line. A block is one node; its
 // steps are in the details panel (`blocks: "fold"`), or drawn inside it where they are edited one by one (`"open"`).
 import { type Step, stepTitle } from "@shadow/core";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { describe } from "./frequency.ts";
 
 type Body = Exclude<Step, { type: "trigger" }>;
+// Where a step goes, as an insert edit takes it.
+export type At =
+  | { before: string }
+  | { after: string }
+  | { into: string; arm?: "steps" | "else"; at?: "start" | "end" };
 type Branch = Extract<Step, { type: "control"; kind: "branch" }>;
 
 // How nodes are marked: the step a question is about (`highlight`) and the step picked (`selected`); with `onSelect`,
@@ -23,6 +28,8 @@ type Marks = {
   onSelect?(id: string): void;
   blocks?: "fold" | "open";
   problems?: Map<string, string[]>;
+  // In the editor: a "+" after each step adds one there (R4).
+  onAdd?(at: At): void;
 };
 
 // The smallest scale a tree is drawn at: below it the words get too small to read, so the tree scrolls instead.
@@ -63,9 +70,8 @@ export function WorkflowTree({ steps, ...marks }: { steps: Step[] } & Marks) {
           style={fit && fit.scale < 1 ? { transform: `scale(${fit.scale})` } : undefined}
         >
           {start ? <Root step={start} /> : null}
-          {body.map((s) => (
-            <Node key={s.id} step={s} marks={marks} />
-          ))}
+          {start && marks.onAdd ? <Plus at={{ after: start.id }} marks={marks} /> : null}
+          <Steps steps={body} marks={marks} />
         </div>
       </div>
     </div>
@@ -163,9 +169,7 @@ function Node({ step, marks }: { step: Step; marks: Marks }) {
         />
         <div className="wf-inside">
           <div className="wf-seq">
-            {step.steps.map((s) => (
-              <Node key={s.id} step={s} marks={marks} />
-            ))}
+            <Steps steps={step.steps} marks={marks} />
           </div>
         </div>
       </div>
@@ -183,10 +187,10 @@ function Node({ step, marks }: { step: Step; marks: Marks }) {
         <div className="wf-inside">
           {step.steps.length > 0 ? (
             <div className="wf-seq">
-              {step.steps.map((s) => (
-                <Node key={s.id} step={s} marks={marks} />
-              ))}
+              <Steps steps={step.steps} marks={marks} />
             </div>
+          ) : marks.onAdd ? (
+            <Plus at={{ into: step.id }} marks={marks} />
           ) : (
             <div className="wf-empty">nothing yet</div>
           )}
@@ -214,19 +218,53 @@ function Node({ step, marks }: { step: Step; marks: Marks }) {
   );
 }
 
+// A list of steps, with a "+" after each where steps are added (the editor, R4).
+function Steps({ steps, marks }: { steps: Step[]; marks: Marks }) {
+  return (
+    <>
+      {steps.map((s) => (
+        <Fragment key={s.id}>
+          <Node step={s} marks={marks} />
+          {marks.onAdd && s.type !== "trigger" ? <Plus at={{ after: s.id }} marks={marks} /> : null}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+function Plus({ at, marks }: { at: At; marks: Marks }) {
+  const add = marks.onAdd;
+  if (!add) return null;
+  const where = "after" in at ? `after ${at.after}` : "into" in at ? `in ${at.into}` : "here";
+  return (
+    <button type="button" className="wf-plus" aria-label={`Add a step ${where}`} onClick={() => add(at)}>
+      +
+    </button>
+  );
+}
+
 // An "if" and its arms: the steps when it holds, any "else if" further down the chain, and "otherwise". An "else if"
 // is a step of its own (the only step of the "otherwise" before it), so its label can be picked like a node.
 function Fork({ step, marks }: { step: Branch; marks: Marks }) {
-  const arms: { key: string; label: string; branch?: Branch; steps: Step[] }[] = [
-    { key: step.id, label: "yes", steps: step.steps },
+  // `into`: where a step added to the empty arm goes.
+  const arms: { key: string; label: string; branch?: Branch; steps: Step[]; into?: At }[] = [
+    { key: step.id, label: "yes", steps: step.steps, into: { into: step.id } },
   ];
   let rest = step.else;
+  let last = step;
   while (rest.length === 1 && rest[0]?.type === "control" && rest[0].kind === "branch") {
     const next: Branch = rest[0];
-    arms.push({ key: next.id, label: `else if ${conditionText(next.if)}`, branch: next, steps: next.steps });
+    arms.push({
+      key: next.id,
+      label: `else if ${conditionText(next.if)}`,
+      branch: next,
+      steps: next.steps,
+      into: { into: next.id },
+    });
+    last = next;
     rest = next.else;
   }
-  arms.push({ key: `${step.id}-otherwise`, label: "otherwise", steps: rest });
+  arms.push({ key: `${step.id}-otherwise`, label: "otherwise", steps: rest, into: { into: last.id, arm: "else" } });
   return (
     <div className="wf-fork">
       <div className={`wf-node wf-if${state(step.id, marks)}`}>
@@ -238,7 +276,9 @@ function Fork({ step, marks }: { step: Branch; marks: Marks }) {
             <ArmLabel arm={arm} marks={marks} />
             <div className="wf-seq">
               {arm.steps.length > 0 ? (
-                arm.steps.map((s) => <Node key={s.id} step={s} marks={marks} />)
+                <Steps steps={arm.steps} marks={marks} />
+              ) : marks.onAdd && arm.into ? (
+                <Plus at={arm.into} marks={marks} />
               ) : (
                 <div className="wf-empty">nothing</div>
               )}
