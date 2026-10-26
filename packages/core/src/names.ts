@@ -73,8 +73,5 @@ export function stepTitle(step: Step, names: PageNames = {}): string {
     return `Open ${path && path.length <= 32 ? `${name}${path}` : name}`;
   }
   // A quoted control name is cleaned on its own: cleaning the whole sentence cut it at "More info" (with its quote).
-  return withoutAddresses(step.intent, names).replace(
-    /'([^']*)'/g,
-    (_, inner: string) => `“${cleanName(inner)}”`,
-  );
+  return withoutAddresses(step.intent, names).replace(/'([^']*)'/g, (_, inner: string) => `“${cleanName(inner)}”`);
 }

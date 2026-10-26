@@ -21,7 +21,6 @@ import {
   connectorChances,
   type DesignV2Options,
   type DesignV2Outcome,
-  describeChanges,
   designV2,
   drill,
   type Evidence,
@@ -30,6 +29,7 @@ import {
   normaliseAll,
   type Prompter,
   pagesOf,
+  plainChanges,
   progressLine,
   type Question,
   recordedFolders,
@@ -335,7 +335,7 @@ export async function finishRecording(
   const at = (options.now ?? (() => new Date()))().toISOString();
   // What really changed from the recorded steps (the agent's work, the answers, the approvals): from the workflow
   // itself, never from the agent's own summary.
-  const changed = changesSummary(describeChanges(plain, approved.skill));
+  const changed = changesSummary(plainChanges(plain, approved.skill));
   const noted = existing
     ? {
         ...approved.skill,
@@ -367,7 +367,9 @@ export async function finishRecording(
   const titles = new Map(
     tabsOf(trace, steps).tabs.flatMap((t) => (t.firstUrl ? [[t.firstUrl, t.name] as [string, string]] : [])),
   );
-  const blocked = blocksOf(noted as Skill, { titles });
+  // Named by the design when it named it (its task model), a workflow recorded again keeps the name it had.
+  const named = !existing && design?.task?.name ? { ...noted, name: design.task.name } : noted;
+  const blocked = blocksOf(named as Skill, { titles });
   const saved = saveSkill(dataDir, blocked);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path} (${nodeCount(blocked.steps)} nodes)`);
   if (evidence) writeRecordedSteps(dataDir, saved.skill.id, recordedSteps(evidence));

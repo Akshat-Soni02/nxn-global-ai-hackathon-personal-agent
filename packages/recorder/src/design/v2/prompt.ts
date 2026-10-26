@@ -9,6 +9,8 @@ draft ids: s1, s2…), what they said, what appeared on screen, what code left o
 
 Before anything is changed, write down what the task is: the task model.
 - outcome: what is true when the task is done, in their words.
+- name: what the workflow is called in a list, 2–6 words, verb first: "Log new YC jobs in my sheet". Never their
+  whole sentence, never how often it runs.
 - cadence: how often it runs (manual, schedule with a cron in the Mac's time, or folder) and the words that say so.
 - values: every value the recording shows (typed, pasted, picked, copied, a file's name). Recorded values are examples,
   not the task: say where each comes from next time (constant, input the user gives, today, from_step, list_item,

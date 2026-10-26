@@ -90,6 +90,7 @@ commit that does it.
 | R2.2 | Names by code: the page's title or site name, never the URL ("Open the YC jobs page", "Open 'Ycomb jobs' sheet"); a document by its title from the tab | `blocks.ts`, `evidence/pages.ts` | ☑ R2 (Open / Copy from / Fill in / the outward step's words; a tab named only by its site is ignored) |
 | R2.3 | The recorded workflow is saved with blocks (compile), so even a design that does nothing is readable | `packages/recorder/src/compile.ts` | ☑ R2 (at save in `apps/daemon/src/record.ts`, after the change summary, not in compile: a design could empty a block) |
 | R2.4 | Measure on the YC recording offline (`pnpm design:eval`, fake model, free): node count and names, in the log below | `scripts/design-eval.ts` | ☑ R2: 33 steps → 10 nodes, all named (see log) |
+| R2.5 | Workflows saved before blocks keep their flat steps and long names: a "Tidy up" on their page that groups them (`blocksOf` as `wrap` edits on a draft, so it is a version the user saves) and gives a short name | `Workflow.tsx`, daemon draft API | ☐ |
 
 ### R3. The workflow page: clean nodes, details on the side
 
@@ -101,7 +102,7 @@ commit that does it.
 | R3.4 | Addresses shown as site + page title ("Google Sheets · Ycomb jobs"), never a document's id | `apps/ui/src/format.ts` | ☑ R3 (`pageName` / `stepTitle` in `packages/core/src/names.ts`, shared with the recorder) |
 | R3.5 | Problems on nodes: a badge on the node, a plain sentence in its panel; the page shows "2 things to check" with links to the nodes | `apps/ui/src/review.ts`, `Workflow.tsx`; the daemon's review gets `{ step, plain }` per problem | ☑ R3 (in the window: `nodeProblems` maps each review line to the block holding its step; no daemon change) |
 | R3.6 | Plain words for the agent's checks (`gate.ts` messages → a user sentence each): "didn't find it in the test" → "Couldn't find ‹what› on the page when testing" | `packages/recorder/src/design/v2/review.ts` | ◐ R3 (`plainProblem` in `apps/ui/src/review.ts` covers not found, failed, empty, same page, lost work, unbuilt rules; the gate's own wording is unchanged) |
-| R3.7 | Versions in plain words by node name: "Runs every day at 9:00 (was: by hand) · Skips 'Open Drive' · The date is today's" | `packages/recorder/src/design/v2/rules.ts` (`changeNotes`), `Workflow.tsx` | ☐ |
+| R3.7 | Versions in plain words by node name: "Runs every day at 9:00 (was: by hand) · Skips 'Open Drive' · The date is today's" | `packages/recorder/src/design/v2/rules.ts` (`changeNotes`), `Workflow.tsx` | ☑ R3.7 (`plainChanges` writes the history note; the name: `shortName` by code, the task model's `name` when given) |
 | R3.8 | Screenshots before/after with the YC workflow (`shoot.mts`, MOCK=1), in this file | — | ◐ taken locally (they show the user's goal sentence, so not committed); described in the log |
 
 ### R4. Build and fix by hand: "+" and node types
@@ -153,15 +154,15 @@ commit that does it.
 
 ## Resume here
 
-**Next:** R3.7, versions in plain words. The history line today is `changesSummary(describeChanges(...))` in
-`packages/recorder/src/design/v2/changes.ts` ("removed s3; s2: check nothing; s7: url … → nothing"): say it by node
-title (`stepTitle`), leave out what a reader can't use (checks set to nothing), keep it to one short sentence. Then the
-workflow's own name: today it is the user's whole goal sentence ("So since i am job hunting i want to collect top jobs
-from…"); a short name (≤ 6 words) by code from the goal, or by the design's task model. Then R4 ("+").
+**Next:** R4.1–R4.3, "+" to add a node. Start in the editor (`apps/ui/src/screens/Editor.tsx`, which already applies
+edit ops to a draft with undo/redo): a "+" under each node of the tree (`WorkflowTree` gets `onAdd(at: Position)`),
+a menu of node types (R4.2), and a form per type that becomes steps through the same short forms the design agent
+uses (`{ do: … }` → `compile` in `packages/recorder/src/design/v2/tools.ts`; it needs exporting, or a small daemon API
+`draft.add { at, node }` that compiles and applies an `insert`). Then R2.5 (tidy up old workflows).
 
-Done so far: R1 (blocks in the core), R2 (code groups every saved workflow), R3.1–R3.6 (one node per block, icon +
-plain title, details panel with Details / Debug, no addresses; the review's problems as badges on their nodes, in
-plain words, with "N things to check on the steps" linking to them). Screenshots: `shoot.mts` with
+Done so far: R1 (blocks in the core), R2 (code groups every saved workflow), R3 (one node per block, icon + plain
+title, details panel with Details / Debug, no addresses; the review's problems as badges on their nodes; the history
+note and the workflow's name in plain words). Screenshots: `shoot.mts` with
 `MOCK_SKILL=<a saved workflow json>` serves that workflow at `/workflows/<id>`; `CLICK=<n>` picks the nth node first.
 
 How to check work: `pnpm exec vitest run` (all packages), `pnpm exec tsc -p <package>`, `pnpm exec biome check packages
@@ -194,3 +195,11 @@ Never commit a real document id, email or recording: use made-up ones in tests.
   clicks or reads on the page"; above the tree "4 things to check on the steps" with a link to each node, and "Also to
   check: What you said, “I pick top 5 jobs.”, isn't built by any step yet". Change badges name the step by title, not
   id. 780 tests pass.
+- **Oct 26, R3.7**: a version's note in plain words (`plainChanges`): the YC v1's "Recorded; runs: manual → schedule
+  0 9 * * *; removed s3; s2: check nothing; s4: check nothing; s7: url "https://…" → nothing; s11: text "25 Oct" →
+  "{{today|D MMM}}"; 2 steps described" becomes "Recorded; Every day at 09:00 (was: only when you start it); leaves out
+  “Open Google Drive”; ‘Type into “A4”’ uses today's date". Checks and rewordings are left out; blocks never count as
+  a change. The Frequency's words moved to core (`describeTrigger`) so the recorder and the window say it alike. The
+  name: "So since i am job hunting i want to collect top jobs from…" → "Collect top jobs from ycombinator" by code
+  (`shortName`), or the task model's `name` (the understand prompt asks for 2–6 words, verb first). Workflows saved
+  before keep theirs: R2.5. 783 tests pass.

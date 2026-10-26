@@ -1,6 +1,7 @@
 import { isGroup, Skill, type Step } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { blocksOf, clean, nodeCount, pageName } from "./blocks.ts";
+import { shortName } from "./compile.ts";
 
 const SHEET = "https://docs.google.com/spreadsheets/d/1XyZexampleDocId/edit";
 const nav = (id: string, url: string) => ({
@@ -46,6 +47,20 @@ const workflow = (steps: unknown[]) =>
     steps: [{ id: "start", type: "trigger", intent: "t" }, ...steps],
   });
 const names = (steps: Step[]) => steps.filter((s) => s.type !== "trigger").map((s) => (isGroup(s) ? s.intent : s.id));
+
+describe("a workflow's name from its goal (R3.7)", () => {
+  it("is what they want done, in a few words, without the frequency or the story", () => {
+    expect(
+      shortName(
+        "So since i am job hunting i want to collect top jobs from ycombinator everyday. i save those a google sheet in my drive thats it.",
+      ),
+    ).toBe("Collect top jobs from ycombinator");
+    expect(shortName("Upload this week's invoice to the portal")).toBe("Upload this week's invoice to the portal");
+    expect(shortName("Every morning, check the KPI email and log the numbers in the sheet")).toBe(
+      "Check the KPI email",
+    );
+  });
+});
 
 describe("blocks by code (the YC recording, Oct 26: 33 steps → 10 nodes)", () => {
   it("groups what was done on a page, named for what it does and where, never by address", () => {

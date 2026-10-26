@@ -22,7 +22,7 @@ export {
   templateProblems,
 } from "./compile.ts";
 export { DESIGN_V2_BUDGET, remaining } from "./design/v2/budget.ts";
-export { changesSummary, describeChanges } from "./design/v2/changes.ts";
+export { changesSummary, describeChanges, plainChanges } from "./design/v2/changes.ts";
 export {
   APPS,
   type AppTool,

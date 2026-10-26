@@ -4,6 +4,7 @@ export * from "./check.ts";
 export * from "./dates.ts";
 export * from "./descriptor.ts";
 export * from "./edit.ts";
+export * from "./frequency.ts";
 export * from "./guard.ts";
 export * from "./messages.ts";
 export * from "./names.ts";
