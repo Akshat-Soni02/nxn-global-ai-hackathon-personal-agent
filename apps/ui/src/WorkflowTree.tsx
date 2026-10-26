@@ -16,7 +16,14 @@ type Branch = Extract<Step, { type: "control"; kind: "branch" }>;
 
 // How nodes are marked: the step a question is about (`highlight`) and the step picked (`selected`); with `onSelect`,
 // a click on a step picks it.
-type Marks = { highlight?: string; selected?: string; onSelect?(id: string): void; blocks?: "fold" | "open" };
+// `problems`: what the review says is wrong, by node: a badge on it (R3.5).
+type Marks = {
+  highlight?: string;
+  selected?: string;
+  onSelect?(id: string): void;
+  blocks?: "fold" | "open";
+  problems?: Map<string, string[]>;
+};
 
 // The smallest scale a tree is drawn at: below it the words get too small to read, so the tree scrolls instead.
 const FLOOR = 0.75;
@@ -268,6 +275,12 @@ function Face({ kind, step, sub, marks }: { kind: string; step: Body; sub: strin
       <span className="wf-head">
         <KindIcon kind={kind} />
         <span className="wf-title">{stepTitle(step)}</span>
+        {marks.problems?.get(step.id)?.length ? (
+          <span className="wf-badge" title={marks.problems.get(step.id)?.join("\n")}>
+            {marks.problems.get(step.id)?.length}
+            <span className="visually-hidden"> to check</span>
+          </span>
+        ) : null}
       </span>
       {sub || step.requires_approval || step.ask ? (
         <span className="wf-sub">

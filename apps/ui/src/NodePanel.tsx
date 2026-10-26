@@ -7,8 +7,16 @@ import { conditionText, words } from "./WorkflowTree.tsx";
 
 type Body = Exclude<Step, { type: "trigger" }>;
 
-export function NodePanel({ step, close }: { step: Body; close(): void }) {
+export function NodePanel({ step, close, problems = [] }: { step: Body; close(): void; problems?: string[] }) {
   const [tab, setTab] = useState<"details" | "debug">("details");
+  const toCheck =
+    problems.length > 0 ? (
+      <ul className="node-problems" aria-label="To check">
+        {problems.map((p) => (
+          <li key={p}>{p}</li>
+        ))}
+      </ul>
+    ) : null;
   return (
     <div className="inspector-body">
       <div className="inspector-head">
@@ -31,6 +39,7 @@ export function NodePanel({ step, close }: { step: Body; close(): void }) {
           </button>
         ))}
       </div>
+      {toCheck}
       {tab === "details" ? <Details step={step} /> : <Debug step={step} />}
     </div>
   );

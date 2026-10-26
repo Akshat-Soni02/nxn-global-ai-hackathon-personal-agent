@@ -99,8 +99,8 @@ commit that does it.
 | R3.2 | A block is one node; its steps open in the side panel, not in the tree | `WorkflowTree.tsx` | ☑ R3 (`blocks: "fold"` on the page, `"open"` in the editor, where its steps are still edited one by one) |
 | R3.3 | Side panel on the workflow page (the editor has one): **Details** (what it does, inputs, what it makes, asks first) and **Debug** (its steps with ids, locators, values; last run's result per step) | new `apps/ui/src/NodePanel.tsx` | ☑ R3 (`apps/ui/src/NodePanel.tsx`; Debug lists each step's id, action, target, args; last run's result per step: not yet) |
 | R3.4 | Addresses shown as site + page title ("Google Sheets · Ycomb jobs"), never a document's id | `apps/ui/src/format.ts` | ☑ R3 (`pageName` / `stepTitle` in `packages/core/src/names.ts`, shared with the recorder) |
-| R3.5 | Problems on nodes: a badge on the node, a plain sentence in its panel; the page shows "2 things to check" with links to the nodes | `apps/ui/src/review.ts`, `Workflow.tsx`; the daemon's review gets `{ step, plain }` per problem | ☐ |
-| R3.6 | Plain words for the agent's checks (`gate.ts` messages → a user sentence each): "didn't find it in the test" → "Couldn't find ‹what› on the page when testing" | `packages/recorder/src/design/v2/review.ts` | ☐ |
+| R3.5 | Problems on nodes: a badge on the node, a plain sentence in its panel; the page shows "2 things to check" with links to the nodes | `apps/ui/src/review.ts`, `Workflow.tsx`; the daemon's review gets `{ step, plain }` per problem | ☑ R3 (in the window: `nodeProblems` maps each review line to the block holding its step; no daemon change) |
+| R3.6 | Plain words for the agent's checks (`gate.ts` messages → a user sentence each): "didn't find it in the test" → "Couldn't find ‹what› on the page when testing" | `packages/recorder/src/design/v2/review.ts` | ◐ R3 (`plainProblem` in `apps/ui/src/review.ts` covers not found, failed, empty, same page, lost work, unbuilt rules; the gate's own wording is unchanged) |
 | R3.7 | Versions in plain words by node name: "Runs every day at 9:00 (was: by hand) · Skips 'Open Drive' · The date is today's" | `packages/recorder/src/design/v2/rules.ts` (`changeNotes`), `Workflow.tsx` | ☐ |
 | R3.8 | Screenshots before/after with the YC workflow (`shoot.mts`, MOCK=1), in this file | — | ◐ taken locally (they show the user's goal sentence, so not committed); described in the log |
 
@@ -153,15 +153,15 @@ commit that does it.
 
 ## Resume here
 
-**Next:** R3.5–R3.6, problems on the nodes they're about. The review (`packages/recorder/src/design/v2/review.ts`,
-`Review.gaps` / `notTested`) is a list of the agent's sentences that start with a step id ("s5: the test run didn't find
-it…", "rule 0 …"). Give each a `{ step, plain }` (the step's block id when it sits in one, and a user sentence), draw
-a badge on that node (`WorkflowTree` `marks`), the sentence in its panel, and "N things to check" at the top. Then R3.7
-(versions in plain words) and the workflow's own name (it is the user's whole goal sentence today: a short name is
-R2-style code work, `skill.name`).
+**Next:** R3.7, versions in plain words. The history line today is `changesSummary(describeChanges(...))` in
+`packages/recorder/src/design/v2/changes.ts` ("removed s3; s2: check nothing; s7: url … → nothing"): say it by node
+title (`stepTitle`), leave out what a reader can't use (checks set to nothing), keep it to one short sentence. Then the
+workflow's own name: today it is the user's whole goal sentence ("So since i am job hunting i want to collect top jobs
+from…"); a short name (≤ 6 words) by code from the goal, or by the design's task model. Then R4 ("+").
 
-Done so far: R1 (blocks in the core), R2 (code groups every saved workflow), R3.1–R3.4 (one node per block, icon +
-plain title, details panel with Details / Debug, no addresses). Screenshots: `shoot.mts` with
+Done so far: R1 (blocks in the core), R2 (code groups every saved workflow), R3.1–R3.6 (one node per block, icon +
+plain title, details panel with Details / Debug, no addresses; the review's problems as badges on their nodes, in
+plain words, with "N things to check on the steps" linking to them). Screenshots: `shoot.mts` with
 `MOCK_SKILL=<a saved workflow json>` serves that workflow at `/workflows/<id>`; `CLICK=<n>` picks the nth node first.
 
 How to check work: `pnpm exec vitest run` (all packages), `pnpm exec tsc -p <package>`, `pnpm exec biome check packages
@@ -188,3 +188,9 @@ Never commit a real document id, email or recording: use made-up ones in tests.
   4 steps", "Copy from ycombinator.com · 2 steps"; clicking one opens its panel: "Its steps: 1. Open
   ycombinator.com/jobs 2. Open ycombinator.com/companies/just-appraised…", and Debug with ids, actions and values.
   A test caught `stepTitle` cutting "Click 'Ycomb jobs … More info (Option + →)'" at its quote: fixed.
+- **Oct 26, R3.5–R3.6**: the review's problems on their nodes. With the YC review's lines (nine "sN: target not
+  found", "s29 read exactly what s28 read…", "rule 0 … no step open_yc_jobs…"): an orange count on "Open Ycomb jobs",
+  "Fill in Google Sheets" and "Copy from ycombinator.com"; in the node's panel "When testing, it couldn't find what it
+  clicks or reads on the page"; above the tree "4 things to check on the steps" with a link to each node, and "Also to
+  check: What you said, “I pick top 5 jobs.”, isn't built by any step yet". Change badges name the step by title, not
+  id. 780 tests pass.
