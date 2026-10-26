@@ -58,11 +58,11 @@ runs with Zero Data Retention; the user chose to show the task. Masking text cos
 
 | # | Change | Where | Who | Status |
 |---|---|---|---|---|
-| P1 | **Text masking off** by default: evidence, timeline, tool results, page names, captions' questions, narration, memory. Kept: the user's **Private words** (typed on the form) and secret/password fields (never recorded). A setting "Hide emails and ids from the AI" (off) for those who want the old behaviour | `mask.ts` callers (13 files), `recording-store.ts`, Settings | R + A | ☐ |
+| P1 | **Text masking off** by default: evidence, timeline, tool results, page names, captions' questions, narration, memory. Kept: the user's **Private words** (typed on the form) and secret/password fields (never recorded). A setting "Hide emails and ids from the AI" (off) for those who want the old behaviour | `mask.ts` callers (13 files), `recording-store.ts`, Settings | R + A | ☑ `6a2be6f` (the "Hide emails" setting not built) |
 | P2 | Pictures: unchanged, blacked out where private words or secret fields are | `screen.ts` | — | ☑ |
-| P3 | **Rules audit**: every refusal in `rules.ts`, `gate.ts`, `core/guard.ts` sorted into *never* (keep as refusal: turning approval off, removing a question the user answered, scripts from repair), *ask the user* (becomes a drill question: new site, outward step, app step, removing recorded work), or *drop* (paternal: "the recording already answers this" heuristics, "a step can't be removed"). One table in `docs/agents/rules.md`, reviewed by both | `rules.ts`, `gate.ts`, `guard.ts` | R + A | ☐ |
-| P4 | **The finish check is honest**: after its refusals it no longer saves "designed". If rules aren't built by real steps, or nothing beyond proposals and the schedule changed, the result is **kept** (the recording), the Record screen says "The design didn't finish: <what's missing>. You can edit it, or record again", and the review lists the agent's claims it couldn't back | `gate.ts`, `orchestrator.ts`, Record screen | R | ☐ |
-| P5 | Question budget: from "5, then defaults" to "as many as the design needs, grouped on one screen"; "how to build it" questions allowed when the answer is the user's (which sheet, which tab, use the app or click) | `questions.ts`, prompt | R | ☐ |
+| P3 | **Rules audit**: every refusal in `rules.ts`, `gate.ts`, `core/guard.ts` sorted into *never* (keep as refusal: turning approval off, removing a question the user answered, scripts from repair), *ask the user* (becomes a drill question: new site, outward step, app step, removing recorded work), or *drop* (paternal: "the recording already answers this" heuristics, "a step can't be removed"). One table in `docs/agents/rules.md`, reviewed by both | `rules.ts`, `gate.ts`, `guard.ts` | R + A | ☑ `f9a6c94` docs/agents/rules.md; guard relaxed `3c41985` |
+| P4 | **The finish check is honest**: after its refusals it no longer saves "designed". If rules aren't built by real steps, or nothing beyond proposals and the schedule changed, the result is **kept** (the recording), the Record screen says "The design didn't finish: <what's missing>. You can edit it, or record again", and the review lists the agent's claims it couldn't back | `gate.ts`, `orchestrator.ts`, Record screen | R | ☑ `b8bf0dd` |
+| P5 | Question budget: from "5, then defaults" to "as many as the design needs, grouped on one screen"; "how to build it" questions allowed when the answer is the user's (which sheet, which tab, use the app or click) | `questions.ts`, prompt | R | ☑ `f9a6c94` (12, a ceiling only) |
 
 ### 3.2 The design agent: one designer that edits the workflow like a file, and a critic
 
@@ -97,14 +97,14 @@ taken off. Short forms the model may write, expanded by code on save: `"page": "
 
 | # | Change | Where | Who | Status |
 |---|---|---|---|---|
-| D1 | Room to think: big budgets for the designer and plan; a cut-off reply asked again with thinking off, then said | `orchestrator.ts`, `catalog.ts`, `packages/agent` | A | ☐ |
-| D2 | **Reach vs work**: code proposes opening the page directly for a chain of steps that only reach a page later steps work on, across tabs too; the prompt says a file opened from Recent or search is one fixed file | `evidence/proposals.ts`, `prompt.ts` | A | ☐ |
-| D3 | Ask any time, including ids and app offers; app offers before building (exists) | `orchestrator.ts`, `questions.ts`, prompt | A | ☐ |
-| D4 | **read / write / edit_workflow** replace the ~16 edit verbs for the designer (the verbs stay for tests and old transcripts) | new `design/v2/file.ts` | A | ☐ |
-| D6 | The critic replaces "refuse done twice, then save" | new `design/v2/critic.ts`, `gate.ts` | A | ☐ |
-| D7 | Prompts rewritten: shorter, the goal first, examples with app steps and "open it directly", no lists of don'ts code enforces | `prompt.ts` | A (R reviews) | ☐ |
-| D8 | App tools shortlist: ~8 per app, by the recorded work (writes → append / update; reads → get), the rest by `look` | `connectors.ts` | A | ☐ |
-| D9 | Connectors offered only for real work in the app (typing, pasting, copying, reading), never for navigation clicks | `connectors.ts` | A | ☐ |
+| D1 | Room to think: big budgets for the designer and plan; a cut-off reply asked again with thinking off, then said | `orchestrator.ts`, `catalog.ts`, `packages/agent` | A | ☑ `7dc5888` |
+| D2 | **Reach vs work**: code proposes opening the page directly for a chain of steps that only reach a page later steps work on, across tabs too; the prompt says a file opened from Recent or search is one fixed file | `evidence/proposals.ts`, `prompt.ts` | A | ☑ `7d14422` |
+| D3 | Ask any time, including ids and app offers; app offers before building (exists) | `orchestrator.ts`, `questions.ts`, prompt | A | ◐ app offers before building; the agent's own questions still reach the user after it builds |
+| D4 | **read / write / edit_workflow** replace the ~16 edit verbs for the designer (the verbs stay for tests and old transcripts) | new `design/v2/file.ts` | A | ☑ `b933fee` (in tools.ts; the daemon designs in file mode) |
+| D6 | The critic replaces "refuse done twice, then save" | new `design/v2/critic.ts`, `gate.ts` | A | ☑ `f9a6c94` |
+| D7 | Prompts rewritten: shorter, the goal first, examples with app steps and "open it directly", no lists of don'ts code enforces | `prompt.ts` | A (R reviews) | ◐ `b933fee` file-mode prompt with app steps; not yet shortened |
+| D8 | App tools shortlist: ~8 per app, by the recorded work (writes → append / update; reads → get), the rest by `look` | `connectors.ts` | A | ☑ `b6c4faa` |
+| D9 | Connectors offered only for real work in the app (typing, pasting, copying, reading), never for navigation clicks | `connectors.ts` | A | ☑ `23062b2` |
 
 ### 3.3 The repair agent: from "fix a locator" to "get the run done"
 
@@ -121,6 +121,10 @@ where it changes what the workflow does:
 | X5 | Remember | none within an episode | a repeat guard (same call twice → told so) and site notes across runs (exists) |
 | X6 | Budget | 12 turns, $0.10 | 20 turns, $0.20, the fast model for probing (find, outline, inspect), the smart one for deciding |
 | X7 | Outcome | resolve / commit / escalate | the same, and escalate always says in plain words what it tried and what the user can do |
+
+Status (Oct 26): X1 ☑, X3 ☑, X5 ☑, X7 ☑ `3c41985` (an "ask" change is put to the user at commit through the run's
+own question); X2 ☑ `5ba63c3`; X6 ◐ 20 turns / $0.20, but no fast model for probing yet; X4 ☐ (an app step a repair
+adds is asked at commit, but offering to connect an app from a repair isn't built).
 
 Where: `packages/player/src/repair/*`, `core/guard.ts` (the guard follows P3's table). Owner: A.
 

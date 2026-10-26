@@ -139,7 +139,7 @@ describe("other generalisations", () => {
   it("opens a document directly when the recording reached it through Drive's list into a new tab (Oct 25)", async () => {
     const DRIVE = "https://drive.google.com/drive/my-drive";
     const RECENT = "https://drive.google.com/drive/recent";
-    const DOC = "https://docs.google.com/spreadsheets/d/1JSPFFabcdefghijk/edit";
+    const DOC = "https://docs.google.com/spreadsheets/d/1XyZexampleDocIdk/edit";
     const { skill, proposals } = await propose([
       step("navigate", { url: DRIVE, events: [] }),
       step("click", { url: DRIVE, target: el("link", "Recent items", DRIVE), navigatesTo: RECENT }),

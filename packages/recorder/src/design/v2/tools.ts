@@ -112,6 +112,10 @@ const StepSpec = z
 type StepSpec = z.infer<typeof StepSpec>;
 const Where = { after: z.string().optional(), before: z.string().optional(), into: z.string().optional() };
 const Why = z.string().default("");
+// A write to the workflow file always says why: a recorded step it leaves out is explained by it (the third YC design,
+// Oct 25, sent writes without one and its removals counted as lost work). whys: a why by step id, for any step.
+const FileWhy = z.string().min(1, "say why (the user reads it; it explains every recorded step this leaves out)");
+const Whys = z.record(z.string(), z.string()).optional();
 // Step ids as a list, or in one string ("s2, s3", "[s2, s3]"): the real runs sent all three.
 const split = (ids: string) => ids.split(/[\s,[\]"']+/).filter(Boolean);
 const Ids = z.union([z.string(), z.array(z.string())]).transform((s) => (Array.isArray(s) ? s : [s]).flatMap(split));
@@ -632,14 +636,19 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       confirm: z.boolean().optional(),
     }),
     prepare: unstring,
-    run: ({ question, why, step, options, default: fallback, confirm }) => {
-      if (step !== "start" && !known(step)) return { output: { ok: false, problems: [unknown(step)] } };
+    // `confirm` is still accepted from older prompts, and means nothing now.
+    run: ({ question, why, step: named, options, default: fallback }) => {
+      // A step written as words ("after opening the jobs page"; the YC design sent one six times, refused each time):
+      // asked about the workflow's start, and said so.
+      const step = named === "start" || known(named) ? named : "start";
+      const moved =
+        step !== named ? `"${named}" is no step id, so it is asked about the start (${unknown(named)})` : "";
       if (isTimeOfDay(question))
         return {
           output: {
             ok: false,
             problems: [
-              'a time they didn\'t say is 9:00: set it with the trigger tool ({ when: { schedule: "0 9 * * *" } } is every day at 9:00), never ask it',
+              'a time they didn\'t say is 9:00: set it in the trigger (the cron "0 9 * * *" is every day at 9:00), never ask it',
             ],
           },
         };
@@ -652,16 +661,9 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
             ],
           },
         };
+      // What the recording says about it, shown with the answer, never a reason not to ask (Oct 25, P3: the YC design's
+      // "which fields say a job is already in the sheet?" was held back because the narration mentioned the sheet).
       const seen = session.evidence?.about(question) ?? [];
-      if (seen.length > 0 && !confirm) {
-        return {
-          output: {
-            not_asked: "The recording may already answer this: use it. If it doesn't, ask again with confirm: true.",
-            seen,
-          },
-          untrusted: true,
-        };
-      }
       const key = (s: string, q: string) =>
         `${s}|${q
           .toLowerCase()
@@ -679,7 +681,14 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         options: options ?? [],
         ...(fallback ? { default: fallback } : {}),
       });
-      return { output: { queued: id, note: "asked after you build, with the other questions, in one batch" } };
+      return {
+        output: {
+          queued: id,
+          note: `asked after you build, with the other questions, in one batch${moved ? `; ${moved}` : ""}`,
+          ...(seen.length > 0 ? { the_recording_says: seen } : {}),
+        },
+        ...(seen.length > 0 ? { untrusted: true } : {}),
+      };
     },
   });
 
@@ -732,7 +741,14 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     description:
       "The workflow does what they meant: one sentence on what you changed, and for each rule of the task model (by its number) the steps that build it, or not_built with why",
     input: DoneReport,
-    prepare: unstring,
+    // A long summary is cut, not refused (the YC design, Oct 25: 600 characters made done invalid).
+    prepare: (raw) => {
+      const input = unstring(raw) as { summary?: unknown } | undefined;
+      const summary = input?.summary;
+      return typeof summary === "string" && summary.length > 500
+        ? { ...input, summary: `${summary.slice(0, 497)}...` }
+        : input;
+    },
     run: async (report) => {
       // A workflow changed since its last test is tested once more first: the gate reads the report.
       if (session.runTest && session.testedDraft !== JSON.stringify(session.draft.steps) && session.tests < MAX_TESTS) {
@@ -777,7 +793,21 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     const w = when as { schedule?: string; folder?: string; glob?: string };
     if (when === "manual") return [{ type: "manual" }];
     if (typeof when === "string") return [{ type: "schedule", cron: when }];
-    if (Array.isArray(when)) return when;
+    // A schedule's cron under another name (the YC design, Oct 25: { type: "schedule", expr: "0 9 * * *" }).
+    if (Array.isArray(when))
+      return when.map((w) => {
+        const e = w as { type?: string; cron?: string; expr?: string; schedule?: string; expression?: string };
+        return (e?.type === "schedule" || e?.type === "cron") && !e.cron
+          ? {
+              ...e,
+              type: "schedule",
+              cron: e.expr ?? e.schedule ?? e.expression,
+              expr: undefined,
+              schedule: undefined,
+              expression: undefined,
+            }
+          : w;
+      });
     if (w?.schedule) return [{ type: "schedule", cron: w.schedule }];
     if (w?.folder) return [{ type: "folder_watch", dir: w.folder, ...(w.glob ? { glob: w.glob } : {}) }];
     return when;
@@ -796,8 +826,27 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       lists: Map<string, unknown>;
     },
   ): unknown => {
+    // A step named by its id: that step as it is, moved here (the YC design, Oct 25, wrote a loop's steps so).
+    if (typeof raw === "string") {
+      const found = anyStep(raw.trim());
+      if (!found) out.problems.push(`"${raw}" in a steps list: ${unknown(raw.trim())}`);
+      return found ?? raw;
+    }
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
     const { why, ...s } = raw as Record<string, unknown>;
+    // The full form written with the short form's names (the YC design, Oct 25: type "ai_step", type "condition",
+    // action "read_all"): what they say.
+    if (typeof s.type === "string" && /^(ai|ai_step|llm_step)$/.test(s.type)) s.type = "llm";
+    if (s.type === "loop") Object.assign(s, { type: "control", kind: "loop" });
+    if (typeof s.type === "string" && /^(branch|condition|if)$/.test(s.type))
+      Object.assign(s, { type: "control", kind: "branch" });
+    const short = typeof s.action === "string" ? DO[s.action] : undefined;
+    if (s.type === "action" && !("do" in s) && short && short[1] !== s.action) {
+      s.do = s.action;
+      delete s.type;
+      delete s.channel;
+      delete s.action;
+    }
     const newId = (prefix: string) => {
       const id = nextId(prefix, out.taken);
       out.taken.push(id);
@@ -859,7 +908,14 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     // A step written with `do`: code makes it what it does.
     if ("do" in s) {
       const id = typeof s.id === "string" ? s.id : newId("s");
-      const spec = StepSpec.safeParse({ intent: `${s.do}`, ...s });
+      // The step's own fields aren't the action's values (the fifth YC design, Oct 25: "id" and "requires_approval"
+      // landed in its args): they are put on the step after it is built.
+      const KEPT = ["id", "type", "requires_approval", "ask", "wait", "check", "timeout_ms", "on_fail", "output"];
+      const values = Object.fromEntries(Object.entries(s).filter(([k]) => !KEPT.includes(k)));
+      // { output: { name } } on a do step is its save_as.
+      const named = (s.output as { name?: unknown } | undefined)?.name;
+      if (values.save_as === undefined && typeof named === "string") values.save_as = named;
+      const spec = StepSpec.safeParse({ intent: `${s.do}`, ...values });
       if (!spec.success) {
         out.problems.push(
           `${id}: ${spec.error.issues.map((i) => `${i.path.join(".") || "step"}: ${i.message}`).join("; ")}`,
@@ -873,9 +929,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       }
       if (built.unverified) out.unverified.push(id);
       const keep = Object.fromEntries(
-        ["requires_approval", "ask", "wait", "check", "timeout_ms", "on_fail"]
-          .filter((k) => k in s)
-          .map((k) => [k, s[k]]),
+        KEPT.filter((k) => k !== "id" && k !== "type" && k !== "output" && k in s).map((k) => [k, s[k]]),
       );
       keepWhy(id);
       return { ...built.step, ...keep };
@@ -959,9 +1013,46 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     return put(written, "steps");
   };
 
+  // A schema problem's place by the step it is in, not its position (the YC design read "steps.9.steps.1.steps.9"):
+  // "s12 (web.read), action" for steps.4.action.
+  const placeOf = (steps: unknown[], path: PropertyKey[]): string => {
+    if (path[0] !== "steps") return path.join(".") || "workflow";
+    let node: unknown = { steps };
+    let step = "";
+    let rest: string[] = [];
+    for (const key of path) {
+      node = (node as Record<string, unknown> | undefined)?.[key as string];
+      rest.push(String(key));
+      const s = node as { id?: unknown; type?: unknown; channel?: unknown; action?: unknown } | undefined;
+      if (s && typeof s === "object" && !Array.isArray(s) && (typeof s.id === "string" || "type" in s)) {
+        const kind = s.channel ? ` (${s.channel}.${s.action})` : "";
+        step = `${typeof s.id === "string" ? s.id : "a step"}${kind}`;
+        rest = [];
+      }
+    }
+    return step ? `${step}${rest.length > 0 ? `, ${rest.join(".")}` : ""}` : path.join(".");
+  };
+
   // A workflow as written, made real and checked; kept only if every check passes.
-  const writeWorkflow = (written: unknown, why: string) => {
+  const writeWorkflow = (written: unknown, why: string, whys: Record<string, string> = {}) => {
     const given = unstring(written);
+    // Sent as text that isn't JSON (the YC design sent one five times, told only "write it as { steps }"): where it broke.
+    if (typeof given === "string") {
+      try {
+        JSON.parse(given);
+      } catch (error) {
+        const at = Number(/position (\d+)/.exec((error as Error).message)?.[1] ?? -1);
+        const around = at >= 0 ? `, near ${JSON.stringify(given.slice(Math.max(0, at - 80), at + 40))}` : "";
+        return {
+          output: {
+            ok: false,
+            problems: [
+              `the workflow was sent as text that isn't valid JSON (${(error as Error).message})${around}: send it as an object { "steps": [ … ] }, not a string`,
+            ],
+          },
+        };
+      }
+    }
     const body = Array.isArray(given) ? { steps: given } : ((given ?? {}) as Record<string, unknown>);
     if (!Array.isArray(body.steps)) {
       return { output: { ok: false, problems: ['write the workflow as { "steps": [ … ] } (read_workflow shows it)'] } };
@@ -988,9 +1079,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       return {
         output: {
           ok: false,
-          problems: parsed.error.issues
-            .slice(0, 12)
-            .map((i) => hint(`${i.path.join(".") || "workflow"}: ${i.message}`)),
+          problems: parsed.error.issues.slice(0, 12).map((i) => hint(`${placeOf(steps, i.path)}: ${i.message}`)),
         },
       };
     }
@@ -1004,11 +1093,19 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       ...[...before.keys()].filter((id) => !after.has(id)),
     ];
     const result = commit(parsed.data, why, touched, out.unverified);
-    if ((result.output as { ok?: boolean }).ok) {
-      for (const [id, reason] of out.whys) {
+    const output = result.output as { ok?: boolean } & Record<string, unknown>;
+    if (output.ok) {
+      // A why by id, for any step: one this write changes, or one an earlier write left out (the third YC design,
+      // Oct 25, had no way to explain the typing steps it had already replaced, and sent done six times).
+      for (const [id, reason] of [...out.whys, ...Object.entries(whys)]) {
+        if (!reason.trim()) continue;
         session.whys.set(id, reason);
         session.sinceTest.set(id, reason);
       }
+      // The recorded steps this write left out, so the agent knows what its why now explains.
+      const recorded = new Set([...walkSteps(session.original.steps)].map(({ step }) => step.id));
+      const removed = [...before.keys()].filter((id) => !after.has(id) && recorded.has(id));
+      if (removed.length > 0) output.recorded_steps_left_out = removed;
     }
     return result;
   };
@@ -1049,10 +1146,22 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       name: "write_workflow",
       kind: "edit",
       description:
-        'Replace the whole workflow: { "steps": [ … ] } (and "success" if you change the final checks), with the trigger first. For a plan or a big restructure. Short forms are fine: { "do": "click", "target": { "like": "s3" } }, { "do": "open", "page": "s9" }, { "do": "app", "tool": "…", "arguments": { … } }, an AI step as { "instruction", "inputs", "output" }, a loop as { "over": "{{list}}", "item": "job", "steps": [ … ] }, and a "why" on any step for the review. Every write is checked; a failed check changes nothing and says what to fix',
-      input: z.object({ workflow: z.unknown(), why: Why }),
+        'Replace the whole workflow: { "steps": [ … ] } (and "success" if you change the final checks), with the trigger first. Every step it doesn\'t list is removed: for one step or a value, use edit_workflow. For a plan or a big restructure. Short forms are fine: { "do": "click", "target": { "like": "s3" } }, { "do": "open", "page": "s9" }, { "do": "app", "tool": "…", "arguments": { … } }, an AI step as { "instruction", "inputs", "output" }, a loop as { "over": "{{list}}", "item": "job", "steps": [ … ] }, and a "why" on any step for the review. Every write is checked; a failed check changes nothing and says what to fix',
+      // An object in the schema, so the model sends one (the fourth YC design, Oct 25: `workflow` as "anything" was sent
+      // as a JSON string 12 times, broken each time at the same nesting). Text is still read, and its error said.
+      input: z.object({
+        workflow: z
+          .union([
+            z.object({ steps: z.array(z.unknown()), success: z.array(z.unknown()).optional() }).passthrough(),
+            z.array(z.unknown()),
+            z.string(),
+          ])
+          .describe('the workflow as a JSON object { "steps": [ … ] }, never a string'),
+        why: FileWhy,
+        whys: Whys,
+      }),
       prepare: unstring,
-      run: ({ workflow, why }) => writeWorkflow(workflow, why),
+      run: ({ workflow, why, whys }) => writeWorkflow(workflow, why, whys),
     }),
     tool({
       name: "edit_workflow",
@@ -1064,10 +1173,11 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
           z.array(z.object({ old: z.string().min(1), new: z.string() })).min(1),
           z.object({ old: z.string().min(1), new: z.string() }),
         ]),
-        why: Why,
+        why: FileWhy,
+        whys: Whys,
       }),
       prepare: unstring,
-      run: ({ edits, why }) => {
+      run: ({ edits, why, whys }) => {
         // Matched on the text as the agent read it (masked); writeWorkflow puts the private values back.
         let text = maskText(canonical(session.draft), session.maskTerms ?? []).text;
         for (const [i, e] of (Array.isArray(edits) ? edits : [edits]).entries()) {
@@ -1099,7 +1209,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
             },
           };
         }
-        return writeWorkflow(parsed, why);
+        return writeWorkflow(parsed, why, whys);
       },
     }),
   ];

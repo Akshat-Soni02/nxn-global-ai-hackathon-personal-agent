@@ -368,7 +368,16 @@ export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string
     isAction(s) && s.target?.role && (s.target.name || s.target.label)
       ? `${s.channel}.${s.action}|${s.target.role}|${s.target.name ?? s.target.label}`
       : undefined;
-  const doing = new Set([...walkSteps(workflow.steps)].map(({ step }) => sig(step)).filter(Boolean));
+  // A control named from a value ("C{{row}}", the third YC design, Oct 25: each job in the next row) is any control of
+  // that kind: typing into it is the typing into "A4" the user showed, done for every row.
+  const any = (s: Step) => (isAction(s) && s.target?.role ? `${s.channel}.${s.action}|${s.target.role}|*` : undefined);
+  const doing = new Set(
+    [...walkSteps(workflow.steps)].flatMap(({ step }) => {
+      const name = isAction(step) ? (step.target?.name ?? step.target?.label ?? "") : "";
+      return [sig(step), name.includes("{{") ? any(step) : undefined].filter(Boolean);
+    }),
+  );
+  const kept = (s: Step) => doing.has(sig(s)) || doing.has(any(s));
   const problems: string[] = [];
   const shown = [...walkSteps(recorded.steps)]
     .map(({ step }) => step)
@@ -376,9 +385,9 @@ export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string
   // A connected app's step does the work the clicks into its page did (connectors.ts): the recorded writes it replaced
   // are removed with a why, and that is the work kept, not lost.
   const appStep = [...walkSteps(workflow.steps)].some(({ step }) => isAction(step) && step.channel === "mcp");
-  const noneKept = shown.length > 0 && !appStep && shown.every((s) => !now.has(s.id) && !doing.has(sig(s)));
+  const noneKept = shown.length > 0 && !appStep && shown.every((s) => !now.has(s.id) && !kept(s));
   for (const step of shown) {
-    if (now.has(step.id) || doing.has(sig(step)) || (explained.has(step.id) && !noneKept)) continue;
+    if (now.has(step.id) || kept(step) || (explained.has(step.id) && !noneKept)) continue;
     problems.push(
       `${step.id} (${step.intent}) was work the user showed, and it is gone: keep it, repeat it in a loop, or remove it with a why the user will see${noneKept ? " (none of their work is left)" : ""}`,
     );

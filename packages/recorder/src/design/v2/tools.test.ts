@@ -230,7 +230,7 @@ describe("the tools", () => {
     expect(ok.output.ok).toBe(true);
   });
 
-  it("show the evidence before queuing a question, never queue it twice, and queue it for one batch", async () => {
+  it("queue a question with what the recording says about it, never twice, for one batch", async () => {
     const evidence: EvidenceView = {
       step: () => undefined,
       timeline: () => "",
@@ -239,17 +239,18 @@ describe("the tools", () => {
     };
     const s = session({ evidence });
     const shown = await run(s, "ask", { question: "Which sheet?", why: "where it writes", step: "s3" });
-    expect(shown.output.not_asked).toBeDefined();
+    // Asked, with what the recording says beside it: never held back by it (Oct 25, P3).
+    expect(shown.output).toMatchObject({ queued: "q1", the_recording_says: [expect.stringContaining("spreadsheets")] });
     const queued = await run(s, "ask", {
       question: "Newest email, or all unread?",
       why: "which emails",
       step: "s1",
       options: ["newest", "all unread"],
     });
-    expect(queued.output.queued).toBe("q1");
+    expect(queued.output.queued).toBe("q2");
     const again = await run(s, "ask", { question: "newest email or all unread", why: "x", step: "s1" });
     expect(again.output.queued).toBeUndefined();
-    expect(s.questions).toHaveLength(1);
+    expect(s.questions).toHaveLength(2);
   });
 
   it("finish only when the gate has nothing left", async () => {

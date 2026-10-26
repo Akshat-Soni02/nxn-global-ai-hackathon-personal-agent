@@ -113,6 +113,8 @@ describe("the workflow as a file", () => {
     expect(s.draft.steps[0]).toMatchObject({ when: [{ type: "schedule", cron: "0 9 * * 1-5" }] });
     expect(s.draft.steps[1]).toMatchObject({ action: "navigate", args: { url: INBOX } });
     expect(s.draft.steps[2]).toMatchObject({ action: "extract", output: { name: "subjects" } });
+    // Only the action's values in its args, never the step's own fields (the fifth YC design).
+    expect(Object.keys((s.draft.steps[2] as { args: object }).args)).not.toContain("id");
     expect(s.draft.steps[3]).toMatchObject({ type: "llm", output: { type: { type: "list" } } });
     const loop = s.draft.steps[4] as { kind: string; item: unknown; steps: { id: string }[] };
     // The item has the type of the AI step's list, made in the same write.
@@ -125,6 +127,125 @@ describe("the workflow as a file", () => {
     void s1;
   });
 
+  it("takes what the YC design wrote (Oct 25): steps named by id in a loop, a cron as expr, a bad JSON string said so", async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const written = await run(s, "write_workflow", {
+      workflow: {
+        steps: [
+          { ...trigger, when: [{ type: "schedule", expr: "0 9 * * *" }] },
+          s1,
+          { do: "read_all", intent: "read the reports", target: { like: "s2" }, save_as: "reports" },
+          { over: "{{reports}}", item: "report", steps: ["s2", "s3"] },
+        ],
+      },
+      why: "each report, each morning",
+    });
+    expect(written.problems).toBeUndefined();
+    expect(s.draft.steps[0]).toMatchObject({ when: [{ type: "schedule", cron: "0 9 * * *" }] });
+    expect((s.draft.steps[3] as { steps: { id: string }[] }).steps.map((x) => x.id)).toEqual(["s2", "s3"]);
+
+    const unknownId = await run(session(), "write_workflow", {
+      workflow: { steps: [s1, { over: "{{x}}", item: "y", steps: ["s9"] }] },
+      why: "x",
+    });
+    expect(unknownId.problems?.[0]).toContain("no step s9");
+    const text = await run(session(), "write_workflow", { workflow: '{"steps": [{"id": "s1",}]}', why: "x" });
+    expect(text.problems?.[0]).toMatch(/isn't valid JSON .*near/);
+  });
+
+  it("takes the full form written with short names (the second YC design): cron triggers, ai_step, read_all", async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const written = await run(s, "write_workflow", {
+      workflow: {
+        steps: [
+          { ...trigger, when: [{ type: "cron", expr: "0 9 * * *" }] },
+          s1,
+          {
+            id: "read_jobs",
+            type: "action",
+            channel: "web",
+            action: "read_all",
+            intent: "read the list",
+            target: { like: "s2" },
+            save_as: "jobs",
+          },
+          {
+            id: "pick",
+            type: "ai_step",
+            intent: "pick",
+            instruction: "the first 5 in the list's order",
+            inputs: ["{{jobs}}"],
+            output: { name: "top", type: "list" },
+          },
+        ],
+      },
+      why: "x",
+    });
+    expect(written.problems).toBeUndefined();
+    expect(s.draft.steps[0]).toMatchObject({ when: [{ type: "schedule", cron: "0 9 * * *" }] });
+    expect(s.draft.steps[2]).toMatchObject({ channel: "web", action: "extract" });
+    expect(s.draft.steps[3]).toMatchObject({ type: "llm" });
+  });
+
+  it("asks a question about a step written as words about the start, and cuts a long done summary", async () => {
+    const s = session();
+    const asked = await run(s, "ask", { question: "How many jobs?", why: "x", step: "after opening the jobs page" });
+    expect(asked).toMatchObject({ queued: "q1" });
+    expect(String(asked.note)).toContain("asked about the start");
+    expect(s.questions[0]?.step).toBe("start");
+    const t = designToolsV2(s, { mode: "file" }).find((x) => x.name === "done") as AnyTool<DoneReport>;
+    const long = t.prepare?.({ summary: "x".repeat(700), rules: [] }) as { summary: string };
+    expect(t.input.safeParse(long).success).toBe(true);
+  });
+
+  it("always says why, and explains a step left out earlier by id (the third YC design)", async () => {
+    const s = session();
+    const t = designToolsV2(s, { mode: "file" }).find((x) => x.name === "write_workflow") as AnyTool<DoneReport>;
+    expect(t.input.safeParse({ workflow: { steps: [] } }).success).toBe(false);
+    const [trigger, s1, s2] = steps(s) as Record<string, unknown>[];
+    // s3 replaced by typing into the row's cell, named from a value: its work is kept, and its removal is said.
+    const typing = {
+      id: "type_date",
+      do: "type",
+      intent: "type the date in the row",
+      target: { role: "textbox", name: "Date {{row}}" },
+      text: "{{today|D MMM}}",
+    };
+    const row = {
+      instruction: "the number of the sheet's next empty row",
+      inputs: [],
+      output: { name: "row", type: "number" },
+    };
+    const left = await run(s, "write_workflow", {
+      workflow: { steps: [trigger, s1, s2, row, typing] },
+      why: "the row",
+    });
+    expect(left.problems).toBeUndefined();
+    expect(left.recorded_steps_left_out).toEqual(["s3"]);
+    const again = steps(s);
+    await run(s, "write_workflow", {
+      workflow: { steps: again },
+      why: "no change",
+      whys: { s3: "the date is typed by the new step" },
+    });
+    expect(s.whys.get("s3")).toBe("the date is typed by the new step");
+    expect(lostWork(recorded, s.draft, s.whys)).toEqual([]);
+  });
+
+  it("names the step a problem is in, with what it does", async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const bad = await run(s, "write_workflow", {
+      workflow: {
+        steps: [trigger, s1, { id: "s7", type: "action", intent: "x", channel: "web", action: "hover", args: {} }],
+      },
+      why: "x",
+    });
+    expect(bad.problems?.join(" ")).toContain("s7 (web.hover)");
+  });
+
   it("says what's wrong, by path, and changes nothing", async () => {
     const s = session();
     const before = workflowFile(s.draft);
@@ -133,7 +254,7 @@ describe("the workflow as a file", () => {
       why: "x",
     });
     expect(bad.ok).toBe(false);
-    expect(bad.problems?.join(" ")).toMatch(/steps\.1/);
+    expect(bad.problems?.join(" ")).toMatch(/s9 \(web\.click\), intent/);
     expect(workflowFile(s.draft)).toBe(before);
     expect((await run(s, "write_workflow", { workflow: "nonsense", why: "x" })).ok).toBe(false);
     // A default the runner wouldn't fill, as the input tool refuses it.
