@@ -3,6 +3,10 @@
 // reads (screen words, narration, the timeline, tool results): only the user's private words become ███ (since Oct
 // 25; see maskText).
 export const MASK = "███";
+// The setting "Hide emails and ids from the AI" (N7), carried with the private words wherever they go: text the AI
+// reads is then masked with every pattern too (emails, keys, long ids, cards, IBANs, phones), and put back the same
+// way when the agent writes it.
+export const HIDE_IDENTIFIERS = "\u0000emails and ids";
 
 export interface Box {
   x: number;
@@ -69,13 +73,17 @@ export function maskText(
 ): { text: string; hits: number } {
   let hits = 0;
   let out = text;
-  for (const term of terms.map((t) => t.trim()).filter((t) => t.length >= 3)) {
+  const patterns = options.patterns || terms.includes(HIDE_IDENTIFIERS);
+  for (const term of terms
+    .filter((t) => t !== HIDE_IDENTIFIERS)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3)) {
     out = out.replace(new RegExp(`\\b${escapeRegExp(term)}\\b`, "gi"), () => {
       hits++;
       return MASK;
     });
   }
-  if (!options.patterns) return { text: out, hits };
+  if (!patterns) return { text: out, hits };
   for (const rule of RULES) {
     out = out.replace(rule.pattern, (match) => {
       if (rule.keep?.(match)) return match;

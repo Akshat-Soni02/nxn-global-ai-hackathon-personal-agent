@@ -141,6 +141,8 @@ export interface Consent {
   microphone: boolean;
   // The masked picture may be sent to the vision model to be described (design and repair). Off: words only.
   pictures: boolean;
+  // Hide emails and ids from the AI (N7). Absent from a daemon older than the window: off.
+  identifiers?: boolean;
 }
 // The description form, as recording-store.ts checks and saves it.
 export interface RecordFormView {

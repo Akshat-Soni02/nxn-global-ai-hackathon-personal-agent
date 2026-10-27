@@ -196,7 +196,7 @@ describe("recording from the window's API", () => {
       await new Promise((r) => setTimeout(r, 10));
     }
     expect((await api.call("recording", {})) as { phase: string }).toMatchObject({ phase: "recording" });
-    expect(readConsent(home)).toEqual({ screen: true, microphone: false, pictures: false }); // the form's next defaults
+    expect(readConsent(home)).toEqual({ screen: true, microphone: false, pictures: false, identifiers: false }); // the form's next defaults
 
     const event = (id: string, at: number, body: object) =>
       ext.write(encode({ id, type: "record.event", sessionId, at, tabId: 1, frameId: 0, url: PAGE, ...body }));

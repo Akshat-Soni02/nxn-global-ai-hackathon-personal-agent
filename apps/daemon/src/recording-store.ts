@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { join } from "node:path";
 import { Description, Trigger } from "@shadow/core";
 import type { Note } from "@shadow/recorder";
+import { HIDE_IDENTIFIERS } from "@shadow/recorder";
 import { z } from "zod";
 
 export const Consent = z.object({
@@ -17,6 +18,9 @@ export const Consent = z.object({
   // The masked picture itself (private lines and secret fields blacked out) may be sent to the vision model, to be
   // described, by the design agent (describe_step_screenshot) and the repair agent (describe_screen). Off: only words ever leave.
   pictures: z.boolean().default(false),
+  // Hide emails and ids from the AI (N7): text the models read is masked with every pattern (emails, keys, long ids,
+  // cards, IBANs, phones), not only your private words; put back when the agent writes it.
+  identifiers: z.boolean().default(false),
 });
 export type Consent = z.infer<typeof Consent>;
 
@@ -40,7 +44,7 @@ export const RecordForm = Description.extend({
     .min(1)
     .max(5)
     .default([{ type: "manual" }]),
-  consent: Consent.default({ screen: false, microphone: false, pictures: false }),
+  consent: Consent.default({ screen: false, microphone: false, pictures: false, identifiers: false }),
   // Recording a task again (docs/design.md, open question closed 13 Oct): the id of the workflow this recording is a
   // new version of. It keeps that id, its Frequency and its state; the recording becomes its next version.
   again: z
@@ -62,7 +66,10 @@ export type RecordForm = z.infer<typeof RecordForm>;
 // Everything masked by name in a recording's words: the Never list and the private words.
 // The words hidden from the AI: the ones the user typed as private. Not the Never rules: a rule hidden from the agent
 // ("never email ███") can't be followed (Oct 25).
-export const maskTermsOf = (form?: Pick<RecordForm, "never" | "private">): string[] => [...(form?.private ?? [])];
+export const maskTermsOf = (form?: Pick<RecordForm, "never" | "private"> & { consent?: Consent }): string[] => [
+  ...(form?.private ?? []),
+  ...(form?.consent?.identifiers ? [HIDE_IDENTIFIERS] : []),
+];
 export type RecordFormInput = z.input<typeof RecordForm>;
 
 export function recordingDir(dataDir: string, sessionId: string): string {
@@ -105,7 +112,7 @@ function readConfig(dataDir: string): Record<string, unknown> {
 
 export function readConsent(dataDir: string): Consent {
   const parsed = Consent.safeParse(readConfig(dataDir).consent ?? {});
-  return parsed.success ? parsed.data : { screen: false, microphone: false, pictures: false };
+  return parsed.success ? parsed.data : { screen: false, microphone: false, pictures: false, identifiers: false };
 }
 
 // Only the "consent" key is written; anything else in config.json is kept as it is.

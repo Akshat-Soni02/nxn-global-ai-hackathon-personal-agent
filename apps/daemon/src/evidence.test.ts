@@ -56,7 +56,7 @@ describe("evidence.json", () => {
       never: [],
       private: [],
       when: [{ type: "manual" as const }],
-      consent: { screen: true, microphone: false, pictures },
+      consent: { screen: true, microphone: false, pictures, identifiers: false },
     });
     const off = await writeEvidence({ ...common, form: consent(false), describer });
     expect(off?.steps.some((s) => s.caption)).toBe(false);

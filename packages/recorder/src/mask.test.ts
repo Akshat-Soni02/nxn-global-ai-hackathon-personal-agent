@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MASK, maskLines, maskText } from "./mask.ts";
+import { HIDE_IDENTIFIERS, MASK, maskLines, maskText } from "./mask.ts";
 
 const inPicture = (text: string, terms?: string[]) => maskText(text, terms, { patterns: true }).text;
 
@@ -51,5 +51,18 @@ describe("masking", () => {
     expect(result.lines.map((l) => l.text)).toEqual(["Inbox", "jane@acme.com wrote:", `Weekly metrics for ${MASK}`]);
     expect(result.boxes).toEqual([box(30), box(60)]);
     expect(result.hits).toBe(2);
+  });
+});
+
+describe('the setting "Hide emails and ids from the AI" (N7)', () => {
+  it("masks emails, keys and long ids in text the AI reads, carried with the private words; off, only those words", () => {
+    const text = "Send to ana@example.com the sheet 1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 for Acme";
+    expect(maskText(text, ["Acme"]).text).toBe(
+      `Send to ana@example.com the sheet 1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 for ${MASK}`,
+    );
+    const hidden = maskText(text, ["Acme", HIDE_IDENTIFIERS]).text;
+    expect(hidden).not.toContain("ana@example.com");
+    expect(hidden).not.toContain("1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789");
+    expect(hidden).toContain(`for ${MASK}`);
   });
 });

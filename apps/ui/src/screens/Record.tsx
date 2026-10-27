@@ -244,7 +244,7 @@ function GoalBox({
             never: initial.never,
           }
         : {}),
-      consent: { screen, microphone, pictures: screen && pictures },
+      consent: { screen, microphone, pictures: screen && pictures, identifiers: consent.identifiers ?? false },
       private: privateWords
         .split(/[,\n]/)
         .map((w) => w.trim())

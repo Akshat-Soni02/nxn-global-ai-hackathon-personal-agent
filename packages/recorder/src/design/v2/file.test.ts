@@ -1,6 +1,7 @@
 import type { AnyTool } from "@shadow/agent";
 import { applyEdits, findStep, Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
+import { HIDE_IDENTIFIERS } from "../../mask.ts";
 import type { DoneReport } from "./contracts.ts";
 import { lostWork } from "./gate.ts";
 import { newSession, type SessionV2 } from "./session.ts";
@@ -384,5 +385,35 @@ describe('the trigger as a model writes it (28 Oct, the YC design: refused four 
     const out = await withTrigger({ when: [{ type: "sometimes" }] });
     expect(out.problems?.join(" ")).toMatch(/start, when\.0\.type/);
     expect(out.problems?.join(" ")).not.toMatch(/a step/);
+  });
+});
+
+describe("with emails and ids hidden from the AI (N7)", () => {
+  it("shows the agent no email, and puts the real one back when it writes the step as it read it", async () => {
+    const withEmail = Skill.parse({
+      ...recorded,
+      steps: [
+        ...recorded.steps,
+        {
+          id: "s4",
+          type: "action",
+          intent: "type the address",
+          channel: "web",
+          action: "type",
+          target: { role: "textbox", name: "To", fallbacks: [] },
+          args: { text: "ana@example.com" },
+        },
+      ],
+    });
+    const s = newSession(
+      withEmail,
+      { pages: [INBOX], folders: [] },
+      { pages: new Map([["s1", INBOX]]), maskTerms: [HIDE_IDENTIFIERS] },
+    );
+    const shown = String(await run(s, "read_workflow", {}));
+    expect(shown).not.toContain("ana@example.com");
+    const written = await run(s, "write_workflow", { workflow: JSON.parse(shown), why: "as it is" });
+    expect(written.problems).toBeUndefined();
+    expect(JSON.stringify(s.draft)).toContain("ana@example.com");
   });
 });

@@ -75,7 +75,7 @@ export { type Picture, type StepScreen, screensOf } from "./evidence/screens.ts"
 export { type TabInfo, tabName, tabsOf } from "./evidence/tabs.ts";
 export { describeStep, type TimelineLine, timelineOf, timelineSlice } from "./evidence/timeline.ts";
 export { toLocator } from "./locator.ts";
-export { type Box, type Line, MASK, maskLines, maskText } from "./mask.ts";
+export { type Box, HIDE_IDENTIFIERS, type Line, MASK, maskLines, maskText } from "./mask.ts";
 export { type Note, narrationOf, notesByStep } from "./narration.ts";
 export {
   globFor,
