@@ -226,7 +226,11 @@ export const ActionStep = z
         MCP_TOOL_NAME.test(s.args.tool) &&
         (s.args.arguments === undefined ||
           (typeof s.args.arguments === "object" && s.args.arguments !== null && !Array.isArray(s.args.arguments)))),
-    { message: "an mcp step needs args.tool (a tool's name) and args.arguments as an object, if any", path: ["args"] },
+    {
+      message:
+        'an mcp step needs args.tool (a tool\'s name) and args.arguments as an object, if any: { channel: "mcp", action: "call", args: { tool: "NAME", arguments: { … } } }',
+      path: ["args"],
+    },
   );
 export type ActionStep = z.infer<typeof ActionStep>;
 

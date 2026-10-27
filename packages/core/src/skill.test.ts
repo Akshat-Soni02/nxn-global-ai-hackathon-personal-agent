@@ -122,6 +122,20 @@ describe("skill schema", () => {
     expect(branch && isBranch(branch) && branch.else).toEqual([]);
   });
 
+  it("shows an agent the shape of an app step when it puts the tool outside args (a real repair run did, and never recovered)", () => {
+    const wrong = {
+      id: "s2",
+      type: "action",
+      intent: "add the line",
+      channel: "mcp",
+      action: "call",
+      tool: "DOCS_ADD",
+    };
+    const message = issues(withSteps(wrong)).join("\n");
+    expect(message).toMatch(/needs args\.tool/);
+    expect(message).toContain('{ channel: "mcp", action: "call", args: { tool: "NAME", arguments: { … } } }');
+  });
+
   it("needs ids unique across the whole tree", () => {
     const loop = { ...invoices().steps[2], id: "s1" };
     expect(issues({ ...invoices(), steps: [...invoices().steps.slice(0, 2), loop] })).toContain(

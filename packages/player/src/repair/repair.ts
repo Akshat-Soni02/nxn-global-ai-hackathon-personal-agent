@@ -193,8 +193,10 @@ that acts outward, opens a new site or removes a step that asks for approval is 
 made on yes. Calling the same look again with nothing done in between gets the same answer: act instead. If you can't
 find a safe fix, escalate and say in plain words what you would change, or what the user should show you.
 When the failing step is work inside an app that has a connected tool listed under "Available now" (a sheet's cells, a
-document, a mail), the page may be what can't be replayed: replace the step with that tool's mcp.call (keep
-requires_approval on). It can't be tried, because it would write for real: commit puts it to the user, and that yes is
+document, a mail), try the app first, before you look at the page: the page may be what can't be replayed. Replace the
+step with that tool's mcp.call in one edit: { channel: "mcp", action: "call", args: { tool: "NAME", arguments: { … } } }
+(keep requires_approval on; the document or sheet id is in the address of the page the workflow opened). Page repair is
+for steps no tool does. It can't be tried, because it would write for real: commit puts it to the user, and that yes is
 its check.`;
 
 // What the repair did before it handed over, in plain words for the user (Oct 25, X7): "It looked at the page 9 times,

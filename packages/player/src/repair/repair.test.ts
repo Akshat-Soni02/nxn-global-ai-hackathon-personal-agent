@@ -377,6 +377,16 @@ describe("the repair agent", () => {
     });
   });
 
+  it("tells the agent to try a connected app's tool first, and shows the step's shape (a real run lost 13 turns on the page)", async () => {
+    const { failure, env } = await failOn("renamed.html");
+    const llm = agent([() => call("escalate", { reason: "stop here" })]);
+    await createRepairer({ llm }).repair(skill, failure, env);
+    const sent = llm.requests[0]?.messages as { role: string; content: string }[] | undefined;
+    const system = sent?.find((m) => m.role === "system");
+    expect(system?.content).toMatch(/before you look at the page/);
+    expect(system?.content).toContain('args: { tool: "NAME", arguments: { … } }');
+  });
+
   it("keeps one allowance across the legs of a run: a wait doesn't give it back (C4)", async () => {
     const { failure, env } = await failOn("renamed.html");
     const looper = fakeLlm(() => call("page_outline", {}));
