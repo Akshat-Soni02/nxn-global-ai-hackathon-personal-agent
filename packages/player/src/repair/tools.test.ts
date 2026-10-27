@@ -238,4 +238,29 @@ describe("the failure report", () => {
     expect(report).toContain("# When it was recorded");
     expect(report).toContain("recorded: clicked Export CSV");
   });
+
+  it("never holds a secret input's value, though the step as run typed it (N2)", async () => {
+    const withSecret = Skill.parse({
+      ...skill,
+      steps: [
+        {
+          ...(skill.steps[0] as object),
+          inputs: {
+            ...(skill.steps[0]?.type === "trigger" ? skill.steps[0].inputs : {}),
+            password: { type: { type: "secret" } },
+          },
+        },
+        ...skill.steps.slice(1),
+      ],
+    });
+    const typed = { ...step, action: "type", args: { text: "hunter2-secret" } } as ActionStep;
+    const report = await failureReport(
+      withSecret,
+      { ...failure, step: typed, vars: { password: "hunter2-secret" } },
+      { class: "drift", reason: "renamed" },
+      { runId: "r", deps: {} as RunDeps },
+    );
+    expect(report).not.toContain("hunter2-secret");
+    expect(report).toContain("███");
+  });
 });

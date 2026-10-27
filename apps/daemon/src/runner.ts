@@ -43,6 +43,7 @@ import {
   mcpChannel,
   prepareMcpSteps,
 } from "./mcp-tools.ts";
+import { readWorkflowSecret } from "./workflow-secrets.ts";
 
 // Extra time on top of a step's own timeout for the round trip and the extension's work.
 const EXTENSION_MARGIN_MS = 20_000;
@@ -262,7 +263,10 @@ export async function runSkillOn(
       log,
     };
     const resume = options.resume;
-    const inputs = resume ? provided : await resolveInputs(skill, provided);
+    // A secret input is read from the Keychain, where it was set on the workflow's page (N2).
+    const inputs = resume
+      ? provided
+      : await resolveInputs(skill, provided, { secret: (name) => readWorkflowSecret(skill.id, name) });
     if (!hooks.recovery) {
       ended = await runSkill(skill, deps, { runId, inputs, resume, signal });
       return ended;

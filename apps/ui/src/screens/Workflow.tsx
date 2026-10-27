@@ -160,6 +160,8 @@ export function Workflow({ id }: { id: string }) {
         ) : null}
       </header>
 
+      <Secrets id={id} />
+
       <section className="section">
         <div className="title-row">
           <h2>Frequency</h2>
@@ -491,6 +493,60 @@ function ChatBox({
           {busy ? "Changing…" : "Change it"}
         </button>
       </form>
+      {error ? <p className="error">{error}</p> : null}
+    </section>
+  );
+}
+
+// A workflow's secret inputs (N2): a password field it types. Each is typed once here and kept in your Mac's Keychain;
+// this page only ever learns whether one is set, never what it is.
+function Secrets({ id }: { id: string }) {
+  const session = useSession();
+  const secrets = useQuery<{ name: string; set: boolean }[]>("secrets", { id });
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string>();
+  if (!secrets.data || secrets.data.length === 0) return null;
+  return (
+    <section className="section">
+      <h2>Secrets</h2>
+      <p className="muted small">
+        Typed once here, kept in your Mac's Keychain, read when it runs. Shadow never shows them, logs them or sends
+        them to a model.
+      </p>
+      {secrets.data.map((secret) => (
+        <form
+          key={secret.name}
+          className="chat-box"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setError(undefined);
+            try {
+              await session.call("setSecret", { id, name: secret.name, value: values[secret.name] ?? "" });
+              setValues({ ...values, [secret.name]: "" });
+              secrets.reload();
+            } catch (err) {
+              setError((err as Error).message);
+            }
+          }}
+        >
+          <label className="field wide">
+            <span>
+              {secret.name}{" "}
+              {secret.set ? <span className="chip quiet">set</span> : <span className="chip">not set</span>}
+            </span>
+            <input
+              type="password"
+              autoComplete="off"
+              value={values[secret.name] ?? ""}
+              placeholder={secret.set ? "type a new one to change it" : "type it once"}
+              onChange={(e) => setValues({ ...values, [secret.name]: e.target.value })}
+            />
+          </label>
+          <button type="submit" className="button" disabled={!(values[secret.name] ?? "").trim()}>
+            Save
+          </button>
+        </form>
+      ))}
       {error ? <p className="error">{error}</p> : null}
     </section>
   );

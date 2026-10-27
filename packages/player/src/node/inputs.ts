@@ -42,6 +42,8 @@ export function checkFile(path: string, rule: FileRule = {}): string | undefined
 export async function resolveInputs(
   skill: Skill,
   provided: Record<string, unknown> = {},
+  // Where secret inputs are kept (the daemon: the macOS Keychain, set once on the workflow's page). N2.
+  options: { secret?(name: string): Promise<string | undefined> } = {},
 ): Promise<Record<string, unknown>> {
   const resolved: Record<string, unknown> = {};
   for (const [name, input] of Object.entries(triggerOf(skill).inputs)) {
@@ -77,7 +79,16 @@ export async function resolveInputs(
       resolved[name] = fitOrThrow(name, input.type, input.default);
       continue;
     }
-    // TODO(player): secret inputs come from the macOS Keychain.
+    // A secret (a recorded password field) is never in the workflow: it is kept where secrets are, set once (N2).
+    if (input.type.type === "secret") {
+      const value = await options.secret?.(name);
+      if (value === undefined)
+        throw new Error(
+          `input ${name} is a secret nobody has set yet: set it on the workflow's page (it is kept in your Keychain)`,
+        );
+      resolved[name] = value;
+      continue;
+    }
     throw new Error(`input ${name} has no value`);
   }
   return resolved;

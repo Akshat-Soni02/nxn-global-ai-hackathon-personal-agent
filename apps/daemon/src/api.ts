@@ -164,6 +164,12 @@ const appMethods = {
     run: (a: AppControl, p: { id: string }) => a.disconnectApp(p.id),
   },
   appTools: { params: z.object({}).default({}), run: (a: AppControl) => a.appTools() },
+  // A workflow's secret inputs (N2): set once, kept in the Keychain; the window only learns whether each is set.
+  secrets: { params: z.object({ id }), run: (a: AppControl, p: { id: string }) => a.secrets(p.id) },
+  setSecret: {
+    params: z.object({ id, name: z.string().regex(/^[a-z_][a-z0-9_]*$/), value: z.string().min(1).max(4000) }),
+    run: (a: AppControl, p: { id: string; name: string; value: string }) => a.setSecret(p.id, p.name, p.value),
+  },
   checkApp: {
     params: z.object({ toolkit: z.string().regex(/^[a-z0-9_]{1,60}$/, "an app's name") }),
     run: (a: AppControl, p: { toolkit: string }) => a.checkApp(p.toolkit),

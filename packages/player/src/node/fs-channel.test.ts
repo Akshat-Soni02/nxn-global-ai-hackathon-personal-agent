@@ -127,6 +127,42 @@ describe("file inputs resolved without asking", () => {
   });
 });
 
+describe("a secret input, from the Keychain (N2)", () => {
+  // A recorded password field became a secret input with no value, and the run stopped: "input password has no value".
+  const withSecret = Skill.parse({
+    id: "t",
+    version: 1,
+    name: "t",
+    description: { goal: "t" },
+    steps: [
+      { id: "start", type: "trigger", intent: "t", inputs: { password: { type: { type: "secret" } } } },
+      {
+        id: "s",
+        type: "action",
+        intent: "t",
+        channel: "fs",
+        action: "write",
+        args: { path: "~/x.txt", content: "{{password}}" },
+      },
+    ],
+  });
+
+  it("takes its value from where secrets are kept, and says where to set it when none is", async () => {
+    const asked: string[] = [];
+    const secret = async (name: string) => {
+      asked.push(name);
+      return name === "password" ? "hunter2" : undefined;
+    };
+    expect(await resolveInputs(withSecret, {}, { secret })).toEqual({ password: "hunter2" });
+    expect(asked).toEqual(["password"]);
+    await expect(resolveInputs(withSecret, {}, { secret: async () => undefined })).rejects.toThrow(
+      /password is a secret nobody has set yet: set it on the workflow's page/,
+    );
+    // A value given for this run wins.
+    expect(await resolveInputs(withSecret, { password: "given" }, { secret })).toEqual({ password: "given" });
+  });
+});
+
 describe("a file's path, checked when it runs (F10)", () => {
   it("says which file isn't there, and when a value was never filled", async () => {
     const d = mkdtempSync(join(tmpdir(), "tp-fs-"));

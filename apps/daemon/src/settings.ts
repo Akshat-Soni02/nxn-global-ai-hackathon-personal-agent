@@ -13,6 +13,8 @@ import { declinedApps, setDeclined } from "./connectors.ts";
 import { readApiKey, runSecurity, type SecurityRunner, writeApiKey } from "./keychain.ts";
 import type { McpTool, McpTools } from "./mcp-tools.ts";
 import { type Consent, readConsent, saveConsent } from "./recording-store.ts";
+import { loadSkill } from "./skill-store.ts";
+import { secretStatus, setWorkflowSecret } from "./workflow-secrets.ts";
 
 // account: the signed-in Shadow account (calls through shadow-api). env: NEBIUS_API_KEY in .env (development).
 // keychain: a Token Factory key pasted in Settings (before Oct 25, or a developer's own key).
@@ -85,6 +87,9 @@ export interface AppControl {
   // Whether a connected app works end to end: its sign-in at Composio is active, and its actions reach this Mac the
   // way a run reaches them (through Shadow's service). Nothing is done in the app.
   checkApp(toolkit: string): Promise<AppCheck>;
+  // A workflow's secret inputs (N2): which are set (never their values), and setting one, kept in the Keychain.
+  secrets(id: string): Promise<{ name: string; set: boolean }[]>;
+  setSecret(id: string, name: string, value: string): Promise<{ name: string; set: boolean }[]>;
 }
 
 export interface AppCheck {
@@ -131,8 +136,21 @@ export function createAppControl(deps: SettingsDeps): AppControl {
       chrome: { manifest: manifestPath, installed: existsSync(manifestPath) },
     };
   };
+  const workflow = (id: string) => {
+    const skill = loadSkill(deps.dataDir, id);
+    if (!skill) throw new Error(`no workflow ${id}`);
+    return skill;
+  };
   return {
     settings,
+    secrets: (id) => secretStatus(workflow(id), deps.security ?? runSecurity),
+    async setSecret(id, name, value) {
+      const skill = workflow(id);
+      if (!(await secretStatus(skill, deps.security ?? runSecurity)).some((s) => s.name === name))
+        throw new Error(`${id} has no secret input ${name}`);
+      await setWorkflowSecret(id, name, value, deps.security ?? runSecurity);
+      return secretStatus(skill, deps.security ?? runSecurity);
+    },
     async setApiKey(key) {
       await writeApiKey(key, deps.security ?? runSecurity);
       deps.applyKey(llmConfig({ apiKey: key.trim(), baseUrl: process.env.NEBIUS_BASE_URL }));
