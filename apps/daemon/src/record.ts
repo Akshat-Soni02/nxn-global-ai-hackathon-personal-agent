@@ -35,6 +35,7 @@ import {
   recordedFolders,
   recordedPages,
   recordedSteps,
+  renamedBlocks,
   requireApprovals,
   reviewOf,
   type TestReport,
@@ -371,7 +372,7 @@ export async function finishRecording(
   // Steps the design added outside any block, grouped the same way (R2); blocks already there are kept.
   // Named by the design when it named it (its task model), a workflow recorded again keeps the name it had.
   const named = !existing && design?.task?.name ? { ...noted, name: design.task.name } : noted;
-  const blocked = blocksOf(named as Skill, { titles });
+  const blocked = blocksOf(renamedBlocks(named as Skill, plain, { titles }), { titles });
   const saved = saveSkill(dataDir, blocked);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path} (${nodeCount(blocked.steps)} nodes)`);
   if (evidence) writeRecordedSteps(dataDir, saved.skill.id, recordedSteps(evidence));

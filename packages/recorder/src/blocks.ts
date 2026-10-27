@@ -111,6 +111,42 @@ function group(steps: Step[], names: BlockNames, taken: Set<string>, page: { cur
 
 // The workflow with its browser steps in named blocks. Never worse than it was: a result that doesn't parse is the
 // workflow unchanged.
+// Names code gave blocks, said again for what they hold now (R5, Oct 27: the design moved the jobs list's read into
+// "Copy from Google Drive" and the name stayed). A block whose name the design changed keeps its name; so does one
+// whose steps are as they were.
+export function renamedBlocks(skill: Skill, before: Skill, names: BlockNames = {}): Skill {
+  const was = new Map(
+    [...walkSteps(before.steps)].flatMap(({ step }) =>
+      isGroup(step) ? [[step.id, { intent: step.intent, steps: step.steps.map((s) => s.id).join() }] as const] : [],
+    ),
+  );
+  let page = "the page";
+  const rename = (steps: Step[]): Step[] =>
+    steps.map((s) => {
+      if (isAction(s) && s.channel === "web" && s.action === "navigate") {
+        const url = String(s.args.url ?? "");
+        if (!url.includes("{{")) page = pageName(url, names);
+      }
+      if (s.type !== "control") return s;
+      if (s.kind === "group") {
+        const old = was.get(s.id);
+        const first = s.steps.find((x) => isAction(x) && x.channel === "web" && x.action === "navigate");
+        if (first && isAction(first)) page = pageName(String(first.args.url ?? ""), names);
+        const changed = old && old.intent === s.intent && old.steps !== s.steps.map((x) => x.id).join();
+        const named = changed ? { ...s, intent: nameOf(s.steps as Body[], page) } : s;
+        rename(s.steps);
+        return named;
+      }
+      return {
+        ...s,
+        steps: rename(s.steps),
+        ...(s.kind === "branch" ? { else: rename(s.else) } : {}),
+      } as Step;
+    });
+  const parsed = Skill.safeParse({ ...skill, steps: rename(skill.steps) });
+  return parsed.success ? parsed.data : skill;
+}
+
 export function blocksOf(skill: Skill, names: BlockNames = {}): Skill {
   const taken = new Set<string>();
   const collect = (steps: Step[]) => {

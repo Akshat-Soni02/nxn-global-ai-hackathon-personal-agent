@@ -122,11 +122,11 @@ commit that does it.
 
 | # | Item | Where | Status |
 |---|---|---|---|
-| R5.1 | The workflow file the agent reads is block-level: blocks with their names and inner steps folded to one line each (`read_workflow { step: "b2" }` unfolds one) | `design/v2/tools.ts` (`workflowFile`) | ☐ |
-| R5.2 | `write_workflow` accepts blocks: `{ "block": "Open the jobs sheet", "steps": [ … ] }` short form, recorded steps by id inside | `expandStep` | ☐ |
-| R5.3 | Prompt: plan in blocks first (5–8 named things), then fill each; names are the user's words | `design/v2/prompt.ts` | ☐ |
+| R5.1 | The workflow file the agent reads is block-level: blocks with their names and inner steps folded to one line each (`read_workflow { step: "b2" }` unfolds one) | `design/v2/tools.ts` (`workflowFile`) | ☑ R5 (the recording grouped before the design; `workflowFile` folds a block to its steps' ids, `{ full: true }` for all) |
+| R5.2 | `write_workflow` accepts blocks: `{ "block": "Open the jobs sheet", "steps": [ … ] }` short form, recorded steps by id inside | `expandStep` | ☑ R5 (`{ block, steps }`; an emptied block is dropped by `applyEdits`) |
+| R5.3 | Prompt: plan in blocks first (5–8 named things), then fill each; names are the user's words | `design/v2/prompt.ts` | ◐ R5 (the FILE section says think in 5–8 named blocks; the rest of D7 still to do) |
 | R5.4 | The gate and the critic speak in blocks ("'Add a row for each job' types into a cell it can't find") | `gate.ts`, `critic.ts` | ☐ |
-| R5.5 | Measure: the YC recording, real model, 2 runs (ledger ≤ $0.50); target: designed, ≤ 8 nodes, every node named | `design-eval` | ☐ |
+| R5.5 | Measure: the YC recording, real model, 2 runs (ledger ≤ $0.50); target: designed, ≤ 8 nodes, every node named | `design-eval` | ◐ one run: 5 nodes, 3 questions, kept (rule 1 not built); see log |
 
 ### R6. "What would you like to change?" (edit by chat)
 
@@ -155,13 +155,13 @@ commit that does it.
 
 ## Resume here
 
-**Next:** R5.1–R5.3, the design agent works in blocks. Give the agent the recording already grouped (`blocksOf` on
-the plain list before the design, in `designV2`, so its first message and `read_workflow` show ~10 named blocks, not
-33 steps), fold a block's inner steps to one line each in `workflowFile` (`read_workflow { step: "b2" }` unfolds it),
-accept `{ "block": "name", "steps": [ … ] }` in `write_workflow` (`expandStep` → a group), and say in the prompt: plan
-5–8 named things, then fill each. Watch the gate (`lostWork`) and the plain changes still find recorded steps inside
-blocks. Measure with the free eval, then one real run (ledger $5.63 of $10). Then R4.6 (Edit / Test as modes of the
-page, "+" on the page).
+**Next:** the design's quality on the YC task, now that it reads blocks. The last real run (log, Oct 27) read the
+jobs list inside the Drive block (right after opening Drive, not on the jobs page) and never wrote to the sheet, so
+the finish check kept it. Look at its transcript (`design.json` from `pnpm design:eval … --real --yes`; print it with
+a small script as in `reports/oct26-file-mode-yc-evals.md`) for why: likely the prompt's worked example (KPI) doesn't
+show a page that is read in one block and written in another; add one with blocks (R5.3 / D7), and let the critic
+(R5.4) say "this block reads on the wrong page". Then R4.6 (Edit / Test as modes of the page, "+" on the page), R6
+(edit by chat), R7 (runs in blocks).
 
 Done so far: R1 (blocks in the core), R2.1–R2.4 (code groups every saved workflow), R3 (one node per block, icon +
 plain title, details panel with Details / Debug, no addresses; the review's problems as badges on their nodes; the
@@ -229,3 +229,12 @@ Never commit a real document id, email or recording: use made-up ones in tests.
   grouping `blocksOf` would make, as `wrap` edits) and the short name to the draft, and the editor opens on it to save
   as the next version or undo. Checked read-only on the user's own saved YC workflow, in memory: 32 nodes → 10, named
   "Collect top jobs from ycombinator". It shows once the daemon runs this branch's code. 789 tests pass.
+- **Oct 27, R5.1–R5.3**: the design agent works in blocks. The recording is grouped before the design (the agent's
+  first message and `read_workflow` show ~10 named blocks, a block's steps folded to their ids; an id written back is
+  that step as it is; `read_workflow { step }` and `edit_workflow` reach any step in full); `{ "block", "steps" }`
+  writes one; a block emptied by a removal is dropped by `applyEdits`; the prompt says to think in 5–8 named blocks.
+  One real run (Nemotron, $0.131, 23 calls): saved 5 nodes and asked 3 good questions (where new rows go, which
+  columns tell a job is already there), but it read the jobs list inside the Drive block and never wrote to the
+  sheet, so the finish check kept it: rule 1 (skip jobs already there) not built. Found by it: a code-named block kept
+  its name ("Copy from Google Drive") after the design changed its steps; now `renamedBlocks` says it again at save
+  unless the design named it. Ledger $5.76 of $10. 792 tests pass.

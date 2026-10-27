@@ -1,6 +1,6 @@
 import { applyEdits, isGroup, Skill, type Step } from "@shadow/core";
 import { describe, expect, it } from "vitest";
-import { blockPlan, blocksOf, clean, nodeCount, pageName } from "./blocks.ts";
+import { blockPlan, blocksOf, clean, nodeCount, pageName, renamedBlocks } from "./blocks.ts";
 import { shortName } from "./compile.ts";
 import { copyName } from "./skeleton.ts";
 
@@ -155,6 +155,28 @@ describe("blocks by code (the YC recording, Oct 26: 33 steps → 10 nodes)", () 
     expect(names(applied.skill.steps)).toEqual(names(blocksOf(old).steps));
     // Already in blocks: nothing to do.
     expect(blockPlan(applied.skill)).toEqual([]);
+  });
+
+  it("says a code-named block's name again when the design changed its steps, never one the design named (Oct 27)", () => {
+    const before = blocksOf(workflow([nav("s2", "https://drive.google.com/drive/my-drive"), click("s4", "Recent")]));
+    expect(names(before.steps)).toEqual(["Open Recent"]);
+    // The design put a read of the jobs into it: no longer only "Open".
+    const changed = Skill.parse({
+      ...before,
+      steps: [
+        before.steps[0],
+        {
+          ...(before.steps[1] as object),
+          steps: [nav("s2", "https://drive.google.com/drive/my-drive"), copy("s6", "jobs")],
+        },
+      ],
+    });
+    expect(names(renamedBlocks(changed, before).steps)).toEqual(["Copy from Google Drive"]);
+    const own = Skill.parse({
+      ...changed,
+      steps: [changed.steps[0], { ...(changed.steps[1] as object), intent: "Read the jobs" }],
+    });
+    expect(names(renamedBlocks(own, before).steps)).toEqual(["Read the jobs"]);
   });
 
   it("keeps a design's own blocks, and never makes a workflow that doesn't parse", () => {
