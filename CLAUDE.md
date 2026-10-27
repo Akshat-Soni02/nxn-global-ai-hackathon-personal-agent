@@ -36,7 +36,9 @@ pnpm design:eval <recording folder> [--real --yes]   # design a recording; fake 
 ```
 
 `pnpm build` builds the extension, native host, window and website (CI runs it). While developing, prefer the filtered
-builds (`pnpm --filter @shadow/ui build`, `pnpm --filter @shadow/extension build`). `pnpm setup:mac` builds Shadow.app;
+builds (`pnpm --filter @shadow/ui build`, `pnpm --filter @shadow/extension build`). A rebuilt extension does nothing until
+it is reloaded in `chrome://extensions` (Chrome keeps the old worker script while the version is unchanged), and the
+window needs a fresh `pnpm daemon` address. `pnpm setup:mac` builds Shadow.app;
 `pnpm setup:native-host` registers the shim with your real Chrome profile: neither belongs in a quick check.
 
 ## Run it locally with connected apps
