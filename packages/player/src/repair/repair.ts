@@ -30,11 +30,24 @@ export const DEFAULT_REPAIR_LIMITS: RepairLimits = {
   episode: { turns: 20, costUsd: 0.2, liveActions: 30 },
 };
 
+// What one run has used of its repair allowance. A run is several legs (every wait ends one), each with its own
+// repairer, so the caller keeps one of these per run and hands it to each leg: a wait doesn't give the allowance back.
+export interface RepairBudget {
+  episodes: number;
+  meter: ReturnType<UsageMeter["child"]>;
+}
+export const newRepairBudget = (meter?: UsageMeter): RepairBudget => ({
+  episodes: 0,
+  meter: (meter ?? new Meter()).child(),
+});
+
 export interface RepairerOptions {
   // Without a model, only classification and the cheap ladder run.
   llm?: Llm;
   // The run's meter: repair's cost is counted there too.
   meter?: UsageMeter;
+  // The run's allowance so far; without one, this repairer starts a new one.
+  budget?: RepairBudget;
   limits?: Partial<RepairLimits>;
   protocol?: "tools" | "json";
   signal?: AbortSignal;
@@ -67,8 +80,8 @@ export interface Repairer {
 
 export function createRepairer(options: RepairerOptions = {}): Repairer {
   const limits = { ...DEFAULT_REPAIR_LIMITS, ...options.limits };
-  const meter = (options.meter ?? new Meter()).child();
-  let episodes = 0;
+  const budget = options.budget ?? newRepairBudget(options.meter);
+  const { meter } = budget;
 
   async function repair(skill: Skill, failure: Failure, env: RepairEnv): Promise<RepairOutcome> {
     const isWeb = failure.step.type === "action" && failure.step.channel === "web";
@@ -105,11 +118,11 @@ export function createRepairer(options: RepairerOptions = {}): Repairer {
       ...(whatToShow ? { whatToShow } : {}),
     });
     if (!options.llm) return escalate(`no model configured to repair it (${classification.reason})`);
-    if (episodes >= limits.episodesPerRun)
+    if (budget.episodes >= limits.episodesPerRun)
       return escalate(`this run already used its ${limits.episodesPerRun} repairs`);
     const left = limits.costPerRunUsd - meter.usage.costUsd;
     if (left <= 0.005) return escalate(`this run already spent its repair budget ($${limits.costPerRunUsd})`);
-    episodes++;
+    budget.episodes++;
 
     const session: RepairSession = {
       original: skill,
@@ -163,7 +176,7 @@ export function createRepairer(options: RepairerOptions = {}): Repairer {
   return {
     repair,
     get spent() {
-      return { episodes, costUsd: meter.usage.costUsd };
+      return { episodes: budget.episodes, costUsd: meter.usage.costUsd };
     },
   };
 }

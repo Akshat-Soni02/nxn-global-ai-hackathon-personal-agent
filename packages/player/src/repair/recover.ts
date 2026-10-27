@@ -3,7 +3,7 @@
 // fix is saved as the next version and the run resumes from where it stopped. A site that is down is retried
 // later; anything that needs the user waits for them (retry the step, skip it because they did it by hand, or stop).
 // Used by the daemon and by `pnpm replay`; each supplies the hooks.
-import { type Availability, type Skill, walkSteps, whereIn } from "@shadow/core";
+import { type Availability, type EditInput, type Skill, walkSteps, whereIn } from "@shadow/core";
 import { type RunOptions, runSkill } from "../run.ts";
 import {
   type Failure,
@@ -21,7 +21,8 @@ export interface Recovery {
   // One per run: it keeps the run's repair limits.
   repairer: Repairer;
   // Saves a repaired version; the run goes on with what is returned.
-  saveVersion(skill: Skill): Skill | Promise<Skill>;
+  // `edits` are the fix as edit operations, so a repair built on an older version can be applied to the latest.
+  saveVersion(skill: Skill, edits?: EditInput[]): Skill | Promise<Skill>;
   // The run needs the user: something to do first (log in), or a fix repair couldn't find. "retry" runs the stuck
   // step again, "skip" goes on after it (the user did it by hand), "stop" ends the run. WAIT: nobody can answer now,
   // so the run ends as `waiting` (kind "recovery"); its resume, with skip for "skip", goes on later.
@@ -119,7 +120,7 @@ export async function runWithRecovery(
       });
 
     if (repaired.kind === "commit") {
-      current = await recovery.saveVersion(repaired.skill);
+      current = await recovery.saveVersion(repaired.skill, repaired.edits);
       event(repaired.summary, { by: repaired.by, version: current.version });
       approveOnce = repaired.approveOnce;
       // The try ran to the end of the workflow: the run is done.

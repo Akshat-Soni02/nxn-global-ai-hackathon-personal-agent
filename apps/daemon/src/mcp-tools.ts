@@ -27,7 +27,7 @@ export interface McpCallResult {
 export interface McpTools {
   list(refresh?: boolean): Promise<McpTool[]>;
   find(name: string): Promise<McpTool | undefined>;
-  call(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<McpCallResult>;
+  call(name: string, args: Record<string, unknown>, signal?: AbortSignal, timeoutMs?: number): Promise<McpCallResult>;
   // Connecting or disconnecting an app changes the list.
   invalidate(): void;
 }
@@ -82,10 +82,13 @@ export function mcpTools(url: string, authedFetch: typeof fetch, now: () => numb
       const hit = (await list()).find((t) => t.name === name);
       return hit ?? (await list(true)).find((t) => t.name === name);
     },
-    async call(name, args, signal) {
+    async call(name, args, signal, timeoutMs) {
       try {
         const result = await withClient((client) =>
-          client.callTool({ name, arguments: args }, undefined, signal ? { signal } : undefined),
+          client.callTool({ name, arguments: args }, undefined, {
+            ...(signal ? { signal } : {}),
+            ...(timeoutMs ? { timeout: timeoutMs } : {}),
+          }),
         );
         const text = (Array.isArray(result.content) ? result.content : [])
           .filter((c): c is { type: "text"; text: string } => c?.type === "text")
@@ -115,9 +118,11 @@ export function toolNeedsApproval(tool: McpTool | undefined): boolean {
 
 // The player's mcp channel: one tool call, its arguments already resolved by the player.
 export function mcpChannel(tools: McpTools): ChannelExecutor {
-  return async (step) => {
+  return async (step, ctx) => {
     const args = (step.args.arguments ?? {}) as Record<string, unknown>;
-    const result = await tools.call(String(step.args.tool), args);
+    // Stop ends the call; a step without its own limit gets 2 minutes, not the SDK's 60 s: a slow write that did
+    // finish would show as failed, and a retry could write it twice.
+    const result = await tools.call(String(step.args.tool), args, ctx.signal, step.timeout_ms ?? 120_000);
     return result.ok ? { ok: true, value: result.value } : { ok: false, error: result.error };
   };
 }

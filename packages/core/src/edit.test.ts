@@ -239,6 +239,18 @@ describe("what a repair may never change", () => {
     expect(trigger.ask).toEqual([]);
   });
 
+  it("asks before a repair adds a plain Enter or text with a new line: in a chat or a form that sends (C12)", () => {
+    const check = (step: Record<string, unknown>) =>
+      repairCheck(skill, ok(applyEdits(skill, [{ op: "insert", at: { after: "s4" }, step } as Edit]))).ask.join(" ");
+    const enter = { type: "action", intent: "Press Enter", channel: "web", action: "press", args: { key: "Enter" } };
+    expect(check(enter)).toMatch(/can't act outward/);
+    expect(check({ ...enter, args: { key: "Enter", modifiers: ["shift"] } })).toBe(""); // a new line, not a send
+    expect(check({ ...enter, args: { key: "Tab" } })).toBe("");
+    const typed = { type: "action", intent: "Type", channel: "web", action: "type", target: { name: "Note" } };
+    expect(check({ ...typed, args: { text: "hello\n" } })).toMatch(/can't act outward/);
+    expect(check({ ...typed, args: { text: "hello" } })).toBe("");
+  });
+
   it("refuses outward steps, the user's decisions, safety switches and new reach", () => {
     const cases: [Edit[], RegExp][] = [
       [

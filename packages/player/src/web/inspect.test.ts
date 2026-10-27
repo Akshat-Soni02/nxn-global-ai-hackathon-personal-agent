@@ -91,6 +91,31 @@ describe("finding and inspecting", () => {
   });
 });
 
+describe("matching names (C11)", () => {
+  const page = (buttons: string[]) => {
+    const dom = new JSDOM(`<body>${buttons.map((b) => `<button>${b}</button>`).join("")}</body>`, {
+      runScripts: "outside-only",
+      url: "http://localhost:5173/x.html",
+    });
+    return dom.window.eval(`(${PAGE_SCRIPT})`) as (op: Record<string, unknown>) => unknown;
+  };
+
+  it("matches whole words: 'Add' is not 'Address…'", () => {
+    const run = page(["Address…", "Add"]);
+    const found = run({ op: "find", text: "Add", role: "button" }) as FoundElement[];
+    expect(found.map((f) => [f.name, f.score])).toEqual([["Add", 1]]);
+  });
+
+  it("still matches a name that gained words or punctuation: 'Save' is 'Save…' and 'Save draft'", () => {
+    const run = page(["Save…", "Cancel"]);
+    const [best] = run({ op: "find", text: "Save", role: "button" }) as FoundElement[];
+    expect(best?.name).toBe("Save…");
+    expect(best?.score).toBeGreaterThanOrEqual(0.8);
+    const [draft] = page(["Save draft"])({ op: "find", text: "Save", role: "button" }) as FoundElement[];
+    expect(draft?.score).toBeGreaterThanOrEqual(0.6);
+  });
+});
+
 describe("signals", () => {
   it("says when a page looks like a login page, and which dialogs are open", () => {
     expect(drift("logged-out.html").run({ op: "signals" })).toMatchObject({

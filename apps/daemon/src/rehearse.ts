@@ -16,10 +16,17 @@ import { type RunHooks, runSkillOn } from "./runner.ts";
 // Why the test run can't start, before it tries: the browser or the Mac app the workflow needs isn't connected. Said
 // as "not run", so the gate doesn't send the agent round the fix loop and the review says "not tested". Without this,
 // the runner opens Chrome, waits 30 s, and its first step fails.
-export function notRunWhy(skill: Skill, connected: { extension: boolean; mac: boolean }): string | undefined {
+export function notRunWhy(
+  skill: Skill,
+  // apps: Shadow's service is reachable (signed in); left out by a caller that doesn't know, which isn't stopped.
+  connected: { extension: boolean; mac: boolean; apps?: boolean },
+): string | undefined {
   const channels = new Set([...walkSteps(skill.steps)].flatMap(({ step }) => (isAction(step) ? [step.channel] : [])));
   if (channels.has("web") && !connected.extension) return "Chrome is not connected to Shadow";
   if (channels.has("ax") && !connected.mac) return "Shadow.app is not running";
+  if (channels.has("mcp") && connected.apps === false) {
+    return "sign in to Shadow in Settings to test its connected-app steps";
+  }
   return undefined;
 }
 
@@ -84,7 +91,11 @@ export async function rehearse(
   const local = options.local ?? false;
   const once = async (): Promise<Report> => {
     const r = rehearsal(skill, options.effects, options.onLine, options.recorded, local);
-    const why = notRunWhy(skill, { extension: daemon.extensions.size > 0, mac: daemon.mac().connected });
+    const why = notRunWhy(skill, {
+      extension: daemon.extensions.size > 0,
+      mac: daemon.mac().connected,
+      apps: !!options.hooks.tools,
+    });
     if (why) {
       options.onLine?.(`The test run can't start: ${why}`);
       return r.report(`not run: ${why}`);

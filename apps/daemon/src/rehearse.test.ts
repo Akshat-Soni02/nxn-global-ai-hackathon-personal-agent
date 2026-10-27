@@ -34,6 +34,33 @@ describe("whether the test run can start", () => {
   });
 });
 
+describe("a workflow with an app step when nobody is signed in (C8)", () => {
+  const withApp = Skill.parse({
+    id: "w",
+    name: "w",
+    version: 1,
+    description: { goal: "g" },
+    steps: [
+      { id: "start", type: "trigger", intent: "by hand" },
+      {
+        id: "s1",
+        type: "action",
+        intent: "add a row",
+        channel: "mcp",
+        action: "call",
+        args: { tool: "GOOGLESHEETS_APPEND_VALUES", arguments: {} },
+      },
+    ],
+  });
+
+  it("is not run, rather than failed: the test can't call an app without Shadow's service", () => {
+    expect(notRunWhy(withApp, { extension: true, mac: true, apps: false })).toMatch(/sign|connected apps/i);
+    expect(notRunWhy(withApp, { extension: true, mac: true, apps: true })).toBeUndefined();
+    // A caller that doesn't know about apps (older code) is not stopped.
+    expect(notRunWhy(withApp, { extension: true, mac: true })).toBeUndefined();
+  });
+});
+
 describe("what the final check made goes to the Trash (Rushil, 24 Oct)", () => {
   const skill = Skill.parse({
     id: "t",

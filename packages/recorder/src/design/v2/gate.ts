@@ -468,7 +468,7 @@ export function gate(input: GateInput): string[] {
   }
 
   const notRun = /^not run: (.*)/.exec(test?.outcome ?? "")?.[1];
-  if (notRun && !/Chrome is not connected|Shadow\.app is not running/.test(notRun)) {
+  if (notRun && !/Chrome is not connected|Shadow\.app is not running|sign in to Shadow/.test(notRun)) {
     problems.push(`the test run couldn't start (${notRun}): fix that, so it can run`);
   }
   problems.push(...runProblems(workflow));

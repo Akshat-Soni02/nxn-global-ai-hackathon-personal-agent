@@ -43,6 +43,21 @@ export function isOutward(step: Step): boolean {
   return false;
 }
 
+// Enter (without Shift), or typed text with a new line (typing it presses Enter), sends in a chat and submits a form. A
+// step the user recorded that does so is theirs; one a repair adds or turns an action into is not, so it asks. (Not
+// part of isOutward: a plain Enter in a search box is not outward, and design asks about these by its own rule.)
+function sendsByEnter(step: Step): boolean {
+  if (!isAction(step)) return false;
+  const key = `${step.channel}.${step.action}`;
+  if ((key === "web.press" || key === "ax.key") && /^(enter|return)$/i.test(String(step.args.key ?? ""))) {
+    return !((step.args.modifiers as string[] | undefined) ?? []).includes("shift");
+  }
+  return (
+    (key === "web.type" || key === "ax.set_value") && /[\r\n]/.test(String(step.args.text ?? step.args.value ?? ""))
+  );
+}
+const outwardForRepair = (step: Step) => isOutward(step) || sendsByEnter(step);
+
 // The Never entry a step's control or action matches, if any ("Never click Archive" and a target named "Archive").
 export function neverMatch(step: Step, never: string[]): string | undefined {
   if (!isAction(step)) return undefined;
@@ -110,7 +125,7 @@ export function repairCheck(original: Skill, draft: Skill): { never: string[]; a
       }
       // An outward step may be retargeted (the same action on a changed control), never turned into another action.
       const sameAction = old.channel === now.channel && old.action === now.action;
-      if (isOutward(now) && !(isOutward(old) && sameAction)) {
+      if (outwardForRepair(now) && !(outwardForRepair(old) && sameAction)) {
         ask.push(`${id}: it would now act outward (${actionText(now)})`);
       }
     }
@@ -128,7 +143,7 @@ export function repairCheck(original: Skill, draft: Skill): { never: string[]; a
       if (isAction(step) && step.channel === "script") problems.push(`${id}: repairs can't add scripts`);
       if (isAction(step) && step.channel === "mcp")
         ask.push(`${id}: a new connected-app call (repairs can't add connected-app calls alone)`);
-      if (isOutward(step) && !completesOutward(draft, step, before)) {
+      if (outwardForRepair(step) && !completesOutward(draft, step, before)) {
         ask.push(
           `${id}: a new step can't act outward (${actionText(step)}) without the user's OK, except to finish an outward step it directly follows, with requires_approval`,
         );

@@ -69,6 +69,36 @@ const outputs = (outcome: { episode?: { transcript: { type: string; output?: str
     .map((e) => e.output ?? "")
     .join("\n");
 
+describe("what counts as evidence for a retarget (C18)", () => {
+  const rest = [click("s2", "Export"), click("s3", "Done")];
+  const original = skill([click("s1", "Open the menu"), ...rest]);
+  const retargeted = skill([click("s1", "Open menu"), ...rest]); // s1 now aims at another control
+
+  it("doesn't count a next target that was already on the page before a retarget", async () => {
+    // The wrong control was clicked and nothing happened: s2's target was there all along.
+    const { env } = fake();
+    env.deps.webCheck = async () => true;
+    const result = await tryDraft(retargeted, env, { at: "s1", vars: {} }, 1, original);
+    expect(result.ok).toBe(true);
+    expect(result.evidence).toBeUndefined();
+  });
+
+  it("counts a next target that appeared because of the try", async () => {
+    const { env, ran } = fake();
+    env.deps.webCheck = async () => ran.length > 0; // the page changed when s1 ran
+    const result = await tryDraft(retargeted, env, { at: "s1", vars: {} }, 1, original);
+    expect(result.evidence).toMatch(/next step's target is on the page/);
+  });
+
+  it("still counts it when the step kept its target and only got more time", async () => {
+    // The original control was found after waiting: that click is the evidence, whatever was visible before.
+    const { env } = fake();
+    env.deps.webCheck = async () => true;
+    const result = await tryDraft(original, env, { at: "s1", vars: {} }, 1, original);
+    expect(result.evidence).toMatch(/next step's target is on the page/);
+  });
+});
+
 describe("trying a draft when nobody can approve", () => {
   it("is not ok, counts nothing as approved, and runs nothing", async () => {
     // s2 is outward (Submit). The next step's target "is on the page" (webCheck says yes), which used to pass as

@@ -88,6 +88,31 @@ describe("mcp steps in a run", () => {
     expect(outcome.vars.result).toEqual({ updates: { updatedRows: 1 } });
   });
 
+  it("hands the run's Stop signal and the step's time limit to the call, so Stop can end it (C7)", async () => {
+    let seen: { signal?: AbortSignal; timeoutMs?: number } | undefined;
+    const tools: McpTools = {
+      ...fakeTools(),
+      call: async (_name, _args, signal, timeoutMs) => {
+        seen = { signal, timeoutMs };
+        return { ok: true, value: {} };
+      },
+    };
+    const stop = new AbortController();
+    const base = workflow("GOOGLESHEETS_GET_VALUES");
+    const slow = Skill.parse({
+      ...base,
+      steps: [base.steps[0], { ...base.steps[1], timeout_ms: 90_000 }],
+    });
+    const deps = { ...baseDeps, mcp: mcpChannel(tools), approve: async () => true };
+    await runSkill(slow, deps, { ...RUN, signal: stop.signal });
+    expect(seen?.signal).toBe(stop.signal);
+    expect(seen?.timeoutMs).toBe(90_000);
+    // Without a limit on the step, an app call gets a generous one rather than the SDK's 60 s (a slow write that
+    // finished would then show as failed, and a retry could write it twice).
+    await runSkill(base, deps, RUN);
+    expect(seen?.timeoutMs).toBe(120_000);
+  });
+
   it("a read-only tool runs without asking; a missing app or no sign-in stops before the run", async () => {
     const tools = fakeTools();
     const read = await prepareMcpSteps(workflow("GOOGLESHEETS_GET_VALUES"), tools);

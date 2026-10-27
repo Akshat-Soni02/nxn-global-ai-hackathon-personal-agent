@@ -26,6 +26,8 @@ export interface RunContext {
   startedAt: number; // epoch ms; fs.find with since_run_start ignores older files
   inputs: Record<string, unknown>;
   vars: Record<string, unknown>;
+  // Fires when the user stops the run: a channel that can wait (an app call) gives up on it.
+  signal?: AbortSignal;
 }
 
 export interface RunDeps {

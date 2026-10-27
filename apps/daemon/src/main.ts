@@ -29,7 +29,7 @@ import { configFromEnv, createLlm, type Llm, type LlmConfig, UsageMeter } from "
 import { openMemory } from "@shadow/memory";
 import type { RunLogEvent } from "@shadow/player";
 import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@shadow/player/node";
-import { createRepairer } from "@shadow/player/repair";
+import { createRepairer, newRepairBudget, type RepairBudget } from "@shadow/player/repair";
 import type { Prompter, Question } from "@shadow/recorder";
 import { createAccount } from "./account.ts";
 import { type Api, createApi } from "./api.ts";
@@ -50,7 +50,7 @@ import { runSkillOn } from "./runner.ts";
 import { createScreenReader, type ScreenReader, screenToolsFrom } from "./screen.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
 import { createAppControl, type KeySource, llmFromKeychain } from "./settings.ts";
-import { findSkills, listSkills, saveSkill, versions } from "./skill-store.ts";
+import { findSkills, listSkills, saveRepair, saveSkill, versions } from "./skill-store.ts";
 import { type InboxItem, openStore, type RunRow } from "./store.ts";
 import { listTraces } from "./trace-store.ts";
 import { startTriggers } from "./triggers.ts";
@@ -171,7 +171,22 @@ log(
 
 // One leg of a run (service.ts): through the extension and Shadow.app, with recovery. The service's hooks make a
 // run that needs you end its leg as waiting, so nothing waits in memory here.
-const execute: Execute = (skill, leg) =>
+// A run's repair allowance (2 repairs, a dollar cap) outlives its legs: every wait ends one, and a new repairer per leg
+// used to start the count again. Kept here per run, dropped when the run can't come back.
+const repairBudgets = new Map<string, RepairBudget>();
+const execute: Execute = async (skill, leg) => {
+  const budget = repairBudgets.get(leg.runId) ?? newRepairBudget(usage);
+  repairBudgets.set(leg.runId, budget);
+  let comesBack = false;
+  try {
+    const outcome = await runLeg(skill, leg, budget);
+    comesBack = outcome.status === "waiting" || outcome.status === "paused";
+    return outcome;
+  } finally {
+    if (!comesBack) repairBudgets.delete(leg.runId);
+  }
+};
+const runLeg = (skill: Skill, leg: Parameters<Execute>[1], budget: RepairBudget) =>
   runSkillOn(
     daemon,
     skill,
@@ -191,9 +206,9 @@ const execute: Execute = (skill, leg) =>
       recovery: leg.walk
         ? undefined
         : {
-            repairer: createRepairer({ llm: model, meter: usage, signal: leg.signal }),
+            repairer: createRepairer({ llm: model, meter: usage, budget, signal: leg.signal }),
             memory,
-            saveVersion: (repaired) => saveSkill(home, repaired).skill,
+            saveVersion: (repaired, edits) => saveRepair(home, repaired, edits),
             waitForUser: leg.hooks.waitForUser,
           },
     },

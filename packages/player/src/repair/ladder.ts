@@ -87,7 +87,7 @@ export async function ladder(skill: Skill, failure: Failure, env: RepairEnv): Pr
   const attempt = async (rung: LadderFix["rung"], summary: string, edits: EditInput[], start = from) => {
     const draft = applyEdits(skill, edits);
     if (!draft.ok || repairViolations(skill, draft.skill).length > 0) return undefined;
-    const tried = await tryDraft(draft.skill, env, start, 1);
+    const tried = await tryDraft(draft.skill, env, start, 1, skill);
     return tried.ok && tried.evidence ? { rung, summary, edits, skill: draft.skill, tried } : undefined;
   };
 
@@ -125,7 +125,8 @@ export async function ladder(skill: Skill, failure: Failure, env: RepairEnv): Pr
   // 2. Fuzzy match: same kind of control, a similar name, one clear winner. A target built from a variable
   // ("{{client.name}}") is never replaced by a literal one: that is the agent's call.
   const wanted = original.target.name ?? original.target.label ?? original.target.text;
-  if (!env.page || !wanted || /\{\{/.test(JSON.stringify(original.target))) return undefined;
+  // Without a recorded role any kind of control would do, so a name that merely begins the same could win.
+  if (!env.page || !wanted || !original.target.role || /\{\{/.test(JSON.stringify(original.target))) return undefined;
   const found = await env.page({ op: "find", text: wanted, role: original.target.role, limit: 5 });
   if (!found.ok) return undefined;
   const [best, second] = (found.value as FoundElement[]).filter((c) => c.visible || c.role === "file");

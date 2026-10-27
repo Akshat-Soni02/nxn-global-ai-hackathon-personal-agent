@@ -375,7 +375,7 @@ async function runLeaf(
     if (!approved) return fail("you denied it", "denied");
   }
 
-  const ctx: RunContext = { ...env.ctx, vars };
+  const ctx: RunContext = { ...env.ctx, vars, signal: env.signal };
   const attempts = 1 + (isAction(resolved) ? (resolved.on_fail?.retries ?? 0) : 0);
   let result: StepResult = { ok: false, error: "not run" };
   for (let attempt = 1; attempt <= attempts; attempt++) {

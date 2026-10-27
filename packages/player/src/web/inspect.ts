@@ -298,11 +298,14 @@ export const PAGE_SCRIPT = `function (op) {
     return out;
   };
   const similarity = (wanted, actual) => {
-    const w = clean(wanted).toLowerCase(), a = clean(actual).toLowerCase();
+    // Compared as words, punctuation dropped: "Save…" is "Save", but "Add" is not "Address…" (a prefix of a longer word
+    // is another word).
+    const plain = (s) => clean(s).toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();
+    const w = plain(wanted), a = plain(actual);
     if (!w || !a) return 0;
     if (w === a) return 1;
-    if (a.startsWith(w) || w.startsWith(a)) return 0.8;
-    if (a.includes(w) || w.includes(a)) return 0.6;
+    if (a.startsWith(w + " ") || w.startsWith(a + " ")) return 0.8;
+    if ((" " + a + " ").includes(" " + w + " ") || (" " + w + " ").includes(" " + a + " ")) return 0.6;
     const ws = new Set(w.split(" ")), as = a.split(" ");
     const shared = as.filter((x) => ws.has(x)).length;
     return shared ? Math.round((0.5 * shared) / Math.max(ws.size, as.length) * 100) / 100 : 0;

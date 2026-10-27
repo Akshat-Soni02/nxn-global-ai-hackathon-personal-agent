@@ -1,6 +1,8 @@
-import { Skill } from "@shadow/core";
+import { type ActionStep, Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
-import { detourFrom } from "./ladder.ts";
+import type { Failure, RunDeps } from "../types.ts";
+import type { RepairEnv } from "./env.ts";
+import { detourFrom, ladder } from "./ladder.ts";
 
 const nav = (id: string, url: string) => ({
   id,
@@ -27,6 +29,34 @@ const workflow = (steps: unknown[]) =>
     description: { goal: "g" },
     steps: [{ id: "start", type: "trigger", intent: "t" }, ...steps],
   });
+
+describe("the fuzzy rung needs a recorded kind of control (C11)", () => {
+  it("doesn't look for a lookalike when the target has no role: any control could match", async () => {
+    const skill = workflow([
+      { ...click("s1", "Add"), target: { name: "Add", fallbacks: [] } }, // no role recorded
+    ]);
+    const step = skill.steps[1] as ActionStep;
+    let finds = 0;
+    const env = {
+      runId: "r",
+      deps: {} as RunDeps,
+      page: async (op: { op: string }) => {
+        if (op.op === "find") finds++;
+        return { ok: true, value: [{ ref: "e1", role: "link", name: "Address", score: 0.8, visible: true }] };
+      },
+    } as unknown as RepairEnv;
+    const failure = {
+      stepId: "s1",
+      path: "s1",
+      step,
+      result: { ok: false, error: "ambiguous target", matchScore: 0.4 },
+      attempts: 1,
+      vars: {},
+    } as Failure;
+    expect(await ladder(skill, failure, env)).toBeUndefined();
+    expect(finds).toBe(0);
+  });
+});
 
 describe("skipping a detour (Oct 25: the run died in Drive's Recent list)", () => {
   // As saved from the YC recording: My Drive → Recent → the sheet (s4, s5), then YC jobs opened by its address (s6).

@@ -170,7 +170,7 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
       input: z.object({ from: z.string().optional(), count: z.number().int().min(1).max(5).default(2) }),
       run: async ({ from, count }) => {
         const start: Resume = { at: from ?? session.failure.path, vars: session.failure.vars };
-        const result = await tryDraft(session.draft, env, start, count);
+        const result = await tryDraft(session.draft, env, start, count, session.original);
         session.tried = { draft: key(session.draft), result, from: start.at };
         // A try moves the live page on: the next try starts where this one stopped.
         if (result.resume) session.failure = { ...session.failure, path: result.resume.at, vars: result.resume.vars };

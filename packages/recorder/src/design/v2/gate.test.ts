@@ -239,6 +239,14 @@ describe("what Checkpoint 4 let through", () => {
       /test run couldn't start.*input day has no value/,
     );
     expect(gate(input(ok, { test: { outcome: "not run: Chrome is not connected to Shadow", steps: [] } }))).toEqual([]);
+    // Nobody signed in: the agent can't fix that, so it isn't sent round the fix loop (C8).
+    expect(
+      gate(
+        input(ok, {
+          test: { outcome: "not run: sign in to Shadow in Settings to test its connected-app steps", steps: [] },
+        }),
+      ),
+    ).toEqual([]);
   });
 
   it("a check that still holds the recorded page on a step that now opens a {{…}} page is a problem", () => {

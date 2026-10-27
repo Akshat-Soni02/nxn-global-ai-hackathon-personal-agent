@@ -26,12 +26,34 @@ export interface TryResult {
 
 const SELF_VERIFYING = new Set(["type", "select", "upload", "extract", "navigate", "set_value"]);
 
-export async function tryDraft(draft: Skill, env: RepairEnv, from: Resume, count: number): Promise<TryResult> {
+// `original` is the workflow as saved: with it, a try that retargets the failed step is held to a stricter evidence.
+export async function tryDraft(
+  draft: Skill,
+  env: RepairEnv,
+  from: Resume,
+  count: number,
+  original?: Skill,
+): Promise<TryResult> {
   // Approval is forced on for outward steps while trying: the user sees anything that leaves a mark.
   const trial = structuredClone(draft);
   for (const { step } of walkSteps(trial.steps)) {
     if (isOutward(step) && "requires_approval" in step) step.requires_approval = true;
   }
+  // A retarget (another control for the failed step) is held to more: if the step the try stops before already had its
+  // target on the page, seeing it afterwards proves nothing (a wrong click that did nothing would pass). A step kept
+  // as it was and only given more time (a wait) needs no such doubt: the click finding its target is the evidence.
+  const failed = stepAt(draft, from.at);
+  const was = original && failed ? stepAt(original, from.at) : undefined;
+  const retargets =
+    !!was &&
+    JSON.stringify((was as { target?: unknown }).target) !== JSON.stringify((failed as { target?: unknown }).target);
+  const upNext = retargets ? stopsBefore(trial, from, count) : undefined;
+  const thereBefore =
+    upNext && isAction(upNext) && upNext.channel === "web" && upNext.target
+      ? await env.deps
+          .webCheck({ element_visible: resolveTemplates(upNext.target, { vars: from.vars }) }, 200)
+          .catch(() => false)
+      : false;
   const events: RunLogEvent[] = [];
   const approved: string[] = [];
   const outcome = await runSkill(
@@ -79,7 +101,18 @@ export async function tryDraft(draft: Skill, env: RepairEnv, from: Resume, count
   }
   // Paused after `count` steps: the next step's target, or the last step's own check or effect.
   const resume = outcome.resume as Resume;
-  return { ...base, ok: true, resume, evidence: await evidenceAt(draft, ran, resume, env) };
+  const wasThere = thereBefore ? upNext?.id : undefined;
+  return { ...base, ok: true, resume, evidence: await evidenceAt(draft, ran, resume, env, wasThere) };
+}
+
+// The step a try of `count` steps from `from` stops before, when the steps run in order (a loop or a branch may take it
+// elsewhere: evidenceAt only trusts this when the try stopped at that very step).
+function stopsBefore(draft: Skill, from: Resume, count: number): Step | undefined {
+  const flat = [...walkSteps(draft.steps)]
+    .map(({ step }) => step)
+    .filter((s) => s.type === "action" || s.type === "llm");
+  const start = flat.findIndex((s) => s.id === stepAt(draft, from.at)?.id);
+  return start < 0 ? undefined : flat[start + count];
 }
 
 async function evidenceAt(
@@ -87,6 +120,8 @@ async function evidenceAt(
   ran: TryResult["ran"],
   next: Resume,
   env: RepairEnv,
+  // The step whose target was on the page before the try: its target proves nothing now.
+  wasThere?: string,
 ): Promise<string | undefined> {
   const own = await lastStepEvidence(draft, ran, env);
   if (own) return own;
@@ -96,7 +131,7 @@ async function evidenceAt(
       const wait = resolveTemplates(nextStep.wait, { vars: next.vars });
       if (await env.deps.webCheck(wait, 5000)) return `the next step's wait holds (${next.at})`;
     }
-    if (nextStep.target) {
+    if (nextStep.target && nextStep.id !== wasThere) {
       const target = resolveTemplates(nextStep.target, { vars: next.vars });
       if (await env.deps.webCheck({ element_visible: target }, 5000)) {
         return `the next step's target is on the page (${next.at})`;
