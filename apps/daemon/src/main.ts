@@ -30,7 +30,7 @@ import { openMemory } from "@shadow/memory";
 import type { RunLogEvent } from "@shadow/player";
 import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@shadow/player/node";
 import { createRepairer, newRepairBudget, type RepairBudget } from "@shadow/player/repair";
-import type { Prompter, Question } from "@shadow/recorder";
+import { changeByChat, type Prompter, type Question } from "@shadow/recorder";
 import { createAccount } from "./account.ts";
 import { type Api, createApi } from "./api.ts";
 import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
@@ -41,7 +41,7 @@ import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
 import { startHttp } from "./http.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
-import { type McpTools, mcpTools } from "./mcp-tools.ts";
+import { appsOfWorkflow, listedToolsOf, type McpTools, mcpTools } from "./mcp-tools.ts";
 import { finishRecording } from "./record.ts";
 import { createRecordControl, type RecordControl } from "./record-control.ts";
 import { maskTermsOf, readConsent, readForm, recordingDir, sweepRecordings } from "./recording-store.ts";
@@ -226,6 +226,21 @@ const service = createService({
   // question waits in the inbox. `prompter` is made below; this runs only when someone presses Run now.
   chooseInputs: (skill, provided) => chooseFiles(skill, provided, (question) => prompter.ask(question), log),
   spent: () => usage.usage.costUsd,
+  // The chat box (R6.1): the design agent changes the workflow from a sentence, with the apps its pages are in.
+  // The model is looked at when asked: a key pasted in Settings after the start counts.
+  chat: async (skill, message) => {
+    if (!model) throw new Error("changing a workflow by chat needs a model: add one in Settings");
+    const before = usage.usage.costUsd;
+    const made = await changeByChat({
+      skill,
+      message,
+      llm: model,
+      meter: usage,
+      apps: appsOfWorkflow(skill, tools ? await listedToolsOf(tools) : []),
+    });
+    // What the change cost, shown beside it.
+    return { ...made, costUsd: usage.usage.costUsd - before };
+  },
   // Test from the workflow's page (R4.6, N1): the safe test, its log with the runs'.
   test: (skill, block) =>
     rehearse(daemon, skill, { effects: new Map(), hooks: { data, llm, tools }, logDir: join(home, "runs"), block }),

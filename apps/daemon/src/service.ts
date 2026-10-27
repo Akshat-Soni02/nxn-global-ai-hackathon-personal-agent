@@ -20,6 +20,7 @@ import {
   type Waiting,
 } from "@shadow/player";
 import { blockPlan, shortName } from "@shadow/recorder";
+import { editsBetween } from "./draft-edits.ts";
 import { deleteDraft, draftSkill, readDraft, writeDraft } from "./draft-store.ts";
 import { goLiveProblems, nextTime, readState, triggerKey, writeState } from "./lifecycle.ts";
 import { appToConnect, NEEDS_APP } from "./mcp-tools.ts";
@@ -69,6 +70,11 @@ export interface ServiceOptions {
   // The safe test (rehearse.ts) from the workflow's page (R4.6): reads for real, only outlines what writes. With a
   // block, only that block's steps are reported (N1). Without one, Test says it can't run here.
   test?: (skill: Skill, block?: string) => Promise<TestResult>;
+  // The chat box (R6.1): the design agent changes the workflow from a sentence. Without one, chat says it can't here.
+  chat?: (
+    skill: Skill,
+    message: string,
+  ) => Promise<{ skill: Skill; summary: string; changed: boolean; costUsd?: number }>;
   now?: () => number;
 }
 
@@ -130,6 +136,8 @@ export interface Service {
   // The editor (docs/design.md, "6. Edit"): a draft beside the workflow, as a base version plus edit operations,
   // autosaved after every change. editDraft refuses an edit the workflow can't take (check.ts) and says why.
   draft(id: string): DraftView;
+  // A change asked for in a sentence (R6.1), put into the draft as edits: looked at, undone or saved like any other.
+  chat(id: string, message: string): Promise<{ summary: string; changed: boolean; costUsd?: number; draft: DraftView }>;
   editDraft(id: string, edits: EditInput[]): DraftView;
   // Groups a workflow saved before blocks into named blocks, and gives it a short name, on its draft.
   tidyDraft(id: string): DraftView;
@@ -463,6 +471,14 @@ export function createService(options: ServiceOptions): Service {
 
     // ── The editor's draft (draft-store.ts) ──
     draft: (id) => draftView(id),
+    async chat(id, message) {
+      if (!options.chat) throw new Error("changing a workflow by chat needs a model: add one in Settings");
+      // On the draft, if one is open: a sentence after a hand edit builds on it.
+      const base = draftSkill(dataDir, id)?.skill ?? latest(id);
+      const made = await options.chat(base, message);
+      if (made.changed) service.editDraft(id, editsBetween(base, made.skill));
+      return { summary: made.summary, changed: made.changed, costUsd: made.costUsd, draft: draftView(id) };
+    },
     // A workflow saved before blocks, grouped and named as one saved now would be (reports/plan-oct26-workflow-revamp.md,
     // R2.5): edits on the draft, so the user sees it in the editor and saves it as the next version, or undoes it.
     tidyDraft(id) {

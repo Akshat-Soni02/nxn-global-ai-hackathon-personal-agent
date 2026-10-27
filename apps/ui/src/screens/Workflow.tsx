@@ -28,6 +28,8 @@ export function Workflow({ id }: { id: string }) {
   // A test from this page (R4.6): its marks on the nodes, for the version it ran on.
   const [tested, setTested] = useState<{ version: number; report: TestReport; block?: string }>();
   const [testing, setTesting] = useState(false);
+  // The chat box (R6.1): what Shadow said it changed, shown over the draft it changed.
+  const [asked, setAsked] = useState<{ text: string; changed: boolean; costUsd?: number }>();
   if (workflow.data === null) return <p className="error">No workflow {id}.</p>;
   if (!workflow.data) return <Loading error={workflow.error} />;
   const { latest, versions } = workflow.data;
@@ -190,11 +192,27 @@ export function Workflow({ id }: { id: string }) {
         />
       ) : null}
 
+      <ChatBox
+        onSaid={(said) => {
+          setAsked(said);
+          if (said.changed) setEditing(true);
+        }}
+        id={id}
+      />
+      {asked ? (
+        <p className={`notice${asked.changed ? "" : " warn"}`}>
+          {asked.changed
+            ? `Shadow changed it: ${asked.text.replace(/\.$/, "")}. Look at the draft below, then save it or undo.`
+            : asked.text}
+          {asked.costUsd !== undefined ? <span className="muted small"> (${asked.costUsd.toFixed(3)})</span> : null}
+        </p>
+      ) : null}
       {editing ? (
         <Editor
           id={id}
           onDone={() => {
             setEditing(false);
+            setAsked(undefined);
             workflow.reload();
           }}
         />
@@ -410,4 +428,58 @@ function keyed(lines: string[]): { key: string; line: string }[] {
     seen.set(line, n);
     return { key: `${line}#${n}`, line };
   });
+}
+
+// "What would you like to change?" (R6.1): one sentence, and the design agent changes the workflow into a draft you look
+// at before saving.
+function ChatBox({
+  id,
+  onSaid,
+}: {
+  id: string;
+  onSaid(said: { text: string; changed: boolean; costUsd?: number }): void;
+}) {
+  const session = useSession();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  return (
+    <section className="section">
+      <form
+        className="chat-box"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!text.trim()) return;
+          setBusy(true);
+          setError(undefined);
+          try {
+            const out = await session.call<{ summary: string; changed: boolean; costUsd?: number }>("chat", {
+              id,
+              message: text.trim(),
+            });
+            onSaid({ text: out.summary, changed: out.changed, costUsd: out.costUsd });
+            if (out.changed) setText("");
+          } catch (err) {
+            setError((err as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label className="field wide">
+          <span>What would you like to change?</span>
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="also skip jobs older than a week"
+            disabled={busy}
+          />
+        </label>
+        <button type="submit" className="button primary" disabled={busy || !text.trim()}>
+          {busy ? "Changing…" : "Change it"}
+        </button>
+      </form>
+      {error ? <p className="error">{error}</p> : null}
+    </section>
+  );
 }

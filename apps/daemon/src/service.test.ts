@@ -277,6 +277,25 @@ describe("the daemon as a service", () => {
     await expect(service.test("nope")).rejects.toThrow(/no workflow nope/);
   });
 
+  it("puts a change asked for in a sentence into the draft, to look at and save (R6.1)", async () => {
+    const { open } = setup([write("s1"), write("s2")]);
+    const { service } = open(undefined, {
+      chat: async (skill, message) => {
+        const changed = {
+          ...skill,
+          steps: skill.steps.map((s) => (s.id === "s2" ? { ...s, intent: `write s2 (${message})` } : s)),
+        };
+        return { skill: changed, summary: "s2 now says why", changed: true };
+      },
+    });
+    const out = await service.chat("report", "say why");
+    expect(out).toMatchObject({ summary: "s2 now says why", changed: true });
+    expect(out.draft.changes.length).toBe(1);
+    expect(service.draft("report").skill.steps[2]).toMatchObject({ intent: "write s2 (say why)" });
+    // Nothing runs on it until it is saved.
+    expect(service.workflow("report")?.versions).toEqual([1]);
+  });
+
   it("marks runs left going by a stopped daemon as interrupted, and expires questions nobody can receive", async () => {
     const { open, dataDir } = setup([write("s1")]);
     const store = openStore(join(dataDir, "shadow.db"));

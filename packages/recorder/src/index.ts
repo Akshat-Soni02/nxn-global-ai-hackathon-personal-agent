@@ -24,6 +24,7 @@ export {
 } from "./compile.ts";
 export { DESIGN_V2_BUDGET, remaining } from "./design/v2/budget.ts";
 export { changesSummary, describeChanges, plainChanges } from "./design/v2/changes.ts";
+export { changeByChat } from "./design/v2/chat.ts";
 export {
   APPS,
   type AppTool,
@@ -31,6 +32,8 @@ export {
   type ConnectorChance,
   type Connectors,
   connectorChances,
+  documentIdOf,
+  type UsableApp,
 } from "./design/v2/connectors.ts";
 export {
   DoneReport,

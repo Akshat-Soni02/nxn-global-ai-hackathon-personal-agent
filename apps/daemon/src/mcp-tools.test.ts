@@ -3,6 +3,7 @@ import { runSkill } from "@shadow/player";
 import { requireApprovals } from "@shadow/recorder";
 import { describe, expect, it } from "vitest";
 import {
+  appsOfWorkflow,
   connectedToolsOf,
   coveringApp,
   describeAppTool,
@@ -130,6 +131,39 @@ describe("mcp steps in a run", () => {
     expect(text).toContain("GOOGLESHEETS_APPEND_VALUES");
     expect(describeAppTool(tools, "NOPE")).toMatch(/no app tool NOPE.*GOOGLESHEETS_APPEND_VALUES/);
     expect(describeAppTool([], "NOPE")).toMatch(/none/);
+  });
+
+  it("gives the chat box the connected apps the workflow's pages are in, with the documents by the step that opens them", () => {
+    const tools: McpTool[] = [{ ...(TOOLS[1] as McpTool), toolkit: "googlesheets" }];
+    const skill = Skill.parse({
+      id: "w",
+      name: "w",
+      version: 1,
+      description: { goal: "g" },
+      steps: [
+        { id: "start", type: "trigger", intent: "by hand" },
+        {
+          id: "s1",
+          type: "action",
+          intent: "open the sheet",
+          channel: "web",
+          action: "navigate",
+          args: { url: "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUv/edit" },
+        },
+        {
+          id: "s2",
+          type: "action",
+          intent: "open hn",
+          channel: "web",
+          action: "navigate",
+          args: { url: "https://news.ycombinator.com" },
+        },
+      ],
+    });
+    expect(appsOfWorkflow(skill, tools)).toMatchObject([
+      { toolkit: "googlesheets", name: "Google Sheets", steps: ["s1"], ids: { s1: "1AbCdEfGhIjKlMnOpQrStUv" } },
+    ]);
+    expect(appsOfWorkflow(skill, [])).toEqual([]);
   });
 
   it("gives app-first repair the connected app that covers a page, with only that app's tools", () => {

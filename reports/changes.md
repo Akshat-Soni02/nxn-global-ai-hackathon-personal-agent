@@ -130,6 +130,7 @@ isn't built. The plan's own order was design quality first (R5.3, R5.4), then R4
   expect to change an agent's work.
 - **Why not built.** It needs the design agent to run on an existing workflow with no recording (evidence optional),
   one episode per message, and the page's Edit mode (R4.6) to show the changes. Both are open.
+- **✔ Built 28 Oct.** A box on the workflow page: one sentence, and the design agent changes the workflow with its file tools and checks, no recording (`design/v2/chat.ts`, one short episode, ≤ $0.08). The change goes into the editor's draft as ordinary edits (`draft-edits.ts`), so it shows on the nodes and in "what changed", Undo takes it back, and nothing runs until Save; the page says what Shadow changed and what it cost. It gets the connected apps the workflow's pages are in. **Checked for real** on a scratch daemon with the real model: "Don't press Send any more: only print the page" removed the Send step; "Rename the block …" renamed it, through the window.
 
 ---
 

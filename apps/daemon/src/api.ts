@@ -45,6 +45,11 @@ const methods = {
     run: (s: Service, p: { id: string; inputs: Record<string, unknown> }) => s.startAsking(p.id, p.inputs),
   },
   // A walk-through (docs/design.md, "7. Test"): a run that stops before every step with its target outlined.
+  // The chat box (R6.1): a change in a sentence, into the draft.
+  chat: {
+    params: z.object({ id, message: z.string().min(1).max(2000) }),
+    run: (s: Service, p: { id: string; message: string }) => s.chat(p.id, p.message),
+  },
   // The safe test from the workflow's page (R4.6), or one block of it (N1).
   test: {
     params: z.object({ id, block: z.string().optional() }),

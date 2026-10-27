@@ -6,7 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { isAction, type Skill, walkSteps, webPages } from "@shadow/core";
 import type { ChannelExecutor } from "@shadow/player";
-import { APPS, appOf } from "@shadow/recorder";
+import { APPS, appOf, documentIdOf, type UsableApp } from "@shadow/recorder";
 
 export interface McpTool {
   name: string;
@@ -171,6 +171,32 @@ export function coveringApp(
       readOnly: t.readOnly && !t.destructive,
     })),
   };
+}
+
+// The connected apps a workflow's pages are in, as the design gets them (the chat box, R6.1): each with the steps that
+// open its pages and the document each one opens, so the agent can write an app step's document as <id:s4>.
+export function appsOfWorkflow(skill: Skill, tools: McpTool[]): UsableApp[] {
+  const apps = new Map<string, UsableApp>();
+  for (const { step } of walkSteps(skill.steps)) {
+    if (!isAction(step) || step.channel !== "web" || step.action !== "navigate") continue;
+    const url = String(step.args.url ?? "");
+    const app = appOf(url);
+    const own = app ? tools.filter((t) => t.toolkit === app.toolkit) : [];
+    if (!app || own.length === 0) continue;
+    const found = apps.get(app.toolkit) ?? {
+      toolkit: app.toolkit,
+      name: app.name,
+      why: app.why,
+      steps: [],
+      ids: {},
+      tools: own.map((t) => ({ ...t, toolkit: t.toolkit ?? app.toolkit })),
+    };
+    found.steps.push(step.id);
+    const doc = documentIdOf(url);
+    if (doc) found.ids[step.id] = doc;
+    apps.set(app.toolkit, found);
+  }
+  return [...apps.values()];
 }
 
 // Whether a step calling this tool must ask first. Unknown tools ask.

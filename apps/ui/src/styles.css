@@ -1870,3 +1870,13 @@ details.advanced h3 {
   color: var(--ok);
   font-weight: 600;
 }
+
+/* The chat box on a workflow's page (R6.1). */
+.chat-box {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.chat-box .field {
+  flex: 1;
+}

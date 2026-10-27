@@ -128,7 +128,7 @@ const principles = BUILD.slice(BUILD.indexOf("Principles"), BUILD.indexOf("\nToo
   .filter((part) => !/^- (Connected apps|Work in few calls|Test it|Finish with done)/.test(part))
   .join("\n");
 
-const FILE = `The workflow is a file
+export const FILE = `The workflow is a file
 - The message shows it as read_workflow does: { "steps": [ … ], "success": [ … ] }. Change it with edit_workflow
   (exact old text → new text, for a value, a field, a step) or write_workflow (the whole of it: a plan, a loop around
   several steps, a big restructure). Every write is checked; a refused one changes nothing and says what to fix.
