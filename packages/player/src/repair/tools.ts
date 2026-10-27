@@ -6,6 +6,7 @@ import {
   applyEdits,
   Edit,
   type EditInput,
+  findStep,
   isOutward,
   neverMatch,
   repairCheck,
@@ -25,8 +26,9 @@ import { type TryResult, tryDraft } from "./verify.ts";
 export type RepairFinish =
   | { kind: "resolve"; class: Exclude<FailureClass, "drift">; reason: string }
   | { kind: "commit"; summary: string }
-  // Needs the user's OK and nobody can answer now: the fix waits for them as a proposal (recover.ts).
-  | { kind: "propose"; summary: string }
+  // Needs the user's OK and nobody can answer now: the fix waits for them as a proposal (recover.ts). skip: the fix
+  // removes the failing step, so this run goes on after it (N22).
+  | { kind: "propose"; summary: string; skip?: boolean }
   | { kind: "escalate"; reason: string; whatToShow?: string };
 
 export interface RepairSession {
@@ -238,6 +240,32 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
           session.okd = key(session.draft);
         }
         return { output: "committed", finish: { kind: "commit", summary } as RepairFinish };
+      },
+    }),
+    // N22: a step that shouldn't be in the workflow (a recorded mis-click on a banner, a step a site no longer needs).
+    // Before, repair kept trying to fix it, and escalating was its only way out. Now it says so, and the user decides.
+    tool({
+      name: "remove_step",
+      kind: "finish",
+      description:
+        "The failing step shouldn't be in the workflow at all (a mis-click that was recorded, a step the site no longer needs): put its removal to the user, with why. The run goes on after it if they say yes",
+      input: z.object({ why: z.string().min(1).max(300) }),
+      run: ({ why }) => {
+        const id = session.failure.stepId;
+        const removed = applyEdits(session.draft, [{ op: "remove", step: id }]);
+        const check = removed.ok ? repairCheck(session.original, removed.skill) : undefined;
+        const step = findStep(session.original, id);
+        const kept = step && (("requires_approval" in step && step.requires_approval) || ("ask" in step && step.ask));
+        if (!removed.ok || kept || (check?.never.length ?? 0) > 0)
+          return {
+            output: `Not removed: ${removed.ok ? (kept ? "it asks for approval or a question, so it is the user's: can't remove it" : (check?.never.join("; ") ?? "")) : removed.problems.join("; ")}`,
+          };
+        session.draft = removed.skill;
+        session.edits.push({ op: "remove", step: id });
+        return {
+          output: "put to the user: remove it",
+          finish: { kind: "propose", summary: `${id} isn't needed: ${why}`, skip: true } as RepairFinish,
+        };
       },
     }),
     tool({

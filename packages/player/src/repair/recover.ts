@@ -147,6 +147,7 @@ export async function runWithRecovery(
         what: repaired.what,
         skill: repaired.skill,
         edits: repaired.edits,
+        ...(repaired.skip ? { skip: true } : {}),
       };
       const message = `${whereIn(current, failure.stepId)} failed: ${failure.result.error}. Shadow can fix it: ${repaired.summary}`;
       const choice = await recovery.waitForUser(message, failure, proposal);
@@ -163,6 +164,13 @@ export async function runWithRecovery(
             proposal,
           },
         });
+      }
+      if (choice === "use" && repaired.skip) {
+        // The step goes from the next version; this run goes on after it.
+        const saved = await recovery.saveVersion(repaired.skill, repaired.edits);
+        event(repaired.summary, { by: "agent", version: saved.version });
+        resume = { ...outcome.resume, skip: true };
+        continue;
       }
       if (choice === "use") {
         current = await recovery.saveVersion(repaired.skill, repaired.edits);

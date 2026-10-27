@@ -80,6 +80,8 @@ export type RepairOutcome = { classification: Classification; episode?: Episode<
       what: string;
       edits: EditInput[];
       resume?: Resume;
+      // The fix removes the failing step (N22): this run goes on after it, on the version it was running.
+      skip?: boolean;
     }
 );
 
@@ -215,9 +217,11 @@ export function createRepairer(options: RepairerOptions = {}): Repairer {
         kind: "propose",
         skill: nextVersion(skill, session.draft, finish.summary, options.now),
         summary: finish.summary,
-        what: changedSteps(skill, session.draft),
+        // A removed step has no new step to show: what goes is said instead.
+        what: finish.skip ? `removes ${failure.stepId}: ${failure.step.intent}` : changedSteps(skill, session.draft),
         edits: session.edits,
-        resume: { at: failure.path, vars: failure.vars },
+        resume: { at: failure.path, vars: failure.vars, ...(finish.skip ? { skip: true } : {}) },
+        ...(finish.skip ? { skip: true } : {}),
         classification,
         episode,
       };
@@ -254,7 +258,9 @@ requires, keep step ids, and never change what the user decided. The report says
 was recorded: find that again on the page. You may add, remove, reorder and change steps to get the run done; a change
 that acts outward, opens a new site or removes a step that asks for approval is put to the user when you commit, and
 made on yes. Calling the same look again with nothing done in between gets the same answer: act instead. If you can't
-find a safe fix, escalate and say in plain words what you would change, or what the user should show you.
+find a safe fix, escalate and say in plain words what you would change, or what the user should show you. If the
+failing step shouldn't be in the workflow at all (a mis-click that was recorded, a step the site no longer needs), say
+so with remove_step and why: the user decides, and the run goes on without it.
 When the failing step is work inside an app that has a connected tool listed under "Available now" (a sheet's cells, a
 document, a mail), try the app first, before you look at the page: the page may be what can't be replayed. Replace the
 step with that tool's mcp.call in one edit: { channel: "mcp", action: "call", args: { tool: "NAME", arguments: { … } } }

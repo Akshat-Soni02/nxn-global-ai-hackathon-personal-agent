@@ -598,11 +598,17 @@ export function createService(options: ServiceOptions): Service {
         if (!store.answerItem(itemId, raw, now())) throw new Error("already answered");
         emit({ type: "inbox", item: store.getItem(itemId) as InboxItem });
         const saved = saveRepair(options.dataDir, Skill.parse(proposal.skill), proposal.edits);
+        const going = updateRun(run.id, { status: "running", repaired: true });
+        // A removal (N22): the next version goes without the step; this run goes on after it, on its own version.
+        if (proposal.skip) {
+          const before = loadVersion(run.skillId, checkpoint.version, checkpoint.file);
+          enqueue(() => leg(going, before, checkpoint.inputs, { ...checkpoint.resume, skip: true }, checkpoint.file));
+          return;
+        }
         const resume: Resume = {
           ...checkpoint.resume,
           answers: [...(checkpoint.resume.answers ?? []), { kind: "approval", approved: true }],
         };
-        const going = updateRun(run.id, { status: "running", repaired: true });
         enqueue(() => leg(going, saved, checkpoint.inputs, resume, checkpoint.file));
         return;
       }

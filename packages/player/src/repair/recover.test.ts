@@ -136,6 +136,37 @@ describe("recovery that waits", () => {
     expect(now.ran).toEqual(["s1", "s2"]);
   });
 
+  it("on a removal, saves the version without the step and goes on after it in this run (N22)", async () => {
+    const s = skill([write("s1"), write("s2")]);
+    const without = skill([write("s2")], 2);
+    const removal = repairer(() => ({
+      kind: "propose",
+      skill: without,
+      summary: "s1 isn't needed: a banner click",
+      what: "removes s1: write s1",
+      edits: [{ op: "remove", step: "s1" }],
+      resume: { at: "s1", vars: {}, skip: true },
+      skip: true,
+      classification,
+    }));
+    const saved: number[] = [];
+    const now = fake(["s1"]);
+    const done = await runWithRecovery(s, now.deps, {
+      inputs: {},
+      recovery: {
+        repairer: removal,
+        saveVersion: (x) => {
+          saved.push(x.version);
+          return x;
+        },
+        waitForUser: async () => "use",
+      },
+    });
+    expect(saved).toEqual([2]);
+    expect(done.status).toBe("succeeded");
+    expect(now.ran).toEqual(["s2"]);
+  });
+
   it("keeps a retargeted outward step's first-time approval across a wait", async () => {
     // s1 fails and is repaired; the fix retargeted s3 (outward) without running it. The run then waits for s2's
     // approval. When it goes on, s3 must still ask for approval although it doesn't require it in the workflow.

@@ -207,6 +207,41 @@ describe("repair asks instead of refusing", () => {
   });
 });
 
+describe("a step that shouldn't be in the workflow (N22)", () => {
+  it("is put to the user as a fix that removes it, with why, instead of being escalated", async () => {
+    const { s, run } = session(WAIT);
+    const out = (await run("remove_step", { why: "it clicked a banner that is gone; the flow works without it" })) as {
+      output: string;
+      finish?: unknown;
+    };
+    expect(out.finish).toEqual({
+      kind: "propose",
+      summary: "s5 isn't needed: it clicked a banner that is gone; the flow works without it",
+      skip: true,
+    });
+    expect(JSON.stringify(s.draft)).not.toContain('"id":"s5"');
+  });
+
+  it("never removes a step that asks for approval or asks a question", async () => {
+    const approved = { ...step, requires_approval: true } as ActionStep;
+    const guarded = Skill.parse({ ...skill, steps: skill.steps.map((x) => (x.id === "s5" ? approved : x)) });
+    const { run } = session(WAIT);
+    const tools = repairTools({
+      original: guarded,
+      draft: guarded,
+      failure: { ...failure, step: approved },
+      env: { runId: "r", deps: {} as RunDeps },
+      report: "",
+      edits: [],
+    });
+    void run;
+    const t = tools.find((x) => x.name === "remove_step") as AnyTool<RepairFinish>;
+    const out = (await t.run(t.input.parse({ why: "x" }), { turn: 1 })) as { output: string; finish?: unknown };
+    expect(out.finish).toBeUndefined();
+    expect(out.output).toMatch(/can't remove it/);
+  });
+});
+
 describe("the repeat guard", () => {
   it("answers the same look, with nothing done in between, without running it again", async () => {
     let looked = 0;

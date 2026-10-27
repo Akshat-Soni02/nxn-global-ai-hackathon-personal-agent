@@ -122,6 +122,8 @@ export interface Proposal {
   what: string;
   skill: Skill;
   edits: EditInput[];
+  // It removes the failing step (N22): the run goes on after it, on the version it was running.
+  skip?: boolean;
 }
 
 export type Waiting =
