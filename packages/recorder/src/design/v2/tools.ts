@@ -12,6 +12,7 @@ import {
   isAction,
   isLlm,
   type Locator,
+  pageName,
   Skill,
   type Step,
   triggerOf,
@@ -166,7 +167,41 @@ export const isHowTo = (question: string) =>
 export type DesignMode = "file" | "verbs";
 
 // The workflow as the model reads and edits it in file mode: the same formatting every time, so exact text matches.
-export const workflowFile = (skill: Skill) => JSON.stringify({ steps: skill.steps, success: skill.success }, null, 2);
+// A block's steps are folded to their ids (R5): the agent reads ~10 named blocks, not 33 steps; written back, an id is
+// that step as it is, so nothing is lost. read_workflow { step } shows any step in full; `full` shows every one.
+export const workflowFile = (skill: Skill, options: { full?: boolean } = {}) =>
+  JSON.stringify({ steps: options.full ? skill.steps : folded(skill.steps), success: skill.success }, null, 2);
+
+function folded(steps: Step[]): unknown[] {
+  return steps.map((s) => {
+    if (s.type !== "control") return s;
+    if (s.kind === "group") return { ...s, steps: s.steps.map((x) => x.id) };
+    return { ...s, steps: folded(s.steps), ...(s.kind === "branch" ? { else: folded(s.else) } : {}) };
+  });
+}
+
+// Which page each of these steps reads or types on: the page the last open before it went to (Oct 27: the design put
+// "Read all job listings" right after "Open the sheet", and read the sheet). Said with every write, so a step on the
+// wrong page shows at once. In run order; a loop's steps follow what is open when it starts.
+export function pagesOfSteps(skill: Skill, ids: Set<string>): string[] {
+  const out: string[] = [];
+  let open: { id: string; url: string } | undefined;
+  for (const { step } of walkSteps(skill.steps)) {
+    if (!isAction(step) || step.channel !== "web") continue;
+    if (step.action === "navigate") {
+      open = { id: step.id, url: String(step.args.url ?? "") };
+      continue;
+    }
+    if (!ids.has(step.id) || !["extract", "type", "click", "select", "press"].includes(step.action)) continue;
+    const verb = step.action === "extract" ? "reads" : step.action === "type" ? "types on" : "acts on";
+    out.push(
+      open
+        ? `${step.id} ${verb} ${pageName(open.url)} (the page ${open.id} opened)`
+        : `${step.id} ${verb} no page yet: a run starts on a blank window, open one first`,
+    );
+  }
+  return out.slice(0, 12);
+}
 
 // What file mode keeps from the verbs: looking, testing, asking, proposals, and finishing.
 const FILE_MODE = new Set(["accept", "reject", "restore", "look", "test", "ask", "done", "finish", "ask_user"]);
@@ -185,8 +220,10 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     return `${prefix}${n}`;
   };
   // A recorded step anywhere: in the draft, the recording, or what code left out.
+  // Code's left-out steps too (x4): the model names them as targets (Oct 27, "no step x4" four times).
   const anyStep = (id: string): Step | undefined =>
-    [...walkSteps(session.draft.steps), ...walkSteps(session.original.steps)].find(({ step }) => step.id === id)?.step;
+    [...walkSteps(session.draft.steps), ...walkSteps(session.original.steps)].find(({ step }) => step.id === id)
+      ?.step ?? (session.dropped.get(id)?.step as Step | undefined);
   // The locator for a control the model names. A recorded one is as recorded; one in a recorded place is that place's
   // selector without its words, so it finds whatever is there next time (checkpoint 6: today's featured article).
   const locatorOf = (
@@ -318,6 +355,10 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         ...(added.length > 0 ? { approval_added: added } : {}),
         ...(tidy.fixed.size > 0 ? { tabs_fixed: [...tidy.fixed].map(([id, note]) => `${id}: ${note}`) } : {}),
         ...(made.length > 0 ? { new_steps: made } : {}),
+        ...(() => {
+          const on = pagesOfSteps(session.draft, new Set([...touched, ...made]));
+          return on.length > 0 ? { works_on: on } : {};
+        })(),
         ...(unchanged ? { note: "nothing changed: the workflow is exactly as it was (its why is kept)" } : {}),
         workflow: outlineOf(session.draft),
       },
@@ -350,6 +391,19 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     return problem;
   };
 
+  // How the user wrote, as an example to copy (the recording's first typing and the page it was on), so an app step
+  // refused for want of an app says what to do instead (Oct 27: the YC design sent do: "app" three times).
+  const typingExample = (): string => {
+    let page: string | undefined;
+    for (const { step } of walkSteps(session.original.steps)) {
+      if (!isAction(step) || step.channel !== "web") continue;
+      if (step.action === "navigate") page = step.id;
+      if (step.action === "type")
+        return `: { "do": "open", "page": "${page ?? "s1"}" }, then { "do": "type", "target": { "like": "${step.id}" }, "text": "{{…}}" } (the user typed into ${step.id})`;
+    }
+    return "";
+  };
+
   // A step spec -> an action step: channel, action and type from `do`, the target copied or new, values as args.
   const compile = (
     spec: StepSpec,
@@ -369,7 +423,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         return {
           error:
             session.apps.length === 0
-              ? "no app is connected for this workflow: build it with page steps"
+              ? `no app is connected for this workflow, so it writes on the page as the user did: open the page, then type into it${typingExample()}`
               : `no app tool "${name}". The tools: ${tools.map((t) => t.name).join(", ")}`,
         };
       }
@@ -418,7 +472,11 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     }
     let locator: Locator | undefined;
     let unverified = false;
-    if (target) {
+    // A read "like" a step that opens a page reads that page (Oct 27: the YC design sent read_all { like: "s2" }, s2
+    // the open of the jobs page, three times, refused each time).
+    const likes = target && "like" in target ? anyStep(target.like) : undefined;
+    const readsAPage = action === "extract" && likes && isAction(likes) && likes.action === "navigate";
+    if (target && !readsAPage) {
       const found = locatorOf(target);
       if ("error" in found) return found;
       ({ locator, unverified } = found);
@@ -866,7 +924,13 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       keepWhy(s.id);
       return s;
     }
-    // Loops and branches: their inner steps too.
+    // A block as the agent may write it: { "block": "Open the jobs sheet", "steps": [ … ] } (R5).
+    if (typeof s.block === "string" && Array.isArray(s.steps)) {
+      const { block, ...rest } = s;
+      Object.assign(s, { ...rest, type: "control", kind: "group", intent: block });
+      delete s.block;
+    }
+    // Loops, branches and blocks: their inner steps too.
     if (s.type === "control" || "over" in s || ("if" in s && Array.isArray(s.steps))) {
       const kind = s.kind ?? ("over" in s ? "loop" : "branch");
       const step: Record<string, unknown> = { ...s, type: "control", kind };
@@ -887,7 +951,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
               itemType(String(s.over ?? "")) ?? { type: "text" }),
         };
         step.intent ??= `for each ${item.name ?? "item"} in ${s.over}`;
-      } else step.intent ??= "if it holds";
+      } else step.intent ??= kind === "group" ? "Steps" : "if it holds";
       keepWhy(step.id);
       return step;
     }
@@ -915,6 +979,12 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       // { output: { name } } on a do step is its save_as.
       const named = (s.output as { name?: unknown } | undefined)?.name;
       if (values.save_as === undefined && typeof named === "string") values.save_as = named;
+      // An empty or missing intent is said for it (Oct 27: a write with "intent": "" on ten steps was refused ten times).
+      if (typeof values.intent !== "string" || !values.intent.trim()) {
+        const t = values.target as { like?: string; place?: string; css?: string; name?: string } | undefined;
+        const on = t?.name ?? t?.css ?? (t?.like ? `like ${t.like}` : t?.place ? `at ${t.place}'s place` : "");
+        values.intent = `${String(s.do).replace(/_/g, " ")}${on ? ` ${on}` : ""}${values.page ? ` ${values.page}` : ""}`;
+      }
       const spec = StepSpec.safeParse({ intent: `${s.do}`, ...values });
       if (!spec.success) {
         out.problems.push(
@@ -1178,8 +1248,13 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       }),
       prepare: unstring,
       run: ({ edits, why, whys }) => {
-        // Matched on the text as the agent read it (masked); writeWorkflow puts the private values back.
-        let text = maskText(canonical(session.draft), session.maskTerms ?? []).text;
+        // Matched on the text as the agent read it (masked); writeWorkflow puts the private values back. A step inside a
+        // block is folded to its id in that text: an edit that quotes it (read_workflow { step }) is matched on the
+        // workflow with every step in full.
+        const mask = (t: string) => maskText(t, session.maskTerms ?? []).text;
+        const list = Array.isArray(edits) ? edits : [edits];
+        const short = mask(canonical(session.draft));
+        let text = list.every((e) => short.includes(e.old)) ? short : mask(canonical(session.draft, { full: true }));
         for (const [i, e] of (Array.isArray(edits) ? edits : [edits]).entries()) {
           const count = text.split(e.old).length - 1;
           if (count !== 1) {

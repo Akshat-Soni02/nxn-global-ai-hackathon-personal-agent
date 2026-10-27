@@ -1,6 +1,7 @@
 // A run's log as the Run page shows it, grouped by step (checkpoint 6: a walk-through's log was one long list, the
 // step's name in every line, and "its target was not outlined" on a step that opens a page and has nothing to outline).
 // Each group is one step: waiting for you, going on, your choice, and how it went.
+import { type Step, walkSteps } from "@shadow/core";
 import type { RunLogEvent } from "@shadow/player";
 import { duration } from "./format.ts";
 
@@ -38,6 +39,44 @@ export function groupsOf(events: Logged[]): Group[] {
     if (into && !into.id && "stepId" in e) into.id = e.stepId;
   }
   return groups;
+}
+
+// A run's log by the blocks the reader sees (reports/plan-oct26-workflow-revamp.md, R7.1): steps one after another
+// in the same block are one section, under the block's title, with how it went; a step in no block is a section of
+// its own.
+export interface Section {
+  block?: { id: string; title: string };
+  groups: Group[];
+  state: "done" | "failed" | "waiting" | "skipped" | "running";
+}
+
+export function sectionsOf(groups: Group[], blockOf: Map<string, { id: string; title: string }>): Section[] {
+  const sections: Section[] = [];
+  for (const g of groups) {
+    const block = g.id ? blockOf.get(g.id) : undefined;
+    const last = sections.at(-1);
+    if (block && last?.block?.id === block.id) last.groups.push(g);
+    else sections.push({ ...(block ? { block } : {}), groups: [g], state: "running" });
+  }
+  for (const s of sections) s.state = stateOf(s.groups.flatMap((g) => g.events));
+  return sections;
+}
+
+function stateOf(events: Logged[]): Section["state"] {
+  if (events.some((e) => e.type === "step.result" && !e.result.ok)) return "failed";
+  if (events.some((e) => e.type === "run.end" && e.status === "waiting")) return "waiting";
+  if (events.length > 0 && events.every((e) => e.type === "step.skipped")) return "skipped";
+  if (events.some((e) => e.type === "step.result")) return "done";
+  return "running";
+}
+
+// Each step's block (id and title) by the step's id: what sectionsOf groups by.
+export function blocksIn(steps: Step[]): Map<string, { id: string; title: string }> {
+  const out = new Map<string, { id: string; title: string }>();
+  for (const { step } of walkSteps(steps))
+    if (step.type === "control" && step.kind === "group")
+      for (const { step: inner } of walkSteps(step.steps)) out.set(inner.id, { id: step.id, title: step.intent });
+  return out;
 }
 
 // Each step's intent by its id, nested steps included: the group's heading.

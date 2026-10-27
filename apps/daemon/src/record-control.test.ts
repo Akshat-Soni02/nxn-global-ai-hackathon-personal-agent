@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isAction, Skill, triggerOf } from "@shadow/core";
+import { isAction, Skill, triggerOf, walkSteps } from "@shadow/core";
 import { createDecoder, encode } from "@shadow/ipc";
 import { fakeLlm } from "@shadow/llm";
 import { scriptedDesigner } from "@shadow/recorder";
@@ -217,7 +217,7 @@ describe("recording from the window's API", () => {
     });
     expect(triggerOf(skill).when).toEqual([{ type: "schedule", cron: "0 9 * * 1", missed: "skip" }]);
     // "Archive" matches Never, "Send report" sends: both wait for approval when it runs.
-    const actions = skill.steps.filter(isAction);
+    const actions = [...walkSteps(skill.steps)].map(({ step }) => step).filter(isAction);
     expect(actions.map((s) => [s.target?.name, s.requires_approval])).toEqual([
       [undefined, false],
       ["Archive", true],
@@ -371,7 +371,7 @@ describe("after Stop, with a model", () => {
     const skill = saved?.skill as Skill;
     expect(triggerOf(skill).inputs.week?.default).toBe("2026-W41");
     // The history says what really changed, from the workflow, not the agent's own sentence.
-    expect(skill.history[0]?.summary).toMatch(/^Recorded; .*input week added/);
+    expect(skill.history[0]?.summary).toMatch(/^Recorded; .*asks for the week when it starts/);
     const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
     expect(kept).toMatchObject({ kind: "designed", summary: "A scheduled run logs the current week" });
     expect(kept.asked).toEqual([{ question: "Which week should a scheduled run log?", answer: "", by: "agent" }]);
@@ -406,7 +406,7 @@ describe("after Stop, with a model", () => {
     expect(asked).toContain("default-week");
     expect(triggerOf(saved?.skill as Skill).inputs.week?.default).toBe("2026-W42");
     // What it reached is described by what changed (it added the week input).
-    expect(saved?.skill.history[0]?.summary).toBe("Recorded; input week added");
+    expect(saved?.skill.history[0]?.summary).toBe("Recorded; asks for the week when it starts");
   });
 
   it("never asks for a password, and never gives one a default", () => {

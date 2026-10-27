@@ -83,7 +83,9 @@ export function workflowOutline(skill: Skill, failed?: string): string {
           : step.type === "control"
             ? step.kind === "loop"
               ? `loop over ${step.over} as ${step.item.name}`
-              : `branch if ${JSON.stringify(step.if)}`
+              : step.kind === "group"
+                ? "block"
+                : `branch if ${JSON.stringify(step.if)}`
             : step.type;
       return `${pad}${step.id === failed ? "→ " : ""}${step.id} ${what} · ${step.intent}`;
     })

@@ -213,6 +213,7 @@ async function runStep(step: Exclude<Step, { type: "trigger" }>, vars: Vars, env
   const resume = env.resume;
   if (resume?.active && step.id !== resume.target && step.type === "control") {
     if (step.kind === "loop") return runLoop(step, vars, env, path, resume.items.get(step.id));
+    if (step.kind === "group") return runSteps(step.steps, vars, env);
     return runBranch(step, vars, env, path, contains({ ...step, else: [] }, resume.target) ? "steps" : "else");
   }
   if (resume?.active) {
@@ -271,6 +272,8 @@ async function runStep(step: Exclude<Step, { type: "trigger" }>, vars: Vars, env
     }
   }
 
+  // A block runs its steps in order, in the same scope; their paths are their own ids, as in a branch's arm.
+  if (step.type === "control" && step.kind === "group") return runSteps(step.steps, vars, env);
   if (step.type === "control")
     return step.kind === "loop"
       ? runLoop(step, vars, env, path, undefined, given)
@@ -530,6 +533,8 @@ function levelOutputs(steps: Step[]): Map<string, VarType> {
     if ((isAction(step) || isLlm(step)) && step.output) out.set(step.output.name, step.output.type);
     if (step.type === "control" && step.kind === "branch")
       for (const name of producedByBoth(step)) out.set(name, { type: "text" });
+    // A block's outputs are its level's.
+    if (step.type === "control" && step.kind === "group") for (const [k, v] of levelOutputs(step.steps)) out.set(k, v);
   }
   return out;
 }

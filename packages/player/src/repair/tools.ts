@@ -12,6 +12,7 @@ import {
   type Skill,
   type Step,
   walkSteps,
+  whereIn,
 } from "@shadow/core";
 import { z } from "zod";
 import type { Failure, Resume } from "../types.ts";
@@ -324,7 +325,7 @@ function applyToDraft(session: RepairSession, edits: EditInput[]) {
 async function askOk(session: RepairSession, summary: string, asks: string[]): Promise<"yes" | "no" | "waiting"> {
   const ask = session.env.deps.ask;
   if (!ask) return "waiting";
-  const question = `"${session.original.name}" stopped at ${session.failure.stepId}. Shadow can fix it: ${summary}. That needs your OK: ${asks.join("; ")}. Go ahead?`;
+  const question = `"${session.original.name}" stopped at ${whereIn(session.original, session.failure.stepId)}. Shadow can fix it: ${summary}. That needs your OK: ${asks.join("; ")}. Go ahead?`;
   try {
     const answer = await ask({ question, kind: "confirm" }, session.failure.step);
     return answer === true ? "yes" : answer === false ? "no" : "waiting";

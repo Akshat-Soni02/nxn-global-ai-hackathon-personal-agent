@@ -136,6 +136,53 @@ export function skeletonOf(steps: NormalisedStep[]): Skeleton {
   };
 }
 
+// What a copy is called for later steps (reports/plan-oct26-workflow-revamp.md, R2.6): by what it is, never its value
+// ("$160K - $200K" is a pay, "Account Executive" a role). Oct 26 the YC workflow's four copies were copied_1…copied_4.
+// The sheet's column; else the control's label; else the words just before it on the page; else its kind; else
+// copied_N. Each name once.
+export function copyName(
+  step: Pick<NormalisedStep, "target" | "value">,
+  column: string | undefined,
+  taken: Set<string>,
+  n: number,
+): string {
+  const value = (step.value ?? step.target?.text ?? step.target?.name ?? "").trim().toLowerCase();
+  const usable = (text: string | undefined) => {
+    const t = (text ?? "").trim();
+    // A few words that aren't the value itself, and aren't a number or an amount.
+    return t && t.split(/\s+/).length <= 3 && t.toLowerCase() !== value && /[a-z]/i.test(t) && !/\d/.test(t)
+      ? t
+      : undefined;
+  };
+  const KIND: Record<string, string> = { heading: "title", link: "link", cell: "cell", gridcell: "cell" };
+  // A bare text selection (most copies from a page: the YC pay, the company) says what it is by its shape.
+  const shape = /^[$€£₹]|\d\s*[kKmM]\b|\b(?:USD|EUR|GBP|INR)\b/.test(value)
+    ? "amount"
+    : /^\S+@\S+\.\S+$/.test(value)
+      ? "email"
+      : /^https?:\/\//.test(value)
+        ? "link"
+        : /\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|\d{4}-\d{2}-\d{2}/i.test(value)
+          ? "date"
+          : undefined;
+  const words =
+    usable(column) ??
+    usable(step.target?.label) ??
+    usable(step.target?.near) ??
+    KIND[step.target?.role ?? ""] ??
+    shape ??
+    `copied ${n}`;
+  const base =
+    words
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .replace(/^(\d)/, "v$1") || `copied_${n}`;
+  let name = base;
+  for (let i = 2; taken.has(name); i++) name = `${base}_${i}`;
+  return name;
+}
+
 // A copy keeps its value for later steps (an output). On a normal page that is the text of the element you copied
 // from. In a Google Sheet, whose cells are drawn, it is the sheet's rows read from its export, then a rule that
 // picks the value: code writes the rule for the exact row you copied from, and asks if it should be "today's row".
@@ -145,11 +192,11 @@ function copySteps(
   copies: Map<string, string>,
   questions: Question[],
 ): StepDraft[] {
-  const name = `copied_${copies.size + 1}`;
-  copies.set(step.events.at(-1) ?? "", name);
   const ctx = step.context as
     | { sheet?: string; header?: string[]; row?: Record<string, string>; column?: string }
     | undefined;
+  const name = copyName(step, ctx?.column, new Set(copies.values()), copies.size + 1);
+  copies.set(step.events.at(-1) ?? "", name);
   if (ctx?.sheet && ctx.row && ctx.column) {
     const sheet = `sheet_${copies.size}`;
     const [firstColumn = ""] = Object.keys(ctx.row);

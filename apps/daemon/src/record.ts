@@ -13,6 +13,7 @@ import type { MemoryStore } from "@shadow/memory";
 import {
   answerFromEvidence,
   applyAnswer,
+  blocksOf,
   buildEvidence,
   type Connectors,
   changesSummary,
@@ -20,19 +21,21 @@ import {
   connectorChances,
   type DesignV2Options,
   type DesignV2Outcome,
-  describeChanges,
   designV2,
   drill,
   type Evidence,
   effectsOf,
+  nodeCount,
   normaliseAll,
   type Prompter,
   pagesOf,
+  plainChanges,
   progressLine,
   type Question,
   recordedFolders,
   recordedPages,
   recordedSteps,
+  renamedBlocks,
   requireApprovals,
   reviewOf,
   type TestReport,
@@ -217,6 +220,12 @@ export async function finishRecording(
     ? { ...compiled.skill, id: existing.id, name: existing.name }
     : { ...compiled.skill, id: newSkillId(dataDir, compiled.skill.id) };
   let questions = compiled.questions;
+  // In named blocks from the start (reports/plan-oct26-workflow-revamp.md, R5): the design agent reads ~10 things the
+  // user did, not 33 browser events, and a design that changes nothing is saved readable.
+  const titles = new Map(
+    tabsOf(trace, steps).tabs.flatMap((t) => (t.firstUrl ? [[t.firstUrl, t.name] as [string, string]] : [])),
+  );
+  skill = blocksOf(skill, { titles });
   // The plain step list, before anything was decided: the history note says what changed from it.
   const plain = skill;
   // Questions the recording already answers are not asked (spec 2.10): "which file?" after "the latest invoice".
@@ -333,7 +342,7 @@ export async function finishRecording(
   const at = (options.now ?? (() => new Date()))().toISOString();
   // What really changed from the recorded steps (the agent's work, the answers, the approvals): from the workflow
   // itself, never from the agent's own summary.
-  const changed = changesSummary(describeChanges(plain, approved.skill));
+  const changed = changesSummary(plainChanges(plain, approved.skill));
   const noted = existing
     ? {
         ...approved.skill,
@@ -360,8 +369,12 @@ export async function finishRecording(
             },
           ],
         };
-  const saved = saveSkill(dataDir, noted);
-  log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path}`);
+  // Steps the design added outside any block, grouped the same way (R2); blocks already there are kept.
+  // Named by the design when it named it (its task model), a workflow recorded again keeps the name it had.
+  const named = !existing && design?.task?.name ? { ...noted, name: design.task.name } : noted;
+  const blocked = blocksOf(renamedBlocks(named as Skill, plain, { titles }), { titles });
+  const saved = saveSkill(dataDir, blocked);
+  log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path} (${nodeCount(blocked.steps)} nodes)`);
   if (evidence) writeRecordedSteps(dataDir, saved.skill.id, recordedSteps(evidence));
   progress(`Saved ${saved.skill.name}`);
   if (design) {

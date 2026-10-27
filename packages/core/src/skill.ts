@@ -284,6 +284,15 @@ const BranchFields = z.object({
   if: Condition,
 });
 
+// A block (reports/plan-oct26-workflow-revamp.md): a named node holding the steps that do one thing ("Open the jobs
+// sheet": a navigate and two clicks). Its intent is its name. It runs its steps in order and scopes nothing: what they
+// save is visible after it. One level: a block holds no block.
+const GroupFields = z.object({
+  ...stepBase,
+  type: z.literal("control"),
+  kind: z.literal("group"),
+});
+
 // The first step of every workflow: when it runs, and the inputs it starts with.
 export const TriggerStep = z.object({
   id: z.string().regex(/^[A-Za-z0-9_-]+$/),
@@ -300,7 +309,8 @@ export type TriggerStep = z.infer<typeof TriggerStep>;
 export type LoopStep = z.infer<typeof LoopFields> & { steps: Step[] };
 // No "then" key: an object with one is treated as a promise by `await`.
 export type BranchStep = z.infer<typeof BranchFields> & { steps: Step[]; else: Step[] };
-export type ControlStep = LoopStep | BranchStep;
+export type GroupStep = z.infer<typeof GroupFields> & { steps: Step[] };
+export type ControlStep = LoopStep | BranchStep | GroupStep;
 export type Step = TriggerStep | ActionStep | LlmStep | ControlStep;
 
 export type StepInput =
@@ -308,7 +318,8 @@ export type StepInput =
   | z.input<typeof ActionStep>
   | z.input<typeof LlmStep>
   | (z.input<typeof LoopFields> & { steps: StepInput[] })
-  | (z.input<typeof BranchFields> & { steps: StepInput[]; else?: StepInput[] });
+  | (z.input<typeof BranchFields> & { steps: StepInput[]; else?: StepInput[] })
+  | (z.input<typeof GroupFields> & { steps: StepInput[] });
 
 // Discriminated on `type`, then on `kind`, so a bad step reports its own problem instead of "invalid input".
 export const Step: z.ZodType<Step, StepInput> = z.lazy(() =>
@@ -319,6 +330,7 @@ export const Step: z.ZodType<Step, StepInput> = z.lazy(() =>
     z.discriminatedUnion("kind", [
       LoopFields.extend({ steps: z.array(Step).min(1) }),
       BranchFields.extend({ steps: z.array(Step).min(1), else: z.array(Step).default([]) }),
+      GroupFields.extend({ steps: z.array(Step).min(1) }),
     ]),
   ]),
 ) as z.ZodType<Step, StepInput>;
@@ -353,6 +365,9 @@ export const Skill = z
       if (step.type === "trigger" && (parents.length > 0 || step !== skill.steps[0])) {
         ctx.addIssue({ code: "custom", message: `${step.id}: only the first step can be a trigger`, path: ["steps"] });
       }
+      if (isGroup(step) && step.steps.some(isGroup)) {
+        ctx.addIssue({ code: "custom", message: `${step.id}: a block can't hold a block`, path: ["steps"] });
+      }
     }
     if (skill.steps[0]?.type !== "trigger") {
       ctx.addIssue({ code: "custom", message: "the first step must be the trigger", path: ["steps", 0] });
@@ -371,12 +386,13 @@ export const isAction = (step: Step): step is ActionStep => step.type === "actio
 export const isLlm = (step: Step): step is LlmStep => step.type === "llm";
 export const isLoop = (step: Step): step is LoopStep => step.type === "control" && step.kind === "loop";
 export const isBranch = (step: Step): step is BranchStep => step.type === "control" && step.kind === "branch";
+export const isGroup = (step: Step): step is GroupStep => step.type === "control" && step.kind === "group";
 
 // Every step in the tree, depth first, with the ids of the control steps it sits in.
 export function* walkSteps(steps: Step[], parents: string[] = []): Generator<{ step: Step; parents: string[] }> {
   for (const step of steps) {
     yield { step, parents };
-    if (isLoop(step)) yield* walkSteps(step.steps, [...parents, step.id]);
+    if (isLoop(step) || isGroup(step)) yield* walkSteps(step.steps, [...parents, step.id]);
     if (isBranch(step)) {
       yield* walkSteps(step.steps, [...parents, step.id]);
       yield* walkSteps(step.else, [...parents, step.id]);

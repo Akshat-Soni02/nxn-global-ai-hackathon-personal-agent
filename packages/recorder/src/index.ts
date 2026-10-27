@@ -11,17 +11,19 @@
 //   mask         the words read from a screenshot, with emails, numbers, keys and Never terms hidden (███)
 //   approvals    approval on every step that sends, pays or deletes, or matches the user's Never list (code, last)
 export { requireApprovals } from "./approvals.ts";
+export { type BlockNames, blockPlan, blocksOf, clean, nodeCount, pageName, renamedBlocks } from "./blocks.ts";
 export {
   type Compiled,
   compile,
   extractJson,
   type Form,
   Question,
+  shortName,
   stepsForModel,
   templateProblems,
 } from "./compile.ts";
 export { DESIGN_V2_BUDGET, remaining } from "./design/v2/budget.ts";
-export { changesSummary, describeChanges } from "./design/v2/changes.ts";
+export { changesSummary, describeChanges, plainChanges } from "./design/v2/changes.ts";
 export {
   APPS,
   type AppTool,

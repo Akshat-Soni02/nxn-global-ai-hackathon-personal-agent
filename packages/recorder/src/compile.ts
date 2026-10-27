@@ -239,11 +239,33 @@ export function stepsForModel(steps: NormalisedStep[], idsByStep: string[][], te
 const FORM_PATHS = [`steps.${TRIGGER_ID}.when`, "description"];
 
 // A name for lists and notifications: the goal, cut at a word if it is long.
-function shortName(goal: string): string {
-  const text = goal.trim().replace(/\s+/g, " ");
-  if (text.length <= 60) return text;
-  const cut = text.slice(0, 60);
-  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 30)).trim()}…`;
+// A workflow's name from the goal as they said it (reports/plan-oct26-workflow-revamp.md, R3.7): what they want done,
+// in at most six words, without the frequency (shown apart) or the story around it. Oct 26 the YC workflow was named
+// "So since i am job hunting i want to collect top jobs from…"; now "Collect top jobs from ycombinator".
+export function shortName(goal: string): string {
+  let text = goal.trim().replace(/\s+/g, " ");
+  // The first sentence: the rest says how or why.
+  text = text.split(/(?<=[.!?;])\s/)[0]?.replace(/[.!?;]+$/, "") ?? text;
+  // What they want done: after "I want to", "I need to", "I'd like to".
+  const wanted = /\b(?:i|we)\s+(?:want|need|would like|'d like|have)\s+to\s+(.+)$/i.exec(text)?.[1];
+  if (wanted) text = wanted;
+  const FREQUENCY =
+    /\b(?:every\s?day|daily|each\s+(?:day|morning|week|month)|every\s+(?:morning|evening|week|month|monday|tuesday|wednesday|thursday|friday)|weekly|monthly)\b/gi;
+  text = text
+    .replace(FREQUENCY, "")
+    .replace(/^[\s,.:;-]*(?:so|basically|okay|ok|well|then)?\b[\s,]*/i, "")
+    .replace(/\s+([,.])/g, "$1")
+    .replace(/\s+/g, " ")
+    .replace(/^[,.\s]+|[,.\s]+$/g, "");
+  // Short enough whole; else its first clause; else six words, never ending on a small word.
+  let name = text;
+  if (name.length > 48) {
+    const clause = name.split(/,\s|\s+and\s+/)[0] ?? name;
+    name = clause.split(" ").length >= 2 && clause.length <= 48 ? clause : name.split(" ").slice(0, 6).join(" ");
+    name = name.replace(/\s+(?:to|the|a|an|of|in|on|for|with|from|and|or)$/i, "");
+  }
+  if (name.length > 48) name = `${name.slice(0, 47).trimEnd()}…`;
+  return name ? name.charAt(0).toUpperCase() + name.slice(1) : goal.slice(0, 48);
 }
 
 // What the user gave on the form, over whatever code or the model wrote there: always the goal; the other fields of

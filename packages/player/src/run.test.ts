@@ -32,6 +32,58 @@ function deps(results: Record<string, StepResult[]>, overrides: Partial<RunDeps>
   return { d, calls };
 }
 
+describe("blocks (reports/plan-oct26-workflow-revamp.md, R1)", () => {
+  const nav = (id: string) => ({
+    id,
+    type: "action",
+    intent: "open",
+    channel: "web",
+    action: "navigate",
+    args: { url: "https://example.com" },
+  });
+  const read = (id: string) => ({
+    id,
+    type: "action",
+    intent: "read",
+    channel: "web",
+    action: "extract",
+    target: { role: "heading", fallbacks: [] },
+    args: {},
+    output: { name: "title", type: { type: "text" } },
+  });
+  const type = (id: string) => ({
+    id,
+    type: "action",
+    intent: "type it",
+    channel: "web",
+    action: "type",
+    target: { role: "textbox", name: "Title", fallbacks: [] },
+    args: { text: "{{title}}" },
+  });
+  const s = skill([
+    { id: "b1", type: "control", kind: "group", intent: "Read the title", steps: [nav("s1"), read("s2")] },
+    type("s3"),
+  ]);
+
+  it("runs a block's steps in order, and what they save is there after it", async () => {
+    const { d, calls } = deps({ s2: [{ ok: true, value: "Hello" }] });
+    const outcome = await runSkill(s, d, { inputs: {} });
+    expect(outcome.status).toBe("succeeded");
+    expect(calls.map((c) => c.id)).toEqual(["s1", "s2", "s3"]);
+    expect((calls[2] as ActionStep).args.text).toBe("Hello");
+  });
+
+  it("pauses at a step inside a block, by its own id, and resumes there", async () => {
+    const { d } = deps({ s2: [{ ok: false, error: "target not found" }] }, { onFailure: () => "pause" });
+    const paused = await runSkill(s, d, { inputs: {} });
+    expect(paused).toMatchObject({ status: "paused", failedStep: "s2" });
+    const again = deps({ s2: [{ ok: true, value: "Hi" }] });
+    const resumed = await runSkill(s, again.d, { inputs: {}, resume: paused.resume });
+    expect(resumed.status).toBe("succeeded");
+    expect(again.calls.map((c) => c.id)).toEqual(["s2", "s3"]);
+  });
+});
+
 describe("runSkill", () => {
   it("counts a workflow that reads and works out a result as having done something", async () => {
     const s = skill([
