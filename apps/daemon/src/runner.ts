@@ -36,6 +36,7 @@ import type { Daemon } from "./daemon.ts";
 import type { ScreenDescriber } from "./describe.ts";
 import {
   connectedToolsOf,
+  coveringApp,
   describeAppTool,
   listedToolsOf,
   type McpTools,
@@ -318,6 +319,8 @@ export async function runSkillOn(
         describeScreen,
         // A connected tool's arguments, so repair doesn't guess them when it switches a step to the app.
         appTool: listedTools.length > 0 ? (name: string) => describeAppTool(listedTools, name) : undefined,
+        // The connected app that covers a failing step's page: repair moves the step to its tool (A3, app-first).
+        appFor: listedTools.length > 0 ? (url: string) => coveringApp(listedTools, url) : undefined,
         // What the recording showed at the step, kept beside the workflow's versions (review-store.ts).
         recorded: (stepId) => recordedOf(logDir, skill.id)[stepId],
         available: () => ({

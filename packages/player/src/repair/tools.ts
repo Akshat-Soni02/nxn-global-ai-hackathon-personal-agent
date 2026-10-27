@@ -25,6 +25,8 @@ import { type TryResult, tryDraft } from "./verify.ts";
 export type RepairFinish =
   | { kind: "resolve"; class: Exclude<FailureClass, "drift">; reason: string }
   | { kind: "commit"; summary: string }
+  // Needs the user's OK and nobody can answer now: the fix waits for them as a proposal (recover.ts).
+  | { kind: "propose"; summary: string }
   | { kind: "escalate"; reason: string; whatToShow?: string };
 
 export interface RepairSession {
@@ -223,9 +225,11 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
         const asks = repairCheck(session.original, session.draft).ask;
         if (asks.length > 0 && session.okd !== key(session.draft)) {
           const answer = await askOk(session, summary, asks);
+          // Nobody can answer while the run goes on (the daemon): the fix waits for them, shown with what it does.
           if (answer === "waiting")
             return {
-              output: `Not committed: it needs the user's OK (${asks.join("; ")}) and nobody can answer now. Escalate, saying in plain words what you would change and why`,
+              output: "put to the user: it waits for their OK",
+              finish: { kind: "propose", summary } as RepairFinish,
             };
           if (answer === "no")
             return {
@@ -233,7 +237,7 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
             };
           session.okd = key(session.draft);
         }
-        return { output: "committed", finish: { kind: "commit", summary } };
+        return { output: "committed", finish: { kind: "commit", summary } as RepairFinish };
       },
     }),
     tool({

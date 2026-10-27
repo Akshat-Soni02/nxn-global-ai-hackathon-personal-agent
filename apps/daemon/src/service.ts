@@ -22,10 +22,10 @@ import {
 import { blockPlan, shortName } from "@shadow/recorder";
 import { deleteDraft, draftSkill, readDraft, writeDraft } from "./draft-store.ts";
 import { goLiveProblems, nextTime, readState, triggerKey, writeState } from "./lifecycle.ts";
-import { NEEDS_APP } from "./mcp-tools.ts";
+import { appToConnect, NEEDS_APP } from "./mcp-tools.ts";
 import { markReviewed, readReview } from "./review-store.ts";
 import { newRunId } from "./runner.ts";
-import { listSkills, loadSkill, rollbackSkill, saveSkill, versions } from "./skill-store.ts";
+import { listSkills, loadSkill, rollbackSkill, saveRepair, saveSkill, versions } from "./skill-store.ts";
 import type { Checkpoint, InboxItem, RunRow, RunState, Store } from "./store.ts";
 import type { DraftView, Question, Review, ServiceEvent, StateFile, WorkflowSummary } from "./types.ts";
 
@@ -244,7 +244,39 @@ export function createService(options: ServiceOptions): Service {
       error: outcome.error,
       checkpoint: undefined,
     });
+    if (outcome.error?.startsWith(NEEDS_APP)) offerConnect(run.skillId, outcome.error);
     if (run.trigger !== "manual" && run.trigger !== "walk") autoPause(run.skillId);
+  }
+
+  // A run stopped before step 1 for want of an app (A2): one card with that app's Connect button and "Run it again",
+  // not only a failed run to read. One per workflow and app while it waits (a schedule's next tick adds none).
+  const RUN_AGAIN = "Run it again";
+  function offerConnect(skillId: string, error: string) {
+    const connect = appToConnect(error);
+    if (!connect) return;
+    const waiting = store
+      .listItems({ open: true })
+      .some(
+        (i) =>
+          i.skillId === skillId &&
+          (i.detail as { connect?: { toolkit?: string } }).connect?.toolkit === connect.toolkit,
+      );
+    if (waiting) return;
+    const name = loadSkill(dataDir, skillId)?.name ?? skillId;
+    const item = addItem({
+      kind: "question",
+      skillId,
+      title: `${name} needs ${connect.name} connected`,
+      detail: {
+        options: [RUN_AGAIN, "Not now"],
+        freeText: false,
+        why: error.slice(NEEDS_APP.length),
+        connect,
+      },
+    });
+    questions.set(item.id, (answer) => {
+      if (answer === RUN_AGAIN) service.start(skillId);
+    });
   }
 
   // ── The lifecycle (lifecycle.ts): draft, live, paused ──
@@ -525,6 +557,21 @@ export function createService(options: ServiceOptions): Service {
       const run = item.runId ? store.getRun(item.runId) : undefined;
       const checkpoint = run?.checkpoint;
       if (run?.status !== "waiting" || !checkpoint) throw new Error("this run isn't waiting any more");
+      // "Use it" on a proposed fix (A3): saved as the next version, and the run goes on with it from the stuck step.
+      // The card showed exactly what the new step does, so its approval is not asked again on this run.
+      const proposal = checkpoint.waiting.kind === "recovery" ? checkpoint.waiting.proposal : undefined;
+      if (raw === "use" && proposal) {
+        if (!store.answerItem(itemId, raw, now())) throw new Error("already answered");
+        emit({ type: "inbox", item: store.getItem(itemId) as InboxItem });
+        const saved = saveRepair(options.dataDir, Skill.parse(proposal.skill), proposal.edits);
+        const resume: Resume = {
+          ...checkpoint.resume,
+          answers: [...(checkpoint.resume.answers ?? []), { kind: "approval", approved: true }],
+        };
+        const going = updateRun(run.id, { status: "running", repaired: true });
+        enqueue(() => leg(going, saved, checkpoint.inputs, resume, checkpoint.file));
+        return;
+      }
       const resume = resumeWith(checkpoint, raw);
       if (!store.answerItem(itemId, raw, now())) throw new Error("already answered");
       emit({ type: "inbox", item: store.getItem(itemId) as InboxItem });
@@ -714,7 +761,9 @@ function itemFor(waiting: Waiting): Pick<InboxItem, "kind" | "title" | "detail">
       detail: { waiting, options: waiting.acting ? ["do it", "skip", "stop"] : ["next", "skip", "stop"] },
     };
   }
-  return { kind: "recovery", title: waiting.message, detail: { waiting, options: ["retry", "skip", "stop"] } };
+  // A fix repair found that needs their OK (A3): "use" saves it and goes on with it.
+  const options = waiting.proposal ? ["use", "retry", "skip", "stop"] : ["retry", "skip", "stop"];
+  return { kind: "recovery", title: waiting.message, detail: { waiting, options } };
 }
 
 // The checkpoint's resume with the user's answer in it; undefined when the answer stops the run.

@@ -4,6 +4,7 @@ import { requireApprovals } from "@shadow/recorder";
 import { describe, expect, it } from "vitest";
 import {
   connectedToolsOf,
+  coveringApp,
   describeAppTool,
   type McpTool,
   type McpTools,
@@ -129,6 +130,28 @@ describe("mcp steps in a run", () => {
     expect(text).toContain("GOOGLESHEETS_APPEND_VALUES");
     expect(describeAppTool(tools, "NOPE")).toMatch(/no app tool NOPE.*GOOGLESHEETS_APPEND_VALUES/);
     expect(describeAppTool([], "NOPE")).toMatch(/none/);
+  });
+
+  it("gives app-first repair the connected app that covers a page, with only that app's tools", () => {
+    const tools: McpTool[] = [
+      { ...(TOOLS[1] as McpTool), toolkit: "googlesheets" },
+      {
+        name: "GMAIL_SEND_EMAIL",
+        description: "",
+        inputSchema: {},
+        readOnly: false,
+        destructive: false,
+        toolkit: "gmail",
+      },
+    ];
+    const sheet = "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUv/edit";
+    expect(coveringApp(tools, sheet)).toMatchObject({
+      name: "Google Sheets",
+      tools: [{ name: "GOOGLESHEETS_APPEND_VALUES", readOnly: false }],
+    });
+    // A page no app covers, or an app that isn't connected: none.
+    expect(coveringApp(tools, "https://news.ycombinator.com")).toBeUndefined();
+    expect(coveringApp(tools, "https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUv/edit")).toBeUndefined();
   });
 
   it("tells repair which app tools exist, so it can use one (A3: the briefing said 'none')", async () => {

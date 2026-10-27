@@ -41,3 +41,12 @@ export function approvalWhat(item: InboxItem): string | undefined {
   const what = (item.detail.waiting as { what?: unknown } | undefined)?.what;
   return typeof what === "string" && what.trim() ? what : undefined;
 }
+
+// A fix repair found that waits for the user's OK (A3): what it changes and what its new step will do.
+export function proposalOf(item: InboxItem): { summary: string; what: string } | undefined {
+  if (item.kind !== "recovery") return undefined;
+  const p = (item.detail.waiting as { proposal?: { summary?: unknown; what?: unknown } } | undefined)?.proposal;
+  return typeof p?.summary === "string"
+    ? { summary: p.summary, what: typeof p.what === "string" ? p.what : "" }
+    : undefined;
+}

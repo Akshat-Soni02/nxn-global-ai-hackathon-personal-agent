@@ -185,6 +185,83 @@ describe("the daemon as a service", () => {
     expect(released).toEqual([recovery.service.runs().at(-1)?.id, run.id]);
   });
 
+  it("offers a proposed fix as Use it, saves it as the next version and goes on with it (A3)", async () => {
+    const { open, ran } = setup([write("s1"), write("s2")]);
+    const fixed = Skill.parse({
+      id: "report",
+      name: "Weekly report",
+      version: 2,
+      description: { goal: "send the report" },
+      steps: [
+        { id: "start", type: "trigger", intent: "by hand", inputs: {} },
+        write("s1", { intent: "write s1 in the app" }),
+        write("s2"),
+      ],
+      history: [{ version: 2, by: "debug", summary: "s1 done in the app", at: "2026-10-28T00:00:00.000Z" }],
+    });
+    let legs = 0;
+    const proposing: Execute = async (skill, leg) => {
+      legs++;
+      if (legs === 1)
+        return {
+          status: "waiting",
+          vars: {},
+          failedStep: "s1",
+          resume: { at: "s1", vars: {} },
+          waiting: {
+            kind: "recovery",
+            path: "s1",
+            stepId: "s1",
+            message: "s1 failed: target not found. Shadow can fix it: s1 done in the app",
+            proposal: { summary: "s1 done in the app", what: 's1: APP_WRITE {"a":1}', skill: fixed, edits: [] },
+          },
+        };
+      // The leg after "Use it" runs the saved version, from the stuck step.
+      ran.push(`v${skill.version}@${leg.resume?.at}`);
+      return { status: "succeeded", vars: {} };
+    };
+    const { service } = open(proposing);
+    service.start("report");
+    await service.idle();
+    const [item] = service.inbox({ open: true });
+    expect(item).toMatchObject({ kind: "recovery", detail: { options: ["use", "retry", "skip", "stop"] } });
+    service.answer(item?.id as string, "use");
+    await service.idle();
+    expect(service.runs()[0]?.status).toBe("succeeded");
+    expect(ran).toContain("v2@s1");
+    expect(service.workflow("report")?.versions).toEqual([1, 2]);
+  });
+
+  it("puts a run stopped for want of an app to the user as Connect and Run it again, once (A2)", async () => {
+    const { open } = setup([write("s1")]);
+    let runs = 0;
+    const needsSheets: Execute = async () => {
+      runs++;
+      return {
+        status: "failed",
+        vars: {},
+        error: `${NEEDS_APP}step s2 works in a drawn area of Google Sheets, which replay can't reach: connect Google Sheets in Apps, then run it again`,
+      };
+    };
+    const { service } = open(needsSheets);
+    service.start("report");
+    await service.idle();
+    const cards = () => service.inbox({ open: true }).filter((i) => i.kind === "question");
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0]).toMatchObject({
+      skillId: "report",
+      title: "Weekly report needs Google Sheets connected",
+      detail: { connect: { toolkit: "googlesheets", name: "Google Sheets" }, options: ["Run it again", "Not now"] },
+    });
+    // A second stop (a schedule's next tick) doesn't add a second card while one waits.
+    service.start("report");
+    await service.idle();
+    expect(cards()).toHaveLength(1);
+    service.answer(cards()[0]?.id as string, "Run it again");
+    await service.idle();
+    expect(runs).toBe(3);
+  });
+
   it("marks runs left going by a stopped daemon as interrupted, and expires questions nobody can receive", async () => {
     const { open, dataDir } = setup([write("s1")]);
     const store = openStore(join(dataDir, "shadow.db"));

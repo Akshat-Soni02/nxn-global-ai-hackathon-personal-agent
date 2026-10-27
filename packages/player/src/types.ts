@@ -1,4 +1,4 @@
-import type { ActionStep, Ask, Check, LlmStep, Skill, Step } from "@shadow/core";
+import type { ActionStep, Ask, Check, EditInput, LlmStep, Skill, Step } from "@shadow/core";
 
 // What a channel reports back for one attempt at one step.
 export interface StepResult {
@@ -116,12 +116,22 @@ export type Answer =
 // What a waiting run waits for, at `path`. recovery: a failure repair couldn't fix, or something only the user can do
 // (log in); answered with retry, skip or stop. walk: a walk-through stopped before a step, its target highlighted;
 // `acting` says whether the step would change something (needs "do") or only reads ("next").
+// A fix waiting for the user's OK: the next version, what it changes, and what its new step will do.
+export interface Proposal {
+  summary: string;
+  what: string;
+  skill: Skill;
+  edits: EditInput[];
+}
+
 export type Waiting =
   // `what`: the step as it will run, its values filled in (an app tool and its arguments, the text it types), shown on
   // the approval card; a secret input's value never appears in it.
   | { kind: "approval"; path: string; stepId: string; intent: string; what?: string }
   | { kind: "ask"; path: string; stepId: string; question: string; ask: Ask }
-  | { kind: "recovery"; path: string; stepId: string; message: string; error?: string }
+  // `proposal`: a fix repair found that needs the user's OK (an app step that writes for real): saved as the next
+  // version and the run goes on when they answer "use".
+  | { kind: "recovery"; path: string; stepId: string; message: string; error?: string; proposal?: Proposal }
   | { kind: "walk"; path: string; stepId: string; intent: string; acting: boolean; highlighted: boolean };
 
 // `path` says where a step ran: its id, inside loops with the item number, e.g. "l1[2] > s3".
@@ -149,7 +159,7 @@ export type RunLogEvent =
       // A paused run's recovery (packages/player/src/repair): what kind of failure, and what was done about it.
       type: "repair";
       path: string;
-      outcome: "resolve" | "commit" | "escalate";
+      outcome: "resolve" | "commit" | "escalate" | "propose";
       class: string;
       by?: "ladder" | "agent";
       summary: string;

@@ -7,6 +7,7 @@ import { type Availability, type EditInput, type Skill, walkSteps, whereIn } fro
 import { type RunOptions, runSkill } from "../run.ts";
 import {
   type Failure,
+  type Proposal,
   type Resume,
   type RunDeps,
   type RunLogEvent,
@@ -26,7 +27,12 @@ export interface Recovery {
   // The run needs the user: something to do first (log in), or a fix repair couldn't find. "retry" runs the stuck
   // step again, "skip" goes on after it (the user did it by hand), "stop" ends the run. WAIT: nobody can answer now,
   // so the run ends as `waiting` (kind "recovery"); its resume, with skip for "skip", goes on later.
-  waitForUser(message: string, failure: Failure): Promise<"retry" | "skip" | "stop" | Wait>;
+  // With a proposal (a fix that needs their OK), "use" saves it and goes on with it.
+  waitForUser(
+    message: string,
+    failure: Failure,
+    proposal?: Proposal,
+  ): Promise<"retry" | "skip" | "stop" | "use" | Wait>;
   // The browser tab, for web failures.
   page?: RepairEnv["page"];
   // Site notes, by skill.
@@ -37,6 +43,8 @@ export interface Recovery {
   available?(): Availability;
   // One connected app tool's arguments, for repair's app_tool look.
   appTool?: RepairEnv["appTool"];
+  // The connected app that covers a page, for app-first repair.
+  appFor?: RepairEnv["appFor"];
   // What the recording showed at a step, for the failure report.
   recorded?: RepairEnv["recorded"];
   // Each repair episode, to store next to the run log.
@@ -100,6 +108,7 @@ export async function runWithRecovery(
           ) ?? Promise.resolve("")),
       available: recovery.available?.(),
       appTool: recovery.appTool,
+      appFor: recovery.appFor,
       recorded: recovery.recorded,
     };
     const before = recovery.repairer.spent.costUsd;
@@ -131,6 +140,42 @@ export async function runWithRecovery(
       resume = repaired.resume;
       continue;
     }
+    // A fix that needs their OK: it waits for it, and "use" saves it and goes on.
+    if (repaired.kind === "propose") {
+      const proposal: Proposal = {
+        summary: repaired.summary,
+        what: repaired.what,
+        skill: repaired.skill,
+        edits: repaired.edits,
+      };
+      const message = `${whereIn(current, failure.stepId)} failed: ${failure.result.error}. Shadow can fix it: ${repaired.summary}`;
+      const choice = await recovery.waitForUser(message, failure, proposal);
+      if (choice === WAIT) {
+        return keep({
+          ...outcome,
+          status: "waiting",
+          waiting: {
+            kind: "recovery",
+            path: failure.path,
+            stepId: failure.stepId,
+            message,
+            error: failure.result.error,
+            proposal,
+          },
+        });
+      }
+      if (choice === "use") {
+        current = await recovery.saveVersion(repaired.skill, repaired.edits);
+        event(repaired.summary, { by: "agent", version: current.version });
+        if (!repaired.resume) return { status: "succeeded", vars: failure.vars };
+        resume = repaired.resume;
+        continue;
+      }
+      if (choice === "stop") return { ...outcome, status: "failed" };
+      resume = { ...outcome.resume, skip: choice === "skip" };
+      continue;
+    }
+
     event(repaired.reason);
     if (repaired.kind === "resolve") {
       if (repaired.class === "nothing_to_do") {

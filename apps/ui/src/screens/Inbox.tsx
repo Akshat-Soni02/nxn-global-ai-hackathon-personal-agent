@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Empty, Loading } from "../components.tsx";
 import { ago, KIND, when } from "../format.ts";
-import { approvalWhat } from "../questions.ts";
+import { approvalWhat, proposalOf } from "../questions.ts";
 import { WorkflowTree } from "../WorkflowTree.tsx";
 
 export function Inbox() {
@@ -99,11 +99,23 @@ function Answer({ item }: { item: InboxItem }) {
     );
   }
   if (item.kind === "recovery") {
+    const proposal = proposalOf(item);
     return (
       <>
         {waiting?.error ? <p className="detail">The step said: {waiting.error}</p> : null}
+        {proposal ? (
+          <div className="what">
+            <div className="muted small">Shadow can fix it: {proposal.summary}. The new step will do</div>
+            <pre>{proposal.what}</pre>
+          </div>
+        ) : null}
         <div className="answers">
-          <Action kind="primary" run={() => answer("retry")}>
+          {proposal ? (
+            <Action kind="primary" run={() => answer("use")}>
+              Use it
+            </Action>
+          ) : null}
+          <Action kind={proposal ? undefined : "primary"} run={() => answer("retry")}>
             Try the step again
           </Action>
           <Action run={() => answer("skip")}>I did it by hand: go on</Action>

@@ -122,12 +122,13 @@ describe("repair asks instead of refusing", () => {
       summary: "the page can't be done by clicks: use Google Sheets directly",
     });
     expect(asked).toHaveLength(1);
-    // A no, or nobody to ask, still commits nothing.
-    for (const answer of [false, WAIT] as const) {
-      const other = session(answer);
-      await other.run("edit", { edits: [appStep] });
-      expect((await other.run("commit", { summary: "x" })).finish).toBeUndefined();
-    }
+    // A no commits nothing; nobody to ask now (the daemon) puts it to the user as a proposal, never a commit.
+    const no = session(false);
+    await no.run("edit", { edits: [appStep] });
+    expect((await no.run("commit", { summary: "x" })).finish).toBeUndefined();
+    const later = session(WAIT);
+    await later.run("edit", { edits: [appStep] });
+    expect((await later.run("commit", { summary: "x" })).finish).toEqual({ kind: "propose", summary: "x" });
   });
 
   it("answers a try of an app-only fix with 'commit it', and the commit tool says so (a real run escalated instead)", async () => {
@@ -178,14 +179,24 @@ describe("repair asks instead of refusing", () => {
     expect(out.output).toMatch(/hasn't been tried/);
   });
 
-  it("doesn't commit on no, nor when nobody can answer", async () => {
-    for (const answer of [false, WAIT, undefined] as const) {
+  it("doesn't commit on no; when nobody can answer now, it ends as a proposal that waits for them (A3)", async () => {
+    const no = session(false);
+    await no.run("edit", elsewhere);
+    tried(no.s);
+    const refused = (await no.run("commit", { summary: "x" })) as { output: string; finish?: unknown };
+    expect(refused.finish).toBeUndefined();
+    expect(refused.output).toMatch(/the user said no/);
+    // In the daemon a run's question always waits: before, such a fix could never be committed there.
+    for (const answer of [WAIT, undefined] as const) {
       const { s, run } = session(answer);
       await run("edit", elsewhere);
       tried(s);
-      const out = (await run("commit", { summary: "x" })) as { output: string; finish?: unknown };
-      expect(out.finish).toBeUndefined();
-      expect(out.output).toMatch(answer === false ? /the user said no/ : /nobody can answer now/);
+      const out = (await run("commit", { summary: "open the export page first" })) as {
+        output: string;
+        finish?: unknown;
+      };
+      expect(out.finish).toEqual({ kind: "propose", summary: "open the export page first" });
+      expect(out.output).toMatch(/put to the user/);
     }
   });
 

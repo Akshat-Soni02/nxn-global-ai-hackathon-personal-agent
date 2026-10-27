@@ -5,11 +5,13 @@
 //   const repairer = createRepairer({ llm, meter });           one per run: it keeps the per-run limits
 //   const outcome = await repairer.repair(skill, failure, env); resolve | commit | escalate
 import { type Budget, type Episode, runAgent } from "@shadow/agent";
-import { briefing, type EditInput, isOutward, Skill, type Step, walkSteps } from "@shadow/core";
+import { briefing, type EditInput, isOutward, Skill, type Step, walkSteps, whereIn } from "@shadow/core";
 import type { Llm, UsageMeter } from "@shadow/llm";
 import { UsageMeter as Meter } from "@shadow/llm";
-import type { Failure, Resume } from "../types.ts";
+import { whatItDoes } from "../run.ts";
+import { type Failure, type Resume, WAIT } from "../types.ts";
 import type { PageSignals } from "../web/inspect.ts";
+import { appFirst } from "./app-first.ts";
 import { type Classification, classify, type FailureClass } from "./classify.ts";
 import type { RepairEnv } from "./env.ts";
 import { ladder } from "./ladder.ts";
@@ -70,6 +72,15 @@ export type RepairOutcome = { classification: Classification; episode?: Episode<
       approveOnce: string[];
     }
   | { kind: "escalate"; reason: string; whatToShow?: string }
+  // A fix that needs the user's OK nobody can give now (a run in the daemon): it waits as a proposal.
+  | {
+      kind: "propose";
+      skill: Skill;
+      summary: string;
+      what: string;
+      edits: EditInput[];
+      resume?: Resume;
+    }
 );
 
 export interface Repairer {
@@ -122,6 +133,46 @@ export function createRepairer(options: RepairerOptions = {}): Repairer {
       return escalate(`this run already used its ${limits.episodesPerRun} repairs`);
     const left = limits.costPerRunUsd - meter.usage.costUsd;
     if (left <= 0.005) return escalate(`this run already spent its repair budget ($${limits.costPerRunUsd})`);
+
+    // 2a. A page an app covers: the app's tool, built by code from one question (app-first.ts), put to the user.
+    if (env.appFor) {
+      const app = await appFirst(skill, failure, env.appFor, options.llm, { meter, signal: options.signal });
+      if (app) {
+        const what = changedSteps(skill, app.draft);
+        const next = nextVersion(skill, app.draft, app.summary, options.now);
+        // They saw exactly what the step will do: the run goes on without asking for that step's approval again.
+        const resume: Resume = {
+          at: failure.path,
+          vars: failure.vars,
+          answers: [{ kind: "approval", approved: true }],
+        };
+        const answer = env.deps.ask
+          ? await env.deps
+              .ask(
+                {
+                  kind: "confirm",
+                  question: `"${skill.name}" stopped at ${whereIn(skill, failure.stepId)}: ${failure.result.error}. Shadow can do it in the app directly: ${what}. Use it?`,
+                },
+                failure.step,
+              )
+              .catch(() => WAIT)
+          : WAIT;
+        if (answer === true)
+          return {
+            kind: "commit",
+            by: "agent",
+            skill: next,
+            summary: app.summary,
+            edits: app.edits,
+            resume,
+            approveOnce: [],
+            classification,
+          };
+        if (answer !== false)
+          return { kind: "propose", skill: next, summary: app.summary, what, edits: app.edits, resume, classification };
+        // No: the agent looks for a fix on the page.
+      }
+    }
     budget.episodes++;
 
     const session: RepairSession = {
@@ -159,6 +210,18 @@ export function createRepairer(options: RepairerOptions = {}): Repairer {
     const finish = outcome.value;
     if (finish.kind === "resolve") return { ...finish, classification, episode };
     if (finish.kind === "escalate") return escalate(finish.reason, episode, finish.whatToShow);
+    if (finish.kind === "propose") {
+      return {
+        kind: "propose",
+        skill: nextVersion(skill, session.draft, finish.summary, options.now),
+        summary: finish.summary,
+        what: changedSteps(skill, session.draft),
+        edits: session.edits,
+        resume: { at: failure.path, vars: failure.vars },
+        classification,
+        episode,
+      };
+    }
     const tried = session.tried?.result;
     return {
       kind: "commit",
@@ -222,6 +285,16 @@ export function whatItTried(episode: Episode<RepairFinish>): string {
   const error = last?.output ? /"error":"([^"]{1,160})/.exec(last.output)?.[1] : undefined;
   const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
   return `It ${list}${error ? ` (the last try: ${error})` : ""}.`;
+}
+
+// What a proposed fix's changed steps will do, filled in as far as the workflow says (whatItDoes), for the card.
+function changedSteps(original: Skill, draft: Skill): string {
+  const was = new Map([...walkSteps(original.steps)].map(({ step }) => [step.id, JSON.stringify(step)]));
+  return [...walkSteps(draft.steps)]
+    .map(({ step }) => step)
+    .filter((step) => was.get(step.id) !== JSON.stringify(step) && step.type !== "control")
+    .map((step) => `${step.id}: ${whatItDoes(step, []) ?? step.intent}`)
+    .join("\n");
 }
 
 // The repaired workflow as the next version, with a note saying how it came about.

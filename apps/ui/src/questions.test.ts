@@ -1,6 +1,6 @@
 import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { describe, expect, it } from "vitest";
-import { approvalWhat, chromeWarning, progressOf, questionsFor, waitingNote } from "./questions.ts";
+import { approvalWhat, chromeWarning, progressOf, proposalOf, questionsFor, waitingNote } from "./questions.ts";
 
 const item = (id: string, kind: string, sessionId?: string) =>
   ({ id, kind, title: id, detail: sessionId ? { sessionId } : {}, createdAt: 0 }) as unknown as InboxItem;
@@ -63,5 +63,16 @@ describe("an approval card's values (Y9)", () => {
     ).toBe('GOOGLESHEETS_APPEND {"values":[["28 Oct","Acme"]]}');
     expect(approvalWhat(approval({ kind: "approval" }))).toBeUndefined();
     expect(approvalWhat(item("q", "question"))).toBeUndefined();
+  });
+});
+
+describe("a proposed fix on a recovery card (A3)", () => {
+  it("shows what it changes and does, and nothing for a plain recovery", () => {
+    const recovery = (waiting: unknown) =>
+      ({ id: "r", kind: "recovery", title: "s2 failed", detail: { waiting }, createdAt: 0 }) as unknown as InboxItem;
+    expect(
+      proposalOf(recovery({ kind: "recovery", proposal: { summary: "done in Google Sheets", what: "s2: APPEND {}" } })),
+    ).toEqual({ summary: "done in Google Sheets", what: "s2: APPEND {}" });
+    expect(proposalOf(recovery({ kind: "recovery" }))).toBeUndefined();
   });
 });

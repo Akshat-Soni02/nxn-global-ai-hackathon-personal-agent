@@ -6,7 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { isAction, type Skill, walkSteps, webPages } from "@shadow/core";
 import type { ChannelExecutor } from "@shadow/player";
-import { appOf } from "@shadow/recorder";
+import { APPS, appOf } from "@shadow/recorder";
 
 export interface McpTool {
   name: string;
@@ -148,6 +148,31 @@ export function describeAppTool(tools: McpTool[], name: string): string {
   });
 }
 
+// The connected app that covers a page, for app-first repair (player/repair/app-first.ts): the page-to-app table's row
+// for its address, with that app's tools. None when no app covers it or it isn't connected.
+export function coveringApp(
+  tools: McpTool[],
+  url: string,
+):
+  | {
+      name: string;
+      tools: { name: string; description: string; inputSchema: Record<string, unknown>; readOnly: boolean }[];
+    }
+  | undefined {
+  const app = appOf(url);
+  const own = app ? tools.filter((t) => t.toolkit === app.toolkit) : [];
+  if (!app || own.length === 0) return undefined;
+  return {
+    name: app.name,
+    tools: own.map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.inputSchema,
+      readOnly: t.readOnly && !t.destructive,
+    })),
+  };
+}
+
 // Whether a step calling this tool must ask first. Unknown tools ask.
 export function toolNeedsApproval(tool: McpTool | undefined): boolean {
   return !tool?.readOnly || tool.destructive;
@@ -167,6 +192,14 @@ export function mcpChannel(tools: McpTools): ChannelExecutor {
 // What a run that stopped before step 1 for want of a connected app says first. Such a stop is nobody's failure and
 // costs nothing: it doesn't count toward the three failed runs that pause a workflow (service.ts autoPause).
 export const NEEDS_APP = "needs an app: ";
+
+// The app a NEEDS_APP stop says to connect ("connect Google Sheets in Apps", "connect googlesheets in Apps"), by the
+// page-to-app table, so the inbox card can show its Connect button (A2).
+export function appToConnect(error: string): { toolkit: string; name: string } | undefined {
+  const named = /connect (.+?) in Apps/.exec(error)?.[1]?.trim().toLowerCase();
+  const app = named ? APPS.find((a) => a.name.toLowerCase() === named || a.toolkit === named) : undefined;
+  return app ? { toolkit: app.toolkit, name: app.name } : undefined;
+}
 
 // The first step that typed into a drawn area (a sheet's cells, `drawn`) and the app that covers the page it worked on:
 // the page is the last address a step opened in its tab. Replay can't reach such a step, so only an app can do it (A2).
