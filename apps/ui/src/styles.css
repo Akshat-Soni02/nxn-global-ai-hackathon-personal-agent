@@ -1845,6 +1845,13 @@ details.advanced h3 {
 .app-foot .link-button {
   white-space: nowrap;
 }
+/* An app connected with your own key (N13): its fields, in the card. */
+.key-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+}
 .app-buttons {
   display: flex;
   gap: 6px;

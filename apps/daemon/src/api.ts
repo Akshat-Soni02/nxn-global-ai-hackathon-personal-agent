@@ -159,8 +159,16 @@ const appMethods = {
   accountUsage: { params: z.object({}).default({}), run: (a: AppControl) => a.accountUsage() },
   connectedApps: { params: z.object({}).default({}), run: (a: AppControl) => a.connectedApps() },
   connectApp: {
+    params: z.object({
+      toolkit: z.string().regex(/^[a-z0-9_]{1,60}$/, "an app's name"),
+      // An app connected with your own key (N13): its fields, as appKeyFields names them.
+      fields: z.record(z.string().max(100), z.string().max(4000)).optional(),
+    }),
+    run: (a: AppControl, p: { toolkit: string; fields?: Record<string, string> }) => a.connectApp(p.toolkit, p.fields),
+  },
+  appKeyFields: {
     params: z.object({ toolkit: z.string().regex(/^[a-z0-9_]{1,60}$/, "an app's name") }),
-    run: (a: AppControl, p: { toolkit: string }) => a.connectApp(p.toolkit),
+    run: (a: AppControl, p: { toolkit: string }) => a.appKeyFields(p.toolkit),
   },
   disconnectApp: {
     params: z.object({ id: z.string().min(1).max(200) }),

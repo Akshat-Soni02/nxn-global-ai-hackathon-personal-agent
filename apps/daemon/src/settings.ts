@@ -78,8 +78,15 @@ export interface AppControl {
   accountUsage(): Promise<Usage>;
   // Connected apps: what can be connected, what is, and the tools they offer.
   connectedApps(): Promise<ConnectedApps>;
-  // Opens the app's sign-in page (Composio's) in the browser.
-  connectApp(toolkit: string): Promise<{ redirectUrl: string }>;
+  // Opens the app's sign-in page (Composio's) in the browser. An app that needs your own key (N13) is connected with
+  // `fields` at once: the key goes to Shadow's service and on to Composio, and is kept nowhere on this Mac.
+  connectApp(toolkit: string, fields?: Record<string, string>): Promise<{ redirectUrl?: string; connected?: boolean }>;
+  // What connecting an app with your own key asks for.
+  appKeyFields(
+    toolkit: string,
+  ): Promise<
+    { name: string; label: string; description?: string; secret: boolean; required: boolean; default?: string }[]
+  >;
   disconnectApp(connectionId: string): Promise<ConnectedApps>;
   // A declined app is offered again in new designs.
   offerAppAgain(toolkit: string): Promise<ConnectedApps>;
@@ -206,11 +213,22 @@ export function createAppControl(deps: SettingsDeps): AppControl {
     },
     accountUsage: () => needAccount().call<Usage>("GET", "/v1/usage"),
     connectedApps,
-    async connectApp(toolkit) {
-      const res = await needAccount().call<{ redirect_url: string }>("POST", "/v1/tools/connect", { toolkit });
-      (deps.openUrl ?? openInBrowser)(res.redirect_url);
+    async connectApp(toolkit, fields) {
+      const res = await needAccount().call<{ redirect_url?: string; connected?: boolean }>(
+        "POST",
+        "/v1/tools/connect",
+        fields ? { toolkit, fields } : { toolkit },
+      );
+      if (res.redirect_url) (deps.openUrl ?? openInBrowser)(res.redirect_url);
       deps.tools?.()?.invalidate();
-      return { redirectUrl: res.redirect_url };
+      return res.redirect_url ? { redirectUrl: res.redirect_url } : { connected: true };
+    },
+    async appKeyFields(toolkit) {
+      const res = await needAccount().call<{ fields: Awaited<ReturnType<AppControl["appKeyFields"]>> }>(
+        "GET",
+        `/v1/tools/key-fields?toolkit=${encodeURIComponent(toolkit)}`,
+      );
+      return res.fields;
     },
     async disconnectApp(connectionId) {
       await needAccount().call("DELETE", `/v1/tools/connections/${encodeURIComponent(connectionId)}`);

@@ -13,6 +13,16 @@ interface Toolkit {
   description?: string;
   categories?: string[];
   actions?: number;
+  // Connected with your own key for the app (N13), not a sign-in page.
+  key?: boolean;
+}
+interface KeyField {
+  name: string;
+  label: string;
+  description?: string;
+  secret: boolean;
+  required: boolean;
+  default?: string;
 }
 interface ConnectedApps {
   toolkits: Toolkit[];
@@ -78,6 +88,8 @@ function Catalogue() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>();
   const [shown, setShown] = useState(PAGE);
+  // The app whose key form is open.
+  const [keying, setKeying] = useState<string>();
   useEffect(() => {
     if (!waiting) return;
     const stop = setTimeout(() => setWaiting(undefined), 5 * 60_000);
@@ -181,18 +193,33 @@ function Catalogue() {
               <article key={kit.slug} className="app-card">
                 <AppHead kit={kit} />
                 {kit.description ? <p className="app-desc">{kit.description}</p> : null}
-                <div className="app-foot">
-                  {waiting === kit.slug ? (
-                    <span className="muted small">Finish in your browser…</span>
-                  ) : stale ? (
-                    <span className="error small">Needs connecting again</span>
-                  ) : (
-                    <span />
-                  )}
-                  <Action kind={stale ? "primary" : "secondary"} run={() => connect(kit.slug)}>
-                    {stale ? "Reconnect" : "Connect"}
-                  </Action>
-                </div>
+                {keying === kit.slug ? (
+                  <KeyForm
+                    kit={kit}
+                    onCancel={() => setKeying(undefined)}
+                    onDone={() => {
+                      setKeying(undefined);
+                      apps.reload();
+                      tools.reload();
+                    }}
+                  />
+                ) : (
+                  <div className="app-foot">
+                    {waiting === kit.slug ? (
+                      <span className="muted small">Finish in your browser…</span>
+                    ) : stale ? (
+                      <span className="error small">Needs connecting again</span>
+                    ) : (
+                      <span />
+                    )}
+                    <Action
+                      kind={stale ? "primary" : "secondary"}
+                      run={kit.key ? async () => setKeying(kit.slug) : () => connect(kit.slug)}
+                    >
+                      {stale ? "Reconnect" : kit.key ? "Connect with your key" : "Connect"}
+                    </Action>
+                  </div>
+                )}
               </article>
             );
           })}
@@ -204,6 +231,66 @@ function Catalogue() {
         ) : null}
       </section>
     </>
+  );
+}
+
+// An app connected with your own key (N13; most of Composio's apps): the fields it asks for, as Composio names them.
+// The key goes through Shadow's service to Composio, which keeps it for your account like a sign-in; this Mac keeps
+// nothing.
+function KeyForm({ kit, onDone, onCancel }: { kit: Toolkit; onDone: () => void; onCancel: () => void }) {
+  const session = useSession();
+  const fields = useQuery<KeyField[]>("appKeyFields", { toolkit: kit.slug });
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  if (!fields.data) return <Loading error={fields.error} />;
+  const ready = fields.data.every((f) => !f.required || f.default || (values[f.name] ?? "").trim());
+  return (
+    <form
+      className="key-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError(undefined);
+        try {
+          await session.call("connectApp", { toolkit: kit.slug, fields: values });
+          onDone();
+        } catch (err) {
+          setError((err as Error).message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      {fields.data.map((f) => (
+        <label key={f.name} className="field wide">
+          <span>
+            {f.label}
+            {f.required ? "" : " (optional)"}
+          </span>
+          <input
+            type={f.secret ? "password" : "text"}
+            autoComplete="off"
+            value={values[f.name] ?? ""}
+            placeholder={f.default ?? ""}
+            onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}
+          />
+          {f.description ? <span className="muted small">{f.description}</span> : null}
+        </label>
+      ))}
+      <p className="muted small">
+        Your key goes to Composio, which keeps it for your account; this Mac doesn't keep it.
+      </p>
+      <div className="answers">
+        <button type="submit" className="button primary" disabled={busy || !ready}>
+          {busy ? "Connecting…" : "Connect"}
+        </button>
+        <button type="button" className="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+    </form>
   );
 }
 
