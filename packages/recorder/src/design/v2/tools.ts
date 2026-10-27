@@ -391,6 +391,19 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     return problem;
   };
 
+  // How the user wrote, as an example to copy (the recording's first typing and the page it was on), so an app step
+  // refused for want of an app says what to do instead (Oct 27: the YC design sent do: "app" three times).
+  const typingExample = (): string => {
+    let page: string | undefined;
+    for (const { step } of walkSteps(session.original.steps)) {
+      if (!isAction(step) || step.channel !== "web") continue;
+      if (step.action === "navigate") page = step.id;
+      if (step.action === "type")
+        return `: { "do": "open", "page": "${page ?? "s1"}" }, then { "do": "type", "target": { "like": "${step.id}" }, "text": "{{…}}" } (the user typed into ${step.id})`;
+    }
+    return "";
+  };
+
   // A step spec -> an action step: channel, action and type from `do`, the target copied or new, values as args.
   const compile = (
     spec: StepSpec,
@@ -410,7 +423,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         return {
           error:
             session.apps.length === 0
-              ? "no app is connected for this workflow: build it with page steps"
+              ? `no app is connected for this workflow, so it writes on the page as the user did: open the page, then type into it${typingExample()}`
               : `no app tool "${name}". The tools: ${tools.map((t) => t.name).join(", ")}`,
         };
       }
@@ -459,7 +472,11 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     }
     let locator: Locator | undefined;
     let unverified = false;
-    if (target) {
+    // A read "like" a step that opens a page reads that page (Oct 27: the YC design sent read_all { like: "s2" }, s2
+    // the open of the jobs page, three times, refused each time).
+    const likes = target && "like" in target ? anyStep(target.like) : undefined;
+    const readsAPage = action === "extract" && likes && isAction(likes) && likes.action === "navigate";
+    if (target && !readsAPage) {
       const found = locatorOf(target);
       if ("error" in found) return found;
       ({ locator, unverified } = found);

@@ -139,8 +139,8 @@ commit that does it.
 
 | # | Item | Where | Status |
 |---|---|---|---|
-| R7.1 | A run's page shows blocks with a state each (done, running, failed, skipped), the steps inside on demand | `apps/ui/src/screens/Run.tsx`, `runlog.ts` | ☐ |
-| R7.2 | Repair's question and escalation name the block ("'Add a row for each job' stopped: …") | `packages/player/src/repair/*` | ☐ |
+| R7.1 | A run's page shows blocks with a state each (done, running, failed, skipped), the steps inside on demand | `apps/ui/src/screens/Run.tsx`, `runlog.ts` | ☑ R7 (`sectionsOf` / `blocksIn` in `runlog.ts`; folded when done or skipped) |
+| R7.2 | Repair's question and escalation name the block ("'Add a row for each job' stopped: …") | `packages/player/src/repair/*` | ☑ R7 (`whereIn` in core names: “Fill in Google Sheets” (s11)) |
 
 ## 5. Decisions and open questions
 
