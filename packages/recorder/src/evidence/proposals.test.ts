@@ -136,6 +136,27 @@ describe("other generalisations", () => {
     expect(open?.summary).toMatch(/only if it is always this same page/i);
   });
 
+  it("offers the item's place in its list when the link's own selector names the item (N4)", async () => {
+    const JOBS = "https://jobs.example.com/";
+    const { proposals } = await propose([
+      step("navigate", { url: JOBS, events: [] }),
+      step("click", {
+        url: JOBS,
+        target: el("link", "Eventual job", JOBS),
+        navigatesTo: `${JOBS}j/7421`,
+        list: {
+          container: { tag: "ul", url: JOBS, fallbacks: [], selectors: { css: "ul.jobs" } },
+          index: 0,
+          count: 30,
+          itemText: "Eventual · Senior engineer · Remote",
+          place: "ul.jobs > li:nth-of-type(1) > a",
+        },
+      }),
+    ]);
+    const same = proposals.find((p) => p.kind === "same_place");
+    expect(same?.edits[0]).toMatchObject({ with: { target: { fallbacks: ["ul.jobs > li:nth-of-type(1) > a"] } } });
+  });
+
   it("opens a document directly when the recording reached it through Drive's list into a new tab (Oct 25)", async () => {
     const DRIVE = "https://drive.google.com/drive/my-drive";
     const RECENT = "https://drive.google.com/drive/recent";

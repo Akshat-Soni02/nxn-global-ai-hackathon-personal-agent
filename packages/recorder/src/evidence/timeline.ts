@@ -77,8 +77,12 @@ const effectText = (e: Effect) =>
 
 // Where a step's control was on the page (its selector): the same place holds next time's item (today's featured
 // article, the top story), whatever it says then. Never the page itself.
+// Where a step acted, as a selector: in a list, its place in the list (N4: "the top job", whatever it is that day; the
+// element's own selector may name the one item, a[aria-label="<its title>"]); else the element's own.
 export const placeOf = (s: NormalisedStep): string | undefined =>
-  s.target && s.target.tag !== "body" && s.target.tag !== "html" ? s.target.selectors?.css : undefined;
+  s.target && s.target.tag !== "body" && s.target.tag !== "html"
+    ? (s.list?.place ?? s.target.selectors?.css)
+    : undefined;
 
 function facts(s: NormalisedStep): string {
   const parts: string[] = [];
