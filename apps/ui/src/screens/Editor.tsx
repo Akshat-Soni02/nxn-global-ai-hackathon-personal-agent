@@ -7,7 +7,7 @@
 import { type EditInput, type Step, stepTitle, walkSteps } from "@shadow/core";
 import type { DraftView } from "@shadow/daemon/src/types.ts";
 import { useEffect, useState } from "react";
-import { AddNode } from "../AddNode.tsx";
+import { AddNode, type ToolInfo } from "../AddNode.tsx";
 import { useQuery, useSession } from "../api.ts";
 import { canPutInBlock } from "../blocks.ts";
 import { Action, Loading } from "../components.tsx";
@@ -22,7 +22,7 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
   const [picked, setPicked] = useState<string>();
   // Where a step is being added ("+" in the tree), its form in the panel.
   const [adding, setAdding] = useState<At>();
-  const tools = useQuery<{ name: string; description: string }[]>("appTools");
+  const tools = useQuery<ToolInfo[]>("appTools");
   // Escape puts the step down, as it closes a panel anywhere else on the Mac. The field being typed in loses focus
   // first, so what was typed is saved (on blur) before the panel goes.
   useEffect(() => {

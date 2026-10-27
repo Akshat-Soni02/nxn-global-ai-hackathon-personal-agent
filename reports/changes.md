@@ -90,6 +90,7 @@ isn't built. The plan's own order was design quality first (R5.3, R5.4), then R4
   design agent does it well.
 - **Why not built.** The agent writes app steps, so the hand path was ranked below design quality. It needs the daemon
   to return a tool's schema to the window (`appTools` exists but returns names), and a small form generator.
+- **✔ Built 28 Oct.** (`appTools` already returned each tool's schema: only the form was missing.) Each argument gets a field of its kind (`apps/ui/src/app-form.ts`): a choice for an enum, yes/no, a number, rows as one line each with cells split by `|` (a `{{today|D MMM}}` stays whole), JSON only for nested objects; a document argument offers the sheets and docs the workflow opens, by the step that opens them. Required ones first; what's missing is said. A daemon older than the window still gets the JSON box.
 
 ### R4.6 Edit and Test as two modes of the workflow page (big)
 
@@ -100,6 +101,7 @@ isn't built. The plan's own order was design quality first (R5.3, R5.4), then R4
   check it except a real run. A user can't see that a fix works before it runs for real.
 - **Why not built.** It is the largest item: it merges two screens (`Workflow.tsx` and `Editor.tsx`), and R4.7 and R6.1
   show their results on the nodes, so they wait for it.
+- **✔ Built 28 Oct.** Edit was already on the workflow page (the "+", rename, Group it, Undo/Redo: R4.1 and R6.2 were there, this row was stale). **Test** is new: a Test button runs the safe test in the automation window (it reads for real and only outlines what writes) and marks each node: ✓ where it worked, the reason where it didn't, a block by its steps, and one line ("2 steps worked, 1 found on the page without being done (it writes), 1 didn't"). A block's panel has **Test this block** (N1): the safe test runs from the start, so the block gets what earlier blocks read and the page it expects, stops at the block's end, and only its steps are marked (`rehearse.ts` `stopAfterBlock`, API `test { id, block? }`). **Checked in a browser** against a scratch daemon and Chrome for Testing. Go live stays one button.
 
 ### R4.7 Show me (big)
 
@@ -138,7 +140,7 @@ why it matters, and why it isn't built. Evidence is `file:line` on `main`.
 
 | # | What | Why it matters | Why it isn't built | Evidence |
 |---|---|---|---|---|
-| N1 | **Test one block alone** | You can't check one part of a workflow without running it all (§8) | Needs an API with a start step, the values earlier blocks made, and the page it expects; it belongs in R4.6's Test mode | `packages/player/src/run.ts:151-161`, `maxSteps` at `run.ts:61` |
+| N1 | **Test one block alone** — **✔ built 28 Oct** with R4.6 (Test this block) | You can't check one part of a workflow without running it all (§8) | Needs an API with a start step, the values earlier blocks made, and the page it expects; it belongs in R4.6's Test mode | `packages/player/src/run.ts:151-161`, `maxSteps` at `run.ts:61` |
 | N2 | **Secret inputs from the Keychain** | A recorded password field becomes a `secret` input with no default; the run stops with "input … has no value" | Needs a way to enter the secret once and keep it in the Keychain; a product decision on where the person types it | `packages/player/src/node/inputs.ts:80`; `recorder/src/compile.ts:129, 317` |
 | N3 | **Targets inside iframes and shadow roots** | A control you can see is "not found" if it sits in a frame | The matcher was written for the top page; frames need a way to name the frame in the saved target | `packages/player/src/web/match.ts:6` |
 | N4 | **List position used by replay** ("the top job") | Recording stores where an item sat in its list; replay never reads it, so "the first job" can only be found by its text | The schema has it; the matcher and the saved target don't use it | `packages/core/src/trace.ts:85-90`; `apps/extension/src/describe.ts:386` |

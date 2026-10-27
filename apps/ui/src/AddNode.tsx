@@ -5,6 +5,7 @@
 import type { EditInput, Skill, Step } from "@shadow/core";
 import { walkSteps } from "@shadow/core";
 import { useState } from "react";
+import { argumentFields, argumentsOf, documentsIn } from "./app-form.ts";
 import type { At } from "./WorkflowTree.tsx";
 
 export type Kind = "open" | "click" | "type" | "read" | "ai" | "files" | "app";
@@ -42,8 +43,15 @@ function variablesIn(skill: Skill): string[] {
   return [...names];
 }
 
+// A connected app's tool as the daemon lists it (appTools): its schema makes the App action form's fields (R4.4).
+export interface ToolInfo {
+  name: string;
+  description: string;
+  inputSchema?: Record<string, unknown>;
+}
+
 // The step a form makes, or why it can't yet.
-export function stepOf(kind: Kind, f: Record<string, string>): NewStep | string {
+export function stepOf(kind: Kind, f: Record<string, string>, tools: ToolInfo[] = []): NewStep | string {
   const text = (k: string) => (f[k] ?? "").trim();
   switch (kind) {
     case "open": {
@@ -118,11 +126,20 @@ export function stepOf(kind: Kind, f: Record<string, string>): NewStep | string 
       };
     case "app": {
       if (!text("tool")) return "pick the app's action";
+      const schema = tools.find((t) => t.name === text("tool"))?.inputSchema;
       let args: unknown;
-      try {
-        args = JSON.parse(text("arguments") || "{}");
-      } catch {
-        return 'its values are JSON: { "name": "value" }';
+      if (schema?.properties) {
+        // A field per argument (R4.4).
+        const made = argumentsOf(argumentFields(schema), f);
+        if (typeof made === "string") return made;
+        args = made;
+      } else {
+        // A daemon older than the window sends no schema: the values as JSON, as before.
+        try {
+          args = JSON.parse(text("arguments") || "{}");
+        } catch {
+          return 'its values are JSON: { "name": "value" }';
+        }
       }
       return {
         type: "action",
@@ -163,9 +180,15 @@ function stepAfter(skill: Skill, at: At): string | undefined {
 }
 
 // The edits a form makes at a spot, or why it can't yet: an insert for a step, a `set` for a question or an approval.
-export function editsFor(kind: Kind | Marker, f: Record<string, string>, at: At, skill: Skill): EditInput[] | string {
+export function editsFor(
+  kind: Kind | Marker,
+  f: Record<string, string>,
+  at: At,
+  skill: Skill,
+  tools: ToolInfo[] = [],
+): EditInput[] | string {
   if (kind !== "ask" && kind !== "approve") {
-    const step = stepOf(kind, f);
+    const step = stepOf(kind, f, tools);
     return typeof step === "string" ? step : [{ op: "insert", at, step } as EditInput];
   }
   const next = stepAfter(skill, at);
@@ -195,7 +218,7 @@ export function AddNode({
 }: {
   at: At;
   skill: Skill;
-  tools?: { name: string; description: string }[];
+  tools?: ToolInfo[];
   apply(edits: EditInput[]): Promise<unknown>;
   close(): void;
 }) {
@@ -226,9 +249,55 @@ export function AddNode({
       </select>
     </label>
   );
+  // The App action's arguments, one field each (R4.4); a document argument offers the ones this workflow opens.
+  const appFields = (tool: ToolInfo | undefined) => {
+    if (!tool) return null;
+    if (!tool.inputSchema?.properties)
+      return field("arguments", "Its values (JSON)", '{ "spreadsheet_id": "…" }', true);
+    const docs = documentsIn(skill);
+    return argumentFields(tool.inputSchema).map((f) => {
+      const key = `arg.${f.name}`;
+      const label = `${f.name}${f.required ? "" : " (optional)"}`;
+      if (f.kind === "choice" || f.kind === "yes/no")
+        return (
+          <label className="field" key={key}>
+            <span>{label}</span>
+            <select value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })}>
+              <option value="">{f.required ? "Pick one" : "(the app's default)"}</option>
+              {(f.kind === "yes/no" ? ["yes", "no"] : (f.choices ?? [])).map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </label>
+        );
+      if (f.kind === "document" && docs.length > 0)
+        return (
+          <label className="field" key={key}>
+            <span>{label}</span>
+            <select value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })}>
+              <option value="">Pick a document</option>
+              {docs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        );
+      const hint =
+        f.kind === "rows"
+          ? "one row per line, cells split by | : {{today}} | {{job.title}}"
+          : f.kind === "json"
+            ? "JSON"
+            : f.hint;
+      return <span key={key}>{field(key, label, hint, f.kind === "rows" || f.kind === "json")}</span>;
+    });
+  };
   const submit = async () => {
     if (!kind) return;
-    const edits = editsFor(kind, form, at, skill);
+    const edits = editsFor(kind, form, at, skill, tools);
     if (typeof edits === "string") return setProblem(edits);
     setProblem(undefined);
     try {
@@ -329,7 +398,7 @@ export function AddNode({
                   ))}
                 </select>
               </label>
-              {field("arguments", "Its values (JSON)", '{ "spreadsheet_id": "…" }', true)}
+              {appFields(tools.find((t) => t.name === form.tool))}
               {field("save_as", "Save its answer as (optional)")}
             </>
           ) : null}

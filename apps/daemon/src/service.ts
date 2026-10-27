@@ -66,7 +66,16 @@ export interface ServiceOptions {
   // Settles the inputs of a run you start by hand (which file to use) before the first step, as the terminal's `run`
   // does: it fills `provided`, or throws when an answer is wrong. Without one, Run now takes the newest match.
   chooseInputs?: (skill: Skill, provided: Record<string, unknown>) => Promise<void>;
+  // The safe test (rehearse.ts) from the workflow's page (R4.6): reads for real, only outlines what writes. With a
+  // block, only that block's steps are reported (N1). Without one, Test says it can't run here.
+  test?: (skill: Skill, block?: string) => Promise<TestResult>;
   now?: () => number;
+}
+
+// What a test from the workflow's page found, step by step.
+export interface TestResult {
+  outcome: string;
+  steps: { id: string; path: string; status: string; error?: string }[];
 }
 
 export interface Service {
@@ -76,6 +85,8 @@ export interface Service {
   run(id: string): { run: RunRow; events: unknown[]; repairs: unknown[] } | undefined;
   inbox(options?: { open?: boolean }): InboxItem[];
   usage(): { todayUsd: number };
+  // Runs the safe test on the latest version (R4.6), or only one block of it (N1).
+  test(id: string, block?: string): Promise<TestResult>;
   health(): Record<string, unknown>;
   // Starts a run: a workflow id from the store, or the absolute path of a workflow file. Resolves when it is queued.
   start(ref: string, provided?: Record<string, unknown>, trigger?: string): RunRow;
@@ -674,6 +685,15 @@ export function createService(options: ServiceOptions): Service {
         });
       }
       return service.start(skillId, provided, trigger);
+    },
+
+    async test(id, block) {
+      const skill = loadSkill(dataDir, id);
+      if (!skill) throw new Error(`no workflow ${id}`);
+      if (!options.test) throw new Error("the safe test can't run here");
+      const test = options.test;
+      // Queued with the runs' legs: the two never share the automation window.
+      return service.exclusive(() => test(skill, block));
     },
 
     rollback(skillId) {

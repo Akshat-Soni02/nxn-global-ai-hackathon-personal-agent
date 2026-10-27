@@ -1863,3 +1863,10 @@ details.advanced h3 {
   max-height: 160px;
   overflow: auto;
 }
+
+/* A step that worked in a test from the workflow's page (R4.6). */
+.wf-pass {
+  margin-left: 6px;
+  color: var(--ok);
+  font-weight: 600;
+}

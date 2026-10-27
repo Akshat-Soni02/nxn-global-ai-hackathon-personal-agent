@@ -262,6 +262,21 @@ describe("the daemon as a service", () => {
     expect(runs).toBe(3);
   });
 
+  it("tests the workflow, or one block of it, in safe mode from its page (R4.6, N1)", async () => {
+    const { open } = setup([write("s1"), write("s2")]);
+    const asked: { version: number; block?: string }[] = [];
+    const { service } = open(undefined, {
+      test: async (skill, block) => {
+        asked.push({ version: skill.version, ...(block ? { block } : {}) });
+        return { outcome: "succeeded", steps: [{ id: "s1", path: "s1", status: "done" }] };
+      },
+    });
+    expect(await service.test("report")).toMatchObject({ outcome: "succeeded", steps: [{ id: "s1", status: "done" }] });
+    await service.test("report", "b1");
+    expect(asked).toEqual([{ version: 1 }, { version: 1, block: "b1" }]);
+    await expect(service.test("nope")).rejects.toThrow(/no workflow nope/);
+  });
+
   it("marks runs left going by a stopped daemon as interrupted, and expires questions nobody can receive", async () => {
     const { open, dataDir } = setup([write("s1")]);
     const store = openStore(join(dataDir, "shadow.db"));

@@ -8,7 +8,7 @@
 import { existsSync, renameSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, join } from "node:path";
-import { isAction, type Skill, walkSteps } from "@shadow/core";
+import { findStep, isAction, type Skill, walkSteps } from "@shadow/core";
 import { type RecordedEffect, type Rehearsal, rehearsal, rehearsalPlan } from "@shadow/player";
 import type { Daemon } from "./daemon.ts";
 import { type RunHooks, runSkillOn } from "./runner.ts";
@@ -31,6 +31,36 @@ export function notRunWhy(
 }
 
 type Report = ReturnType<Rehearsal["report"]>;
+
+// Testing one block (N1): the safe test runs from the start, so the block gets the values earlier blocks read and the
+// page it expects, and stops at the first step after the block. `inBlock`: the block's own steps, whose results are its.
+export function stopAfterBlock(
+  walk: Rehearsal["walk"],
+  skill: Skill,
+  blockId: string,
+): Rehearsal["walk"] & { inBlock: Set<string> } {
+  const block = findStep(skill, blockId);
+  const inBlock = new Set(
+    block && block.type === "control"
+      ? [...walkSteps(block.steps)]
+          .map(({ step }) => step.id)
+          .filter((id) => {
+            const s = findStep(skill, id);
+            return s?.type !== "control";
+          })
+      : [],
+  );
+  let reached = false;
+  const stopping = Object.assign(
+    async (step: Parameters<Rehearsal["walk"]>[0], path: string) => {
+      if (inBlock.has(step.id)) reached = true;
+      else if (reached) return "stop" as const;
+      return walk(step, path);
+    },
+    { inBlock },
+  );
+  return stopping;
+}
 const MAKING = new Set(["web.save_pdf", "fs.copy", "fs.move", "fs.rename"]);
 
 // The files a final check made: what its file-making steps that ran handed back.
@@ -86,11 +116,21 @@ export async function rehearse(
     // "skip ones already saved" hold (the second run should make nothing new).
     local?: boolean;
     twice?: boolean;
+    // Test only this block (N1): run up to its end, and report only its steps.
+    block?: string;
   },
 ) {
   const local = options.local ?? false;
   const once = async (): Promise<Report> => {
     const r = rehearsal(skill, options.effects, options.onLine, options.recorded, local);
+    const walk = options.block ? stopAfterBlock(r.walk, skill, options.block) : undefined;
+    const report = (outcome: string): Report => {
+      const full = r.report(outcome);
+      if (!walk) return full;
+      // Stopped by us at the end of the block: that is the block tested, not a stop.
+      const ended = /^denied: you stopped the walk-through/.test(full.outcome) ? "tested" : full.outcome;
+      return { outcome: ended, steps: full.steps.filter((s) => walk.inBlock.has(s.id)) };
+    };
     const why = notRunWhy(skill, {
       extension: daemon.extensions.size > 0,
       mac: daemon.mac().connected,
@@ -98,7 +138,7 @@ export async function rehearse(
     });
     if (why) {
       options.onLine?.(`The test run can't start: ${why}`);
-      return r.report(`not run: ${why}`);
+      return report(`not run: ${why}`);
     }
     // Before it starts: what it will do, what it will only outline, and what reading changes (an email marked read).
     const plan = rehearsalPlan(skill, options.effects, options.recorded, local);
@@ -112,7 +152,7 @@ export async function rehearse(
         skill,
         { provided: options.inputs ?? {}, signal: options.signal },
         {
-          walk: r.walk,
+          walk: walk ?? r.walk,
           onHighlight: r.onHighlight,
           // Nothing that needs approval is ever done in a test run, and no one answers its questions.
           approve: async () => false,
@@ -124,10 +164,10 @@ export async function rehearse(
         },
         options.logDir,
       );
-      return r.report(outcome.error ? `${outcome.status}: ${outcome.error}` : outcome.status);
+      return report(outcome.error ? `${outcome.status}: ${outcome.error}` : outcome.status);
     } catch (error) {
       // An input the run can't fill (no default yet), Chrome not connected: said in the report, not thrown.
-      return r.report(`not run: ${(error as Error).message}`);
+      return report(`not run: ${(error as Error).message}`);
     }
   };
   const first = await once();

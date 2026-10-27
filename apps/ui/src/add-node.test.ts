@@ -103,3 +103,41 @@ describe("adding a step by hand", () => {
     expect(() => add(base, "ai", { instruction: "x", reads: "nothing_here", save_as: "y" })).toThrow(/nothing_here/);
   });
 });
+
+describe("App action, a field per argument (R4.4)", () => {
+  it("makes the app step from the form's fields and the tool's schema, and says what is missing", () => {
+    const tools = [
+      {
+        name: "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+        description: "Append",
+        inputSchema: {
+          properties: {
+            spreadsheetId: { type: "string" },
+            range: { type: "string" },
+            values: { type: "array", items: { type: "array" } },
+          },
+          required: ["spreadsheetId", "range", "values"],
+        },
+      },
+    ];
+    const form = {
+      tool: "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+      "arg.spreadsheetId": "1AbCdEfGhIjKlMnOpQrStUv",
+      "arg.range": "Sheet1!A:B",
+      "arg.values": "{{today}} | done",
+    };
+    const edits = editsFor("app", form, { after: "s1" }, base, tools);
+    if (typeof edits === "string") throw new Error(edits);
+    const done = applyEdits(base, edits);
+    if (!done.ok) throw new Error(done.problems.join("; "));
+    const added = done.skill.steps.at(-1);
+    expect(added).toMatchObject({
+      channel: "mcp",
+      args: {
+        tool: "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+        arguments: { spreadsheetId: "1AbCdEfGhIjKlMnOpQrStUv", range: "Sheet1!A:B", values: [["{{today}}", "done"]] },
+      },
+    });
+    expect(editsFor("app", { tool: form.tool }, { after: "s1" }, base, tools)).toMatch(/fill in spreadsheetId/);
+  });
+});

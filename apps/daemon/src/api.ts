@@ -45,6 +45,11 @@ const methods = {
     run: (s: Service, p: { id: string; inputs: Record<string, unknown> }) => s.startAsking(p.id, p.inputs),
   },
   // A walk-through (docs/design.md, "7. Test"): a run that stops before every step with its target outlined.
+  // The safe test from the workflow's page (R4.6), or one block of it (N1).
+  test: {
+    params: z.object({ id, block: z.string().optional() }),
+    run: (s: Service, p: { id: string; block?: string }) => s.test(p.id, p.block),
+  },
   walk: {
     params: z.object({
       id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "a workflow id"),

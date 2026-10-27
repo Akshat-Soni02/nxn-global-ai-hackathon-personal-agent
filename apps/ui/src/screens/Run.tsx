@@ -38,9 +38,6 @@ export function Run({ id }: { id: string }) {
   return (
     <>
       <header className="page-header">
-        <a href="#/runs" className="muted small">
-          Runs
-        </a>
         <div className="title-row">
           <h1>
             <a href={`#/workflows/${run.skillId}`}>

@@ -226,6 +226,9 @@ const service = createService({
   // question waits in the inbox. `prompter` is made below; this runs only when someone presses Run now.
   chooseInputs: (skill, provided) => chooseFiles(skill, provided, (question) => prompter.ask(question), log),
   spent: () => usage.usage.costUsd,
+  // Test from the workflow's page (R4.6, N1): the safe test, its log with the runs'.
+  test: (skill, block) =>
+    rehearse(daemon, skill, { effects: new Map(), hooks: { data, llm, tools }, logDir: join(home, "runs"), block }),
   // A waiting run kept its tabs (runner.ts); ended from the inbox, the extension lets them go.
   release: (runId) => daemon.notify({ id: randomUUID(), type: "run.end", runId }),
   health: () => ({
