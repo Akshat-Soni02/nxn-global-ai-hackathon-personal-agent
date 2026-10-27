@@ -88,6 +88,9 @@ export interface DesignV2Outcome {
   gaps: string[];
   // What the critic still found missing when done could no longer be refused (critic.ts): for the review, never a block.
   critique?: string[];
+  // The connected apps' tools that only read: a step calling one runs without asking, and the daemon's save (which
+  // asks for approval on every other app call) must be told, or it switches the approval back on.
+  readOnlyTools?: string[];
   test?: TestReport;
   asked: { question: string; answer: string; by: "code" | "agent" }[];
   // Code's questions and their answers, for memory (a lasting answer is remembered).
@@ -292,6 +295,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     ...extra,
     ...(unmadeProblems(session.draft, unmade).length > 0 ? { cantRun: unmadeProblems(session.draft, unmade) } : {}),
     skill: finalOf(session.draft, session.apps),
+    ...(session.apps.length > 0 ? { readOnlyTools: [...readOnlyTools(session.apps)] } : {}),
     ...(checked ? { checked } : {}),
     task,
     done,
@@ -316,7 +320,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   const worse = () => {
     const recorded = new Set(runProblems(finalOf(options.skill)));
     const broken = runProblems(finalOf(session.draft, session.apps)).filter((p) => !recorded.has(p));
-    if (lostWork(options.skill, session.draft, session.whys).length > 0) return "had lost work you showed";
+    if (lostWork(options.skill, session.draft, session.whys, readOnlyTools(session.apps)).length > 0)
+      return "had lost work you showed";
     return broken.length > 0 ? `has steps that can't run (${broken[0]})` : undefined;
   };
   const kept = (reason: string) => {
@@ -409,7 +414,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         signal: options.signal,
       });
       // Kept in design.json, so a plan that made nothing can be read (the transcript's first reply).
-      transcript.push({ type: "reply", turn: 0, thought: reply.text.slice(0, 4_000), costUsd: reply.costUsd, ms: 0 });
+      // Whole (a plan in file mode is the workflow written out: cut at 4,000 characters it couldn't be read).
+      transcript.push({ type: "reply", turn: 0, thought: reply.text.slice(0, 60_000), costUsd: reply.costUsd, ms: 0 });
       const parsed = PlanReply.safeParse(reply.value);
       calls = (parsed.success ? parsed.data.calls : []).slice(0, 60).flatMap((c) => {
         const call = PlanCall.safeParse(c);
@@ -546,17 +552,21 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         said: [options.evidence.goal, ...options.evidence.said.map((s) => s.text)],
         unattended: options.unattended,
         unmade,
+        readOnlyTools: readOnlyTools(session.apps),
+        proposals: session.proposals,
+        decisions: session.decisions,
       });
     };
     if (options.critic ?? mode === "file") {
-      session.critic = (report) =>
-        critique(
+      session.critic = async (report) => {
+        const gaps = await critique(
           options.llm,
           {
             task: theTask,
             // Masked like everything the agent reads.
             workflow: maskText(
-              mode === "file" ? workflowFile(session.draft) : outlineOf(session.draft),
+              // Every step in full: a block folded to its ids would hide what builds each rule.
+              mode === "file" ? workflowFile(session.draft, { full: true }) : outlineOf(session.draft),
               session.maskTerms ?? [],
             ).text,
             done: report,
@@ -565,6 +575,16 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
           },
           { meter, signal: options.signal },
         );
+        // What it said is kept, so why done was refused (or not) can be read in design.json.
+        transcript.push({
+          type: "reply",
+          turn: 0,
+          thought: `the critic: ${gaps.length > 0 ? gaps.join(" | ") : "no gaps"}`,
+          costUsd: 0,
+          ms: 0,
+        });
+        return gaps;
+      };
     }
     const test = options.test;
     if (test) {

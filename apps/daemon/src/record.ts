@@ -337,7 +337,8 @@ export async function finishRecording(
   const filled = await fillForUnattended(drilled.skill, options.prompter, log);
 
   // Approval on every step that sends, pays or deletes, or matches the Never list: by code, whatever was answered.
-  const approved = requireApprovals(filled);
+  // (a connected app's tool that only reads, as the design found it, doesn't ask: C2)
+  const approved = requireApprovals(filled, { readOnlyTools: new Set(design?.readOnlyTools ?? []) });
   if (approved.added.length > 0) log(`approval needed before: ${approved.added.join(", ")}`);
   const at = (options.now ?? (() => new Date()))().toISOString();
   // What really changed from the recorded steps (the agent's work, the answers, the approvals): from the workflow

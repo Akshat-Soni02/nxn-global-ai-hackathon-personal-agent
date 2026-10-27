@@ -136,6 +136,9 @@ const FILE = `The workflow is a file
   (steps by id, or new ones). A block holds steps, never a block; a loop or an if may hold blocks.
 - A step reads, clicks or types on the page the last open before it went to: put each right after the open of its
   page (read the jobs on the jobs page, then open the sheet and write). Every write answers works_on: check it.
+  A page read in one block and written in another, as blocks: "Open the jobs page" → "Copy the top 5 jobs" (read_all
+  there, save_as jobs) → "Open the sheet" → "Add a row for each job" (a loop over {{jobs}}, typing in the sheet). The
+  read sits in the block right after its own page's open: a read right after "Open the sheet" would read the sheet.
 - Keep each recorded step's id. A new step needs no id: code gives it one. Put "why" on each step you add or change:
   the user reads it. A recorded step you leave out is removed: the write's why says why, or "whys": { "s11": "…" } on
   any write explains a step by id, also one an earlier write left out.

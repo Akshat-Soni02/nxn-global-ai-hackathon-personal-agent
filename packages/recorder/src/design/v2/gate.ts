@@ -21,7 +21,7 @@ import {
   walkSteps,
 } from "@shadow/core";
 import { MASK } from "../../mask.ts";
-import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
+import type { DoneReport, Proposal, TaskModel, TestReport } from "./contracts.ts";
 import { expand, withDates } from "./places.ts";
 
 // Actions that change something the user cares about: what they typed, chose, uploaded or moved.
@@ -64,6 +64,11 @@ export interface GateInput {
   unattended?: (skill: Skill) => string[];
   // Files the recording shows appearing with nothing recorded making them (evidence.unmade).
   unmade?: string[];
+  // The connected apps' tools that only read (lostWork: an app step that only reads replaces no write).
+  readOnlyTools?: ReadonlySet<string>;
+  // What code prepared from the recording, and what the agent decided about each (unbuiltProposals).
+  proposals?: Map<string, Proposal>;
+  decisions?: Map<string, { decision: string }>;
 }
 
 // A file the recording shows appearing with nothing recorded making it (checkpoint 6: a PDF saved through the
@@ -360,7 +365,13 @@ export function joined(error?: string): string {
     : "";
 }
 
-export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string, string>): string[] {
+export function lostWork(
+  recorded: Skill,
+  workflow: Skill,
+  explained: Map<string, string>,
+  // The connected apps' tools that only read: a step calling one does no work in place of the clicks.
+  readOnly: ReadonlySet<string> = new Set(),
+): string[] {
   const now = new Set([...walkSteps(workflow.steps)].map(({ step }) => step.id));
   // The same action on the same control (by role and name) is that work kept, though the step is new (Checkpoint 5:
   // A rebuilt its pastes inside a loop and was told its work was gone).
@@ -384,7 +395,9 @@ export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string
     .filter((s) => isAction(s) && (WRITES.has(`${s.channel}.${s.action}`) || isOutward(s) || s.requires_approval));
   // A connected app's step does the work the clicks into its page did (connectors.ts): the recorded writes it replaced
   // are removed with a why, and that is the work kept, not lost.
-  const appStep = [...walkSteps(workflow.steps)].some(({ step }) => isAction(step) && step.channel === "mcp");
+  const appStep = [...walkSteps(workflow.steps)].some(
+    ({ step }) => isAction(step) && step.channel === "mcp" && !readOnly.has(String(step.args.tool)),
+  );
   const noneKept = shown.length > 0 && !appStep && shown.every((s) => !now.has(s.id) && !kept(s));
   for (const step of shown) {
     if (now.has(step.id) || kept(step) || (explained.has(step.id) && !noneKept)) continue;
@@ -395,11 +408,43 @@ export function lostWork(recorded: Skill, workflow: Skill, explained: Map<string
   return problems;
 }
 
+// A proposal code could run but prepared nothing for ("the newest, not the third": the agent builds it) is accepted by
+// the agent's say-so. Nothing checked that it was built, so the click stayed pinned to the recorded item. The steps it
+// is about must have changed, or be gone: else the agent is told, and builds it or rejects it with a why.
+export function unbuiltProposals(
+  recorded: Skill,
+  workflow: Skill,
+  proposals: Map<string, Proposal>,
+  decisions: Map<string, { decision: string }>,
+): string[] {
+  const asRecorded = (id: string) => {
+    const was = findStep(recorded, id);
+    const now = findStep(workflow, id);
+    return !!was && !!now && JSON.stringify(was) === JSON.stringify(now);
+  };
+  return [...decisions].flatMap(([id, d]) => {
+    const p = proposals.get(id);
+    if (!p || d.decision !== "accept" || !p.runnable || p.edits.length > 0) return [];
+    const kept = p.steps.filter(asRecorded);
+    return kept.length === p.steps.length && kept.length > 0
+      ? [
+          `${id} (${p.summary.slice(0, 90)}) was accepted, but ${kept.join(", ")} ${kept.length > 1 ? "are" : "is"} still as recorded: build it, or reject it with a why`,
+        ]
+      : [];
+  });
+}
+
 export function gate(input: GateInput): string[] {
   const { recorded, workflow, task, done, test, appeared, explained } = input;
   const sinceTest = input.sinceTest ?? explained;
   const now = new Map<string, Step>([...walkSteps(workflow.steps)].map(({ step }) => [step.id, step]));
-  const problems = [...lostWork(recorded, workflow, explained), ...unmadeProblems(workflow, input.unmade ?? [])];
+  const problems = [
+    ...lostWork(recorded, workflow, explained, input.readOnlyTools),
+    ...unmadeProblems(workflow, input.unmade ?? []),
+    ...(input.proposals && input.decisions
+      ? unbuiltProposals(recorded, workflow, input.proposals, input.decisions)
+      : []),
+  ];
 
   // Every rule they said or wrote: built by steps that exist, or explained.
   task.rules.forEach((rule, i) => {

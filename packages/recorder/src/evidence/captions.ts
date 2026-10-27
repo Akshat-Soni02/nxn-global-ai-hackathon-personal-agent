@@ -22,6 +22,10 @@ export function captionQuestion(step: NormalisedStep, terms: string[] = []): str
 // Captions asked at once: each is one vision call of up to a minute, so one at a time made 33 steps take 3½ minutes
 // (25 Oct); a few at once keeps within the service's rate limits.
 export const CAPTIONS_AT_ONCE = 3;
+// No new caption is started after this long: a long recording (a design waits for every caption) took over ten minutes
+// (Oct 26, recording E). The steps left go without one, as a failed caption does; the design reads what the code
+// already knows about them.
+export const CAPTIONS_DEADLINE_MS = 150_000;
 
 export async function captionsOf(
   steps: NormalisedStep[],
@@ -29,11 +33,21 @@ export async function captionsOf(
   describe: DescribePicture,
   log: (...args: unknown[]) => void = () => {},
   terms: string[] = [],
+  options: { deadlineMs?: number } = {},
 ): Promise<(string | undefined)[]> {
   const captions: (string | undefined)[] = steps.map(() => undefined);
+  const deadlineMs = options.deadlineMs ?? CAPTIONS_DEADLINE_MS;
+  const stopAt = Date.now() + deadlineMs;
   let next = 0;
+  let stopped = false;
   const worker = async () => {
     while (next < steps.length) {
+      if (Date.now() > stopAt) {
+        if (!stopped)
+          log(`captions stopped after ${Math.round(deadlineMs / 1000)} s: the other steps go without a caption`);
+        stopped = true;
+        return;
+      }
       const i = next++;
       const step = steps[i];
       const path = pictureOf(i);

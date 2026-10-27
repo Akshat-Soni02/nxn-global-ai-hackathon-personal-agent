@@ -11,6 +11,7 @@ import {
   runProblems,
   sameReads,
   tabsFixed,
+  unbuiltProposals,
   unfoundIn,
   unmadeProblems,
 } from "./gate.ts";
@@ -68,6 +69,47 @@ const input = (workflow: Skill, extra: Partial<Parameters<typeof gate>[0]> = {})
   appeared: new Set(["Message sent", "Arilo Stats"]),
   explained: new Map<string, string>(),
   ...extra,
+});
+
+describe("a proposal accepted with nothing prepared must really be built (C15)", () => {
+  const proposal = {
+    id: "p1",
+    kind: "list_item" as const,
+    summary: "s2 clicked item 3 of 9 in the jobs list: next time the newest, or the one with this text?",
+    steps: ["s3"],
+    evidence: [],
+    edits: [], // nothing prepared: the agent builds it
+    runnable: true,
+  };
+  const proposals = new Map([["p1", proposal]]);
+  const accepted = new Map([["p1", { decision: "accept" as const, why: "the newest" }]]);
+
+  it("says so while the steps are still as recorded", () => {
+    const problems = unbuiltProposals(recorded, recorded, proposals, accepted);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/p1.*accepted.*s3.*still as recorded/);
+  });
+
+  it("is satisfied once a step it is about changed, or is gone", () => {
+    const changed = skill([
+      act("s1", "web", "navigate", { url: CHAT }),
+      act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+      act("s3", "web", "type", { text: "the newest" }),
+      act("s4", "web", "press", { key: "Enter" }),
+    ]);
+    expect(unbuiltProposals(recorded, changed, proposals, accepted)).toEqual([]);
+    const gone = skill([act("s1", "web", "navigate", { url: CHAT }), act("s4", "web", "press", { key: "Enter" })]);
+    expect(unbuiltProposals(recorded, gone, proposals, accepted)).toEqual([]);
+  });
+
+  it("leaves alone what was rejected, what has edits applied, and what replay can't run", () => {
+    const rejected = new Map([["p1", { decision: "reject" as const, why: "no" }]]);
+    expect(unbuiltProposals(recorded, recorded, proposals, rejected)).toEqual([]);
+    const prepared = new Map([["p1", { ...proposal, edits: [{ op: "remove", step: "s3" } as never] }]]);
+    expect(unbuiltProposals(recorded, recorded, prepared, accepted)).toEqual([]);
+    const notRunnable = new Map([["p1", { ...proposal, runnable: false }]]);
+    expect(unbuiltProposals(recorded, recorded, notRunnable, accepted)).toEqual([]);
+  });
 });
 
 describe("the finish gate", () => {

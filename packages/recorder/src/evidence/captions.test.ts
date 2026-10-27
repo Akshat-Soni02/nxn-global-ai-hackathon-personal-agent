@@ -29,6 +29,26 @@ describe("captions", () => {
     expect(logged).toEqual([expect.stringMatching(/^a caption failed \(step 5: click/)]);
   });
 
+  it("stops starting new captions after its deadline, so a long recording can't take minutes (C24)", async () => {
+    const logged: string[] = [];
+    let asked = 0;
+    const captions = await captionsOf(
+      Array.from({ length: 30 }, (_, i) => step(i + 1)),
+      (i) => `/shots/${i}.jpg`,
+      async (path) => {
+        asked++;
+        await new Promise((r) => setTimeout(r, 20));
+        return `picture ${path}`;
+      },
+      (...args) => logged.push(args.join(" ")),
+      [],
+      { deadlineMs: 60 },
+    );
+    expect(asked).toBeLessThan(30); // three at once, 20 ms each: about nine of them fit
+    expect(captions.filter(Boolean).length).toBe(asked);
+    expect(logged.join("\n")).toMatch(/stopped after.*without a caption/);
+  });
+
   it("describes each step that has a picture, short, and leaves out a step whose picture failed", async () => {
     const asked: string[] = [];
     const captions = await captionsOf(

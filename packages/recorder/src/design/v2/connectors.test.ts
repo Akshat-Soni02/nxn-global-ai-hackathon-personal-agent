@@ -10,6 +10,7 @@ import {
   type Connectors,
   connectorChances,
   documentIdOf,
+  readOnlyTools,
   shortlist,
   type UsableApp,
   withIds,
@@ -241,6 +242,20 @@ describe("app steps in the design", () => {
 
     // The clicks it replaced, removed with a why: that work is kept, not lost.
     await run(s, "remove", { steps: ["s2", "s3"], why: "written to the sheet directly" });
+    expect(lostWork(recorded, s.draft, s.whys)).toEqual([]);
+  });
+
+  it("a read-only app step doesn't make removing every recorded write look like work done by the app (C3)", async () => {
+    const s = session();
+    await run(s, "add", {
+      step: { do: "app", intent: "read the sheet", tool: READ.name, arguments: {} },
+      after: "s1",
+      why: "reads the rows",
+    });
+    await run(s, "remove", { steps: ["s2", "s3"], why: "not needed" });
+    // The app only reads, so nothing replaced the writes: the work the user showed is gone, and the gate says so.
+    expect(lostWork(recorded, s.draft, s.whys, readOnlyTools([app]))).not.toEqual([]);
+    // With no read-only list (an app step might write), the removal stays explained as before.
     expect(lostWork(recorded, s.draft, s.whys)).toEqual([]);
   });
 
