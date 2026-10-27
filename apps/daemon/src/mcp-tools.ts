@@ -6,6 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { isAction, type Skill, walkSteps } from "@shadow/core";
 import type { ChannelExecutor } from "@shadow/player";
+import { appOf } from "@shadow/recorder";
 
 export interface McpTool {
   name: string;
@@ -111,6 +112,23 @@ export function mcpTools(url: string, authedFetch: typeof fetch, now: () => numb
   };
 }
 
+// The tools repair's briefing lists (core's ConnectedTool). It was never given any, so it said "Connected apps: none
+// (don't write mcp.call steps)" and could not switch a step to an app's tool. Signed out or the service down: none.
+export async function connectedToolsOf(
+  tools: McpTools | undefined,
+): Promise<{ name: string; description: string; readOnly: boolean }[]> {
+  if (!tools) return [];
+  try {
+    return (await tools.list()).map((t) => ({
+      name: t.name,
+      description: t.description,
+      readOnly: t.readOnly && !t.destructive,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // Whether a step calling this tool must ask first. Unknown tools ask.
 export function toolNeedsApproval(tool: McpTool | undefined): boolean {
   return !tool?.readOnly || tool.destructive;
@@ -127,16 +145,62 @@ export function mcpChannel(tools: McpTools): ChannelExecutor {
   };
 }
 
+// What a run that stopped before step 1 for want of a connected app says first. Such a stop is nobody's failure and
+// costs nothing: it doesn't count toward the three failed runs that pause a workflow (service.ts autoPause).
+export const NEEDS_APP = "needs an app: ";
+
+// The first step that typed into a drawn area (a sheet's cells, `drawn`) and the app that covers the page it worked on:
+// the page is the last address a step opened in its tab. Replay can't reach such a step, so only an app can do it (A2).
+function drawnStep(skill: Skill): { id: string; app?: { toolkit: string; name: string }; host: string } | undefined {
+  const open = new Map<string, string>(); // tab -> the address last opened there
+  for (const { step } of walkSteps(skill.steps)) {
+    if (!isAction(step) || step.channel !== "web") continue;
+    const tab = step.tab ?? "main";
+    if (step.action === "navigate") open.set(tab, String(step.args.url ?? ""));
+    if (!step.drawn) continue;
+    const url = open.get(tab);
+    let host = "this site";
+    try {
+      host = new URL(url ?? "").host || host;
+    } catch {}
+    return { id: step.id, app: appOf(url), host };
+  }
+  return undefined;
+}
+
 // Before a run: every mcp step's tool must be offered (its app connected), and a tool that changes things asks first
 // even if the step was saved without approval (approval is only ever added here, never removed). Undefined tools:
-// the user isn't signed in, so a workflow with mcp steps can't run.
+// the user isn't signed in, so a workflow with mcp steps can't run. A step in a drawn area (a sheet's cells) can't run on
+// the page at all: stopped here too, before any step has done anything, with what to do about it.
 export async function prepareMcpSteps(
   skill: Skill,
   tools: McpTools | undefined,
 ): Promise<{ skill: Skill; error?: string }> {
+  const drawn = drawnStep(skill);
+  if (drawn) {
+    const where = drawn.app ? `a drawn area of ${drawn.app.name}` : `a drawn area of ${drawn.host}`;
+    const lead = `${NEEDS_APP}step ${drawn.id} works in ${where}, which replay can't reach`;
+    if (!drawn.app) return { skill, error: `${lead}, and no connected app covers ${drawn.host}` };
+    if (!tools)
+      return {
+        skill,
+        error: `${lead}: sign in to Shadow in Settings, connect ${drawn.app.name} in Apps, then run it again`,
+      };
+    let offered: McpTool[] = [];
+    try {
+      offered = await tools.list(true);
+    } catch {}
+    return {
+      skill,
+      error: offered.some((t) => t.toolkit === drawn.app?.toolkit)
+        ? `${lead}: this workflow should use the app's own tool, not the page (Edit it, or record it again)`
+        : `${lead}: connect ${drawn.app.name} in Apps, then run it again`,
+    };
+  }
   const steps = [...walkSteps(skill.steps)].map(({ step }) => step).filter((s) => isAction(s) && s.channel === "mcp");
   if (steps.length === 0) return { skill };
-  if (!tools) return { skill, error: "this workflow uses a connected app: sign in to Shadow in Settings first" };
+  if (!tools)
+    return { skill, error: `${NEEDS_APP}this workflow uses a connected app: sign in to Shadow in Settings first` };
   const copy = structuredClone(skill);
   let offered: McpTool[];
   try {
@@ -150,7 +214,7 @@ export async function prepareMcpSteps(
     const tool = offered.find((t) => t.name === name);
     if (!tool) {
       const app = name.split("_")[0]?.toLowerCase() ?? name;
-      return { skill, error: `step ${step.id} uses ${name}: connect ${app} in Apps first` };
+      return { skill, error: `${NEEDS_APP}step ${step.id} uses ${name}: connect ${app} in Apps first` };
     }
     if (toolNeedsApproval(tool)) step.requires_approval = true;
   }

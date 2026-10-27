@@ -11,4 +11,10 @@ describe("the file-mode prompt (B5)", () => {
     );
     expect(BUILD_FILE).toMatch(/a read right after "Open the sheet" would read the sheet/);
   });
+
+  it("says what a step marked drawn is, and that a connected app does it (A1)", () => {
+    expect(BUILD_FILE).toMatch(/"drawn": true/);
+    expect(BUILD_FILE).toMatch(/replay can't reach/);
+    expect(BUILD_FILE).toMatch(/leave it: the review says it can't run yet/);
+  });
 });

@@ -34,7 +34,7 @@ import { type Recovery as PlayerRecovery, runWithRecovery } from "@shadow/player
 import type { PageOp, PageOpResult } from "@shadow/player/web";
 import type { Daemon } from "./daemon.ts";
 import type { ScreenDescriber } from "./describe.ts";
-import { type McpTools, mcpChannel, prepareMcpSteps } from "./mcp-tools.ts";
+import { connectedToolsOf, type McpTools, mcpChannel, prepareMcpSteps } from "./mcp-tools.ts";
 
 // Extra time on top of a step's own timeout for the round trip and the extension's work.
 const EXTENSION_MARGIN_MS = 20_000;
@@ -289,6 +289,9 @@ export async function runSkillOn(
           return `${described.description}\n\nWords on screen (private ones masked):\n${described.words}`;
         }
       : undefined;
+    // The connected apps' tools, for repair's briefing: it was never told any ("none"), so it could not move a step that
+    // clicks into an app's page to the app's own tool (X4). The list is cached, so this is one call at most.
+    const connectedTools = await connectedToolsOf(hooks.tools);
     ended = await runWithRecovery(skill, deps, {
       runId,
       inputs,
@@ -311,6 +314,7 @@ export async function runSkillOn(
           extension: daemon.extensions.size > 0,
           macApp: daemon.mac().connected,
           screenConsent: describer !== undefined,
+          connectedTools,
         }),
         onEpisode: (n, record) =>
           writeFileSync(

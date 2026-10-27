@@ -2,7 +2,7 @@ import { Skill } from "@shadow/core";
 import { runSkill } from "@shadow/player";
 import { requireApprovals } from "@shadow/recorder";
 import { describe, expect, it } from "vitest";
-import { type McpTool, type McpTools, mcpChannel, prepareMcpSteps } from "./mcp-tools.ts";
+import { connectedToolsOf, type McpTool, type McpTools, mcpChannel, prepareMcpSteps } from "./mcp-tools.ts";
 
 const TOOLS: McpTool[] = [
   { name: "GOOGLESHEETS_GET_VALUES", description: "", inputSchema: {}, readOnly: true, destructive: false },
@@ -111,6 +111,74 @@ describe("mcp steps in a run", () => {
     // finished would then show as failed, and a retry could write it twice).
     await runSkill(base, deps, RUN);
     expect(seen?.timeoutMs).toBe(120_000);
+  });
+
+  it("tells repair which app tools exist, so it can use one (A3: the briefing said 'none')", async () => {
+    const listed = await connectedToolsOf(fakeTools());
+    expect(listed.map((t) => t.name)).toEqual(["GOOGLESHEETS_GET_VALUES", "GOOGLESHEETS_APPEND_VALUES"]);
+    expect(listed[0]).toMatchObject({ readOnly: true });
+    expect(listed[1]).toMatchObject({ readOnly: false });
+    // Signed out, or the service unreachable: none, and repair is told so (it must not guess a tool).
+    expect(await connectedToolsOf(undefined)).toEqual([]);
+    const down: McpTools = {
+      ...fakeTools(),
+      list: async () => {
+        throw new Error("service down");
+      },
+    };
+    expect(await connectedToolsOf(down)).toEqual([]);
+  });
+
+  describe("a step that typed into a drawn area (A2)", () => {
+    const SHEET = "https://docs.google.com/spreadsheets/d/abc/edit";
+    const drawnIn = (url: string) =>
+      Skill.parse({
+        id: "kpi",
+        name: "KPI",
+        version: 1,
+        description: { goal: "numbers in the sheet" },
+        steps: [
+          { id: "t", type: "trigger", intent: "start", when: [{ type: "manual" }] },
+          { id: "s1", type: "action", intent: "open it", channel: "web", action: "navigate", args: { url } },
+          {
+            id: "s2",
+            type: "action",
+            intent: "type the number",
+            channel: "web",
+            action: "type",
+            target: { role: "textbox", name: "Cell", fallbacks: [] },
+            args: { text: "42" },
+            drawn: true,
+          },
+        ],
+      });
+    const sheets = TOOLS.map((t) => ({ ...t, toolkit: "googlesheets" }));
+    const gmail = [{ ...(TOOLS[0] as McpTool), name: "GMAIL_FETCH_EMAILS", toolkit: "gmail" }];
+    const toolsOf = (list: McpTool[]): McpTools => ({ ...fakeTools(), list: async () => list });
+
+    it("stops before step 1 and says to connect the app that covers the page, when it isn't connected", async () => {
+      const r = await prepareMcpSteps(drawnIn(SHEET), toolsOf(gmail));
+      expect(r.error).toMatch(/^needs an app: step s2 works in a drawn area of Google Sheets/);
+      expect(r.error).toMatch(/connect Google Sheets in Apps/);
+    });
+
+    it("stops too when it is connected: the workflow should use the app's own tool, not the page", async () => {
+      const r = await prepareMcpSteps(drawnIn(SHEET), toolsOf(sheets));
+      expect(r.error).toMatch(/^needs an app: step s2 works in a drawn area of Google Sheets/);
+      expect(r.error).toMatch(/use the app's own tool/);
+    });
+
+    it("says to sign in when nobody is, and plainly when no app covers the site", async () => {
+      expect((await prepareMcpSteps(drawnIn(SHEET), undefined)).error).toMatch(/sign in to Shadow/);
+      const other = await prepareMcpSteps(drawnIn("https://canvas.example.com/doc"), toolsOf(sheets));
+      expect(other.error).toMatch(/no connected app covers canvas\.example\.com/);
+    });
+
+    it("leaves a workflow with no drawn step alone", async () => {
+      const plain = drawnIn(SHEET);
+      for (const { step } of [...plain.steps].map((step) => ({ step }))) delete (step as { drawn?: boolean }).drawn;
+      expect((await prepareMcpSteps(plain, undefined)).error).toBeUndefined();
+    });
   });
 
   it("a read-only tool runs without asking; a missing app or no sign-in stops before the run", async () => {

@@ -116,7 +116,11 @@ export function skeletonOf(steps: NormalisedStep[]): Skeleton {
         output: { name, type: FILE },
       });
     }
-    out.push(...built.map((s) => ({ ...s, type: "action" as const })));
+    // Typing or pressing after clicks into a drawn area (a sheet's cells): those clicks are gone, so on replay this
+    // would land in whichever cell is selected. Kept on the step (A1), not only as a note at compile.
+    const intoDrawn = (s: StepDraft) =>
+      !!step.drawnBefore && s.channel === "web" && ["type", "press", "click"].includes(s.action);
+    out.push(...built.map((s) => ({ ...s, type: "action" as const, ...(intoDrawn(s) ? { drawn: true } : {}) })));
     idsByStep.push(out.slice(first).map((s) => s.id));
   }
   return {

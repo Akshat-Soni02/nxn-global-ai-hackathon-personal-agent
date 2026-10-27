@@ -162,6 +162,9 @@ const FILE = `The workflow is a file
 - Connected apps: when the message lists one, do the work inside it with app steps instead of the clicks into its
   page: one app step for each write or read, and leave out the recorded steps it replaces (why "done directly in
   <app>"). A document's id is written <id:s4>: code puts the real id in. Keep page steps for what no listed tool does.
+  A step marked "drawn": true typed into a drawn area (a sheet's cells): replay can't reach it, and the clicks that
+  chose the cell are gone, so on the page it lands in whichever cell is selected. With the app listed, do it with the
+  app's tool and remove the step; with none listed, leave it: the review says it can't run yet, and what to connect.
   No app listed: page steps only, and never ask about connecting one.
 - Also: accept / reject code's proposals, restore what code left out, look (the evidence, a step, an app's tools), ask
   (what only the user can decide), test, done. Several calls in one reply run in order.`;

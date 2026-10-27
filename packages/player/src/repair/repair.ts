@@ -191,7 +191,11 @@ requires, keep step ids, and never change what the user decided. The report says
 was recorded: find that again on the page. You may add, remove, reorder and change steps to get the run done; a change
 that acts outward, opens a new site or removes a step that asks for approval is put to the user when you commit, and
 made on yes. Calling the same look again with nothing done in between gets the same answer: act instead. If you can't
-find a safe fix, escalate and say in plain words what you would change, or what the user should show you.`;
+find a safe fix, escalate and say in plain words what you would change, or what the user should show you.
+When the failing step is work inside an app that has a connected tool listed under "Available now" (a sheet's cells, a
+document, a mail), the page may be what can't be replayed: replace the step with that tool's mcp.call (keep
+requires_approval on). It can't be tried, because it would write for real: commit puts it to the user, and that yes is
+its check.`;
 
 // What the repair did before it handed over, in plain words for the user (Oct 25, X7): "It looked at the page 9 times,
 // changed the workflow once and tried a fix once (the last try: target not found)."

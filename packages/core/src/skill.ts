@@ -191,6 +191,11 @@ export const ActionStep = z
     // name stays the same tab for the whole run, so going back to it keeps its page as it was (a selected cell, a
     // scrolled list) instead of opening it again. Needs replay's sign-off: the extension keeps a tab per name.
     tab: z.string().min(1).max(60).optional(),
+    // The recording typed or pressed into a drawn area (a sheet's cells, a canvas): the clicks that chose the place
+    // were dropped, as there is no element to aim at again, so on replay this would land in whichever cell is selected
+    // and say ok. Set by the recorder; read by the design gate (a connected app should do this) and by replay (which
+    // fails it loudly rather than guess). Never written by hand.
+    drawn: z.boolean().optional(),
     args: z.record(z.string(), z.unknown()).default({}),
     wait: Check.optional(),
     check: Check.optional(),

@@ -46,6 +46,11 @@ export function classify(failure: Failure, signals?: PageSignals): Classificatio
   }
   // The page asked a question nobody could answer (extension/src/dialogs.ts dismissed it): not drift, nothing a repair
   // can change; the user answers it by hand in the automation window.
+  // A step in a drawn area (a sheet's cells) that replay can't reach: only a connected app can do it, so nothing for a
+  // ladder or a model to try. The run waits for the user to connect the app (A2).
+  if (/drawn area replay can't reach/i.test(error)) {
+    return { class: "environment", reason: error, need: error };
+  }
   if (/^the page asked /i.test(error)) {
     return { class: "environment", reason: error, need: error };
   }

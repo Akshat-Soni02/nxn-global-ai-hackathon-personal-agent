@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { type ActionStep, Skill } from "@shadow/core";
 import { type RunDeps, type RunOutcome, runSkill } from "@shadow/player";
 import { describe, expect, it } from "vitest";
+import { NEEDS_APP } from "./mcp-tools.ts";
 import { writeReview } from "./review-store.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
 import { saveSkill } from "./skill-store.ts";
@@ -365,6 +366,23 @@ describe("the workflow lifecycle", () => {
     expect(item).toMatchObject({ kind: "paused", skillId: "report" });
     service.answer(item?.id as string, "resume");
     expect(service.state("report").state).toBe("live");
+  });
+
+  it("doesn't count runs that stopped for want of a connected app: nothing ran, and the user can fix it by connecting (A2)", async () => {
+    const { open } = setup([write("s1")]);
+    const needsApp = async (): Promise<RunOutcome> => ({
+      status: "failed",
+      vars: {},
+      error: `${NEEDS_APP}step s1 uses GOOGLESHEETS_BATCH_UPDATE: connect googlesheets in Apps first`,
+    });
+    const { service } = open(needsApp);
+    service.setTrigger("report", [{ type: "schedule", cron: "0 9 * * *" }]);
+    service.goLive("report");
+    for (let i = 0; i < 4; i++) {
+      service.fire("report", "schedule");
+      await service.idle();
+    }
+    expect(service.state("report").state).toBe("live"); // it would be paused after 3 real failures
   });
 
   it("skips a triggered run while the previous one waits for you, and says why", async () => {

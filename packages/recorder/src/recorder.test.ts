@@ -425,6 +425,17 @@ describe("copy, paste and drawn apps", () => {
     expect(result.questions.map((q) => q.appliesTo)).toContain("steps.start.inputs.pasted_amount.default");
     expect(result.warnings.join(" ")).toMatch(/s2: 1 click\(s\) before it landed on a drawn area/);
   });
+
+  it("keeps on the step that it typed into a drawn area, so replay and the gate can say what it can't do (A1)", async () => {
+    const result = await compile(
+      normalise([ev("click", 0, { target: canvas, drawn: true }), ev("type", 1_000, { target: amount, pasted: true })]),
+    );
+    // The clicks into the grid were dropped (no element to aim at again); the typing that followed would land in
+    // whichever cell is selected on replay. That fact used to be only a note at compile.
+    expect(acts(result.skill)[1]).toMatchObject({ action: "type", drawn: true });
+    // A step that wasn't after a drawn click carries nothing.
+    expect(acts(result.skill)[0]).not.toHaveProperty("drawn");
+  });
 });
 
 describe("compile", () => {

@@ -2,6 +2,7 @@ import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
 import {
+  drawnProblems,
   emptyIn,
   gate,
   guessed,
@@ -69,6 +70,46 @@ const input = (workflow: Skill, extra: Partial<Parameters<typeof gate>[0]> = {})
   appeared: new Set(["Message sent", "Arilo Stats"]),
   explained: new Map<string, string>(),
   ...extra,
+});
+
+describe("steps that type into a drawn area (A1)", () => {
+  // s3 typed into a sheet's cells after clicks that were dropped: replay would type into whichever cell is selected.
+  const drawnType = act("s3", "web", "type", { text: "42" }, { drawn: true });
+  const withDrawn = skill([act("s1", "web", "navigate", { url: SHEET }), drawnType]);
+  const pages = new Map([
+    ["s1", SHEET],
+    ["s3", SHEET],
+  ]);
+
+  it("asks for an app step when a connected app covers the page: the step can't be replayed on it", () => {
+    const { fix, cantRun } = drawnProblems(withDrawn, pages, new Set(["googlesheets"]));
+    expect(cantRun).toEqual([]);
+    expect(fix).toHaveLength(1);
+    expect(fix[0]).toMatch(/s3.*drawn area of Google Sheets.*replay can't reach.*the app's tool/);
+  });
+
+  it("says it can't run yet, and what to connect, when the app isn't connected", () => {
+    const { fix, cantRun } = drawnProblems(withDrawn, pages, new Set());
+    expect(fix).toEqual([]);
+    expect(cantRun).toHaveLength(1);
+    expect(cantRun[0]).toMatch(/s3.*Google Sheets.*connect Google Sheets in Apps/);
+  });
+
+  it("says so plainly when no app covers the site", () => {
+    const other = new Map([["s3", "https://canvas-editor.example.com/doc/1"]]);
+    const { cantRun } = drawnProblems(withDrawn, other, new Set(["googlesheets"]));
+    expect(cantRun[0]).toMatch(/s3.*no connected app covers canvas-editor\.example\.com/);
+  });
+
+  it("leaves a workflow with no drawn step alone", () => {
+    const plain = skill([act("s1", "web", "navigate", { url: SHEET }), act("s3", "web", "type", { text: "42" })]);
+    expect(drawnProblems(plain, pages, new Set())).toEqual({ fix: [], cantRun: [] });
+  });
+
+  it("the finish gate sends the agent back for it", () => {
+    const problems = gate(input(withDrawn, { pages, connectedToolkits: new Set(["googlesheets"]) }));
+    expect(problems.join("\n")).toMatch(/s3.*drawn area of Google Sheets/);
+  });
 });
 
 describe("a proposal accepted with nothing prepared must really be built (C15)", () => {

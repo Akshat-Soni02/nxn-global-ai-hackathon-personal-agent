@@ -312,6 +312,32 @@ describe("asks", () => {
   });
 });
 
+describe("a step that typed into a drawn area (A2)", () => {
+  it("fails at once and says why, never touching the page: on replay it would land in whichever cell is selected", async () => {
+    const drawn = {
+      id: "s1",
+      type: "action",
+      intent: "type the number into the sheet",
+      channel: "web",
+      action: "type",
+      target: { role: "textbox", name: "Cell", fallbacks: [] },
+      args: { text: "42" },
+      drawn: true,
+    };
+    const { deps, events } = fake();
+    let touched = 0;
+    deps.web = async () => {
+      touched++;
+      return { ok: true };
+    };
+    const outcome = await runSkill(skill([drawn], {}), deps, { inputs: {} });
+    expect(outcome.status).toBe("failed");
+    expect(outcome.error).toMatch(/drawn area replay can't reach/);
+    expect(touched).toBe(0);
+    expect(events.some((e) => e.type === "step.result" && e.result.ok === false)).toBe(true);
+  });
+});
+
 describe("pause and resume", () => {
   it("a run resumed inside a loop item doesn't keep that item's scope past the item (C34)", async () => {
     const s = skill(

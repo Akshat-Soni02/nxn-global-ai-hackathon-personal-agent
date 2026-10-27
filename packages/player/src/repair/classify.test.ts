@@ -15,6 +15,18 @@ const step = ActionStep.parse({
 const failure = (error: string): Failure =>
   ({ stepId: "s7", path: "s7", step, result: { ok: false, error }, attempts: 1, vars: {} }) as Failure;
 
+describe("a step in a drawn area (A2)", () => {
+  it("is the user's to settle (connect the app), not drift: no ladder, no model", () => {
+    const c = classify(
+      failure(
+        "this step types into a drawn area replay can't reach (a sheet's cells): use the connected app that covers this page (connect it in Apps), then run it again",
+      ),
+    );
+    expect(c.class).toBe("environment");
+    expect(c.need).toMatch(/connect it in Apps/);
+  });
+});
+
 describe("a question the page asked (A5)", () => {
   it("is the user's to answer, not drift: no repair, no model, and the words say what to do", () => {
     const c = classify(

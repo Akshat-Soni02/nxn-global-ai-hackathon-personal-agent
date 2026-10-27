@@ -25,7 +25,7 @@ import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
 import { appsSection, type ConnectorChance, type Connectors, readOnlyTools, type UsableApp } from "./connectors.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
 import { critique } from "./critic.ts";
-import { gate, lostWork, runProblems, unmadeProblems } from "./gate.ts";
+import { drawnProblems, gate, lostWork, runProblems, unmadeProblems } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { BUILD, BUILD_FILE, PLAN, PLAN_FILE } from "./prompt.ts";
 import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
@@ -289,11 +289,18 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   let firstMessage: string | undefined;
 
   const unmade = (options.evidence as { unmade?: string[] } | undefined)?.unmade ?? [];
+  const connectedToolkits = () => new Set(session.apps.map((a) => a.toolkit));
+  // Why the workflow can't do the task yet: a file nothing makes, and steps in a drawn area (a sheet's cells) that replay
+  // can't reach while the app that could do them isn't connected. Go live is refused until then (A1).
+  const cantRunNow = () => [
+    ...unmadeProblems(session.draft, unmade),
+    ...drawnProblems(session.draft, options.pages, connectedToolkits()).cantRun,
+  ];
   const outcome = (
     extra: { kind: "designed"; summary?: string } | { kind: "kept"; reason: string },
   ): DesignV2Outcome => ({
     ...extra,
-    ...(unmadeProblems(session.draft, unmade).length > 0 ? { cantRun: unmadeProblems(session.draft, unmade) } : {}),
+    ...(cantRunNow().length > 0 ? { cantRun: cantRunNow() } : {}),
     skill: finalOf(session.draft, session.apps),
     ...(session.apps.length > 0 ? { readOnlyTools: [...readOnlyTools(session.apps)] } : {}),
     ...(checked ? { checked } : {}),
@@ -555,6 +562,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         readOnlyTools: readOnlyTools(session.apps),
         proposals: session.proposals,
         decisions: session.decisions,
+        pages: options.pages,
+        connectedToolkits: connectedToolkits(),
       });
     };
     if (options.critic ?? mode === "file") {

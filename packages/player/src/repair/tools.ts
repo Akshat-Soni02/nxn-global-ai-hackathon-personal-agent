@@ -334,8 +334,21 @@ async function askOk(session: RepairSession, summary: string, asks: string[]): P
   }
 }
 
+// Every step the draft changes or adds calls a connected app. Such a step can't be tried: it writes for real, and nobody
+// can approve a try, so a try came back "needs the user's approval" and the fix could never commit (X4). What stands in
+// for the try is the user's OK at commit, which is always asked for a connected-app call (repairCheck), shown exactly
+// what the step does.
+function onlyAppSteps(session: RepairSession): boolean {
+  const was = new Map([...walkSteps(session.original.steps)].map(({ step }) => [step.id, JSON.stringify(step)]));
+  const changed = [...walkSteps(session.draft.steps)]
+    .map(({ step }) => step)
+    .filter((step) => was.get(step.id) !== JSON.stringify(step));
+  return changed.length > 0 && changed.every((s) => s.type === "action" && s.channel === "mcp");
+}
+
 function commitProblem(session: RepairSession): string | undefined {
   if (session.edits.length === 0) return "the draft has no changes: if nothing needs changing, resolve instead";
+  if (onlyAppSteps(session)) return undefined;
   const tried = session.tried;
   if (!tried || tried.draft !== key(session.draft)) return "the current draft hasn't been tried: call try_steps first";
   if (!tried.result.ok) return `the last try failed (${tried.result.error})`;

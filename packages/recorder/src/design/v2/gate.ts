@@ -21,6 +21,7 @@ import {
   walkSteps,
 } from "@shadow/core";
 import { MASK } from "../../mask.ts";
+import { appOf } from "./connectors.ts";
 import type { DoneReport, Proposal, TaskModel, TestReport } from "./contracts.ts";
 import { expand, withDates } from "./places.ts";
 
@@ -69,6 +70,9 @@ export interface GateInput {
   // What code prepared from the recording, and what the agent decided about each (unbuiltProposals).
   proposals?: Map<string, Proposal>;
   decisions?: Map<string, { decision: string }>;
+  // The page each recorded step worked on, and the connected apps' toolkits (drawnProblems).
+  pages?: Map<string, string>;
+  connectedToolkits?: ReadonlySet<string>;
 }
 
 // A file the recording shows appearing with nothing recorded making it (checkpoint 6: a PDF saved through the
@@ -408,6 +412,46 @@ export function lostWork(
   return problems;
 }
 
+// A step that typed or pressed into a drawn area (`drawn`, set by the recorder: a sheet's cells, a canvas) can't be
+// replayed on the page: the clicks that chose the place are gone, so it would land in whichever cell is selected and
+// say ok (Rushil, 27 Oct). A connected app does that work with its own tools, for any app (the table in
+// connectors.ts), so: where a connected app covers the page, the step must become an app step (`fix`, the agent is sent
+// back); where the app isn't connected, or none covers the page, the workflow can't run yet and says what to connect
+// (`cantRun`, for the review: Go live is refused until then).
+export function drawnProblems(
+  workflow: Skill,
+  pages: Map<string, string>,
+  connected: ReadonlySet<string>,
+): { fix: string[]; cantRun: string[] } {
+  const fix: string[] = [];
+  const needs = new Map<string, string[]>(); // what to connect (or the site) -> the steps that need it
+  for (const { step } of walkSteps(workflow.steps)) {
+    if (!isAction(step) || !step.drawn) continue;
+    const url = pages.get(step.id);
+    const app = url ? appOf(url) : undefined;
+    if (app && connected.has(app.toolkit)) {
+      fix.push(
+        `${step.id} (${step.intent}) types into a drawn area of ${app.name}, which replay can't reach: do it with the app's tool (add { do: "app", … }) and remove this step`,
+      );
+      continue;
+    }
+    const key = app
+      ? `a drawn area of ${app.name}: connect ${app.name} in Apps, then run it again`
+      : `a drawn area of ${hostOfUrl(url)}: no connected app covers ${hostOfUrl(url)}, and replay can't reach this spot on the page`;
+    needs.set(key, [...(needs.get(key) ?? []), step.id]);
+  }
+  const cantRun = [...needs].map(([what, ids]) => `${ids.join(", ")} work${ids.length > 1 ? "" : "s"} in ${what}`);
+  return { fix, cantRun };
+}
+
+const hostOfUrl = (url?: string) => {
+  try {
+    return new URL(url ?? "").host;
+  } catch {
+    return "this site";
+  }
+};
+
 // A proposal code could run but prepared nothing for ("the newest, not the third": the agent builds it) is accepted by
 // the agent's say-so. Nothing checked that it was built, so the click stayed pinned to the recorded item. The steps it
 // is about must have changed, or be gone: else the agent is told, and builds it or rejects it with a why.
@@ -444,6 +488,7 @@ export function gate(input: GateInput): string[] {
     ...(input.proposals && input.decisions
       ? unbuiltProposals(recorded, workflow, input.proposals, input.decisions)
       : []),
+    ...(input.pages ? drawnProblems(workflow, input.pages, input.connectedToolkits ?? new Set()).fix : []),
   ];
 
   // Every rule they said or wrote: built by steps that exist, or explained.

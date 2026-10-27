@@ -626,6 +626,15 @@ async function executeOnce(step: ActionStep, ctx: RunContext, deps: RunDeps): Pr
                 ? deps.mcp
                 : undefined;
   if (!channel) return { ok: false, error: `channel ${step.channel} is not supported yet` };
+  // The recording typed or pressed into a drawn area (a sheet's cells): the clicks that chose the place are gone, so
+  // here it would land in whichever cell is selected and report ok. Fail it, loudly, before it touches the page (A2).
+  if (step.channel === "web" && step.drawn) {
+    return {
+      ok: false,
+      error:
+        "this step types into a drawn area replay can't reach (a sheet's cells): use the connected app that covers this page (connect it in Apps), then run it again",
+    };
+  }
 
   let result: StepResult;
   try {

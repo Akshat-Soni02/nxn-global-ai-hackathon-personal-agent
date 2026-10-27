@@ -22,6 +22,7 @@ import {
 import { blockPlan, shortName } from "@shadow/recorder";
 import { deleteDraft, draftSkill, readDraft, writeDraft } from "./draft-store.ts";
 import { goLiveProblems, nextTime, readState, triggerKey, writeState } from "./lifecycle.ts";
+import { NEEDS_APP } from "./mcp-tools.ts";
 import { markReviewed, readReview } from "./review-store.ts";
 import { newRunId } from "./runner.ts";
 import { listSkills, loadSkill, rollbackSkill, saveSkill, versions } from "./skill-store.ts";
@@ -272,11 +273,15 @@ export function createService(options: ServiceOptions): Service {
   // Runs started by hand don't count; a run that succeeded, found nothing to do or was denied ends the streak.
   function autoPause(id: string) {
     if (readState(dataDir, id).state !== "live") return;
-    const finished = store
-      .listRuns({ skillId: id, limit: 50 })
-      .filter(
-        (r) => r.trigger !== "manual" && r.trigger !== "walk" && !["running", "waiting", "skipped"].includes(r.status),
-      );
+    const finished = store.listRuns({ skillId: id, limit: 50 }).filter(
+      (r) =>
+        r.trigger !== "manual" &&
+        r.trigger !== "walk" &&
+        !["running", "waiting", "skipped"].includes(r.status) &&
+        // A run that stopped before step 1 for want of a connected app did nothing and is no failure of the
+        // workflow: connecting the app fixes it, so it neither counts nor pauses (A2).
+        !r.error?.startsWith(NEEDS_APP),
+    );
     let streak = 0;
     for (const r of finished) {
       if (r.status !== "failed" && r.status !== "interrupted") break;
