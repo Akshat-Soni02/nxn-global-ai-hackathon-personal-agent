@@ -77,8 +77,9 @@ page and repair all understand blocks.
 
 ## 3. Not started (5 items), explained
 
-These five are the PR's "Next". None has code. For each: what it is, why it is needed, what exists today, and why it
-isn't built. The plan's own order was design quality first (R5.3, R5.4), then R4.6, R6 and R7 (`reports/plan-oct26-workflow-revamp.md`, "Resume here"). R4.4 and R4.7 have no slot in it.
+These five were the PR's "Next", with no code on 27 Oct. **All five were built on 28 Oct** (each **✔** below says how);
+the explanations of what each is and why it is needed stay. For each: what it is, why it is needed, what existed, and
+why it wasn't built then. The plan's own order was design quality first (R5.3, R5.4), then R4.6, R6 and R7 (`reports/plan-oct26-workflow-revamp.md`, "Resume here"). R4.4 and R4.7 have no slot in it.
 
 ### R4.4 App action form (medium)
 
@@ -326,7 +327,7 @@ Not fixed:
 | R5-2 | A stale extension (not reloaded after a rebuild) sends no pictures; the daemon doesn't notice (`extension/src/button.ts:128` handles only the page button) | OPEN | **C25** |
 | R9-6 | A click that expanded something is kept as a step on purpose (`normalise.ts:574-584`) | PARTLY | By design |
 | R9-7, R10-4, D2-3 | Repeats, dates and constants are *proposed* by code (`proposals.ts:98, 330, 418`); the model decides | PARTLY | By design |
-| R10-3 | "The top job" is recorded as list position but the draft locator doesn't store it (`locator.ts`) | PARTLY | N4, **C15** |
+| R10-3 | "The top job" is recorded as list position but the draft locator doesn't store it (`locator.ts`) | DONE 28 Oct (the place in the list is recorded and used) | N4, **C15** |
 | D1-2 | About 15–22k input tokens re-sent each turn; no prompt caching found (`agent/src/agent.ts:391`) | MEASURED 28 Oct: the host caches the repeated start by itself | N21 |
 | D2-2 | Many checks left `{}` (`skeleton.ts:261-283`); the report called it harmless | OPEN | By design |
 | D5-3 | A question can block a save for as long as it takes you (`record-control.ts:7`) | PARTLY | N20 |
