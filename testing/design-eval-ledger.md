@@ -85,3 +85,4 @@
 | 2026-10-27 | repair check 1: a failing click on a Google Doc, Docs connected (agent probed the page 13 turns, then put the app step outside args; escalated) | nvidia/nemotron-3-super-120b-a12b | $0.0714 | 0/1 |
 | 2026-10-27 | repair check 2, after the app-first fix (went to the app at once, guessed arguments, output type wrong ten times; escalated) | nvidia/nemotron-3-super-120b-a12b | $0.0742 | 0/1 |
 | 2026-10-27 | repair check 3, after app_tool and the output-shape fix (wrote the right app step, then escalated: its instructions said a try comes before commit) | nvidia/nemotron-3-super-120b-a12b | $0.0373 | 0/1 |
+| 2026-10-27 | repair check 4, after the try-refusal fix (never used the app: 9 page looks, then escalated; the model varies run to run) | nvidia/nemotron-3-super-120b-a12b | $0.0675 | 0/1 |
