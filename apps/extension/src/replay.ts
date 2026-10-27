@@ -14,6 +14,7 @@ import {
   withTimeouts,
 } from "@shadow/player/web";
 import { answerDialog, DialogLog, dialogProblem, type PageDialog } from "./dialogs.ts";
+import { PAGE_GUARD, waitingForSaveAs } from "./page-guard.ts";
 import { TabMap } from "./tab-map.ts";
 
 const PROTOCOL_VERSION = "1.3";
@@ -40,6 +41,10 @@ let current: number | undefined;
 // tab was approved by the user decides if a confirm there is accepted.
 const dialogs = new DialogLog();
 const approvedIn = new Map<number, boolean>();
+// The run whose step ran last: a tab a page opens belongs to it.
+let currentRun: string | undefined;
+// Downloads Chrome started while a step ran (A5): one held by Chrome's Save-as dialog fails the step, saying so.
+let stepDownloads: number[] | undefined;
 
 // Recording ignores the automation tabs, so a replay that runs while you record never records itself.
 export function isAutomationTab(tabId: number | undefined): boolean {
@@ -82,7 +87,9 @@ async function automationTab(): Promise<number> {
 async function tabFor(name: string | undefined, runId?: string): Promise<number> {
   const main = await automationTab();
   const map = await loadTabs();
-  let id = map.lookup(name, runId);
+  // A tab the page opened by itself (a link with target=_blank) is the next new name's tab (A5).
+  let id = map.lookup(name, runId) ?? (name && name !== "main" ? map.adoptOpened(name, runId) : undefined);
+  if (id !== undefined) await saveTabs();
   if (id === undefined && name) {
     const { windowId } = await chrome.tabs.get(main);
     const created = await chrome.tabs.create({ windowId, url: "about:blank", active: true });
@@ -116,6 +123,9 @@ async function cdpFor(tabId: number): Promise<Cdp> {
     await within(chrome.debugger.attach(target, PROTOCOL_VERSION), "debugger.attach");
     try {
       for (const domain of ["Page", "DOM", "Runtime", "Accessibility"]) await cdp.send(`${domain}.enable`);
+      // Print previews and permission bubbles would stop the run behind Chrome's own UI: answered in the page (A5).
+      await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: PAGE_GUARD });
+      await cdp.send("Runtime.evaluate", { expression: PAGE_GUARD }).catch(() => {});
     } catch (error) {
       // Half set up counts as not attached: the next step starts again from a clean tab.
       await chrome.debugger.detach(target).catch(() => {});
@@ -157,18 +167,36 @@ async function fetchText(url: string): Promise<string> {
 }
 
 export async function runWebStep(step: Step, runId?: string) {
+  currentRun = runId;
   const tabId = await tabFor(step.tab, runId);
   const cdp = await cdpFor(tabId);
   approvedIn.set(tabId, step.requires_approval === true);
   dialogs.take(tabId); // what opened between steps is not this step's
+  stepDownloads = [];
   try {
     const result = await executeWebStep(cdp, step, { fetchText });
     // A question the page asked and nobody could answer: the step didn't do what it was for, whatever the click said.
-    const problem = dialogProblem(dialogs.take(tabId));
+    const problem = dialogProblem(dialogs.take(tabId)) ?? (await saveAsProblem(stepDownloads));
     return problem ? { ok: false, error: problem } : result;
   } finally {
     approvedIn.delete(tabId);
+    stepDownloads = undefined;
   }
+}
+
+// A download the step started: kept, so the step can say if Chrome holds it behind its Save-as dialog.
+export function noteDownload(item: chrome.downloads.DownloadItem): void {
+  stepDownloads?.push(item.id);
+}
+
+// Chrome's "Ask where to save each file" puts a dialog no extension may skip over a run's download (A5, checked live:
+// Page.setDownloadBehavior is refused to extensions, and a suggested name or saveAs: false still asks). The step
+// says so instead of the run hanging behind it, and recovery's "I did it by hand: go on" fits.
+async function saveAsProblem(ids: number[]): Promise<string | undefined> {
+  if (ids.length === 0) return undefined;
+  await new Promise((r) => setTimeout(r, 1_500));
+  const items = (await Promise.all(ids.map((id) => chrome.downloads.search({ id })))).flat();
+  return waitingForSaveAs(items);
 }
 
 export async function runPageCheck(check: Check, timeoutMs: number): Promise<boolean> {
@@ -201,6 +229,13 @@ export async function endRun(runId?: string): Promise<void> {
   }
   if (runId) map.forgetOwner(runId);
   await saveTabs();
+}
+
+// A tab a page in the automation window opened by itself: kept for the run whose step was running (A5).
+export function noteOpenedTab(tab: chrome.tabs.Tab): void {
+  if (tab.id === undefined || !isAutomationTab(tab.openerTabId) || !tabs) return;
+  tabs.noteOpened(tab.id, currentRun);
+  void saveTabs();
 }
 
 // A tab you closed is never used again: the next step that names it opens a new one.

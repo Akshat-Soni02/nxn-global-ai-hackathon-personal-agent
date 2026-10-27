@@ -31,4 +31,21 @@ describe("the automation window's tabs", () => {
     expect(tabs.extras()).toEqual([21]);
     expect(TabMap.from(tabs.toJSON()).lookup("Sheet", "run-a")).toBe(21);
   });
+
+  it("follows a tab the page opened (a link with target=_blank, window.open) into the next tab a step names (A5)", () => {
+    const tabs = new TabMap(10);
+    tabs.remember("Jobs", 11, "run-a");
+    // The jobs page opened a tab while run A's step ran: the next new name in run A is that tab, not a blank one.
+    tabs.noteOpened(15, "run-a");
+    expect(tabs.has(15)).toBe(true);
+    expect(tabs.adoptOpened("Job posting", "run-a")).toBe(15);
+    expect(tabs.lookup("Job posting", "run-a")).toBe(15);
+    // Used once: a later new name gets a fresh tab, and another run never takes it.
+    expect(tabs.adoptOpened("Other", "run-a")).toBeUndefined();
+    tabs.noteOpened(16, "run-a");
+    expect(tabs.adoptOpened("Other", "run-b")).toBeUndefined();
+    // Not adopted by the time the run ends: closed with the run's tabs.
+    expect(tabs.extras("run-a").sort()).toEqual([11, 15, 16]);
+    expect(TabMap.from(tabs.toJSON()).extras("run-a").sort()).toEqual([11, 15, 16]);
+  });
 });

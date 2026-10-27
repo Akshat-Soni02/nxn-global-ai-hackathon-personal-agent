@@ -39,6 +39,18 @@ describe("a question the page asked (A5)", () => {
   });
 });
 
+describe("a download held by Chrome's Save-as dialog (A5)", () => {
+  it("is the user's to settle (choose a place, or turn the setting off), not drift a repair could spend on", () => {
+    const c = classify(
+      failure(
+        'Chrome is asking where to save the download (your setting "Ask where to save each file before downloading"): choose a place in the automation window and go on, or turn that setting off so runs can download on their own',
+      ),
+    );
+    expect(c.class).toBe("environment");
+    expect(c.need).toMatch(/choose a place/);
+  });
+});
+
 describe("a control that changed kind (C30)", () => {
   it("is drift a repair can fix, not bad data: a select that became a text box", () => {
     const pick = ActionStep.parse({

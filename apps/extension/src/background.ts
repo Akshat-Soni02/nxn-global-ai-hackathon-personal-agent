@@ -7,12 +7,23 @@
 import { type Message, NATIVE_HOST_NAME } from "@shadow/core";
 import type { PageOp } from "@shadow/player/web";
 import type { ButtonState } from "./button.ts";
-import { endRun, forgetAutomationTab, isAutomationTab, runPageCheck, runPageOp, runWebStep } from "./replay.ts";
+import {
+  endRun,
+  forgetAutomationTab,
+  isAutomationTab,
+  noteDownload,
+  noteOpenedTab,
+  runPageCheck,
+  runPageOp,
+  runWebStep,
+} from "./replay.ts";
 import type { ShotHint } from "./shot.ts";
 import { type ShotJob, ShotQueue } from "./shot-queue.ts";
 import { TabRegistry } from "./tab-registry.ts";
 
-const VERSION = chrome.runtime.getManifest().version;
+// The build's id (build.mjs) after the manifest version: the daemon compares it with the build on disk (C25).
+declare const __SHADOW_BUILD__: string | undefined;
+const VERSION = `${chrome.runtime.getManifest().version}+${typeof __SHADOW_BUILD__ === "string" ? __SHADOW_BUILD__ : "dev"}`;
 const QUICK_RETRY_MS = 3_000;
 const RECONNECT_ALARM = "reconnect-daemon";
 
@@ -78,7 +89,10 @@ async function onDaemonMessage(message: Message) {
     }
     case "run.step": {
       const { id, runId, step } = message;
-      const result = await runWebStep(step, runId).catch((error: Error) => ({ ok: false, error: error.message }));
+      const result = await runWebStep(step, runId).catch((error: Error) => ({
+        ok: false,
+        error: error.message,
+      }));
       send({ ...result, id, type: "run.step_result", runId, stepId: step.id });
       break;
     }
@@ -341,6 +355,7 @@ chrome.webNavigation.onHistoryStateUpdated.addListener((nav) => {
 });
 chrome.tabs.onCreated.addListener((tab) => {
   tabs.opened(tab);
+  noteOpenedTab(tab);
   record({
     event: "tab_open",
     tabId: tab.id,
@@ -370,6 +385,8 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
     () => {},
   );
 });
+// A download a run's step started: replay checks it isn't held by the Save-as dialog (A5).
+chrome.downloads.onCreated.addListener((item) => noteDownload(item));
 // A finished download links the web and the Mac: its path is where a later file step will find it.
 chrome.downloads.onChanged.addListener((delta) => {
   if (delta.state?.current !== "complete") return;

@@ -255,10 +255,17 @@ function Mark() {
 
 interface HealthInfo {
   extensions?: number;
+  // Chrome runs an older build of the extension than the one built (C25): it needs a reload.
+  extensionStale?: boolean;
   macApp?: { connected: boolean; trusted: boolean };
   model?: string;
   waitingForYou?: number;
   running?: string[];
+}
+
+function chromeText(data: HealthInfo | undefined): string {
+  if ((data?.extensions ?? 0) === 0) return "not connected";
+  return data?.extensionStale ? "an old copy: reload it in chrome://extensions" : "connected";
 }
 
 function Health({ connected }: { connected: boolean }) {
@@ -269,8 +276,8 @@ function Health({ connected }: { connected: boolean }) {
     { label: "Shadow", ok: connected, text: connected ? "running" : "not reachable" },
     {
       label: "Chrome",
-      ok: (data?.extensions ?? 0) > 0,
-      text: (data?.extensions ?? 0) > 0 ? "connected" : "not connected",
+      ok: (data?.extensions ?? 0) > 0 && !data?.extensionStale,
+      text: chromeText(data),
     },
     {
       label: "Mac apps",

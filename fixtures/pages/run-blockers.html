@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Run blockers</title>
+<!-- A page that does what stops a run behind Chrome's own UI (A5): opens a tab, prints, asks for a permission and
+     downloads a file. Each button writes what the page got back into #result, so a run's check can see it. -->
+<h1>Run blockers</h1>
+<a href="run-blockers-details.html" target="_blank" rel="opener">Open the details</a>
+<button type="button" id="print">Print this page</button>
+<button type="button" id="notify">Ask to notify</button>
+<a id="download" href="data:text/plain;charset=utf-8,checked%20by%20Shadow" download="shadow-a5-check.txt">Download the file</a>
+<p id="result">nothing yet</p>
+<script>
+  const out = (text) => {
+    document.getElementById("result").textContent = text;
+  };
+  document.getElementById("print").addEventListener("click", () => {
+    window.print();
+    out("after print");
+  });
+  document.getElementById("notify").addEventListener("click", async () => {
+    out(`permission: ${await Notification.requestPermission()}`);
+  });
+</script>

@@ -51,6 +51,11 @@ export function classify(failure: Failure, signals?: PageSignals): Classificatio
   if (/drawn area replay can't reach/i.test(error)) {
     return { class: "environment", reason: error, need: error };
   }
+  // Chrome holds a download behind its Save-as dialog (the user's "Ask where to save" setting; extension replay.ts):
+  // only the user can choose, and no extension may skip it (A5).
+  if (/^Chrome is asking where to save/i.test(error)) {
+    return { class: "environment", reason: error, need: error };
+  }
   if (/^the page asked /i.test(error)) {
     return { class: "environment", reason: error, need: error };
   }

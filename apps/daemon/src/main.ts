@@ -92,6 +92,7 @@ const daemon = await startDaemon({
   dataDir: home,
   watchDirs,
   ownPort: () => httpPort,
+  extensionDist: join(import.meta.dirname, "../../extension/dist"),
   onRecordCommand: (command) =>
     command === "start" ? record?.press() : command === "stop" ? void record?.stop() : void record?.discard(),
   onSystem: (event) => {
@@ -229,6 +230,7 @@ const service = createService({
   release: (runId) => daemon.notify({ id: randomUUID(), type: "run.end", runId }),
   health: () => ({
     extensions: daemon.extensions.size,
+    extensionStale: daemon.staleExtension(),
     macApp: daemon.mac(),
     model: model ? "configured" : "none",
     keySource,
