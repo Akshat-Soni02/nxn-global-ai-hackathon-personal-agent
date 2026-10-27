@@ -174,6 +174,8 @@ describe("other generalisations", () => {
           index: 0,
           count: 12,
           itemText: "Ycomb jobs",
+          // Its place in the list (N4): still the file opened, never "the top recent file".
+          place: "div[role=grid] > div:nth-of-type(1)",
         },
       }),
       step("type", { url: DOC, tabId: 2, value: "25 Oct", target: el("textbox", "A4", DOC), cell: { ref: "A4" } }),
@@ -181,8 +183,8 @@ describe("other generalisations", () => {
     const open = proposals.find((p) => p.kind === "open_directly");
     expect(open?.steps).toEqual(["s1", "s2", "s3"]);
     expect(open?.summary).toMatch(/same file every time/);
-    // Not offered as "the first file in the list" too.
-    expect(proposals.filter((p) => p.kind === "list_item")).toEqual([]);
+    // Not offered as "the first file in the list" too, by either proposal.
+    expect(proposals.filter((p) => p.kind === "list_item" || p.kind === "same_place")).toEqual([]);
     const applied = applyEdits(skill, open?.edits ?? []);
     expect(applied.ok && findStep(applied.skill, "s1")).toMatchObject({ action: "navigate", args: { url: DOC } });
   });

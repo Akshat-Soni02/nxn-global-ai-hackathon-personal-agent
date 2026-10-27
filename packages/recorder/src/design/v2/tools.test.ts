@@ -854,6 +854,10 @@ describe("a question asked while building (N9)", () => {
     expect(s.answeredNow).toMatchObject([
       { question: { text: "Which row should the numbers go in?" }, answer: "the next empty row" },
     ]);
+    // Asked again (models repeat a call; the YC design sent one six times): the user isn't asked twice.
+    const again = await run(s, "ask", { question: "which row should the numbers go in", why: "w", step: "start" });
+    expect(asked).toHaveLength(1);
+    expect(again.output).toMatchObject({ answered: "the next empty row" });
   });
 
   it("takes the default when the answer is empty, and queues it as before when it can't ask now", async () => {

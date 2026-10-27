@@ -756,6 +756,9 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       if (session.questions.some((q) => key(q.step, q.text) === key(step, question))) {
         return { output: { ok: true, note: "already queued" } };
       }
+      // Already answered while it built: the same answer, the user isn't asked twice.
+      const earlier = session.answeredNow?.find((a) => key(a.question.step, a.question.text) === key(step, question));
+      if (earlier) return { output: { answered: earlier.answer, note: "already answered: build with it" } };
       const id = `q${session.questions.length + (session.answeredNow?.length ?? 0) + 1}`;
       const queued = {
         id,
