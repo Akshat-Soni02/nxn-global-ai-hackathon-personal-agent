@@ -35,6 +35,8 @@ export interface Recovery {
   // A masked picture of the page (web) or the frontmost window (ax), described (only with pictures consent).
   describeScreen?(question: string, channel: "web" | "ax"): Promise<string>;
   available?(): Availability;
+  // One connected app tool's arguments, for repair's app_tool look.
+  appTool?: RepairEnv["appTool"];
   // What the recording showed at a step, for the failure report.
   recorded?: RepairEnv["recorded"];
   // Each repair episode, to store next to the run log.
@@ -97,6 +99,7 @@ export async function runWithRecovery(
             failure.step.type === "action" && failure.step.channel === "ax" ? "ax" : "web",
           ) ?? Promise.resolve("")),
       available: recovery.available?.(),
+      appTool: recovery.appTool,
       recorded: recovery.recorded,
     };
     const before = recovery.repairer.spent.costUsd;

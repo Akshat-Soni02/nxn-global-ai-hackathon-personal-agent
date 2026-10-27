@@ -22,4 +22,7 @@ export interface RepairEnv {
   recorded?(stepId: string): string | undefined;
   // What is connected and allowed right now, for the briefing.
   available?: Availability;
+  // One connected app tool's arguments (app_tool), so a step that uses it isn't written from a guess. Present only when an
+  // app is connected.
+  appTool?(name: string): string;
 }

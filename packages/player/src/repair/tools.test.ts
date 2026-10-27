@@ -130,6 +130,19 @@ describe("repair asks instead of refusing", () => {
     }
   });
 
+  it("lets the agent read a connected tool's arguments instead of guessing them, only when an app is connected", async () => {
+    const { s, run } = session(undefined, {
+      appTool: (name) =>
+        name === "DOCS_ADD" ? '{"arguments":{"document_id":"text","append_to_end":"boolean"}}' : "no app tool",
+    });
+    expect(await run("app_tool", { name: "DOCS_ADD" })).toMatchObject({
+      output: expect.stringContaining("append_to_end"),
+    });
+    expect(repairTools({ ...s, env: { runId: "r", deps: {} as RunDeps } }).some((t) => t.name === "app_tool")).toBe(
+      false,
+    );
+  });
+
   it("still needs a try for a fix that is not an app step", async () => {
     const { run } = session(true);
     await run("edit", elsewhere);

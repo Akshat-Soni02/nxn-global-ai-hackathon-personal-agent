@@ -254,6 +254,19 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
       }),
     );
   }
+  if (env.appTool) {
+    const appTool = env.appTool;
+    tools.push(
+      tool({
+        name: "app_tool",
+        kind: "look",
+        description:
+          "A connected app tool's arguments (a name from the briefing's list): read it before writing an mcp.call step, don't guess them",
+        input: z.object({ name: z.string().min(1) }),
+        run: ({ name }) => ({ output: appTool(name) }),
+      }),
+    );
+  }
   if (env.recall) {
     const recall = env.recall;
     tools.push(

@@ -117,16 +117,35 @@ export function mcpTools(url: string, authedFetch: typeof fetch, now: () => numb
 export async function connectedToolsOf(
   tools: McpTools | undefined,
 ): Promise<{ name: string; description: string; readOnly: boolean }[]> {
+  return (await listedToolsOf(tools)).map((t) => ({
+    name: t.name,
+    description: t.description,
+    readOnly: t.readOnly && !t.destructive,
+  }));
+}
+
+// Every tool the connected apps offer, or none (signed out, service down). The list is cached: one call at most.
+export async function listedToolsOf(tools: McpTools | undefined): Promise<McpTool[]> {
   if (!tools) return [];
   try {
-    return (await tools.list()).map((t) => ({
-      name: t.name,
-      description: t.description,
-      readOnly: t.readOnly && !t.destructive,
-    }));
+    return await tools.list();
   } catch {
     return [];
   }
+}
+
+// One tool's arguments, for repair's `app_tool` look (the designer has the same): without it repair guessed them, built
+// a step to find the end of a document the tool doesn't need, and ran out of turns. A wrong name gets the right ones.
+export function describeAppTool(tools: McpTool[], name: string): string {
+  const found = tools.find((t) => t.name === name);
+  if (!found)
+    return `no app tool ${name}. The tools: ${tools.map((t) => t.name).join(", ") || "none (no app connected)"}`;
+  return JSON.stringify({
+    name: found.name,
+    description: found.description,
+    reads_only: found.readOnly && !found.destructive,
+    arguments: found.inputSchema,
+  });
 }
 
 // Whether a step calling this tool must ask first. Unknown tools ask.

@@ -384,6 +384,7 @@ describe("the repair agent", () => {
     const sent = llm.requests[0]?.messages as { role: string; content: string }[] | undefined;
     const system = sent?.find((m) => m.role === "system");
     expect(system?.content).toMatch(/before you look at the page/);
+    expect(system?.content).toContain("app_tool");
     expect(system?.content).toContain('args: { tool: "NAME", arguments: { … } }');
   });
 

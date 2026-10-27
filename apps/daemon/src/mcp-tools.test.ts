@@ -2,7 +2,14 @@ import { Skill } from "@shadow/core";
 import { runSkill } from "@shadow/player";
 import { requireApprovals } from "@shadow/recorder";
 import { describe, expect, it } from "vitest";
-import { connectedToolsOf, type McpTool, type McpTools, mcpChannel, prepareMcpSteps } from "./mcp-tools.ts";
+import {
+  connectedToolsOf,
+  describeAppTool,
+  type McpTool,
+  type McpTools,
+  mcpChannel,
+  prepareMcpSteps,
+} from "./mcp-tools.ts";
 
 const TOOLS: McpTool[] = [
   { name: "GOOGLESHEETS_GET_VALUES", description: "", inputSchema: {}, readOnly: true, destructive: false },
@@ -111,6 +118,17 @@ describe("mcp steps in a run", () => {
     // finished would then show as failed, and a retry could write it twice).
     await runSkill(base, deps, RUN);
     expect(seen?.timeoutMs).toBe(120_000);
+  });
+
+  it("shows repair one tool's arguments, or the tool names when it guessed a wrong one (a real repair guessed them)", async () => {
+    const tools: McpTool[] = [
+      { ...(TOOLS[1] as McpTool), inputSchema: { properties: { spreadsheet_id: { type: "string" } } } },
+    ];
+    const text = describeAppTool(tools, "GOOGLESHEETS_APPEND_VALUES");
+    expect(text).toContain("spreadsheet_id");
+    expect(text).toContain("GOOGLESHEETS_APPEND_VALUES");
+    expect(describeAppTool(tools, "NOPE")).toMatch(/no app tool NOPE.*GOOGLESHEETS_APPEND_VALUES/);
+    expect(describeAppTool([], "NOPE")).toMatch(/none/);
   });
 
   it("tells repair which app tools exist, so it can use one (A3: the briefing said 'none')", async () => {

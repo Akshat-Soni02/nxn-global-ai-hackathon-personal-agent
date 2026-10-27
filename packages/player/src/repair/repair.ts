@@ -195,8 +195,9 @@ find a safe fix, escalate and say in plain words what you would change, or what 
 When the failing step is work inside an app that has a connected tool listed under "Available now" (a sheet's cells, a
 document, a mail), try the app first, before you look at the page: the page may be what can't be replayed. Replace the
 step with that tool's mcp.call in one edit: { channel: "mcp", action: "call", args: { tool: "NAME", arguments: { … } } }
-(keep requires_approval on; the document or sheet id is in the address of the page the workflow opened). Page repair is
-for steps no tool does. It can't be tried, because it would write for real: commit puts it to the user, and that yes is
+(keep requires_approval on; the document or sheet id is in the address of the page the workflow opened). Read the
+tool's arguments with app_tool first and use only what it needs: don't guess them or build extra steps around it. Page
+repair is for steps no tool does. It can't be tried, because it would write for real: commit puts it to the user, and that yes is
 its check.`;
 
 // What the repair did before it handed over, in plain words for the user (Oct 25, X7): "It looked at the page 9 times,
