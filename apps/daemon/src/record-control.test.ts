@@ -320,6 +320,34 @@ describe("keeping a recording for a day", () => {
     expect(() => control.start({ goal: "another" })).not.toThrow();
   });
 
+  it("tells the window whether Chrome is connected, and says why an empty recording was empty when it wasn't (a real recording captured nothing and said only 'no steps')", async () => {
+    const make = (chrome: boolean | undefined) => {
+      const { daemon } = fakeDaemon(false);
+      return createRecordControl({
+        dataDir: temp(),
+        daemon,
+        ask: async () => "",
+        finish: async () => undefined, // nothing recorded
+        log: () => {},
+        ...(chrome === undefined ? {} : { chromeConnected: () => chrome }),
+      });
+    };
+    expect(make(false).view().chromeConnected).toBe(false);
+    expect(make(true).view().chromeConnected).toBe(true);
+    // Not told: assumed connected, so an older caller shows no warning.
+    expect(make(undefined).view().chromeConnected).toBe(true);
+
+    const without = make(false);
+    without.start({ goal: "x" });
+    await without.stop();
+    expect(without.view().last?.text).toMatch(/no steps were recorded.*Chrome's extension wasn't connected/);
+
+    const connected = make(true);
+    connected.start({ goal: "x" });
+    await connected.stop();
+    expect(connected.view().last?.text).toBe("Nothing to save: no steps were recorded");
+  });
+
   it("has nothing to stop when no recording is being turned into a workflow", () => {
     const { daemon } = fakeDaemon(false);
     const control = createRecordControl({

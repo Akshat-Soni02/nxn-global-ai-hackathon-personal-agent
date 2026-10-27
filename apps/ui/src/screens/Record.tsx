@@ -8,13 +8,15 @@ import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
-import { progressOf, questionsFor, waitingNote } from "../questions.ts";
+import { chromeWarning, progressOf, questionsFor, waitingNote } from "../questions.ts";
 import { savedSince } from "../review.ts";
 
 // `again`: a workflow's id, to record that task again: the box starts filled in from it, and the recording becomes
 // the workflow's next version (same id, Frequency and state).
 export function Record({ again }: { again?: string }) {
-  const { data, error } = useQuery<RecordingView>("recording");
+  // Looked at again now and then: Chrome connecting (after you reload the extension) announces nothing, so the warning
+  // above the goal box would stay until something else changed.
+  const { data, error } = useQuery<RecordingView>("recording", {}, { everyMs: 4_000 });
   const inbox = useQuery<InboxItem[]>("inbox", { open: true });
   // After Stop, the workflow it saved opens (H24): only one saved since this screen opened. `seen` is the last
   // recording when the screen first had its data (null until then), so an older one never opens.
@@ -45,9 +47,22 @@ export function Record({ again }: { again?: string }) {
       </header>
       {data.phase === "idle" ? (
         again ? (
-          <AgainForm again={again} consent={data.consent} last={data.last} screenReady={data.screenReady} />
+          <AgainForm
+            again={again}
+            consent={data.consent}
+            last={data.last}
+            screenReady={data.screenReady}
+            chrome={data.chromeConnected}
+            feed={progressOf(data)}
+          />
         ) : (
-          <GoalBox consent={data.consent} last={data.last} screenReady={data.screenReady} />
+          <GoalBox
+            consent={data.consent}
+            last={data.last}
+            screenReady={data.screenReady}
+            chrome={data.chromeConnected}
+            feed={progressOf(data)}
+          />
         )
       ) : null}
       {data.phase === "describing" ? <p>Answer in the Inbox (or in the terminal) to start recording.</p> : null}
@@ -138,11 +153,15 @@ function AgainForm({
   consent,
   last,
   screenReady,
+  chrome,
+  feed,
 }: {
   again: string;
   consent: RecordingView["consent"];
   last: RecordingView["last"];
   screenReady?: boolean;
+  chrome?: boolean;
+  feed: RecordingView["progress"];
 }) {
   const workflow = useQuery<{ id: string; versions: number[]; latest: Skill } | null>("workflow", { id: again });
   if (workflow.data === null) return <p className="error">No workflow {again}.</p>;
@@ -160,6 +179,8 @@ function AgainForm({
         consent={consent}
         last={last}
         screenReady={screenReady}
+        chrome={chrome}
+        feed={feed}
         again={again}
         initial={{ ...latest.description, when: when.find((t) => t.type !== "manual") ?? when[0] }}
       />
@@ -179,12 +200,16 @@ function GoalBox({
   consent,
   last,
   screenReady,
+  chrome,
+  feed,
   again,
   initial,
 }: {
   consent: RecordingView["consent"];
   last: RecordingView["last"];
   screenReady?: boolean;
+  chrome?: boolean;
+  feed: RecordingView["progress"];
   again?: string;
   initial?: Initial;
 }) {
@@ -217,8 +242,10 @@ function GoalBox({
       ...(again ? { again } : {}),
     });
 
+  const noChrome = chromeWarning(chrome);
   return (
     <>
+      {noChrome ? <p className="notice warn">{noChrome}</p> : null}
       {last ? (
         <p className={last.outcome === "failed" ? "error" : "muted"}>
           Last recording: {last.text}
@@ -229,6 +256,17 @@ function GoalBox({
             </>
           ) : null}
         </p>
+      ) : null}
+      {/* What happened while it was turned into a workflow stays here after it ends: it was gone the moment it was needed. */}
+      {last && feed.length > 0 ? (
+        <details className="last-feed">
+          <summary>What happened</summary>
+          <ol className="progress-feed">
+            {feed.map((p) => (
+              <li key={`${p.at}-${p.line}`}>{p.line}</li>
+            ))}
+          </ol>
+        </details>
       ) : null}
 
       <form className="goalbox" onSubmit={(e) => e.preventDefault()}>

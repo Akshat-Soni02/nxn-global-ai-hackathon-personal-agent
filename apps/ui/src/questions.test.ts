@@ -1,6 +1,6 @@
 import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { describe, expect, it } from "vitest";
-import { progressOf, questionsFor, waitingNote } from "./questions.ts";
+import { chromeWarning, progressOf, questionsFor, waitingNote } from "./questions.ts";
 
 const item = (id: string, kind: string, sessionId?: string) =>
   ({ id, kind, title: id, detail: sessionId ? { sessionId } : {}, createdAt: 0 }) as unknown as InboxItem;
@@ -22,6 +22,17 @@ describe("the Record screen's pointer to the Inbox (W2)", () => {
     expect(waitingNote(0)).toBeUndefined();
     expect(waitingNote(1)).toBe("1 question is waiting for you in the Inbox.");
     expect(waitingNote(3)).toBe("3 questions are waiting for you in the Inbox.");
+  });
+});
+
+describe("the Record screen's Chrome warning", () => {
+  it("says what to do when no extension is connected, and nothing when one is or the daemon doesn't say", () => {
+    expect(chromeWarning(false)).toMatch(
+      /Chrome isn't connected.*nothing you do in Chrome will be recorded.*chrome:\/\/extensions/,
+    );
+    expect(chromeWarning(true)).toBeUndefined();
+    // A daemon older than the window sends no such field: no warning, and the screen still works.
+    expect(chromeWarning(undefined)).toBeUndefined();
   });
 });
 

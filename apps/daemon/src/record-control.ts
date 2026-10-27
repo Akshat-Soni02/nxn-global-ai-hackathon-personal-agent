@@ -48,6 +48,9 @@ export interface RecordControlOptions {
   log: Log;
   // Shadow.app can read and mask pictures. Absent: assumed ready.
   screenReady?(): boolean;
+  // Whether Chrome's extension is connected to the daemon: nothing in Chrome is recorded without it. Absent: assumed
+  // connected.
+  chromeConnected?(): boolean;
 }
 
 export interface RecordControl {
@@ -82,6 +85,8 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
   let last: RecordingView["last"];
   // Aborts the design that is turning the recording into a workflow (cancel).
   let canceller: AbortController | undefined;
+  // Whether Chrome's extension was connected when this recording started (an empty recording says why).
+  let chromeAtStart: boolean | undefined;
   // Kept until the next recording, so the last lines stay next to "Last recording: …".
   let progress: RecordingView["progress"] = [];
 
@@ -94,6 +99,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
     last,
     macApp: daemon.mac().connected,
     screenReady: options.screenReady?.() ?? true,
+    chromeConnected: options.chromeConnected?.() ?? true,
     progress,
     ...(canceller?.signal.aborted ? { stopping: true } : {}),
   });
@@ -126,7 +132,14 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
         last = { sessionId: id, outcome: "saved", skillId: saved.skill.id, text: `Saved ${saved.skill.id}` };
         status("saved", `Saved ${saved.skill.id}. Replay: run ${saved.skill.id}`);
       } else {
-        last = { sessionId: id, outcome: "empty", text: "Nothing to save: no steps were recorded" };
+        last = {
+          sessionId: id,
+          outcome: "empty",
+          text:
+            chromeAtStart === false
+              ? "Nothing to save: no steps were recorded. Chrome's extension wasn't connected, so nothing in Chrome was captured: reload it in chrome://extensions and look for \"Chrome: connected\" in the sidebar"
+              : "Nothing to save: no steps were recorded",
+        };
         status("empty", last.text);
         deleteRecording(dataDir, id); // nothing worth keeping
       }
@@ -221,6 +234,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
       sessionId = daemon.startRecording({ consent: form.consent });
       writeForm(dataDir, sessionId, form);
       startedAt = Date.now();
+      chromeAtStart = options.chromeConnected?.() ?? true;
       phase = "recording";
       log(`recording "${form.goal}"`);
       changed();

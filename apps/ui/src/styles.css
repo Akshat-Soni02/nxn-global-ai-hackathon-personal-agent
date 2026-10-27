@@ -602,6 +602,22 @@ nav a.active .badge {
 .progress-feed + .answers {
   margin-top: 14px;
 }
+/* The warning above the goal box: Chrome isn't connected. */
+.notice.warn {
+  margin-bottom: 14px;
+  border-left-color: var(--wait);
+  background: var(--wait-bg);
+  color: var(--text);
+}
+/* The feed kept under "Last recording" (folded). */
+.last-feed {
+  margin: 4px 0 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.last-feed summary {
+  cursor: pointer;
+}
 .card-link {
   display: inline-block;
   margin-top: 10px;

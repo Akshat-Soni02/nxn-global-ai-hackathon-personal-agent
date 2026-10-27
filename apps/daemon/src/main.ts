@@ -278,6 +278,7 @@ record = createRecordControl({
   daemon,
   ask: (question) => service.ask(question),
   screenReady: () => screenTools !== undefined,
+  chromeConnected: () => daemon.extensions.size > 0,
   // Stop on "Turning your recording into a workflow": what the design asked stops waiting.
   dismissQuestions: (sessionId) => service.dismissQuestions(sessionId),
   finish: async (sessionId, progress, signal) => {

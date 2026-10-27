@@ -165,6 +165,9 @@ export interface RecordingView {
   macApp: boolean;
   // Whether pictures can be read and masked (Shadow.app's tools): when not, the Record screen says so before recording.
   screenReady: boolean;
+  // Whether Chrome's extension is connected to the daemon: without it nothing done in Chrome is recorded. Absent from a daemon
+  // older than the window.
+  chromeConnected?: boolean;
   // What is happening while a recording becomes a workflow, in plain words, oldest first.
   progress: { at: number; line: string }[];
   // Stop was pressed while the recording was becoming a workflow: it is winding down (the next model call ends it).
