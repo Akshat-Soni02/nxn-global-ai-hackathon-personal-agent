@@ -46,6 +46,9 @@ app checks; the isolated test daemon and Chrome for Testing (`~/shadow-tests/che
   on a page an app covers and a connected tool matches its intent, code puts one narrow question to the model ("which
   tool, with which arguments?") before any page probing, and builds the step itself. That is a design decision for
   Rushil and Akshat, not built here. The paid-run limit (three, then this fourth) is spent.
-- **Designing a recording of a Sheets task with Sheets connected (R5.5 / the YC re-design).** The YC recording is not
-  on this machine. It needs one short new recording of a task in the test sheet, then about $0.13.
+- **Designing a Sheets task with Sheets connected (R5.5), 28 Oct.** Rushil recorded it. His daemon's design stopped after
+  five refused writes and showed a false "no connected app covers this site" (changes.md §5.5, Y1–Y9, fixed test-first).
+  Two re-designs on the real model and the real Sheets tools ($0.10 each) built app steps; the real run read the page,
+  read the sheet and extracted 20 jobs. **Not yet proven:** the append into the test sheet (needs his daemon restarted for
+  the loop's `first`, then Run now and approving the writes).
 - **Popup windows, Save-as, permission asks, print preview and Mac-app sheets (A5 remainder).** Not built.

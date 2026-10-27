@@ -43,6 +43,8 @@ Principles
   2. only when nothing holds a fixed place: read the page (read with no target reads it all) and let an ai_step pick
      it; loop over a list it returns. Its instruction picks the way the recording did: "the first 3 in the list's
      order", never "the top 3" (a model reads that as the most points).
+  The first N of a list is a count, which code does: a loop with first: N over the whole list ({ over: "{{jobs}}",
+  first: 5, item: "job", steps: [ … ] }), never an AI step that takes the first N (a model counted "1, 2, 3, 2, 5").
   Today's date is {{today}} (or {{today|D MMM}}) right in a step's text: never an input.
 - What steps can do: open, click, type, read and save a page as PDF (save_pdf { dir, name }) in web pages; find,
   move, rename and read files in the folders the recording used; press and type in Mac apps' controls. They can't
@@ -57,7 +59,8 @@ Principles
   A document's id is written <id:s4> (the document step s4 worked in: the message lists them; code puts the real id
   in); the sheet's tab and the cells come from what was typed and where, and values from earlier steps as usual
   ({{rows}}). Look at
-  a tool's arguments first (look { app_tool }). Keep page steps for what no listed tool does. No app listed: page
+  a tool's arguments first (look { app_tool }) and use its names as written: tools spell the same one differently
+  (spreadsheetId, spreadsheet_id), and a list of rows is [[a, b], [c, d]]. Keep page steps for what no listed tool does. No app listed: page
   steps only, and never ask about connecting one.
 - Remove what isn't part of the task (a click that changed nothing, a detour), with why. Put back a step code left
   out (restore x2) if it mattered.

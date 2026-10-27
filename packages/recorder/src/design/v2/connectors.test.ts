@@ -308,3 +308,172 @@ describe("app steps in the design", () => {
     expect(out.arguments).toEqual(APPEND.inputSchema);
   });
 });
+
+// The YC design (28 Oct) kept writing the right tools with the wrong shapes, was refused five times and gave up: it wrote
+// spreadsheet_id for the tool that says spreadsheetId, a row where a list of rows goes, and a step with no `do`.
+describe("app steps written the way a model writes them (28 Oct)", () => {
+  const CAMEL: AppTool = {
+    name: "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+    description: "Append values",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string" },
+        range: { type: "string" },
+        values: { type: "array", items: { type: "array", items: { type: "string" } } },
+      },
+      required: ["spreadsheetId", "range", "values"],
+    },
+    toolkit: "googlesheets",
+    readOnly: false,
+    destructive: false,
+  };
+  const SNAKE: AppTool = {
+    ...READ,
+    name: "GOOGLESHEETS_VALUES_GET",
+    inputSchema: {
+      type: "object",
+      properties: { spreadsheet_id: { type: "string" }, range: { type: "string" } },
+      required: ["spreadsheet_id", "range"],
+    },
+  };
+  const both = (): SessionV2 => session([{ ...app, tools: [CAMEL, SNAKE] }]);
+  const file = async (s: SessionV2, name: string, input: unknown) => {
+    const t = designToolsV2(s, { mode: "file" }).find((x) => x.name === name) as AnyTool<DoneReport>;
+    const parsed = t.input.safeParse(t.prepare ? t.prepare(input) : input);
+    if (!parsed.success) throw new Error(parsed.error.message);
+    return ((await t.run(parsed.data, { turn: 1 })) as { output: { ok?: boolean; problems?: string[] } }).output;
+  };
+  const added = async (s: SessionV2, step: Record<string, unknown>) =>
+    (await run(s, "add", { step: { do: "app", intent: "x", ...step }, why: "y" })).output as {
+      ok: boolean;
+      new_steps?: string[];
+      problems?: string[];
+      error?: string;
+    };
+
+  it("takes the argument's spelling the tool uses when it differs only in case or underscores, and says so", async () => {
+    const s = both();
+    const out = await added(s, {
+      tool: CAMEL.name,
+      arguments: { spreadsheet_id: "<id:s3>", range: "Sheet1!A:B", values: [["a", "b"]] },
+    });
+    expect(JSON.stringify(out)).toContain("spreadsheet_id");
+    const step = findStep(s.draft, out.new_steps?.[0] ?? "");
+    expect(step).toMatchObject({ args: { arguments: { spreadsheetId: "1AbCdEfGhIjKlMnOpQrStUv" } } });
+    expect(JSON.stringify(step)).not.toContain("spreadsheet_id");
+    // The other tool is the other way round: its own spelling is kept, the near miss renamed.
+    const read = await added(s, { tool: SNAKE.name, arguments: { spreadsheetId: "<id:s3>", range: "A:B" } });
+    expect(findStep(s.draft, read.new_steps?.[0] ?? "")).toMatchObject({
+      args: { arguments: { spreadsheet_id: "1AbCdEfGhIjKlMnOpQrStUv" } },
+    });
+  });
+
+  it("makes a single row the list of rows the tool takes", async () => {
+    const s = both();
+    const out = await added(s, {
+      tool: CAMEL.name,
+      arguments: { spreadsheetId: "<id:s3>", range: "A:B", values: ["{{today}}", "Acme"] },
+    });
+    expect(JSON.stringify(out)).toContain("one row made the list of rows");
+    expect(findStep(s.draft, out.new_steps?.[0] ?? "")).toMatchObject({
+      args: { arguments: { values: [["{{today}}", "Acme"]] } },
+    });
+  });
+
+  it("names an argument the tool doesn't have, with the ones it does", async () => {
+    const out = await added(both(), {
+      tool: CAMEL.name,
+      arguments: { spreadsheetId: "<id:s3>", range: "A:B", rows: [] },
+    });
+    expect(JSON.stringify(out)).toMatch(/rows.*not an argument.*spreadsheetId, range, values/);
+  });
+
+  it("says what a missing argument takes: the choices, or that it is a list of rows", async () => {
+    const strict: AppTool = {
+      ...CAMEL,
+      name: "GOOGLESHEETS_STRICT_APPEND",
+      inputSchema: {
+        type: "object",
+        properties: {
+          spreadsheetId: { type: "string" },
+          valueInputOption: { type: "string", enum: ["RAW", "USER_ENTERED"] },
+          values: { type: "array", items: { type: "array" } },
+        },
+        required: ["spreadsheetId", "valueInputOption", "values"],
+      },
+    };
+    const out = await added(session([{ ...app, tools: [strict] }]), {
+      tool: strict.name,
+      arguments: { spreadsheetId: "<id:s3>" },
+    });
+    expect(JSON.stringify(out)).toContain("valueInputOption (one of RAW, USER_ENTERED)");
+    expect(JSON.stringify(out)).toContain("values (a list of rows: [[…], […]])");
+  });
+
+  it("refuses rows that are a list of objects where the tool takes a list of rows, and says how to make them", async () => {
+    const s = both();
+    const write = (type: unknown) =>
+      file(s, "write_workflow", {
+        workflow: {
+          steps: [
+            { ...(s.draft.steps[0] as object) },
+            {
+              instruction: "one row per job: date, company",
+              inputs: ["{{today|D MMM}}"],
+              output: { name: "rows", type },
+            },
+            {
+              do: "app",
+              intent: "add the rows",
+              tool: CAMEL.name,
+              arguments: { spreadsheetId: "<id:s3>", range: "A:B", values: "{{rows}}" },
+            },
+          ],
+        },
+        why: "append",
+      });
+    const bad = await write({ type: "list", items: { type: "object" } });
+    expect(bad.problems?.join(" ")).toMatch(/values.*rows.*a list of lists.*{{rows}}.*"list of list"/);
+    expect((await write("list of list")).problems ?? []).toEqual([]);
+  });
+
+  it("reads a step with a tool and no `do` as an app step, in a loop too (what the model wrote, refused five times)", async () => {
+    const s = both();
+    const out = await file(s, "write_workflow", {
+      workflow: {
+        steps: [
+          { ...(s.draft.steps[0] as object) },
+          {
+            id: "get",
+            tool: SNAKE.name,
+            arguments: { spreadsheet_id: "<id:s3>", range: "A:B" },
+            intent: "read",
+            save_as: "old",
+          },
+          {
+            instruction: "the rows not in {{old}}",
+            inputs: ["{{old}}"],
+            output: { name: "rows", type: "list" },
+          },
+          {
+            id: "each",
+            over: "{{rows}}",
+            item: "row",
+            steps: [
+              {
+                type: "action",
+                tool: CAMEL.name,
+                arguments: { spreadsheetId: "<id:s3>", range: "A:B", values: [["{{row}}"]] },
+                intent: "write",
+              },
+            ],
+          },
+        ],
+      },
+      why: "append each",
+    });
+    expect(out.problems ?? []).toEqual([]);
+    expect(findStep(s.draft, "get")).toMatchObject({ channel: "mcp", action: "call" });
+  });
+});

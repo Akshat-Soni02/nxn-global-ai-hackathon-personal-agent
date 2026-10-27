@@ -214,7 +214,7 @@ describe("the workflow as a file", () => {
       text: "{{today|D MMM}}",
     };
     const row = {
-      instruction: "the number of the sheet's next empty row",
+      instruction: "the row number to type in: 4",
       inputs: [],
       output: { name: "row", type: "number" },
     };
@@ -352,5 +352,37 @@ describe("the workflow as a file", () => {
     });
     expect(typed.ok).toBe(false);
     expect(typed.problems?.[0]).toContain("private value");
+  });
+});
+
+describe('the trigger as a model writes it (28 Oct, the YC design: refused four times for "a step, type: Invalid input")', () => {
+  const withTrigger = (trigger: Record<string, unknown>, s = session()) => {
+    const [, ...rest] = steps(s);
+    return run(s, "write_workflow", {
+      workflow: { steps: [{ id: "start", type: "trigger", intent: "daily", ...trigger }, ...rest] },
+      why: "daily",
+    });
+  };
+
+  it("takes an input's type as a word, and a bare word for the whole input", async () => {
+    const s = session();
+    const out = await withTrigger(
+      {
+        when: [{ type: "cron", expression: "0 9 * * *" }],
+        inputs: { count: { type: "number", default: 5 }, label: "text" },
+      },
+      s,
+    );
+    expect(out.problems).toBeUndefined();
+    expect((steps(s)[0] as { inputs: unknown }).inputs).toEqual({
+      count: { type: { type: "number" }, default: 5 },
+      label: { type: { type: "text" } },
+    });
+  });
+
+  it('says where a bad value is by its path, not as "a step"', async () => {
+    const out = await withTrigger({ when: [{ type: "sometimes" }] });
+    expect(out.problems?.join(" ")).toMatch(/start, when\.0\.type/);
+    expect(out.problems?.join(" ")).not.toMatch(/a step/);
   });
 });

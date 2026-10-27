@@ -19,6 +19,7 @@ import {
   type Step,
   triggerOf,
   walkSteps,
+  webPages,
 } from "@shadow/core";
 import { MASK } from "../../mask.ts";
 import { appOf } from "./connectors.ts";
@@ -138,7 +139,28 @@ export function roleAlone(step: Step): string[] {
   ];
 }
 
+// What an AI step's instruction points outside itself at: the page, a sheet, a list, an email. It sees only its inputs.
+const READS_OUTSIDE =
+  /\b(on|from|in|of) (the|this|that) (page|site|sheet|screen|spreadsheet|inbox)\b|\bvisible\b|\blistings?\b/i;
+
+const COUNT = /^\s*(take|keep|return|select|pick|get|give)\b[^.]{0,20}\b(first|top|last)\s+(\d+\b|\{\{\s*\w+\s*\}\})/i;
+
 export function stepProblems(step: Step): string[] {
+  // An AI step sees only its inputs, never the page (28 Oct, the YC design: "extract the job listings visible on the
+  // page" with no inputs would have invented them at the first run).
+  if (isLlm(step)) {
+    // The first N of a list is a count, which code does: a loop's `first` (live run, 28 Oct: "take the first 5" came back
+    // as items 1, 2, 3, 2, 5, and the run stopped on its own pick check).
+    if (COUNT.test(step.instruction))
+      return [
+        `${step.id}: counting is code's, not an AI step's: loop over the whole list with first: N (it goes through only the first N), and put the steps that use each item in the loop`,
+      ];
+    return step.inputs.length === 0 && READS_OUTSIDE.test(step.instruction)
+      ? [
+          `${step.id}: an AI step sees only its inputs, never the page or a sheet: read the page first (read, or read_all for a list, with save_as) and give it as an input ({{name}})`,
+        ]
+      : [];
+  }
   if (!isAction(step)) return [];
   const key = `${step.channel}.${step.action}`;
   const needs = NEEDS[key] ?? [];
@@ -412,6 +434,22 @@ export function lostWork(
   return problems;
 }
 
+// The trigger's inputs a step still reads (only the recording's own are judged: one the agent added is its to keep). An input made for a step the design then removed (the YC recording's paste
+// into a sheet's cell, done by the app now) is dropped, or the user is asked for a value nothing uses at every run.
+export function withoutUnusedInputs(skill: Skill, recorded: Skill): Skill {
+  const [trigger, ...rest] = skill.steps;
+  if (trigger?.type !== "trigger") return skill;
+  const used = JSON.stringify([rest, skill.success]);
+  const kept = Object.fromEntries(
+    Object.entries(trigger.inputs).filter(
+      ([name]) => !(name in triggerOf(recorded).inputs) || new RegExp(`\\{\\{\\s*${name}\\b`).test(used),
+    ),
+  );
+  return Object.keys(kept).length === Object.keys(trigger.inputs).length
+    ? skill
+    : { ...skill, steps: [{ ...trigger, inputs: kept }, ...rest] };
+}
+
 // A step that typed or pressed into a drawn area (`drawn`, set by the recorder: a sheet's cells, a canvas) can't be
 // replayed on the page: the clicks that chose the place are gone, so it would land in whichever cell is selected and
 // say ok (Rushil, 27 Oct). A connected app does that work with its own tools, for any app (the table in
@@ -425,14 +463,19 @@ export function drawnProblems(
 ): { fix: string[]; cantRun: string[] } {
   const fix: string[] = [];
   const needs = new Map<string, string[]>(); // what to connect (or the site) -> the steps that need it
-  for (const { step } of walkSteps(workflow.steps)) {
-    if (!isAction(step) || !step.drawn) continue;
-    const url = pages.get(step.id);
+  // The page is the last one opened in the step's tab (core's webPages, the rule the run's preflight uses). `pages` is
+  // only by the step that opened a page, so it is the fallback, never the first look (27 Oct: it was, and a typing step
+  // in Google Sheets was "a site no app covers" with Sheets connected).
+  for (const { step, url: opened } of webPages(workflow.steps)) {
+    if (!step.drawn) continue;
+    const url = opened || pages.get(step.id);
     const app = url ? appOf(url) : undefined;
     if (app && connected.has(app.toolkit)) {
       fix.push(
         `${step.id} (${step.intent}) types into a drawn area of ${app.name}, which replay can't reach: do it with the app's tool (add { do: "app", … }) and remove this step`,
       );
+      const key = `a drawn area of ${app.name}, which replay can't reach, and the design didn't turn it into ${app.name} steps: record it again, or Edit it to add the app step`;
+      needs.set(key, [...(needs.get(key) ?? []), step.id]);
       continue;
     }
     const key = app

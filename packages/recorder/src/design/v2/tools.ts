@@ -23,7 +23,7 @@ import { z } from "zod";
 import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
 import { MASK, maskText } from "../../mask.ts";
-import { missingArguments, readOnlyTools, withIds } from "./connectors.ts";
+import { describeArgument, fitArguments, missingArguments, readOnlyTools, rowProblems, withIds } from "./connectors.ts";
 import { DoneReport } from "./contracts.ts";
 import { emptyIn, guessed, isCron, joined, roleAlone, sameReads, stepProblems, tabsFixed, unfoundIn } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
@@ -157,6 +157,9 @@ const typeFrom = (t: unknown): unknown => {
 // A question about the time of day it runs: never asked, 9:00 is the default (Checkpoint 5: A, B and D2 asked it; D2
 // made it an input), and the review shows the time so it can be changed.
 export const isTimeOfDay = (question: string) => /\b(what|which) time\b|\btime of day\b|\bwhat hour\b/i.test(question);
+// A question about how often it runs: its Frequency in the review is where that is set, and the form already held the
+// user's choice (28 Oct: the YC design asked "How often should the collection run?" twice, the form said by hand).
+export const isFrequency = (question: string) => /\bhow (often|frequently)\b|\bfrequency\b/i.test(question);
 // A question about how to build it, not what they want (checkpoint 6: D asked which PDF method, Puppeteer, wkhtmltopdf or
 // pandoc, and whether "the script" should overwrite): never the user's to answer.
 export const isHowTo = (question: string) =>
@@ -296,7 +299,11 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     return commit(result.skill, why, touched, unverified);
   };
   // A new workflow, from edits or written whole (write_workflow, edit_workflow): checked like every change, then kept.
+  // What code set right in the arguments of the app steps it just compiled (fitArguments), said to the agent with the
+  // change that took it, so it learns the tool's own spelling instead of guessing again.
+  const argumentNotes: string[] = [];
   const commit = (next: Skill, why: string, touched: string[], unverified: string[] = []) => {
+    const fixedArguments = argumentNotes.splice(0);
     const result = { skill: next };
     // Said, so a change that didn't take isn't read as done (Checkpoint 5: C sent eight that changed nothing).
     const unchanged = JSON.stringify(result.skill) === JSON.stringify(session.draft);
@@ -354,6 +361,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         ok: true,
         ...(added.length > 0 ? { approval_added: added } : {}),
         ...(tidy.fixed.size > 0 ? { tabs_fixed: [...tidy.fixed].map(([id, note]) => `${id}: ${note}`) } : {}),
+        ...(fixedArguments.length > 0 ? { arguments_fixed: fixedArguments } : {}),
         ...(made.length > 0 ? { new_steps: made } : {}),
         ...(() => {
           const on = pagesOfSteps(session.draft, new Set([...touched, ...made]));
@@ -430,12 +438,21 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       const given = (values.arguments ?? {}) as Record<string, unknown>;
       if (typeof given !== "object" || Array.isArray(given))
         return { error: `arguments is an object of the tool's arguments (look { app_tool: "${name}" })` };
-      const missing = missingArguments(tool, given);
-      if (missing.length > 0)
+      const fit = fitArguments(tool, given);
+      const missing = missingArguments(tool, fit.args);
+      if (fit.problems.length > 0 || missing.length > 0)
         return {
-          error: `${name} needs ${missing.join(", ")} in arguments (look { app_tool: "${name}" } for each one)`,
+          error: [
+            ...fit.problems,
+            ...(missing.length > 0
+              ? [
+                  `${name} needs ${missing.map((m) => describeArgument(tool, m)).join(", ")} in arguments (look { app_tool: "${name}" } for each one)`,
+                ]
+              : []),
+          ].join("; "),
         };
-      const filled = withIds(given, session.apps);
+      argumentNotes.push(...fit.notes);
+      const filled = withIds(fit.args, session.apps);
       if (!filled.ok) return { error: filled.error };
       const step: Record<string, unknown> = {
         id,
@@ -684,7 +701,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     name: "ask",
     kind: "look",
     description:
-      'Queue a question for the user: only what the recording, the goal and what they said can\'t answer. step: the step its answer changes ("start" for how often it runs and its inputs). Asked after you build, with the others, in one batch',
+      'Queue a question for the user: only what the recording, the goal and what they said can\'t answer. step: the step its answer changes ("start" for its inputs). Asked after you build, with the others, in one batch',
     input: z.object({
       question: z.string().min(1),
       why: z.string().min(1),
@@ -707,6 +724,15 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
             ok: false,
             problems: [
               'a time they didn\'t say is 9:00: set it in the trigger (the cron "0 9 * * *" is every day at 9:00), never ask it',
+            ],
+          },
+        };
+      if (isFrequency(question))
+        return {
+          output: {
+            ok: false,
+            problems: [
+              "how often it runs is its Frequency in the review, set by the user there: set the trigger only if they said how often (a cron), never ask it",
             ],
           },
         };
@@ -898,6 +924,17 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     if (s.type === "loop") Object.assign(s, { type: "control", kind: "loop" });
     if (typeof s.type === "string" && /^(branch|condition|if)$/.test(s.type))
       Object.assign(s, { type: "control", kind: "branch" });
+    // A connected app's step written without `do` ({ id, tool, arguments }, with or without type "action"): what it is
+    // (28 Oct: the YC design wrote it so nine times and was refused each time for "type: Invalid discriminator").
+    if (
+      typeof s.tool === "string" &&
+      !("do" in s) &&
+      !("channel" in s) &&
+      (s.type === undefined || s.type === "action")
+    ) {
+      s.do = "app";
+      delete s.type;
+    }
     const short = typeof s.action === "string" ? DO[s.action] : undefined;
     if (s.type === "action" && !("do" in s) && short && short[1] !== s.action) {
       s.do = s.action;
@@ -915,6 +952,17 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     };
     if (s.type === "trigger") {
       if ("when" in s) s.when = whenOf(s.when);
+      // An input's type as a word ({ type: "number" }) or the input as one ("text"): what they mean (28 Oct, the YC
+      // design wrote both and was refused four times, told "a step, type: Invalid input").
+      if (s.inputs && typeof s.inputs === "object" && !Array.isArray(s.inputs))
+        s.inputs = Object.fromEntries(
+          Object.entries(s.inputs as Record<string, unknown>).map(([name, input]) => {
+            const spec: Record<string, unknown> =
+              typeof input === "string" ? { type: input } : { ...(input as Record<string, unknown>) };
+            if ("type" in spec) spec.type = typeFrom(spec.type);
+            return [name, spec];
+          }),
+        );
       // The runner doesn't fill templates in defaults (Checkpoint 4), as the input tool says.
       for (const [name, input] of Object.entries((s.inputs ?? {}) as Record<string, { default?: unknown }>))
         if (JSON.stringify(input?.default ?? "").includes("{{"))
@@ -997,6 +1045,10 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         out.problems.push(`${id}: ${built.error}`);
         return s;
       }
+      const called = built.step.args as { tool?: string; arguments?: Record<string, unknown> } | undefined;
+      const calledTool = session.apps.flatMap((a) => a.tools).find((t) => t.name === called?.tool);
+      if (calledTool && called?.arguments)
+        out.problems.push(...rowProblems(calledTool, called.arguments, out.lists).map((p) => `${id}: ${p}`));
       if (built.unverified) out.unverified.push(id);
       const keep = Object.fromEntries(
         KEPT.filter((k) => k !== "id" && k !== "type" && k !== "output" && k in s).map((k) => [k, s[k]]),
@@ -1094,7 +1146,9 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       node = (node as Record<string, unknown> | undefined)?.[key as string];
       rest.push(String(key));
       const s = node as { id?: unknown; type?: unknown; channel?: unknown; action?: unknown } | undefined;
-      if (s && typeof s === "object" && !Array.isArray(s) && (typeof s.id === "string" || "type" in s)) {
+      // A step is a node with an id or a step's type; a value's own `type` (an input's, a when's) is a place in one.
+      const isStep = typeof s?.id === "string" || ["trigger", "action", "llm", "control"].includes(String(s?.type));
+      if (s && typeof s === "object" && !Array.isArray(s) && isStep) {
         const kind = s.channel ? ` (${s.channel}.${s.action})` : "";
         step = `${typeof s.id === "string" ? s.id : "a step"}${kind}`;
         rest = [];

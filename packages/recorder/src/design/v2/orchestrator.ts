@@ -25,13 +25,13 @@ import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
 import { appsSection, type ConnectorChance, type Connectors, readOnlyTools, type UsableApp } from "./connectors.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
 import { critique } from "./critic.ts";
-import { drawnProblems, gate, lostWork, runProblems, unmadeProblems } from "./gate.ts";
+import { drawnProblems, gate, lostWork, runProblems, unmadeProblems, withoutUnusedInputs } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { BUILD, BUILD_FILE, PLAN, PLAN_FILE } from "./prompt.ts";
 import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
 import { type ChangeNote, changeNotes, type RecordingFacts } from "./rules.ts";
 import { newSession, type QueuedQuestion, type SessionV2 } from "./session.ts";
-import { type DesignMode, designToolsV2, isHowTo, isTimeOfDay, workflowFile } from "./tools.ts";
+import { type DesignMode, designToolsV2, isFrequency, isHowTo, isTimeOfDay, workflowFile } from "./tools.ts";
 import { understand } from "./understand.ts";
 
 export interface DesignV2Options {
@@ -128,8 +128,10 @@ export function droppedOf(evidence: Evidence): SessionV2["dropped"] {
 
 // The workflow as saved: url checks as the player reads them, and approval wherever a step acts outward (a connected
 // app's tool that only reads doesn't ask).
-const finalOf = (draft: Skill, apps: UsableApp[] = []) =>
-  requireApprovals(plainChecks(withFields(draft)), { readOnlyTools: readOnlyTools(apps) }).skill;
+const finalOf = (draft: Skill, apps: UsableApp[] = [], recorded?: Skill) =>
+  requireApprovals(plainChecks(withFields(recorded ? withoutUnusedInputs(draft, recorded) : draft)), {
+    readOnlyTools: readOnlyTools(apps),
+  }).skill;
 
 // Before planning: the apps the user wants used directly. Already connected: used. Said no before: not asked. Else
 // asked once, with the button to connect; "classic" is remembered so it isn't asked again.
@@ -301,7 +303,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   ): DesignV2Outcome => ({
     ...extra,
     ...(cantRunNow().length > 0 ? { cantRun: cantRunNow() } : {}),
-    skill: finalOf(session.draft, session.apps),
+    skill: finalOf(session.draft, session.apps, options.skill),
     ...(session.apps.length > 0 ? { readOnlyTools: [...readOnlyTools(session.apps)] } : {}),
     ...(checked ? { checked } : {}),
     task,
@@ -313,8 +315,11 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     test: session.lastTest,
     asked,
     answered,
-    pending: reachedQuestions ? [] : openCodeQuestions(options.questions, options.skill, session.draft),
-    skipped,
+    pending: reachedQuestions
+      ? []
+      : openCodeQuestions(options.questions, options.skill, withoutUnusedInputs(session.draft, options.skill)),
+    // Each once: a design that started afresh after a stop listed its questions again (28 Oct: six, three of them twice).
+    skipped: [...new Set(skipped)],
     system,
     ...(firstMessage ? { firstMessage } : {}),
     plain: options.skill,
@@ -326,7 +331,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   // What makes a draft worse than the recording: your work lost, or steps that can't run (the recording's own aside).
   const worse = () => {
     const recorded = new Set(runProblems(finalOf(options.skill)));
-    const broken = runProblems(finalOf(session.draft, session.apps)).filter((p) => !recorded.has(p));
+    const broken = runProblems(finalOf(session.draft, session.apps, options.skill)).filter((p) => !recorded.has(p));
     if (lostWork(options.skill, session.draft, session.whys, readOnlyTools(session.apps)).length > 0)
       return "had lost work you showed";
     return broken.length > 0 ? `has steps that can't run (${broken[0]})` : undefined;
@@ -528,7 +533,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // The task model's unknowns: what the evidence speaks to goes to the agent with the evidence; the rest are queued.
     const seen: string[] = [];
     for (const u of theTask.unknowns) {
-      if (isTimeOfDay(u.question) || isHowTo(u.question)) continue;
+      if (isTimeOfDay(u.question) || isFrequency(u.question) || isHowTo(u.question)) continue;
       const about = view.about(u.question);
       if (about.length > 0) {
         seen.push(
@@ -643,7 +648,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     if (stopped) return kept(stopped);
 
     // 5: the questions left, in one batch.
-    const code = openCodeQuestions(options.questions, options.skill, session.draft);
+    const code = openCodeQuestions(options.questions, options.skill, withoutUnusedInputs(session.draft, options.skill));
     const batch = batchOf(code, session.questions);
     reachedQuestions = true;
     // Code's answer goes straight in: an empty one ("You decide") is the question's default, never an empty value.
@@ -704,7 +709,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
             : undefined;
         return other ? { ...check, outcome: `failed: ${other}` } : check;
       };
-      checked = judged(await options.verify(finalOf(session.draft, session.apps), twice));
+      checked = judged(await options.verify(finalOf(session.draft, session.apps, options.skill), twice));
       if (checked.outcome.startsWith("failed")) {
         const failed = checked.steps.filter((s) => s.status === "failed").map((s) => `${s.id}: ${s.error}`);
         session.refusedDone = 0;
@@ -719,7 +724,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
           ),
         );
         if (after) return kept(`it stopped while fixing what the final check found: ${after}`);
-        checked = judged(await options.verify(finalOf(session.draft, session.apps), twice));
+        checked = judged(await options.verify(finalOf(session.draft, session.apps, options.skill), twice));
       }
       if (checked.outcome.startsWith("failed")) session.gaps.push(`the final check failed: ${checked.outcome}`);
       if (twice && checked.again?.length) {

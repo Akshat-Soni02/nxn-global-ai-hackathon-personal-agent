@@ -53,6 +53,7 @@ function Details({ step }: { step: Body }) {
     lines.push(["Makes", words(step.output.name)]);
   } else if (step.type === "control" && step.kind === "loop") {
     lines.push(["Repeats", `for each ${words(step.item.name)} in ${words(step.over.replace(/[{}]/g, ""))}`]);
+    if (step.first) lines.push(["Only", `the first ${step.first}`]);
     lines.push(["At most", `${step.max_items} times`]);
   } else if (step.type === "control" && step.kind === "branch") {
     lines.push(["When", conditionText(step.if)]);

@@ -11,10 +11,12 @@ import {
   roleAlone,
   runProblems,
   sameReads,
+  stepProblems,
   tabsFixed,
   unbuiltProposals,
   unfoundIn,
   unmadeProblems,
+  withoutUnusedInputs,
 } from "./gate.ts";
 
 const CHAT = "https://chat.google.com/room/X";
@@ -72,18 +74,90 @@ const input = (workflow: Skill, extra: Partial<Parameters<typeof gate>[0]> = {})
   ...extra,
 });
 
+describe("an AI step that is told to read something it isn't given (28 Oct)", () => {
+  const ai = (inputs: string[], instruction: string) => ({
+    id: "ai5",
+    type: "llm",
+    intent: "pick",
+    instruction,
+    inputs,
+    output: { name: "jobs", type: { type: "list", items: { type: "object" } } },
+  });
+  const problemsOf = (step: unknown) => stepProblems(step as Parameters<typeof stepProblems>[0]);
+
+  it("says it sees only its inputs when it has none and its instruction names the page, a sheet or a list", () => {
+    const problems = problemsOf(ai([], "Extract all job listings visible on the page. Return as a list."));
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/ai5.*sees only its inputs.*read the page.*as an input/);
+  });
+
+  it("sends a count of a list to the loop's first: an AI step counts wrong (it picked items 1, 2, 3, 2, 5)", () => {
+    for (const instruction of [
+      "Take the first {{num_jobs}} jobs from the new_jobs list.",
+      "Return the top 5 listings from the list.",
+      "Keep the first 3 items.",
+    ]) {
+      const problems = problemsOf(ai(["{{jobs}}"], instruction));
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toMatch(/ai5.*counting is code's.*first: N/);
+    }
+    // Choosing by a rule is the model's: it isn't a count.
+    expect(problemsOf(ai(["{{jobs}}"], "Return the jobs whose title is not in {{existing}}."))).toEqual([]);
+  });
+
+  it("leaves one with an input, or one that asks for nothing outside it, alone", () => {
+    expect(problemsOf(ai(["{{page_text}}"], "Extract the job listings on the page."))).toEqual([]);
+    expect(problemsOf(ai([], "Write a one-line greeting."))).toEqual([]);
+  });
+});
+
+describe("inputs nothing uses (28 Oct)", () => {
+  it("drops a trigger input once the step that used it is gone, and keeps one a step still reads", () => {
+    const withInputs = Skill.parse({
+      id: "w",
+      name: "w",
+      version: 1,
+      description: { goal: "x" },
+      success: [],
+      steps: [
+        {
+          id: "start",
+          type: "trigger",
+          intent: "by hand",
+          when: [{ type: "manual" }],
+          inputs: {
+            pasted_text: { type: { type: "text" }, description: "what you pasted" },
+            company: { type: { type: "text" }, description: "which company" },
+          },
+        },
+        act("s1", "web", "navigate", { url: CHAT }),
+        act("s2", "web", "type", { text: "{{company}}" }),
+      ],
+    });
+    const out = withoutUnusedInputs(withInputs, withInputs);
+    // An input the recording didn't have is the agent's: kept even when nothing reads it yet.
+    const added = withoutUnusedInputs(withInputs, skill([act("s1", "web", "navigate", { url: CHAT })]));
+    expect(Object.keys((added.steps[0] as { inputs: object }).inputs)).toEqual(["pasted_text", "company"]);
+    expect(Object.keys((out.steps[0] as { inputs: object }).inputs)).toEqual(["company"]);
+    // Nothing else is touched.
+    expect(out.steps.slice(1)).toEqual(withInputs.steps.slice(1));
+  });
+});
+
 describe("steps that type into a drawn area (A1)", () => {
   // s3 typed into a sheet's cells after clicks that were dropped: replay would type into whichever cell is selected.
   const drawnType = act("s3", "web", "type", { text: "42" }, { drawn: true });
   const withDrawn = skill([act("s1", "web", "navigate", { url: SHEET }), drawnType]);
-  const pages = new Map([
-    ["s1", SHEET],
-    ["s3", SHEET],
-  ]);
+  // As the recorder makes it (pagesOf): the pages that were opened, by the step that opened them, never the typing step
+  // (the first test of this keyed the map by the drawn step's own id, so it passed while the real map missed it).
+  const pages = new Map([["s1", SHEET]]);
 
   it("asks for an app step when a connected app covers the page: the step can't be replayed on it", () => {
     const { fix, cantRun } = drawnProblems(withDrawn, pages, new Set(["googlesheets"]));
-    expect(cantRun).toEqual([]);
+    // The agent is sent back for it (fix); if the design ends with it still there, the review says it can't run (28 Oct:
+    // a design that gave up kept the drawn steps and showed no warning, with Sheets connected).
+    expect(cantRun).toHaveLength(1);
+    expect(cantRun[0]).toMatch(/s3.*drawn area of Google Sheets.*didn't turn.*into Google Sheets steps/);
     expect(fix).toHaveLength(1);
     expect(fix[0]).toMatch(/s3.*drawn area of Google Sheets.*replay can't reach.*the app's tool/);
   });
@@ -96,8 +170,9 @@ describe("steps that type into a drawn area (A1)", () => {
   });
 
   it("says so plainly when no app covers the site", () => {
-    const other = new Map([["s3", "https://canvas-editor.example.com/doc/1"]]);
-    const { cantRun } = drawnProblems(withDrawn, other, new Set(["googlesheets"]));
+    const canvas = "https://canvas-editor.example.com/doc/1";
+    const onCanvas = skill([act("s1", "web", "navigate", { url: canvas }), drawnType]);
+    const { cantRun } = drawnProblems(onCanvas, new Map([["s1", canvas]]), new Set(["googlesheets"]));
     expect(cantRun[0]).toMatch(/s3.*no connected app covers canvas-editor\.example\.com/);
   });
 

@@ -101,7 +101,7 @@ export function briefing(options: BriefingOptions = {}): string {
     "  Deterministic: one thing done in the browser, a Mac app, files or a script.",
     "- llm: { instruction, inputs: [references], output } transforms data into one typed value. Never drives the UI;",
     "  sees only its inputs; can't produce files or secrets.",
-    '- loop (type: control, kind: loop): { over: "{{list}}", item: { name, type }, max_items, on_item_fail: stop | skip, steps }.',
+    '- loop (type: control, kind: loop): { over: "{{list}}", item: { name, type }, max_items, first?: N (only the first N), on_item_fail: stop | skip, steps }.',
     "- group (type: control, kind: group): { intent, steps }. A named block of the steps that did one thing: its steps",
     "  run in place with their own ids; a block holds steps, never another block; it has no variables of its own.",
     "- branch (type: control, kind: branch): { if: Condition, steps, else }. Condition: { left, op, right? } with op",

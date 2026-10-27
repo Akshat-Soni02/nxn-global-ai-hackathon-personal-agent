@@ -238,6 +238,77 @@ export function appsSection(apps: UsableApp[]): string[] {
 export const readOnlyTools = (apps: UsableApp[]): Set<string> =>
   new Set(apps.flatMap((a) => a.tools.filter((t) => t.readOnly && !t.destructive).map((t) => t.name)));
 
+// What the agent sent, in the spelling and shape the tool's schema uses. Code settles what code can (28 Oct, the YC
+// design: spreadsheet_id for the tool that says spreadsheetId, a row where a list of rows goes; refused five times, it
+// gave up): a name that differs only in case or underscores is the tool's own, a single row becomes the list of rows,
+// and an argument the tool doesn't have is named with the ones it does.
+export function fitArguments(
+  tool: AppTool,
+  given: Record<string, unknown>,
+): { args: Record<string, unknown>; notes: string[]; problems: string[] } {
+  const props = (tool.inputSchema.properties ?? {}) as Record<string, { type?: unknown; items?: { type?: unknown } }>;
+  const names = Object.keys(props);
+  if (names.length === 0 || tool.inputSchema.additionalProperties === true)
+    return { args: given, notes: [], problems: [] };
+  const flat = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const args: Record<string, unknown> = {};
+  const notes: string[] = [];
+  const problems: string[] = [];
+  for (const [key, value] of Object.entries(given)) {
+    let name = key;
+    if (!(key in props)) {
+      const same = names.find((n) => flat(n) === flat(key) && !(n in given));
+      if (!same) {
+        problems.push(`${key} is not an argument of ${tool.name}: its arguments are ${names.join(", ")}`);
+        continue;
+      }
+      name = same;
+      notes.push(`${key} is ${same} in ${tool.name}`);
+    }
+    const rows = props[name]?.type === "array" && props[name]?.items?.type === "array";
+    if (rows && Array.isArray(value) && value.length > 0 && !value.some(Array.isArray)) {
+      args[name] = [value];
+      notes.push(`${name}: one row made the list of rows ${tool.name} takes`);
+    } else args[name] = value;
+  }
+  return { args, notes, problems };
+}
+
+// Rows a tool takes (a list of lists) given a {{list}} whose items are objects, not lists: said at the write, not found at
+// the first run (28 Oct, the YC design made its rows an AI step's list of objects). `lists` is each declared list's item
+// type, by variable name.
+export function rowProblems(
+  tool: AppTool,
+  args: Record<string, unknown>,
+  lists: ReadonlyMap<string, unknown>,
+): string[] {
+  const props = (tool.inputSchema.properties ?? {}) as Record<string, { type?: unknown; items?: { type?: unknown } }>;
+  return Object.entries(args).flatMap(([key, value]) => {
+    const wantsRows = props[key]?.type === "array" && props[key]?.items?.type === "array";
+    const name = wantsRows && typeof value === "string" ? /^\{\{\s*([\w]+)\s*\}\}$/.exec(value)?.[1] : undefined;
+    const item = name ? (lists.get(name) as { type?: string } | undefined) : undefined;
+    return name && item && item.type !== "list"
+      ? [
+          `${key} takes rows (a list of lists) but {{${name}}} is a list of ${item.type ?? "object"}s: make the step that makes it give "list of list" (output: { name: "${name}", type: "list of list" }), one list of cells for each row`,
+        ]
+      : [];
+  });
+}
+
+// A missing argument as the agent is told it: its name and what it takes, from the schema (28 Oct: valueInputOption was
+// missing three times; the message named it and not that it is one of RAW, USER_ENTERED).
+export function describeArgument(tool: AppTool, name: string): string {
+  const prop = (
+    (tool.inputSchema.properties ?? {}) as Record<
+      string,
+      { type?: unknown; enum?: unknown; items?: { type?: unknown } }
+    >
+  )[name];
+  if (Array.isArray(prop?.enum)) return `${name} (one of ${prop.enum.join(", ")})`;
+  if (prop?.type === "array" && prop.items?.type === "array") return `${name} (a list of rows: [[…], […]])`;
+  return typeof prop?.type === "string" ? `${name} (${prop.type})` : name;
+}
+
 // What a tool's arguments must hold (its schema's `required`), missing from what the agent sent.
 export function missingArguments(tool: AppTool, args: Record<string, unknown>): string[] {
   const required = Array.isArray(tool.inputSchema.required) ? (tool.inputSchema.required as string[]) : [];

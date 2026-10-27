@@ -4,7 +4,7 @@
 // marked readOnlyHint (and not destructiveHint) runs without asking.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { isAction, type Skill, walkSteps } from "@shadow/core";
+import { isAction, type Skill, walkSteps, webPages } from "@shadow/core";
 import type { ChannelExecutor } from "@shadow/player";
 import { appOf } from "@shadow/recorder";
 
@@ -171,13 +171,8 @@ export const NEEDS_APP = "needs an app: ";
 // The first step that typed into a drawn area (a sheet's cells, `drawn`) and the app that covers the page it worked on:
 // the page is the last address a step opened in its tab. Replay can't reach such a step, so only an app can do it (A2).
 function drawnStep(skill: Skill): { id: string; app?: { toolkit: string; name: string }; host: string } | undefined {
-  const open = new Map<string, string>(); // tab -> the address last opened there
-  for (const { step } of walkSteps(skill.steps)) {
-    if (!isAction(step) || step.channel !== "web") continue;
-    const tab = step.tab ?? "main";
-    if (step.action === "navigate") open.set(tab, String(step.args.url ?? ""));
+  for (const { step, url } of webPages(skill.steps)) {
     if (!step.drawn) continue;
-    const url = open.get(tab);
     let host = "this site";
     try {
       host = new URL(url ?? "").host || host;

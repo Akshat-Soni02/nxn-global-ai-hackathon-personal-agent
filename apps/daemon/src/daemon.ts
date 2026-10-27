@@ -52,6 +52,9 @@ export async function startDaemon(options: {
   watchDirs?: string[];
   // How long to keep accepting a stopped session's events that were already in flight.
   drainMs?: number;
+  // The port the window is served on (http.ts starts after the daemon, so it is asked for at each event). Events from
+  // that page are Shadow's own, never the user's work: the Record button's Stop was recorded as a step (28 Oct).
+  ownPort?(): number | undefined;
   // The Record / Stop button in Chrome. main.ts routes it to the same code as a typed `record` / `stop`, so a click
   // is refused while a recording is still being compiled. Without it, the button only starts and stops the session.
   onRecordCommand?(command: "start" | "stop" | "discard"): void;
@@ -148,7 +151,9 @@ export async function startDaemon(options: {
           options.onSystem?.(message.type === "system.wake" ? "wake" : "sleep");
           break;
         case "record.event":
-          // Into the session's trace, alongside the file events (record.ts). Events for any other session are dropped.
+          // Into the session's trace, alongside the file events (record.ts). Events for any other session are dropped,
+          // and so are Shadow's own window's.
+          if (isOwnWindow(message.url)) break;
           if (recording && message.sessionId === recording.sessionId) recording.append(message);
           else log("record.event", message.event, "(no open trace)");
           break;
@@ -237,6 +242,17 @@ export async function startDaemon(options: {
       send(connection, message);
     });
   }
+
+  const isOwnWindow = (url: string | undefined): boolean => {
+    const port = options.ownPort?.();
+    if (!url || !port) return false;
+    try {
+      const u = new URL(url);
+      return u.hostname === "127.0.0.1" && Number(u.port) === port;
+    } catch {
+      return false;
+    }
+  };
 
   const daemon: Daemon = {
     server,

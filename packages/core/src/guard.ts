@@ -3,7 +3,7 @@
 //   outward actions   no new step that sends, submits, pays, publishes or deletes (except a confirmation that
 //                     finishes an outward step it follows, needing approval), or matches a Never entry
 //   user's decisions  the trigger, inputs and defaults, the description, args the user set, llm instructions,
-//                     max_items, on_item_fail
+//                     max_items, first, on_item_fail
 //   safety switches   approval never turned off, no ask removed
 //   reach             no script or connected-app (mcp) steps added, no navigating to a site the workflow doesn't
 //                     already use
@@ -115,8 +115,8 @@ export function repairCheck(original: Skill, draft: Skill): { never: string[]; a
     }
     if (old.type === "control" && old.kind === "loop") {
       if (now.type !== "control" || now.kind !== "loop") problems.push(`${id}: a loop can't be replaced`);
-      else if (now.max_items !== old.max_items || now.on_item_fail !== old.on_item_fail) {
-        problems.push(`${id}: max_items and on_item_fail are the user's: they can't change`);
+      else if (now.max_items !== old.max_items || now.first !== old.first || now.on_item_fail !== old.on_item_fail) {
+        problems.push(`${id}: max_items, first and on_item_fail are the user's: they can't change`);
       }
     }
     if (isAction(old) && isAction(now)) {

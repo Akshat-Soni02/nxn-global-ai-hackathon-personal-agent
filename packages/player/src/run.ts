@@ -464,12 +464,14 @@ async function runLoop(
     return fail((error as Error).message);
   }
   if (!Array.isArray(list)) return fail(`${step.over} is not a list`);
+  // `first`: only the first N, in the list's order; the cap and the rest count those.
+  const items = step.first ? list.slice(0, step.first) : list;
   // A cap, so a list that is far longer than expected (a page of search results) cannot run on and on.
-  if (list.length > step.max_items) {
-    return fail(`${step.over} has ${list.length} items, more than this loop's max_items (${step.max_items})`);
+  if (items.length > step.max_items) {
+    return fail(`${step.over} has ${items.length} items, more than this loop's max_items (${step.max_items})`);
   }
-  if (startAt !== undefined && startAt >= list.length) {
-    return fail(`can't resume at item ${startAt}: ${step.over} has ${list.length} items now`);
+  if (startAt !== undefined && startAt >= items.length) {
+    return fail(`can't resume at item ${startAt}: ${step.over} has ${items.length} items now`);
   }
   if (step.requires_approval && startAt === undefined) {
     const approved = await approval(step, path, env);
@@ -477,14 +479,14 @@ async function runLoop(
       return waitFor({ kind: "approval", path, stepId: step.id, intent: step.intent }, vars, given);
     if (!approved) return fail("you denied it", "denied");
   }
-  if (startAt === undefined) env.log({ type: "loop.start", stepId: step.id, path, items: list.length });
+  if (startAt === undefined) env.log({ type: "loop.start", stepId: step.id, path, items: items.length });
 
   // A run resumed inside an item carries that item's scope (the item, what its steps made). Only the item it resumes in
   // may see it: later items and the steps after the loop must not, as in a run that never paused.
   const resumedItem = startAt === undefined ? undefined : { ...vars };
   if (resumedItem) for (const name of scopeNames(step)) delete vars[name];
 
-  for (const [index, raw] of list.entries()) {
+  for (const [index, raw] of items.entries()) {
     if (startAt !== undefined && index < startAt) continue;
     const at = `${path}[${index}]`;
     const item = fitValue(step.item.type, raw);

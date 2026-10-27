@@ -24,7 +24,7 @@ export const STEP_FIELDS = {
   trigger: ["intent", "when", "inputs"],
   action: ["intent", "requires_approval", "ask", "target", "args", "wait", "check", "output", "timeout_ms", "on_fail"],
   llm: ["intent", "requires_approval", "ask", "instruction", "inputs", "output"],
-  loop: ["intent", "requires_approval", "ask", "over", "item", "max_items", "on_item_fail"],
+  loop: ["intent", "requires_approval", "ask", "over", "item", "max_items", "first", "on_item_fail"],
   branch: ["intent", "requires_approval", "ask", "if"],
   // A block's intent is its name.
   group: ["intent"],

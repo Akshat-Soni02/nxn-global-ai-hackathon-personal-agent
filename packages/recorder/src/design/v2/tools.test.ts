@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { DoneReport, EvidenceView, Proposal } from "./contracts.ts";
 import { withFields } from "./orchestrator.ts";
 import { newSession, type SessionV2 } from "./session.ts";
-import { designToolsV2, isTimeOfDay, unstring, vaguePick } from "./tools.ts";
+import { designToolsV2, isFrequency, isTimeOfDay, unstring, vaguePick } from "./tools.ts";
 
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
 const recorded = Skill.parse({
@@ -813,6 +813,23 @@ describe("what round 3's re-design of A showed", () => {
     }
     expect(s.questions).toEqual([]);
     expect(isTimeOfDay("Which row should the numbers go in?")).toBe(false);
+  });
+});
+
+describe("what the YC design of 28 Oct asked twice", () => {
+  it("never asks how often it runs: that is its Frequency in the review, and the form already holds the user's answer", async () => {
+    const s = session();
+    for (const question of [
+      "How often should the collection run?",
+      "What frequency should it run at?",
+      "How frequently should this run?",
+    ]) {
+      const out = await run(s, "ask", { question, why: "w", step: "start" });
+      expect(JSON.stringify(out.output)).toMatch(/Frequency/);
+    }
+    expect(s.questions).toEqual([]);
+    expect(isFrequency("How often should it run?")).toBe(true);
+    expect(isFrequency("How many jobs should it collect each day?")).toBe(false);
   });
 });
 

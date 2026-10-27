@@ -578,6 +578,7 @@ describe("what Checkpoint 4 kept that it shouldn't have", () => {
     expect(out.reason).toMatch(/can't run/);
     expect([...walkSteps(out.skill.steps)].length).toBe([...walkSteps(skill.steps)].length);
     expect(out.skipped).toContain("Which sheet tab should it use?");
+    expect(new Set(out.skipped).size).toBe(out.skipped.length);
   });
 });
 

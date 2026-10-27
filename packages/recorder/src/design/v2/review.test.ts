@@ -101,6 +101,10 @@ describe("what the review shows", () => {
 
   it("lists what the test run didn't do, or that it didn't run, and why the recorded steps were kept", () => {
     expect(reviewOf(design({}), skill).notTested).toEqual(["the test run didn't run (no automation window)"]);
+    // A design that stopped before it tested never had a window to blame (28 Oct, the YC design said so wrongly).
+    expect(reviewOf(design({ kind: "kept", reason: "it stopped getting anywhere" }), skill).notTested).toEqual([
+      "the test run didn't run: the design stopped before it got there",
+    ]);
     const notRun = design({ test: { outcome: "not run: Chrome is not connected", steps: [] } });
     expect(reviewOf(notRun, skill).notTested).toEqual(["the test run didn't run: Chrome is not connected"]);
     const partly = design({

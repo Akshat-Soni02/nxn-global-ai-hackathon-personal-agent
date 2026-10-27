@@ -85,11 +85,13 @@ let api: Api | undefined; // set once the service exists; api.call messages befo
 let record: RecordControl | undefined; // the same: Record pressed before then is ignored
 let screen: ScreenReader | undefined; // screenshots arriving before then are dropped
 let onWake: () => void = () => {}; // set once the triggers exist: a wake looks at them at once
+let httpPort: number | undefined;
 const daemon = await startDaemon({
   socketPath: path,
   log,
   dataDir: home,
   watchDirs,
+  ownPort: () => httpPort,
   onRecordCommand: (command) =>
     command === "start" ? record?.press() : command === "stop" ? void record?.stop() : void record?.discard(),
   onSystem: (event) => {
@@ -215,7 +217,6 @@ const runLeg = (skill: Skill, leg: Parameters<Execute>[1], budget: RepairBudget)
     join(home, "runs"),
   );
 
-let httpPort: number | undefined;
 const service = createService({
   dataDir: home,
   store,

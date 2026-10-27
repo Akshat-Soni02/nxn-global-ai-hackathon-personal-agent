@@ -163,6 +163,27 @@ describe("loops", () => {
     });
   });
 
+  it('goes through only the first N of a longer list, in its order, and the cap counts those (28 Oct: "the top 5")', async () => {
+    const s = (extra: Record<string, unknown>) =>
+      skill([loop("l1", "{{list}}", { name: "p", type: row }, [write("s1", "{{p.name}}")], extra)], {
+        list: { type: rows },
+      });
+    const some = fake();
+    // 3 items, a cap of 2, but only the first 2 are gone through: no failure.
+    expect((await runSkill(s({ first: 2, max_items: 2 }), some.deps, { inputs: { list: people } })).status).toBe(
+      "succeeded",
+    );
+    expect(some.wrote).toEqual(["Acme", "Globex"]);
+    // A first larger than the list goes through all of it.
+    const all = fake();
+    await runSkill(s({ first: 10 }), all.deps, { inputs: { list: people } });
+    expect(all.wrote).toEqual(["Acme", "Globex", "Initech"]);
+    // Without it, the cap still refuses a longer list.
+    expect(await runSkill(s({ max_items: 2 }), fake().deps, { inputs: { list: people } })).toMatchObject({
+      status: "failed",
+    });
+  });
+
   it("runs loops inside loops, and names each step by where it ran", async () => {
     const grid = { type: "list", items: { type: "list", items: T.text } };
     const s = skill(

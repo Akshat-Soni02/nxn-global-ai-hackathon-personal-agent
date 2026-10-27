@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { findStep, isBranch, isLoop, Skill, triggerOf, walkSteps } from "./skill.ts";
+import { findStep, isBranch, isLoop, Skill, triggerOf, walkSteps, webPages } from "./skill.ts";
 import { fitValue, parseRef, typeAt, valueAt } from "./vars.ts";
 
 const skillsDir = join(import.meta.dirname, "../../../skills/real");
@@ -120,6 +120,41 @@ describe("skill schema", () => {
     expect(loop && isLoop(loop) && [loop.max_items, loop.on_item_fail]).toEqual([100, "stop"]);
     const branch = findStep(skill, "b1");
     expect(branch && isBranch(branch) && branch.else).toEqual([]);
+  });
+
+  it("tells each web step the page last opened in its own tab, which is how a drawn step finds its app (27 Oct)", () => {
+    const open = (id: string, url: string, tab?: string) => ({
+      ...nav(id),
+      ...(tab ? { tab } : {}),
+      args: { url },
+    });
+    const type = (id: string, tab?: string) => ({
+      id,
+      type: "action",
+      intent: "type",
+      channel: "web",
+      action: "type",
+      ...(tab ? { tab } : {}),
+      args: { text: "x" },
+    });
+    const skill = Skill.parse(
+      withSteps(
+        type("s0"),
+        open("s1", "https://docs.google.com/spreadsheets/d/S/edit"),
+        type("s2"),
+        open("s3", "https://www.ycombinator.com/jobs", "Jobs"),
+        type("s4", "Jobs"),
+        type("s5"),
+      ),
+    );
+    expect([...webPages(skill.steps)].map(({ step, url }) => [step.id, url])).toEqual([
+      ["s0", undefined],
+      ["s1", "https://docs.google.com/spreadsheets/d/S/edit"],
+      ["s2", "https://docs.google.com/spreadsheets/d/S/edit"],
+      ["s3", "https://www.ycombinator.com/jobs"],
+      ["s4", "https://www.ycombinator.com/jobs"],
+      ["s5", "https://docs.google.com/spreadsheets/d/S/edit"],
+    ]);
   });
 
   it("shows an agent the shape of an app step when it puts the tool outside args (a real repair run did, and never recovered)", () => {
