@@ -115,7 +115,7 @@ export interface RecordingMeta {
   stoppedAt?: number;
   savedAt?: number;
   skillId?: string;
-  outcome?: "saved" | "empty" | "failed";
+  outcome?: "saved" | "empty" | "failed" | "cancelled";
 }
 
 export function readMeta(dataDir: string, sessionId: string): RecordingMeta {

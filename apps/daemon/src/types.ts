@@ -160,13 +160,15 @@ export interface RecordingView {
   // The consents the form starts with: the ones given last time.
   consent: Consent;
   // How the last recording ended.
-  last?: { sessionId: string; outcome: "saved" | "empty" | "failed"; skillId?: string; text: string };
+  last?: { sessionId: string; outcome: "saved" | "empty" | "failed" | "cancelled"; skillId?: string; text: string };
   // Whether Shadow.app is running (it shows the form in its window).
   macApp: boolean;
   // Whether pictures can be read and masked (Shadow.app's tools): when not, the Record screen says so before recording.
   screenReady: boolean;
   // What is happening while a recording becomes a workflow, in plain words, oldest first.
   progress: { at: number; line: string }[];
+  // Stop was pressed while the recording was becoming a workflow: it is winding down (the next model call ends it).
+  stopping?: boolean;
 }
 // A design's review (skills/<id>/review.json; built by packages/recorder/src/design/v2/review.ts), as the window reads
 // it. Declared here, not imported: the recorder package needs Node, and the window's code must not load it. record.ts

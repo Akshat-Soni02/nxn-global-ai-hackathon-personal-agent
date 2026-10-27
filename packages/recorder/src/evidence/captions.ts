@@ -33,7 +33,7 @@ export async function captionsOf(
   describe: DescribePicture,
   log: (...args: unknown[]) => void = () => {},
   terms: string[] = [],
-  options: { deadlineMs?: number } = {},
+  options: { deadlineMs?: number; signal?: AbortSignal } = {},
 ): Promise<(string | undefined)[]> {
   const captions: (string | undefined)[] = steps.map(() => undefined);
   const deadlineMs = options.deadlineMs ?? CAPTIONS_DEADLINE_MS;
@@ -42,6 +42,7 @@ export async function captionsOf(
   let stopped = false;
   const worker = async () => {
     while (next < steps.length) {
+      if (options.signal?.aborted) return; // Stop was pressed (W1): no new picture
       if (Date.now() > stopAt) {
         if (!stopped)
           log(`captions stopped after ${Math.round(deadlineMs / 1000)} s: the other steps go without a caption`);

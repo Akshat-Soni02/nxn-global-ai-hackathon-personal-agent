@@ -278,7 +278,9 @@ record = createRecordControl({
   daemon,
   ask: (question) => service.ask(question),
   screenReady: () => screenTools !== undefined,
-  finish: async (sessionId, progress) => {
+  // Stop on "Turning your recording into a workflow": what the design asked stops waiting.
+  dismissQuestions: (sessionId) => service.dismissQuestions(sessionId),
+  finish: async (sessionId, progress, signal) => {
     // Every screenshot is read and masked, and the narration turned into text, before the recording becomes a workflow:
     // both at the same time (both run in Shadow.app, on the Mac).
     progress("Reading the words on your screen and turning your voice into text");
@@ -294,6 +296,7 @@ record = createRecordControl({
     ]);
     return finishRecording(sessionId, {
       dataDir: home,
+      signal,
       prompter,
       llm: model,
       memory,

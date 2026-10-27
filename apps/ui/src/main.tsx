@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { call, SessionContext, takeToken, useEvents, useQuery } from "./api.ts";
 import { money } from "./format.ts";
+import { backLink } from "./nav.ts";
 import { Apps } from "./screens/Apps.tsx";
 import { Inbox } from "./screens/Inbox.tsx";
 import { Record } from "./screens/Record.tsx";
@@ -79,7 +80,9 @@ function useNarrow(): boolean {
 
 function Shell({ connected }: { connected: boolean }) {
   // "#/record/again/<id>": the Record screen prefilled from a workflow, to record it again.
-  const [screen = "inbox", id, sub] = useRoute();
+  const route = useRoute();
+  const [screen = "inbox", id, sub] = route;
+  const back = backLink(route);
   const inbox = useQuery<unknown[]>("inbox", { open: true });
   const waiting = inbox.data?.length ?? 0;
   useEffect(() => {
@@ -150,6 +153,11 @@ function Shell({ connected }: { connected: boolean }) {
         <Health connected={connected} />
       </aside>
       <main className="content">
+        {back ? (
+          <a className="back-link" href={back.href}>
+            ← {back.label}
+          </a>
+        ) : null}
         {screen === "inbox" && <Inbox />}
         {screen === "workflows" && !id && <Workflows />}
         {screen === "workflows" && id && <Workflow id={id} />}

@@ -49,6 +49,28 @@ describe("captions", () => {
     expect(logged.join("\n")).toMatch(/stopped after.*without a caption/);
   });
 
+  it("stops describing pictures the moment the user presses Stop (W1), without logging it as a time-out", async () => {
+    const stop = new AbortController();
+    let asked = 0;
+    const logged: string[] = [];
+    const captions = await captionsOf(
+      Array.from({ length: 30 }, (_, i) => step(i + 1)),
+      (i) => `/shots/${i}.jpg`,
+      async () => {
+        asked++;
+        if (asked === 3) stop.abort();
+        await new Promise((r) => setTimeout(r, 5));
+        return "a picture";
+      },
+      (...args) => logged.push(args.join(" ")),
+      [],
+      { signal: stop.signal },
+    );
+    expect(asked).toBeLessThan(10); // three at once: the ones already asked finish, no new one starts
+    expect(captions.filter(Boolean).length).toBe(asked);
+    expect(logged.join("\n")).not.toMatch(/stopped after/);
+  });
+
   it("describes each step that has a picture, short, and leaves out a step whose picture failed", async () => {
     const asked: string[] = [];
     const captions = await captionsOf(

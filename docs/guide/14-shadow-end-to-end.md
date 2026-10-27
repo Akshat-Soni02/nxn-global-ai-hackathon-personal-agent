@@ -107,7 +107,7 @@ All calls go through `packages/llm` to Nebius Token Factory with your own key, r
 
 **For Akshat to agree** (shared code touched in sprint 4; additions unless marked changed):
 
-- **API methods** (`apps/daemon/src/api.ts`): `walk`; `draft`, `editDraft`, `undoDraft`, `redoDraft`, `discardDraft`, `publishDraft`; `recordDiscard`; `settings`, `setApiKey`, `setConsent`, `checkModel`, `memory`, `forget`, `setupChrome`.
+- **API methods** (`apps/daemon/src/api.ts`): `walk`; `draft`, `editDraft`, `undoDraft`, `redoDraft`, `discardDraft`, `publishDraft`; `recordDiscard`, `recordCancel`; `settings`, `setApiKey`, `setConsent`, `checkModel`, `memory`, `forget`, `setupChrome`.
 - **Messages** (`packages/core/src/messages.ts`): `ax.highlight` and `ax.highlight_result`; `mac.screenshot` and `mac.screenshot_result`; `system.sleep` and `system.wake`; `discard` on `record.command`; `pictures` on `consent`.
 - **Player** (`packages/player`): `RunDeps.walk` and `RunDeps.highlight`; the `walk` kind of `Waiting` and `Answer`; the `step.walk` log event; `RepairEnv.describeScreen` and `Recovery.describeScreen`; `repair/verify.ts` (changed: a waiting approval is not an approval); `repair/ladder.ts` and `repair/classify.ts` (changed: `ax` steps get the first rung and are classified).
 - **Daemon types** (`apps/daemon/src/types.ts`): `walk` in `InboxKind`; `Checkpoint.skill` (the exact tree being walked, for a draft).

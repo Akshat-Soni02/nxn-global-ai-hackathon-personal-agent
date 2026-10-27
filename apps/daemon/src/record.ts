@@ -136,6 +136,9 @@ export interface FinishOptions {
   // Connected apps (connectors.ts): offered to the design where the recording worked inside one. Without them (no
   // service), the design builds page steps only.
   connectors?: Connectors;
+  // Aborts when the user presses Stop on "Turning your recording into a workflow": the design ends at its next model call
+  // and nothing is saved (the recording is kept).
+  signal?: AbortSignal;
 }
 
 // What the review says about the recording itself, before what was built from it (checkpoint 6: 50 s of voice became
@@ -187,6 +190,11 @@ export async function finishRecording(
   }
 
   const { llm } = options;
+  // Stop was pressed: end here, saving nothing, at every point where something is about to be decided or kept.
+  const stopped = () => {
+    if (options.signal?.aborted) throw new Error("stopped: the workflow was not saved");
+  };
+  stopped();
   // The description form filled in before Record; recordings made before Oct 13 have none.
   const recorded = readForm(dataDir, sessionId);
   const form = recorded && {
@@ -258,6 +266,7 @@ export async function finishRecording(
         describer: options.describer,
         meter,
         log,
+        signal: options.signal,
       })) ??
       buildEvidence({
         trace,
@@ -280,6 +289,7 @@ export async function finishRecording(
     log("evidence couldn't be built:", (error as Error).message);
   }
 
+  stopped();
   // Design agent v2: the plain list -> the workflow meant. It asks its questions in one batch.
   let design: DesignV2Outcome | undefined;
   if (llm && evidence) {
@@ -318,6 +328,7 @@ export async function finishRecording(
         const line = progressLine(event);
         if (line) progress(line);
       },
+      signal: options.signal,
       ...options.design,
     });
     const cost = `$${design.usage.costUsd.toFixed(4)}, ${design.usage.calls} calls`;
@@ -332,6 +343,7 @@ export async function finishRecording(
   }
 
   if (questions.length > 0) log(`${questions.length} question(s) before saving. Enter takes the default.`);
+  stopped();
   const drilled = await drill(skill, questions, { prompter: options.prompter, memory: options.memory });
   for (const problem of drilled.problems) log("answer not applied:", problem);
   const filled = await fillForUnattended(drilled.skill, options.prompter, log);
@@ -374,6 +386,7 @@ export async function finishRecording(
   // Named by the design when it named it (its task model), a workflow recorded again keeps the name it had.
   const named = !existing && design?.task?.name ? { ...noted, name: design.task.name } : noted;
   const blocked = blocksOf(renamedBlocks(named as Skill, plain, { titles }), { titles });
+  stopped();
   const saved = saveSkill(dataDir, blocked);
   log(`saved ${saved.skill.id} v${saved.skill.version}: ${saved.path} (${nodeCount(blocked.steps)} nodes)`);
   if (evidence) writeRecordedSteps(dataDir, saved.skill.id, recordedSteps(evidence));

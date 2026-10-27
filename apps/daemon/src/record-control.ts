@@ -36,7 +36,15 @@ export interface RecordControlOptions {
   // A question in the inbox (service.ask): how the form is filled in from the terminal.
   ask(question: Question): Promise<string>;
   // The recording → a saved workflow (record.ts finishRecording). Undefined when nothing was recorded.
-  finish(sessionId: string, progress: (line: string) => void): Promise<{ skill: { id: string } } | undefined>;
+  // `signal` aborts when the user presses Stop on "Turning your recording into a workflow": the design ends at its next
+  // model call, and nothing is saved.
+  finish(
+    sessionId: string,
+    progress: (line: string) => void,
+    signal: AbortSignal,
+  ): Promise<{ skill: { id: string } } | undefined>;
+  // Answers a recording's waiting questions with their defaults, so nothing keeps waiting for a design that was stopped.
+  dismissQuestions?(sessionId: string): number;
   log: Log;
   // Shadow.app can read and mask pictures. Absent: assumed ready.
   screenReady?(): boolean;
@@ -54,6 +62,9 @@ export interface RecordControl {
   stop(): Promise<{ sessionId?: string }>;
   // Discard: recording ends and everything it captured is deleted at once; nothing is compiled or kept.
   discard(): Promise<{ sessionId?: string }>;
+  // Stop while a recording is becoming a workflow: the design is aborted, its questions dismissed, nothing saved, the
+  // recording kept. Nothing to stop (not compiling): {}.
+  cancel(): { sessionId?: string };
   // Turn a kept recording into a workflow again.
   compile(sessionId: string): Promise<void>;
   // A line of what is happening while a recording becomes a workflow, for the Record screen.
@@ -69,6 +80,8 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
   let startedAt: number | undefined;
   let form: RecordForm | undefined;
   let last: RecordingView["last"];
+  // Aborts the design that is turning the recording into a workflow (cancel).
+  let canceller: AbortController | undefined;
   // Kept until the next recording, so the last lines stay next to "Last recording: …".
   let progress: RecordingView["progress"] = [];
 
@@ -82,6 +95,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
     macApp: daemon.mac().connected,
     screenReady: options.screenReady?.() ?? true,
     progress,
+    ...(canceller?.signal.aborted ? { stopping: true } : {}),
   });
   const changed = () => {
     const event: RecordEvent = { type: "recording", view: view() };
@@ -101,8 +115,10 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
     progress = [];
     changed();
     status("compiling", "Turning your recording into a workflow…");
+    const controller = new AbortController();
+    canceller = controller;
     try {
-      const saved = await options.finish(id, control.progress);
+      const saved = await options.finish(id, control.progress, controller.signal);
       if (saved) {
         // The recording's folder is deleted a day from now (recording-store.ts).
         writeMeta(dataDir, id, { savedAt: Date.now(), skillId: saved.skill.id, outcome: "saved" });
@@ -115,6 +131,18 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
         deleteRecording(dataDir, id); // nothing worth keeping
       }
     } catch (error) {
+      if (controller.signal.aborted) {
+        // Stopped by the user: not a failure. Kept like one, so it can be compiled again; the sweep deletes it a day later.
+        log("stopped: the workflow was not saved; the recording is kept");
+        last = {
+          sessionId: id,
+          outcome: "cancelled",
+          text: "Stopped: nothing was saved. The recording is kept for a day.",
+        };
+        writeMeta(dataDir, id, { outcome: "cancelled" });
+        status("empty", last.text);
+        return;
+      }
       const why = error instanceof Error ? error.message : String(error);
       log("compile failed:", why);
       log(`the recording is kept: retry with "compile ${id}"`);
@@ -122,6 +150,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
       writeMeta(dataDir, id, { outcome: "failed" });
       status("failed", "Compile failed: see the daemon's log");
     } finally {
+      canceller = undefined;
       phase = "idle";
       sessionId = undefined;
       startedAt = undefined;
@@ -233,6 +262,16 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
       status("empty", "Recording discarded");
       log("recording discarded: its folder is gone");
       return { sessionId: stopped };
+    },
+
+    cancel() {
+      if (phase !== "compiling" || !sessionId || !canceller || canceller.signal.aborted) return {};
+      const id = sessionId;
+      canceller.abort();
+      options.dismissQuestions?.(id);
+      log("stopping: the workflow will not be saved; the recording is kept");
+      changed();
+      return { sessionId: id };
     },
 
     async compile(id) {

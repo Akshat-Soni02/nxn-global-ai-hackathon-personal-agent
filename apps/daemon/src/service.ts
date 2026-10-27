@@ -92,6 +92,8 @@ export interface Service {
   // Puts a question in the inbox and resolves with the answer.
   // onItem: the inbox item's id, as soon as it exists (a question the daemon may answer itself: connectors.ts).
   ask(question: Question, onItem?: (itemId: string) => void): Promise<string>;
+  // Answers one recording's waiting questions with their defaults (Stop on "turning it into a workflow"); returns how many.
+  dismissQuestions(sessionId: string): number;
   subscribe(listener: (event: ServiceEvent) => void): () => void;
   // Startup: runs the daemon left going are interrupted; questions asked before the restart can't be answered.
   recover(): { interrupted: string[]; expired: string[] };
@@ -654,6 +656,19 @@ export function createService(options: ServiceOptions): Service {
       const answered = new Promise<string>((resolve) => questions.set(item.id, resolve));
       onItem?.(item.id);
       return answered;
+    },
+
+    dismissQuestions(sessionId) {
+      let n = 0;
+      for (const item of store.listItems({ open: true })) {
+        if (item.kind !== "question" || (item.detail as { sessionId?: unknown }).sessionId !== sessionId) continue;
+        if (!store.answerItem(item.id, { cancelled: "you stopped it" }, now())) continue;
+        emit({ type: "inbox", item: store.getItem(item.id) as InboxItem });
+        questions.get(item.id)?.("");
+        questions.delete(item.id);
+        n++;
+      }
+      return n;
     },
 
     subscribe(listener) {

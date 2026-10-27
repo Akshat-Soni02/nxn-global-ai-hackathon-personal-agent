@@ -203,7 +203,7 @@ curl -s -X POST http://127.0.0.1:$PORT/api/inbox -H "Authorization: Bearer $TOKE
 curl -s -X POST http://127.0.0.1:$PORT/api/answer -H "Authorization: Bearer $TOKEN" -d '{"itemId":"<id>","answer":"approve"}'
 ```
 
-Methods (`apps/daemon/src/api.ts` is the list): `workflows`, `workflow`, `runs`, `run`, `inbox`, `usage`, `health`, `start` (a saved workflow's id, never a file path), `walk`, `answer`, `cancel`, `rollback`, `state`, `goLive`, `review`, `looksRight`, `pause`, `resume`, `setTrigger`, `draft`, `editDraft`, `tidyDraft`, `undoDraft`, `redoDraft`, `discardDraft`, `publishDraft`, `recording`, `recordStart`, `recordStop`, `recordDiscard`, `settings`, `setApiKey`, `setConsent`, `checkModel`, `memory`, `forget`, `setupChrome`, `signIn`, `signOut`, `accountUsage`, `connectedApps`, `connectApp`, `disconnectApp`, `appTools`, `checkApp`, `offerAppAgain`. `GET /api/events?token=…` streams changes.
+Methods (`apps/daemon/src/api.ts` is the list): `workflows`, `workflow`, `runs`, `run`, `inbox`, `usage`, `health`, `start` (a saved workflow's id, never a file path), `walk`, `answer`, `cancel`, `rollback`, `state`, `goLive`, `review`, `looksRight`, `pause`, `resume`, `setTrigger`, `draft`, `editDraft`, `tidyDraft`, `undoDraft`, `redoDraft`, `discardDraft`, `publishDraft`, `recording`, `recordStart`, `recordStop`, `recordDiscard`, `recordCancel`, `settings`, `setApiKey`, `setConsent`, `checkModel`, `memory`, `forget`, `setupChrome`, `signIn`, `signOut`, `accountUsage`, `connectedApps`, `connectApp`, `disconnectApp`, `appTools`, `checkApp`, `offerAppAgain`. `GET /api/events?token=…` streams changes.
 
 ### Development
 

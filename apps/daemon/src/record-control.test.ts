@@ -6,7 +6,7 @@ import { isAction, Skill, triggerOf, walkSteps } from "@shadow/core";
 import { createDecoder, encode } from "@shadow/ipc";
 import { fakeLlm } from "@shadow/llm";
 import { scriptedDesigner } from "@shadow/recorder";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApi } from "./api.ts";
 import { type Daemon, startDaemon } from "./daemon.ts";
 import { finishRecording, unattendedGaps } from "./record.ts";
@@ -277,6 +277,62 @@ describe("keeping a recording for a day", () => {
     expect(existsSync(join(home, "recordings", "s1"))).toBe(false);
     await control.compile("s1");
     expect(said.at(-1)).toMatch(/no recording s1: a recording is deleted a day after Stop/);
+  });
+
+  it("lets you stop the turning of a recording into a workflow: the design is aborted, its questions dismissed, nothing saved, the recording kept (W1)", async () => {
+    const home = temp();
+    const { daemon } = fakeDaemon(false);
+    let seen: AbortSignal | undefined;
+    const dismissed: string[] = [];
+    const control = createRecordControl({
+      dataDir: home,
+      daemon,
+      ask: async () => "",
+      finish: (_id, _progress, signal) =>
+        new Promise((_resolve, reject) => {
+          seen = signal;
+          signal.addEventListener("abort", () => reject(new Error("cancelled")));
+        }),
+      dismissQuestions: (id) => {
+        dismissed.push(id);
+        return 1;
+      },
+      log: () => {},
+    });
+    control.start({ goal: "x" });
+    const compiling = control.stop();
+    await vi.waitFor(() => expect(seen).toBeDefined());
+    expect(control.view()).toMatchObject({ phase: "compiling" });
+    expect(control.view().stopping).toBeFalsy();
+
+    expect(control.cancel()).toEqual({ sessionId: "s1" });
+    expect(control.view().stopping).toBe(true);
+    await compiling;
+
+    expect(seen?.aborted).toBe(true);
+    expect(dismissed).toEqual(["s1"]);
+    expect(control.view()).toMatchObject({ phase: "idle", last: { outcome: "cancelled" } });
+    expect(control.view().stopping).toBeFalsy();
+    expect(readMeta(home, "s1")).toMatchObject({ outcome: "cancelled" });
+    // Kept, like a failed compile: it can be compiled again, and the sweep deletes it a day later.
+    expect(existsSync(join(home, "recordings", "s1"))).toBe(true);
+    // And a new recording can start at once.
+    expect(() => control.start({ goal: "another" })).not.toThrow();
+  });
+
+  it("has nothing to stop when no recording is being turned into a workflow", () => {
+    const { daemon } = fakeDaemon(false);
+    const control = createRecordControl({
+      dataDir: temp(),
+      daemon,
+      ask: async () => "",
+      finish: async () => undefined,
+      log: () => {},
+    });
+    expect(control.cancel()).toEqual({});
+    control.start({ goal: "x" });
+    expect(control.cancel()).toEqual({}); // recording, not compiling: that is Discard
+    expect(control.view().phase).toBe("recording");
   });
 
   it("marks when a recording stopped and when its workflow was saved", async () => {

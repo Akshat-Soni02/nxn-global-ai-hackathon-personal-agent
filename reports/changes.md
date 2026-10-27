@@ -159,6 +159,7 @@ why it matters, and why it isn't built. Evidence is `file:line` on `main`.
 | N20 | **A reminder for a question that waits for ever** | A run waiting for you has no expiry or nudge | By design: "it waits as long as needed"; a reminder is a small feature | `apps/daemon/src/service.ts:622-650` |
 | N21 | **Prompt caching for the design agent** | About 15–22k input tokens are re-sent every turn, which is most of a design's cost | Only old tool results are condensed; caching depends on what the model host supports, and needs measuring first | `packages/agent/src/agent.ts:391`; none in `packages/llm/src` |
 | N22 | **Repair saying "this workflow is wrong"** | Repair keeps trying to fix a step that shouldn't exist; escalating is its only way out | Needs a new outcome and a place to show it; the cause is mostly closed at the source (clicks on containers are dropped) | `packages/player/src/repair/repair.ts:155-166` |
+| N23 | **Several recordings at once (W4)** | While one recording is being turned into a workflow you can't start another; W1's Stop lets you end it, but not overlap two | The daemon keeps one recording state (`record-control.ts` has one `phase` and one session), and the Chrome button, Shadow.app and the Record screen all assume it; a set of sessions touches the extension and the Mac app too, and the record side is Rushil's own: a product decision first | `apps/daemon/src/record-control.ts:67-76`, `apps/daemon/src/main.ts` |
 
 ---
 
@@ -231,12 +232,17 @@ generated ids (filtered in the extension before the recorder sees them: `describ
 | C22 | MEDIUM | **Run now in the window never asks which file to use**: it starts with no inputs and the player takes the newest match; only the terminal `run` asks | `apps/ui/src/screens/Workflow.tsx:108`, `player/src/node/inputs.ts:61-73`, `daemon/main.ts:517` | Ask in the window, or honour "ask me each time" — **✔ fixed in Phase 2** |
 | C25 | SMALL | An extension that wasn't reloaded after a rebuild sends no pictures, and nothing tells you | `extension/src/button.ts:128` | The daemon compares the extension's version on connect and says so — **Not fixed (listed):** the extension's version is always 0.0.0, so the daemon can't tell an old copy from a new one; it needs a build id baked into the bundle and compared on connect |
 | C27 | SMALL | Two Biome warnings that stay: CSS descending specificity (`apps/ui/src/styles.css:1746`) and a spread on a reducer's accumulator (`scripts/evidence.ts:51`) | as shown | Reorder the rule; push into the accumulator — **✔ fixed in Phase 2** |
+| W1 | MEDIUM | **No way to stop "Turning your recording into a workflow".** Once Stop was pressed, the design ran until it finished or failed, and the daemon takes one recording or design at a time, so a new recording could not start meanwhile (reported by Rushil, 28 Oct) | `apps/daemon/src/record-control.ts`, `record.ts`, `service.ts`, `apps/ui/src/screens/Record.tsx` | A Stop on the Record screen: the design is aborted at its next model call (an in-flight call is dropped), that recording's waiting questions are dismissed, nothing is saved, the recording is kept for a day, and a new one can start at once — **✔ fixed (28 Oct). Checked live:** with a model that never answered, Stop freed the screen in 0.6 s, the model call was closed by the client, nothing was saved, and no question stayed waiting |
+| W2 | SMALL | The recording's questions showed on the Record tab as well as in the Inbox, so the tab was both the steps and the questions | `apps/ui/src/screens/Record.tsx:68` | The Record tab keeps to the steps and the Stop; a line says "N questions are waiting for you in the Inbox" with a link — **✔ fixed (28 Oct). Checked live** (the goal question showed in the Inbox with its badge, and only the pointer on Record) |
+| W3 | SMALL | The Workflow, Run and Record screens had no Back, and every screen was held to a 980 px column (`.content { max-width: 980px }`), so they looked contained | `apps/ui/src/main.tsx`, `nav.ts`, `styles.css` | "← Workflows" / "← Runs" / "← The workflow" (a re-record) on the detail screens, Record back to Workflows, and the screens use the whole stage — **✔ fixed (28 Oct). Checked in a browser** on the Workflow, Run and Record screens |
 
 *Checked and not bugs:* a resumed run or walk that did nothing isn't "nothing to do" (`run.ts:182-191`: a resumed leg can't see the acts of the leg before it, and a walk's skips are yours: deliberate).
 
 **Totals:** 35 bugs. **7 BIG** (A1, A2, A3, A5 from you; C5, C28, C29 found by the scan), **16 MEDIUM**, **12 SMALL**. One
 (C20) is already fixed in the commit that wrote this file; Phase 2 fixes the other 34. A step that was never
 meaningful but is classed as drift and "repaired" (`classify.ts:80-90`) is mitigated at the source and listed as N22.
+
+Reported by Rushil after Phase 2 (28 Oct): W1, W2 and W3 below, fixed; the fourth part of that report (several recordings at once) is N23.
 
 ---
 

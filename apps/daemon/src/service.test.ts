@@ -211,6 +211,19 @@ describe("the daemon as a service", () => {
     expect(service.inbox({ open: true })[0]?.detail).toMatchObject({ freeText: false });
   });
 
+  it("dismisses the waiting questions of one recording and no other's, resolving them with the default (W1: Stop)", async () => {
+    const { open } = setup([write("s1")]);
+    const { service } = open();
+    const mine = service.ask({ title: "Where to save?", sessionId: "rec-1" });
+    void service.ask({ title: "Another recording's", sessionId: "rec-2" });
+    void service.ask({ title: "From the terminal" });
+    expect(service.dismissQuestions("rec-1")).toBe(1);
+    await expect(mine).resolves.toBe("");
+    const waiting = service.inbox({ open: true }).map((i) => i.title);
+    expect(waiting).toEqual(expect.arrayContaining(["Another recording's", "From the terminal"]));
+    expect(waiting).not.toContain("Where to save?");
+  });
+
   it("keeps a drill question's step and draft with it, so the window can show it on the draft", () => {
     const { open } = setup([write("s1")]);
     const { service } = open();

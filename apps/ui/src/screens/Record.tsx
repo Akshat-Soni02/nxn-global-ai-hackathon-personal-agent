@@ -8,9 +8,8 @@ import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
-import { progressOf, questionsFor } from "../questions.ts";
+import { progressOf, questionsFor, waitingNote } from "../questions.ts";
 import { savedSince } from "../review.ts";
-import { Question } from "./Inbox.tsx";
 
 // `again`: a workflow's id, to record that task again: the box starts filled in from it, and the recording becomes
 // the workflow's next version (same id, Frequency and state).
@@ -30,8 +29,9 @@ export function Record({ again }: { again?: string }) {
     if (saved) location.hash = `#/workflows/${saved}`;
   }, [data]);
   if (!data) return <Loading error={error} />;
-  // Questions outside a run: the form's (from the terminal) and the ones about this recording.
-  const questions = questionsFor(inbox.data ?? [], data.sessionId);
+  // Questions outside a run: the form's (from the terminal) and the ones about this recording. They are answered in the
+  // Inbox, not here: this screen shows what is happening, so you aren't left in the dark, and points there (W2).
+  const waiting = waitingNote(data.phase === "idle" ? 0 : questionsFor(inbox.data ?? [], data.sessionId).length);
 
   return (
     <>
@@ -50,32 +50,49 @@ export function Record({ again }: { again?: string }) {
           <GoalBox consent={data.consent} last={data.last} screenReady={data.screenReady} />
         )
       ) : null}
-      {data.phase === "describing" ? <p>Answer the questions below (or in the terminal) to start recording.</p> : null}
+      {data.phase === "describing" ? <p>Answer in the Inbox (or in the terminal) to start recording.</p> : null}
       {data.phase === "recording" ? <Recording view={data} /> : null}
-      {data.phase === "compiling" ? (
-        <section className="section">
-          <h2>Turning your recording into a workflow…</h2>
-          <p className="muted">{data.form?.goal}</p>
-          {progressOf(data).length > 0 ? (
-            <ol className="progress-feed" aria-live="polite">
-              {progressOf(data).map((p) => (
-                <li key={`${p.at}-${p.line}`}>{p.line}</li>
-              ))}
-            </ol>
-          ) : null}
-        </section>
-      ) : null}
-      {data.phase !== "idle" && questions.length > 0 ? (
-        <section className="section">
-          <h2>Questions</h2>
-          <div className="cards">
-            {questions.map((item) => (
-              <Question key={item.id} item={item} />
-            ))}
-          </div>
-        </section>
+      {data.phase === "compiling" ? <Compiling view={data} /> : null}
+      {waiting ? (
+        <p className="notice">
+          {waiting} <a href="#/inbox">Open the Inbox</a>
+        </p>
       ) : null}
     </>
+  );
+}
+
+// While a recording becomes a workflow: what is happening, and a Stop (W1). Stop ends the design at its next model call,
+// saves nothing and keeps the recording for a day; a new recording can start at once.
+function Compiling({ view }: { view: RecordingView }) {
+  const session = useSession();
+  return (
+    <section className="section">
+      <h2>Turning your recording into a workflow…</h2>
+      <p className="muted">{view.form?.goal}</p>
+      {progressOf(view).length > 0 ? (
+        <ol className="progress-feed" aria-live="polite">
+          {progressOf(view).map((p) => (
+            <li key={`${p.at}-${p.line}`}>{p.line}</li>
+          ))}
+        </ol>
+      ) : null}
+      <div className="answers">
+        {view.stopping ? (
+          <button type="button" className="button" disabled>
+            Stopping…
+          </button>
+        ) : (
+          <Action
+            kind="danger"
+            confirm="Stop? Nothing will be saved; the recording is kept for a day."
+            run={() => session.call("recordCancel")}
+          >
+            Stop
+          </Action>
+        )}
+      </div>
+    </section>
   );
 }
 

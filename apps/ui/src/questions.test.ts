@@ -1,6 +1,6 @@
 import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { describe, expect, it } from "vitest";
-import { progressOf, questionsFor } from "./questions.ts";
+import { progressOf, questionsFor, waitingNote } from "./questions.ts";
 
 const item = (id: string, kind: string, sessionId?: string) =>
   ({ id, kind, title: id, detail: sessionId ? { sessionId } : {}, createdAt: 0 }) as unknown as InboxItem;
@@ -14,6 +14,14 @@ describe("the Record screen's questions", () => {
       item("d", "approval", "rec-1"),
     ];
     expect(questionsFor(items, "rec-1").map((i) => i.id)).toEqual(["c", "a"]);
+  });
+});
+
+describe("the Record screen's pointer to the Inbox (W2)", () => {
+  it("says how many questions wait and where, and nothing when none do", () => {
+    expect(waitingNote(0)).toBeUndefined();
+    expect(waitingNote(1)).toBe("1 question is waiting for you in the Inbox.");
+    expect(waitingNote(3)).toBe("3 questions are waiting for you in the Inbox.");
   });
 });
 

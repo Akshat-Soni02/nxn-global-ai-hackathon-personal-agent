@@ -293,15 +293,32 @@ nav a.active .badge {
   line-height: 16px;
   text-align: center;
 }
+/* Every screen takes the whole stage (W3: a 980px cap left the Record, Workflow and Run screens contained in a column).
+   Text that reads badly very wide keeps its own cap (the goal box, notes). */
 .content {
   overflow-y: auto;
   padding: 28px 36px 48px;
-  max-width: 980px;
   animation: enter var(--t-enter) var(--ease);
 }
-/* Editing takes the whole width (the panel sits on the right); the padding keeps space around it. */
-.content:has(.editor) {
-  max-width: none;
+/* Back (W3): from a detail screen to the list it came from. */
+.back-link {
+  display: inline-block;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+.back-link:hover {
+  color: var(--text);
+}
+/* A line that points somewhere else (the Record screen's "questions are waiting in the Inbox"). */
+.notice {
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface);
 }
 @keyframes enter {
   from {
@@ -581,6 +598,9 @@ nav a.active .badge {
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+}
+.progress-feed + .answers {
+  margin-top: 14px;
 }
 .card-link {
   display: inline-block;

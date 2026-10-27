@@ -105,6 +105,9 @@ const recordMethods = {
       return { sessionId };
     },
   },
+  // Stop while the recording is becoming a workflow: the design ends at its next model call, its questions are dismissed,
+  // nothing is saved and the recording is kept. {} when nothing is being turned into a workflow.
+  recordCancel: { params: z.object({}).default({}), run: (r: RecordControl) => r.cancel() },
   // Throws the recording away: nothing is compiled, its folder is deleted at once.
   recordDiscard: {
     params: z.object({}).default({}),

@@ -14,7 +14,7 @@ import { readState, writeState } from "./lifecycle.ts";
 import { locateFile, locateFiles } from "./locate-file.ts";
 import { finishRecording, noticesOf, unchangedControls } from "./record.ts";
 import { recordingDir, writeForm } from "./recording-store.ts";
-import { findSkills, loadSkill, saveSkill, versions } from "./skill-store.ts";
+import { findSkills, listSkills, loadSkill, saveSkill, versions } from "./skill-store.ts";
 import { appendTrace, readTrace, tracePath } from "./trace-store.ts";
 
 const temp = () => mkdtempSync(join(tmpdir(), "tp-"));
@@ -79,6 +79,51 @@ describe("what the review says about the recording itself (checkpoint 6)", () =>
     ]);
     // Words heard, Accessibility on, every file made: nothing to say.
     expect(noticesOf({ microphone: true, words: 3, mac: { connected: true, trusted: true }, unmade: [] })).toEqual([]);
+  });
+});
+
+describe("stopping the turning of a recording into a workflow (W1)", () => {
+  const recorded = () => {
+    const home = temp();
+    const sessionId = "stop-1";
+    appendTrace(home, { id: "e1", sessionId, at: 1000, event: "click", url: PAGE, target: upload });
+    appendTrace(home, { id: "e3", sessionId, at: 9000, event: "click", url: PAGE, target: submit });
+    return { home, sessionId };
+  };
+
+  it("saves nothing and says it was stopped when the signal is already aborted", async () => {
+    const { home, sessionId } = recorded();
+    const stop = new AbortController();
+    stop.abort();
+    await expect(
+      finishRecording(sessionId, {
+        dataDir: home,
+        log: () => {},
+        prompter: { ask: async () => "" },
+        signal: stop.signal,
+      }),
+    ).rejects.toThrow(/stopped/);
+    expect(listSkills(home)).toEqual([]);
+  });
+
+  it("saves nothing when Stop comes while the design is working, whatever the design returns", async () => {
+    const { home, sessionId } = recorded();
+    const stop = new AbortController();
+    // The model's first call is where Stop lands; the scripted reply that follows is never used.
+    const llm = fakeLlm(() => {
+      stop.abort();
+      return { text: "done" };
+    });
+    await expect(
+      finishRecording(sessionId, {
+        dataDir: home,
+        log: () => {},
+        prompter: { ask: async () => "" },
+        llm,
+        signal: stop.signal,
+      }),
+    ).rejects.toThrow(/stopped/);
+    expect(listSkills(home)).toEqual([]);
   });
 });
 
