@@ -25,7 +25,7 @@ import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
 import { appsSection, type ConnectorChance, type Connectors, readOnlyTools, type UsableApp } from "./connectors.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
 import { critique } from "./critic.ts";
-import { drawnProblems, gate, lostWork, runProblems, unmadeProblems, withoutUnusedInputs } from "./gate.ts";
+import { drawnProblems, gate, inBlocks, lostWork, runProblems, unmadeProblems, withoutUnusedInputs } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { BUILD, BUILD_FILE, PLAN, PLAN_FILE } from "./prompt.ts";
 import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
@@ -550,9 +550,13 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         ...(u.default ? { default: u.default } : {}),
       });
     }
+    // What the gate says comes back in blocks (R5.4): the agent thinks in them.
     session.finish = (report) => {
       done = report;
-      return gate({
+      return inBlocks(gateProblems(report), session.draft);
+    };
+    const gateProblems = (report: DoneReport) =>
+      gate({
         recorded: options.skill,
         workflow: session.draft,
         task: theTask,
@@ -570,7 +574,6 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         pages: options.pages,
         connectedToolkits: connectedToolkits(),
       });
-    };
     if (options.critic ?? mode === "file") {
       session.critic = async (report) => {
         const gaps = await critique(
@@ -597,7 +600,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
           costUsd: 0,
           ms: 0,
         });
-        return gaps;
+        return inBlocks(gaps, session.draft);
       };
     }
     const test = options.test;

@@ -118,6 +118,7 @@ isn't built. The plan's own order was design quality first (R5.3, R5.4), then R4
   as step ids, so it fixes at the wrong level. The critic even receives blocks as bare id lists (bug C1). The window
   maps ids to blocks only after the fact.
 - **Why not built.** It waited on R5.3's measurement: how the agent reads blocks decides which messages matter.
+- **✔ Built 28 Oct.** Every gate message and critic gap the agent gets is put in blocks (`gate.ts` `inBlocks`): one that starts with a step id is headed `In "<block>":`, an id mid-sentence gets `(in "<block>")`; the ids stay, since the agent edits by them. The critic already received every step in full (C1).
 
 ### R6.1 The chat box, "What would you like to change?" (big)
 

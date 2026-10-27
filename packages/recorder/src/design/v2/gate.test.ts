@@ -6,6 +6,7 @@ import {
   emptyIn,
   gate,
   guessed,
+  inBlocks,
   joined,
   madeUpAddresses,
   roleAlone,
@@ -111,6 +112,44 @@ describe("an AI step that is told to read something it isn't given (28 Oct)", ()
   it("leaves one with an input, or one that asks for nothing outside it, alone", () => {
     expect(problemsOf(ai(["{{page_text}}"], "Extract the job listings on the page."))).toEqual([]);
     expect(problemsOf(ai([], "Write a one-line greeting."))).toEqual([]);
+  });
+});
+
+describe("what the gate and the critic say, in blocks (R5.4)", () => {
+  // The agent thinks in blocks (R5.1–R5.3); feedback in bare step ids made it fix at the wrong level.
+  const blocked = Skill.parse({
+    id: "w",
+    name: "w",
+    version: 1,
+    description: { goal: "x" },
+    success: [],
+    steps: [
+      { id: "start", type: "trigger", intent: "by hand", when: [{ type: "manual" }] },
+      {
+        id: "b1",
+        type: "control",
+        kind: "group",
+        intent: "Add a row for each job",
+        steps: [act("s3", "web", "navigate", { url: CHAT }), act("s14", "web", "type", { text: "x" })],
+      },
+      act("s20", "web", "navigate", { url: CHAT }),
+    ],
+  });
+
+  it("names the block a step is in, and keeps the id the agent edits by", () => {
+    expect(inBlocks(["s14: replay can't find its control", "rule 0 is built by s3 and s20"], blocked)).toEqual([
+      'In "Add a row for each job": s14: replay can\'t find its control',
+      'rule 0 is built by s3 (in "Add a row for each job") and s20',
+    ]);
+  });
+
+  it("leaves a message about no step, or about a step in no block, as it is", () => {
+    expect(inBlocks(["they said monthly", "s20: open it directly"], blocked)).toEqual([
+      "they said monthly",
+      "s20: open it directly",
+    ]);
+    // A longer id that starts like a shorter one is not mistaken for it.
+    expect(inBlocks(["s140: x"], blocked)).toEqual(["s140: x"]);
   });
 });
 

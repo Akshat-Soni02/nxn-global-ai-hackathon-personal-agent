@@ -436,6 +436,34 @@ export function lostWork(
   return problems;
 }
 
+// What the gate and the critic say, in the blocks the agent thinks in (R5.4): a message that starts with a step's id is
+// put under its block's name; an id mid-sentence gets the block after it. The ids stay: the agent edits by them.
+export function inBlocks(messages: string[], workflow: Skill): string[] {
+  const blockOf = new Map<string, string>();
+  for (const { step, parents } of walkSteps(workflow.steps)) {
+    const group = parents
+      .map((id) => findStep(workflow, id))
+      .reverse()
+      .find((p) => p?.type === "control" && p.kind === "group");
+    if (group && step.type !== "control") blockOf.set(step.id, group.intent);
+  }
+  if (blockOf.size === 0) return messages;
+  const ids = [...blockOf.keys()]
+    .sort((a, b) => b.length - a.length)
+    .map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const anyId = new RegExp(`(?<![\\w-])(${ids.join("|")})(?![\\w-])`, "g");
+  return messages.map((message) => {
+    const lead = new RegExp(`^(${ids.join("|")})(?![\\w-])`).exec(message)?.[1];
+    if (lead) return `In "${blockOf.get(lead)}": ${message}`;
+    const named = new Set<string>();
+    return message.replace(anyId, (id) => {
+      if (named.has(id)) return id;
+      named.add(id);
+      return `${id} (in "${blockOf.get(id)}")`;
+    });
+  });
+}
+
 // The trigger's inputs a step still reads (only the recording's own are judged: one the agent added is its to keep). An input made for a step the design then removed (the YC recording's paste
 // into a sheet's cell, done by the app now) is dropped, or the user is asked for a value nothing uses at every run.
 export function withoutUnusedInputs(skill: Skill, recorded: Skill): Skill {
