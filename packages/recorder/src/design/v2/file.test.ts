@@ -1,5 +1,5 @@
 import type { AnyTool } from "@shadow/agent";
-import { findStep, Skill } from "@shadow/core";
+import { applyEdits, findStep, Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import type { DoneReport } from "./contracts.ts";
 import { lostWork } from "./gate.ts";
@@ -232,6 +232,47 @@ describe("the workflow as a file", () => {
     });
     expect(s.whys.get("s3")).toBe("the date is typed by the new step");
     expect(lostWork(recorded, s.draft, s.whys)).toEqual([]);
+  });
+
+  it("shows blocks folded to their steps' ids, and takes them back whole (R5)", async () => {
+    const s = session();
+    const [trigger, s1, s2, s3] = steps(s) as Record<string, unknown>[];
+    // A block made with the short form, its steps by id.
+    const made = await run(s, "write_workflow", {
+      workflow: { steps: [trigger, { block: "Open the reports", steps: ["s1", "s2"] }, s3] },
+      why: "one thing on the page",
+    });
+    expect(made.problems).toBeUndefined();
+    const shown = JSON.parse(String(await run(s, "read_workflow", {}))) as { steps: { steps?: unknown[] }[] };
+    expect(shown.steps[1]).toMatchObject({ kind: "group", intent: "Open the reports", steps: ["s1", "s2"] });
+    // Written back as read: nothing changes, nothing is lost.
+    const same = await run(s, "write_workflow", { workflow: shown, why: "as it is" });
+    expect(String(same.note ?? "")).toMatch(/nothing changed/);
+    expect(findStep(s.draft, "s2")).toMatchObject({ target: { name: "Acme report" } });
+    // An edit quoting a step inside the block (read with read_workflow { step }) is found in the full text.
+    const edited = await run(s, "edit_workflow", {
+      edits: [{ old: '"intent": "open the Acme report"', new: '"intent": "open the newest report"' }],
+      why: "the newest",
+    });
+    expect(edited.ok).toBe(true);
+    expect(findStep(s.draft, "s2")).toMatchObject({ intent: "open the newest report" });
+    void s1;
+    void s2;
+  });
+
+  it("drops a block whose steps were all taken out", async () => {
+    const s = session();
+    const [trigger, , , s3] = steps(s) as Record<string, unknown>[];
+    await run(s, "write_workflow", {
+      workflow: { steps: [trigger, { block: "Open", steps: ["s1", "s2"] }, s3] },
+      why: "x",
+    });
+    const removed = applyEdits(s.draft, [
+      { op: "remove", step: "s1" },
+      { op: "remove", step: "s2" },
+    ]);
+    expect(removed.ok).toBe(true);
+    if (removed.ok) expect(removed.skill.steps.map((x) => x.id)).toEqual(["start", "s3"]);
   });
 
   it("names the step a problem is in, with what it does", async () => {

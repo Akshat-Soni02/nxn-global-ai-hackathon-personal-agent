@@ -94,6 +94,8 @@ export function applyEdits(skill: Skill, edits: EditInput[]): EditResult {
     if (problem) problems.push(edits.length > 1 ? `edit ${i + 1} (${input.op}): ${problem}` : problem);
   });
   if (problems.length > 0) return { ok: false, problems };
+  // A block whose last step was removed or moved out goes too: it has nothing left to name.
+  draft.steps = withoutEmptyBlocks(draft.steps);
   const parsed = SkillSchema.safeParse(draft);
   if (parsed.success) return { ok: true, skill: parsed.data };
   return {
@@ -238,6 +240,17 @@ function place(draft: Draft, at: Position, step: Step): string | undefined {
   if ("before" in at && found.list === draft.steps && found.index === 0) return "nothing goes before the trigger";
   found.list.splice("before" in at ? found.index : found.index + 1, 0, step);
   return undefined;
+}
+
+function withoutEmptyBlocks(steps: Step[]): Step[] {
+  return steps
+    .filter((s) => !(s.type === "control" && s.kind === "group" && (s.steps?.length ?? 0) === 0))
+    .map((s) => {
+      if (s.type !== "control") return s;
+      const inner = { ...s, steps: withoutEmptyBlocks(s.steps ?? []) } as Step;
+      if (s.kind === "branch") (inner as { else: Step[] }).else = withoutEmptyBlocks(s.else ?? []);
+      return inner;
+    });
 }
 
 // Steps next to each other in one list, in their order, into a new block in their place.

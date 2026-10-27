@@ -166,7 +166,18 @@ export const isHowTo = (question: string) =>
 export type DesignMode = "file" | "verbs";
 
 // The workflow as the model reads and edits it in file mode: the same formatting every time, so exact text matches.
-export const workflowFile = (skill: Skill) => JSON.stringify({ steps: skill.steps, success: skill.success }, null, 2);
+// A block's steps are folded to their ids (R5): the agent reads ~10 named blocks, not 33 steps; written back, an id is
+// that step as it is, so nothing is lost. read_workflow { step } shows any step in full; `full` shows every one.
+export const workflowFile = (skill: Skill, options: { full?: boolean } = {}) =>
+  JSON.stringify({ steps: options.full ? skill.steps : folded(skill.steps), success: skill.success }, null, 2);
+
+function folded(steps: Step[]): unknown[] {
+  return steps.map((s) => {
+    if (s.type !== "control") return s;
+    if (s.kind === "group") return { ...s, steps: s.steps.map((x) => x.id) };
+    return { ...s, steps: folded(s.steps), ...(s.kind === "branch" ? { else: folded(s.else) } : {}) };
+  });
+}
 
 // What file mode keeps from the verbs: looking, testing, asking, proposals, and finishing.
 const FILE_MODE = new Set(["accept", "reject", "restore", "look", "test", "ask", "done", "finish", "ask_user"]);
@@ -866,7 +877,13 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       keepWhy(s.id);
       return s;
     }
-    // Loops and branches: their inner steps too.
+    // A block as the agent may write it: { "block": "Open the jobs sheet", "steps": [ … ] } (R5).
+    if (typeof s.block === "string" && Array.isArray(s.steps)) {
+      const { block, ...rest } = s;
+      Object.assign(s, { ...rest, type: "control", kind: "group", intent: block });
+      delete s.block;
+    }
+    // Loops, branches and blocks: their inner steps too.
     if (s.type === "control" || "over" in s || ("if" in s && Array.isArray(s.steps))) {
       const kind = s.kind ?? ("over" in s ? "loop" : "branch");
       const step: Record<string, unknown> = { ...s, type: "control", kind };
@@ -887,7 +904,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
               itemType(String(s.over ?? "")) ?? { type: "text" }),
         };
         step.intent ??= `for each ${item.name ?? "item"} in ${s.over}`;
-      } else step.intent ??= "if it holds";
+      } else step.intent ??= kind === "group" ? "Steps" : "if it holds";
       keepWhy(step.id);
       return step;
     }
@@ -1178,8 +1195,13 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       }),
       prepare: unstring,
       run: ({ edits, why, whys }) => {
-        // Matched on the text as the agent read it (masked); writeWorkflow puts the private values back.
-        let text = maskText(canonical(session.draft), session.maskTerms ?? []).text;
+        // Matched on the text as the agent read it (masked); writeWorkflow puts the private values back. A step inside a
+        // block is folded to its id in that text: an edit that quotes it (read_workflow { step }) is matched on the
+        // workflow with every step in full.
+        const mask = (t: string) => maskText(t, session.maskTerms ?? []).text;
+        const list = Array.isArray(edits) ? edits : [edits];
+        const short = mask(canonical(session.draft));
+        let text = list.every((e) => short.includes(e.old)) ? short : mask(canonical(session.draft, { full: true }));
         for (const [i, e] of (Array.isArray(edits) ? edits : [edits]).entries()) {
           const count = text.split(e.old).length - 1;
           if (count !== 1) {

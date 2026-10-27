@@ -219,6 +219,12 @@ export async function finishRecording(
     ? { ...compiled.skill, id: existing.id, name: existing.name }
     : { ...compiled.skill, id: newSkillId(dataDir, compiled.skill.id) };
   let questions = compiled.questions;
+  // In named blocks from the start (reports/plan-oct26-workflow-revamp.md, R5): the design agent reads ~10 things the
+  // user did, not 33 browser events, and a design that changes nothing is saved readable.
+  const titles = new Map(
+    tabsOf(trace, steps).tabs.flatMap((t) => (t.firstUrl ? [[t.firstUrl, t.name] as [string, string]] : [])),
+  );
+  skill = blocksOf(skill, { titles });
   // The plain step list, before anything was decided: the history note says what changed from it.
   const plain = skill;
   // Questions the recording already answers are not asked (spec 2.10): "which file?" after "the latest invoice".
@@ -362,11 +368,7 @@ export async function finishRecording(
             },
           ],
         };
-  // Its browser steps in named blocks, by code: one node per thing done on a page, named by the page's tab, never its
-  // address (reports/plan-oct26-workflow-revamp.md, R2). After the change summary, so blocks aren't a change.
-  const titles = new Map(
-    tabsOf(trace, steps).tabs.flatMap((t) => (t.firstUrl ? [[t.firstUrl, t.name] as [string, string]] : [])),
-  );
+  // Steps the design added outside any block, grouped the same way (R2); blocks already there are kept.
   // Named by the design when it named it (its task model), a workflow recorded again keeps the name it had.
   const named = !existing && design?.task?.name ? { ...noted, name: design.task.name } : noted;
   const blocked = blocksOf(named as Skill, { titles });

@@ -129,6 +129,11 @@ const FILE = `The workflow is a file
 - The message shows it as read_workflow does: { "steps": [ … ], "success": [ … ] }. Change it with edit_workflow
   (exact old text → new text, for a value, a field, a step) or write_workflow (the whole of it: a plan, a loop around
   several steps, a big restructure). Every write is checked; a refused one changes nothing and says what to fix.
+- The workflow is in blocks: a named node for one thing the user did on a page ({ "kind": "group", "intent": "Open
+  Ycomb jobs", "steps": ["s2", "s3", "s4"] }). A block's steps are shown by id: an id written back is that step as it
+  is; read_workflow { "step": "s3" } shows one in full. Think in blocks first: the task is 5–8 named things ("Pick the
+  top 5 jobs", "Add a row for each new job"), then fill each. Write a new one as { "block": "Its name", "steps": [ … ] }
+  (steps by id, or new ones). A block holds steps, never a block; a loop or an if may hold blocks.
 - Keep each recorded step's id. A new step needs no id: code gives it one. Put "why" on each step you add or change:
   the user reads it. A recorded step you leave out is removed: the write's why says why, or "whys": { "s11": "…" } on
   any write explains a step by id, also one an earlier write left out.
