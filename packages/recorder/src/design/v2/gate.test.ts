@@ -101,6 +101,9 @@ describe("an AI step that is told to read something it isn't given (28 Oct)", ()
       expect(problems).toHaveLength(1);
       expect(problems[0]).toMatch(/ai5.*counting is code's.*first: N/);
     }
+    // A ranking the list doesn't hold is judgement: the AI step's.
+    expect(problemsOf(ai(["{{jobs}}"], "Return the top 3 stories by points."))).toEqual([]);
+    expect(problemsOf(ai(["{{jobs}}"], "Pick the 3 cheapest flights."))).toEqual([]);
     // Choosing by a rule is the model's: it isn't a count.
     expect(problemsOf(ai(["{{jobs}}"], "Return the jobs whose title is not in {{existing}}."))).toEqual([]);
   });

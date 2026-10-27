@@ -524,7 +524,7 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
         output: { name: "p", type: "list" },
       });
     expect(JSON.stringify((await pick("Extract the top 3 stories")).output)).toMatch(
-      /say how to pick: \\"the first 3 in the list's order\\"/,
+      /say how to pick: the ones in the list's order, with the count as the loop's first: 3/,
     );
     expect(vaguePick("the first 3 stories in the list's order")).toBeUndefined();
     expect(vaguePick("the top 3 stories by points")).toBeUndefined();

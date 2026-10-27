@@ -1,6 +1,6 @@
 import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { describe, expect, it } from "vitest";
-import { chromeWarning, progressOf, questionsFor, waitingNote } from "./questions.ts";
+import { approvalWhat, chromeWarning, progressOf, questionsFor, waitingNote } from "./questions.ts";
 
 const item = (id: string, kind: string, sessionId?: string) =>
   ({ id, kind, title: id, detail: sessionId ? { sessionId } : {}, createdAt: 0 }) as unknown as InboxItem;
@@ -45,5 +45,23 @@ describe("the Record screen's feed", () => {
       progress: [{ at: 1, line: "Read 4 actions as 3 steps" }],
     } as unknown as RecordingView;
     expect(progressOf(now).map((p) => p.line)).toEqual(["Read 4 actions as 3 steps"]);
+  });
+});
+
+describe("an approval card's values (Y9)", () => {
+  it("shows what the run filled in, and nothing from an older daemon or another kind", () => {
+    const approval = (waiting: unknown) =>
+      ({
+        id: "a",
+        kind: "approval",
+        title: "Approve: add a row",
+        detail: { waiting },
+        createdAt: 0,
+      }) as unknown as InboxItem;
+    expect(
+      approvalWhat(approval({ kind: "approval", what: 'GOOGLESHEETS_APPEND {"values":[["28 Oct","Acme"]]}' })),
+    ).toBe('GOOGLESHEETS_APPEND {"values":[["28 Oct","Acme"]]}');
+    expect(approvalWhat(approval({ kind: "approval" }))).toBeUndefined();
+    expect(approvalWhat(item("q", "question"))).toBeUndefined();
   });
 });

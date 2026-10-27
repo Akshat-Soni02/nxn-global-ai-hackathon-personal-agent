@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Empty, Loading } from "../components.tsx";
 import { ago, KIND, when } from "../format.ts";
+import { approvalWhat } from "../questions.ts";
 import { WorkflowTree } from "../WorkflowTree.tsx";
 
 export function Inbox() {
@@ -79,13 +80,22 @@ function Answer({ item }: { item: InboxItem }) {
   const waiting = item.detail.waiting as { error?: string; ask?: { kind: string } } | undefined;
 
   if (item.kind === "approval") {
+    const what = approvalWhat(item);
     return (
-      <div className="answers">
-        <Action kind="primary" run={() => answer("approve")}>
-          Approve
-        </Action>
-        <Action run={() => answer("deny")}>Deny</Action>
-      </div>
+      <>
+        {what ? (
+          <div className="what">
+            <div className="muted small">It will do</div>
+            <pre>{what}</pre>
+          </div>
+        ) : null}
+        <div className="answers">
+          <Action kind="primary" run={() => answer("approve")}>
+            Approve
+          </Action>
+          <Action run={() => answer("deny")}>Deny</Action>
+        </div>
+      </>
     );
   }
   if (item.kind === "recovery") {

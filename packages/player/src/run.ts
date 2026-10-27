@@ -300,6 +300,28 @@ async function approval(step: Step, path: string, env: Env): Promise<boolean | W
   return approved;
 }
 
+// What an approval card shows (Y9, 28 Oct: "Approve: Append one job row to sheet" said nothing of the row): the step's
+// tool or action and its values as they will be sent, cut to a readable length. Secret values are masked.
+export function whatItDoes(step: Step, secrets: string[]): string | undefined {
+  if (!isAction(step)) return undefined;
+  const body =
+    step.channel === "mcp"
+      ? `${String(step.args.tool)} ${JSON.stringify(step.args.arguments ?? {})}`
+      : `${step.channel}.${step.action}${step.target?.name ? ` on "${step.target.name}"` : ""} ${JSON.stringify(step.args)}`;
+  const masked = secrets.filter((s) => s.length > 0).reduce((text, s) => text.split(s).join("███"), body);
+  return masked.length > 900 ? `${masked.slice(0, 900)}…` : masked;
+}
+
+// The values of the run's secret inputs, so they are never shown.
+function secretsOf(skill: Skill, vars: Vars): string[] {
+  const first = skill.steps[0];
+  if (first?.type !== "trigger") return [];
+  return Object.entries(first.inputs)
+    .filter(([, input]) => input.type.type === "secret")
+    .map(([name]) => vars[name])
+    .filter((v): v is string => typeof v === "string");
+}
+
 // Ends the run until the user answers. `given`: what they already answered for this step, so it isn't asked again.
 function waitFor(waiting: Waiting, vars: Vars, given: Answer[]): Halt {
   return {
@@ -370,7 +392,12 @@ async function runLeaf(
   if (resolved.requires_approval && !walked) {
     const approved = await approval(resolved, path, env);
     if (approved === WAIT) {
-      return waitFor({ kind: "approval", path, stepId: step.id, intent: resolved.intent }, vars, given);
+      const what = whatItDoes(resolved, secretsOf(env.skill, vars));
+      return waitFor(
+        { kind: "approval", path, stepId: step.id, intent: resolved.intent, ...(what ? { what } : {}) },
+        vars,
+        given,
+      );
     }
     if (!approved) return fail("you denied it", "denied");
   }

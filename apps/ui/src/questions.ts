@@ -33,3 +33,11 @@ export function chromeWarning(connected: boolean | undefined): string | undefine
 export function progressOf(view: RecordingView): RecordingView["progress"] {
   return view.progress ?? [];
 }
+
+// What an approval will do, as the run filled it in (Y9): the app tool and its arguments, or the action and its values.
+// A daemon older than the window sends none: the card shows only its title, as before.
+export function approvalWhat(item: InboxItem): string | undefined {
+  if (item.kind !== "approval") return undefined;
+  const what = (item.detail.waiting as { what?: unknown } | undefined)?.what;
+  return typeof what === "string" && what.trim() ? what : undefined;
+}

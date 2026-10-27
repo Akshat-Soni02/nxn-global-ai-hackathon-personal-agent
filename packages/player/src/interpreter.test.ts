@@ -572,6 +572,21 @@ describe("waiting", () => {
     expect(asked).toBe(1); // the answer was used; the hook wasn't asked again
   });
 
+  it("shows on the approval what the step will do, its values filled in, a secret never (Y9, 28 Oct)", async () => {
+    const s = skill([write("s1", "{{who}} pays {{amount}} with {{pin}}", { requires_approval: true })], {
+      who: { type: T.text },
+      amount: { type: T.number },
+      pin: { type: { type: "secret" } },
+    });
+    const waiting = await runSkill(s, fake({}, { approve: async () => WAIT }).deps, {
+      inputs: { who: "Acme", amount: 1200, pin: "4242" },
+    });
+    const what = (waiting as { waiting?: { what?: string } }).waiting?.what ?? "";
+    expect(what).toContain("Acme pays 1200");
+    expect(what).toContain("~/out.txt");
+    expect(what).not.toContain("4242");
+  });
+
   it("ends as denied when the answer is no", async () => {
     const s = skill([write("s1", "one", { requires_approval: true })]);
     const resume = { at: "s1", vars: {}, answers: [{ kind: "approval" as const, approved: false }] };

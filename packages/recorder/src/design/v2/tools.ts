@@ -133,7 +133,7 @@ const Body = z
 export function vaguePick(instruction: string): string | undefined {
   const top = /\btop\s+(\d+|two|three|four|five|ten)\b/i.test(instruction);
   return top && !/\b(order|first|position|most|highest|largest|by)\b/i.test(instruction)
-    ? `say how to pick: "the first 3 in the list's order" (or "the 3 with the most points"); a model reads "top 3" as the most points`
+    ? `say how to pick: the ones in the list's order, with the count as the loop's first: 3 (or "the 3 with the most points"); a model reads "top 3" as the most points`
     : undefined;
 }
 

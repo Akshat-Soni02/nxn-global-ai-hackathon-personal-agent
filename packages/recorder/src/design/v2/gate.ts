@@ -143,6 +143,8 @@ export function roleAlone(step: Step): string[] {
 const READS_OUTSIDE =
   /\b(on|from|in|of) (the|this|that) (page|site|sheet|screen|spreadsheet|inbox)\b|\bvisible\b|\blistings?\b/i;
 
+// A ranking the list doesn't hold ("the 3 with the most points") is judgement, so it stays the AI step's.
+const RANKED = /\b(by|most|least|highest|lowest|best|worst|largest|smallest|cheapest|biggest)\b/i;
 const COUNT = /^\s*(take|keep|return|select|pick|get|give)\b[^.]{0,20}\b(first|top|last)\s+(\d+\b|\{\{\s*\w+\s*\}\})/i;
 
 export function stepProblems(step: Step): string[] {
@@ -151,7 +153,7 @@ export function stepProblems(step: Step): string[] {
   if (isLlm(step)) {
     // The first N of a list is a count, which code does: a loop's `first` (live run, 28 Oct: "take the first 5" came back
     // as items 1, 2, 3, 2, 5, and the run stopped on its own pick check).
-    if (COUNT.test(step.instruction))
+    if (COUNT.test(step.instruction) && !RANKED.test(step.instruction))
       return [
         `${step.id}: counting is code's, not an AI step's: loop over the whole list with first: N (it goes through only the first N), and put the steps that use each item in the loop`,
       ];

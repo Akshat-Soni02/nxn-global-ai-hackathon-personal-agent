@@ -117,7 +117,9 @@ export type Answer =
 // (log in); answered with retry, skip or stop. walk: a walk-through stopped before a step, its target highlighted;
 // `acting` says whether the step would change something (needs "do") or only reads ("next").
 export type Waiting =
-  | { kind: "approval"; path: string; stepId: string; intent: string }
+  // `what`: the step as it will run, its values filled in (an app tool and its arguments, the text it types), shown on
+  // the approval card; a secret input's value never appears in it.
+  | { kind: "approval"; path: string; stepId: string; intent: string; what?: string }
   | { kind: "ask"; path: string; stepId: string; question: string; ask: Ask }
   | { kind: "recovery"; path: string; stepId: string; message: string; error?: string }
   | { kind: "walk"; path: string; stepId: string; intent: string; acting: boolean; highlighted: boolean };
