@@ -169,6 +169,18 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
         "Run the draft on the live page from a step (default: the failed one) for `count` steps, as the real player does. Outward steps ask the user first. Says whether the result is evidence",
       input: z.object({ from: z.string().optional(), count: z.number().int().min(1).max(5).default(2) }),
       run: async ({ from, count }) => {
+        // An app step would write for real and nobody can approve a try: say what stands in for it, so the agent
+        // commits instead of giving up (a real run escalated here).
+        if (onlyAppSteps(session)) {
+          return {
+            output: {
+              ok: false,
+              ran: [],
+              error:
+                "a connected-app step is not tried: it would write for real. Commit it: the user is asked first, and that yes is its check",
+            },
+          };
+        }
         const start: Resume = { at: from ?? session.failure.path, vars: session.failure.vars };
         const result = await tryDraft(session.draft, env, start, count, session.original);
         session.tried = { draft: key(session.draft), result, from: start.at };
@@ -202,7 +214,7 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
       name: "commit",
       kind: "finish",
       description:
-        "Save the draft as the next version. Allowed only after try_steps ran the current draft through the failed step and showed evidence",
+        "Save the draft as the next version. Allowed only after try_steps ran the current draft through the failed step and showed evidence; a draft of only connected-app steps is not tried: commit it and the user's yes is its check",
       input: z.object({ summary: z.string().min(1).max(300) }),
       run: async ({ summary }) => {
         const problem = commitProblem(session);

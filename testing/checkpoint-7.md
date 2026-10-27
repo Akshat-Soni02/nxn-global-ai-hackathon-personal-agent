@@ -1,8 +1,7 @@
 # Checkpoint 7: the audit's Phase 2 fixes, checked for real (27 Oct)
 
 **What this is.** The fixes of `reports/changes.md` §5 were each written test-first. This file is the other half: what
-happened when they met the real model, real Composio, real Google apps and a real Chrome. Spend: $0.0003 (ledger, last
-row). Nothing here is in git except this record; the test sheet, test doc and daemon data are Rushil's.
+happened when they met the real model, real Composio, real Google apps and a real Chrome. Spend: $0.18 (ledger, the rows of 27 Oct). Nothing here is in git except this record; the test sheet, test doc and daemon data are Rushil's.
 
 **Where:** Rushil's own daemon (`pnpm daemon` on `main` + the Phase 2 commits, signed in to a local `pnpm api`) for the
 app checks; the isolated test daemon and Chrome for Testing (`~/shadow-tests/checkpoint-6/kit/`) for the page checks.
@@ -15,6 +14,7 @@ app checks; the isolated test daemon and Chrome for Testing (`~/shadow-tests/che
 | 2 | A drawn-grid step is stopped before it runs (A1, A2) | A workflow that navigates to the test sheet and types into its grid (`drawn: true`), Run now with Sheets connected | ✔ The run stopped before step 1 (no events, no browser, no model, $0) with "needs an app: step s2 works in a drawn area of Google Sheets, which replay can't reach: this workflow should use the app's own tool, not the page (Edit it, or record it again)" |
 | 3 | JS dialogs (A5) | A page that raises `alert`, `confirm` and `prompt` (`fixtures/pages/dialogs.html`), three workflows, real Chrome, extension reloaded | ✔ alert: accepted, run succeeded. confirm in a step nobody approved: stopped with `the page asked "Delete 3 items?" (confirm) and nothing says what to answer…`. confirm in an approved step: asked for the OK, then accepted, the page showed `confirm: true`. $0 |
 | 4 | Day 2 of A, B, C, D (Phase 5) | Run now of each saved workflow from the kit, real model for their AI steps | ✔ all four did their task; see below. $0.0003 |
+| 5 | Repair switches a failing page step to the connected app's tool (A3) | A workflow that opens the test doc in Rushil's Chrome and clicks a control that isn't there; Run now, real repair agent, Docs connected. Three runs, each after a fix | ◐ Partly. Run 1 ($0.071): probed the page 13 turns, put the app step's fields outside `args`, ran out of turns. Run 2 ($0.074): went to the app at once, guessed the tool's arguments, wrote an output type as a string ten times. Run 3 ($0.037): read the tool's arguments and wrote exactly the right step (`GOOGLEDOCS_INSERT_TEXT_ACTION`, the doc id, `append_to_end: true`), then tried it, was refused, and escalated instead of committing for the user's yes. Nothing was written to the doc. Not re-run after the last fix (see below) |
 
 **Day 2, each result against its live source:**
 - **D** (Wikipedia's featured article as a PDF): saved `27 Oct - 1986 New York Mets season.pdf`; Wikipedia's featured
@@ -39,9 +39,12 @@ app checks; the isolated test daemon and Chrome for Testing (`~/shadow-tests/che
 
 ## Not checked, and why
 
-- **Repair adding an app step (A3) on a real failing page step.** The preflight stops every `drawn` step first, so the
-  repair path is reached only by an ordinary page step that fails inside a page an app covers. That needs Rushil's
-  signed-in Chrome (the test browser is not signed in to Google) and about $0.10. Covered by tests only, so far.
+- **Repair committing an app step for the user's yes (A3), live.** Three real runs found four faults in how the repair
+  agent was told to do this; each was fixed test-first (`41ac2f2`, `7dab324`, and the one after them: a try of an
+  app-only fix now answers "commit it, the user's yes is its check", and the `commit` tool's description no longer says a
+  try must come first). The last fix is covered by tests and was **not re-run live**: the agreed limit was three paid
+  runs. If a fourth run still fails, the cause is the model's step-writing and the fix is to let code build the step from
+  the tool's own arguments, with the model only choosing the tool (a design choice for Rushil and Akshat).
 - **Designing a recording of a Sheets task with Sheets connected (R5.5 / the YC re-design).** The YC recording is not
   on this machine. It needs one short new recording of a task in the test sheet, then about $0.13.
 - **Popup windows, Save-as, permission asks, print preview and Mac-app sheets (A5 remainder).** Not built.

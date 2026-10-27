@@ -130,6 +130,33 @@ describe("repair asks instead of refusing", () => {
     }
   });
 
+  it("answers a try of an app-only fix with 'commit it', and the commit tool says so (a real run escalated instead)", async () => {
+    const appStep = {
+      edits: [
+        {
+          op: "replace",
+          step: "s5",
+          with: {
+            id: "s5",
+            type: "action",
+            intent: "add the line to the doc directly",
+            channel: "mcp",
+            action: "call",
+            requires_approval: true,
+            args: { tool: "GOOGLEDOCS_INSERT_TEXT_ACTION", arguments: { document_id: "made-up", text_to_insert: "x" } },
+          },
+        },
+      ],
+    };
+    const { s, run } = session(true);
+    await run("edit", appStep);
+    const tried = (await run("try_steps", {})) as { output: { ok: boolean; ran: unknown[]; error: string } };
+    expect(tried.output).toMatchObject({ ok: false, ran: [] });
+    expect(tried.output.error).toMatch(/not tried.*commit it.*yes/i);
+    const commit = repairTools(s).find((t) => t.name === "commit");
+    expect(commit?.description).toMatch(/only connected-app steps.*not tried/);
+  });
+
   it("lets the agent read a connected tool's arguments instead of guessing them, only when an app is connected", async () => {
     const { s, run } = session(undefined, {
       appTool: (name) =>
