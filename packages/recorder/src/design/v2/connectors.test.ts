@@ -10,6 +10,7 @@ import {
   type Connectors,
   connectorChances,
   documentIdOf,
+  LISTED_TOOLS,
   readOnlyTools,
   shortlist,
   type UsableApp,
@@ -164,9 +165,42 @@ describe("the tools listed", () => {
     expect(both.slice(0, 2)).toContain("GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND");
     expect(both).not.toContain("GOOGLESHEETS_DELETE_SHEET");
     const text = appsSection([{ ...app, tools, work: { writes: true, reads: true } }]).join("\n");
-    expect(text).toContain('look { app_tools: "googlesheets" }');
+    // A dozen tools all fit in the list (up to 40); the "…N more: look" line is for an app with more (see A4 below).
+    expect(text).not.toContain("more: look");
     // One line for one document, however many steps worked in it.
     expect(text.match(/<id:/g)).toHaveLength(1);
+  });
+});
+
+describe("how many of an app's tools the agent is shown (A4)", () => {
+  // Oct 25: all of Gmail's or Drive's tools (40–80, a 160-character line each) made a 27 k-character message the agent
+  // never read, so the list was cut to 8, which hid the tool a task needed. 40 short lines keep it small and wide.
+  const many = (n: number, toolkit = "googlesheets"): AppTool[] =>
+    Array.from({ length: n }, (_, i) => ({
+      ...APPEND,
+      name: `${toolkit.toUpperCase()}_DO_THING_${String(i).padStart(2, "0")}`,
+      description: `Does thing number ${i} with a long explanation that goes on and on. `.repeat(8),
+      toolkit,
+    }));
+
+  it("lists up to 40 tools of an app, each line short, and says how many more look shows", () => {
+    expect(LISTED_TOOLS).toBe(40);
+    const text = appsSection([{ ...app, tools: many(60) }]);
+    const lines = text.filter((l) => l.startsWith("- GOOGLESHEETS_"));
+    expect(lines).toHaveLength(40);
+    expect(Math.max(...lines.map((l) => l.length))).toBeLessThan(160);
+    expect(text.join("\n")).toContain("…20 more: look");
+  });
+
+  it("keeps the whole message far below the 27 k that was never read, even with 60 tools in each of three apps", () => {
+    const three = ["googlesheets", "gmail", "googledrive"].map((t) => ({
+      ...app,
+      toolkit: t,
+      name: t,
+      tools: many(60, t),
+    }));
+    expect(appsSection(three).join("\n").length).toBeLessThan(20_000);
+    expect(appsSection([{ ...app, tools: many(60) }]).join("\n").length).toBeLessThan(7_000);
   });
 });
 

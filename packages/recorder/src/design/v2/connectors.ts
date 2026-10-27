@@ -184,9 +184,11 @@ export interface UsableApp extends ConnectorChance {
   tools: AppTool[];
 }
 
-// At most this many tools of one app are listed in the build message (Gmail and Sheets have 40–60 and Drive 80; Oct 25:
-// all of them made a 27 k-character message the agent never read); the rest by look.
-export const LISTED_TOOLS = 8;
+// At most this many tools of one app are listed in the build message (Gmail and Sheets have 40–60 and Drive 80); the
+// rest by look. Oct 25: all of them, a 160-character line each, made a 27 k-character message the agent never read, so
+// the list was cut to 8, which hid the tool a task needed (the Sheets one for a cell). 40 lines of about 100 characters
+// keep the message small and the list wide.
+export const LISTED_TOOLS = 40;
 
 const WRITES = /APPEND|UPDATE|WRITE|INSERT|ADD|CREATE|SEND|REPLY|POST|UPSERT/;
 const READS = /GET|READ|LOOKUP|SEARCH|FIND|LIST|FETCH|VALUES/;
@@ -221,7 +223,7 @@ export function appsSection(apps: UsableApp[]): string[] {
       );
     const listed = shortlist(app);
     for (const tool of listed) {
-      const line = tool.description.split("\n")[0]?.slice(0, 160) ?? "";
+      const line = tool.description.split("\n")[0]?.slice(0, 100) ?? "";
       lines.push(`- ${tool.name}${tool.readOnly ? " (reads only)" : ""}: ${line}`);
     }
     if (app.tools.length > listed.length)
