@@ -262,7 +262,15 @@ interface Context {
 function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, files }: Context): StepDraft {
   const target = step.target && toLocator(step.target);
   const what = describe(step);
-  const leadsTo = step.navigatesTo ? { url_matches: pagePath(step.navigatesTo) } : undefined;
+  // A click that opened a document (a sheet from Drive's Recent) keeps the document's own path, id included: the id
+  // doesn't change each visit, it is the document; repair then opens it by its address if the list changes (N6).
+  // Not one that makes a document ("Blank spreadsheet", "Make a copy"): that opens a new id every run.
+  const makesOne = /\b(new|blank|create|copy|untitled)\b/i.test(what);
+  const doc =
+    step.navigatesTo && !makesOne
+      ? /\/(?:spreadsheets|document|presentation|file)\/d\/[\w-]{10,}/.exec(pathOf(step.navigatesTo))?.[0]
+      : undefined;
+  const leadsTo = step.navigatesTo ? { url_matches: doc ?? pagePath(step.navigatesTo) } : undefined;
   switch (step.kind) {
     case "navigate":
       return {

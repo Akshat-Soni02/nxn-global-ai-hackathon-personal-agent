@@ -21,7 +21,7 @@ import type { RepairEnv } from "./env.ts";
 import { type TryResult, tryDraft } from "./verify.ts";
 
 export interface LadderFix {
-  rung: "skip a detour" | "wait longer" | "fuzzy match";
+  rung: "skip a detour" | "open the document" | "wait longer" | "fuzzy match";
   summary: string;
   edits: EditInput[];
   skill: Skill;
@@ -67,6 +67,15 @@ export function detourFrom(skill: Skill, stepId: string): { skipped: string[]; o
   return undefined;
 }
 
+// The address of the document a click led to, when its check kept the document's id (the recorder does, for a
+// document picked from a list: N6): a sheet, doc or slides on docs.google.com, a file on Drive.
+export function documentAddress(step: Step): string | undefined {
+  if (!isAction(step) || step.action !== "click") return undefined;
+  const path = /^\/(spreadsheets|document|presentation|file)\/d\/[\w-]{10,}$/.exec(step.check?.url_matches ?? "");
+  if (!path) return undefined;
+  return path[1] === "file" ? `https://drive.google.com${path[0]}/view` : `https://docs.google.com${path[0]}/edit`;
+}
+
 function parentList(steps: Step[], id: string): Step[] | undefined {
   if (steps.some((s) => s.id === id)) return steps;
   for (const s of steps) {
@@ -102,6 +111,29 @@ export async function ladder(skill: Skill, failure: Failure, env: RepairEnv): Pr
       detour.skipped.map((id): EditInput => ({ op: "remove", step: id })),
       { at: failure.path.replace(/[^>\s]+$/, detour.opens), vars: failure.vars },
     );
+    if (fix) return fix;
+  }
+
+  // 0b. Open the document (N6): the click picked a document from a list (Drive's Recent) and the list changed; the
+  // document is the same, so it is opened by its address instead, in the same tab, with the same check.
+  const address = documentAddress(original);
+  if (address) {
+    const fix = await attempt("open the document", `${original.id}: opens the document it led to by its address`, [
+      {
+        op: "replace",
+        step: original.id,
+        with: {
+          id: original.id,
+          type: "action",
+          intent: `Open the document (${original.intent})`,
+          channel: "web",
+          action: "navigate",
+          ...(original.tab ? { tab: original.tab } : {}),
+          args: { url: address },
+          check: original.check,
+        } as never,
+      },
+    ]);
     if (fix) return fix;
   }
 

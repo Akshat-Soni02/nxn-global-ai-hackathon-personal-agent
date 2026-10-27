@@ -2,7 +2,7 @@ import { type ActionStep, Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import type { Failure, RunDeps } from "../types.ts";
 import type { RepairEnv } from "./env.ts";
-import { detourFrom, ladder } from "./ladder.ts";
+import { detourFrom, documentAddress, ladder } from "./ladder.ts";
 
 const nav = (id: string, url: string) => ({
   id,
@@ -101,5 +101,20 @@ describe("skipping a detour (Oct 25: the run died in Drive's Recent list)", () =
     expect(detourFrom(built, "s4")).toBeUndefined();
     const none = workflow([click("s4", "Recent"), click("s5", "File")]);
     expect(detourFrom(none, "s4")).toBeUndefined();
+  });
+});
+
+describe("opening the document a click led to, by its address (N6)", () => {
+  it("knows the address from the click's check when it kept the document's id, and only then", () => {
+    const opened = (url_matches: string) => click("s5", "Ycomb jobs", { check: { url_matches } }) as never;
+    expect(documentAddress(opened("/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUv"))).toBe(
+      "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUv/edit",
+    );
+    expect(documentAddress(opened("/file/d/1AbCdEfGhIjKlMnOpQrStUv"))).toBe(
+      "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUv/view",
+    );
+    // Cut (a document made new each run), or not a document: none.
+    expect(documentAddress(opened("/spreadsheets/d/"))).toBeUndefined();
+    expect(documentAddress(opened("/jobs"))).toBeUndefined();
   });
 });
