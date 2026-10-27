@@ -82,6 +82,7 @@ const methods = {
     params: z.object({ id, edits: z.array(Edit).min(1).max(50) }),
     run: (s: Service, p: { id: string; edits: EditInput[] }) => s.editDraft(p.id, p.edits),
   },
+  tidyDraft: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.tidyDraft(p.id) },
   undoDraft: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.undoDraft(p.id) },
   redoDraft: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.redoDraft(p.id) },
   discardDraft: { params: z.object({ id }), run: (s: Service, p: { id: string }) => s.discardDraft(p.id) },

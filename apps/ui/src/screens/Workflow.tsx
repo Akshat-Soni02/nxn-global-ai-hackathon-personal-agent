@@ -30,6 +30,8 @@ export function Workflow({ id }: { id: string }) {
   const trigger = latest.steps.find((s) => s.type === "trigger");
   const picked = nodeId ? findStep(latest, nodeId) : undefined;
   const node = picked && picked.type !== "trigger" ? picked : undefined;
+  // A long list of steps with no blocks: one saved before them, which "Tidy up" groups.
+  const flat = latest.steps.length > 9 && !latest.steps.some((s) => s.type === "control" && s.kind === "group");
   // What the design's review says is wrong, on the nodes (R3.5), while the version it is about hasn't been looked at.
   const problems =
     review.data && !review.data.reviewed && review.data.version === latest.version
@@ -64,6 +66,17 @@ export function Workflow({ id }: { id: string }) {
               <button type="button" className="button" onClick={() => setEditing(true)}>
                 Edit
               </button>
+            )}
+            {/* Saved before blocks (R2.5): group its steps into named blocks, shown in the editor to save or undo. */}
+            {editing || !flat ? null : (
+              <Action
+                run={async () => {
+                  await session.call("tidyDraft", { id });
+                  setEditing(true);
+                }}
+              >
+                Tidy up
+              </Action>
             )}
             {state?.state === "live" ? (
               <Action run={() => session.call("pause", { id })}>Pause</Action>

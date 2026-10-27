@@ -1,6 +1,6 @@
-import { isGroup, Skill, type Step } from "@shadow/core";
+import { applyEdits, isGroup, Skill, type Step } from "@shadow/core";
 import { describe, expect, it } from "vitest";
-import { blocksOf, clean, nodeCount, pageName } from "./blocks.ts";
+import { blockPlan, blocksOf, clean, nodeCount, pageName } from "./blocks.ts";
 import { shortName } from "./compile.ts";
 import { copyName } from "./skeleton.ts";
 
@@ -133,6 +133,28 @@ describe("blocks by code (the YC recording, Oct 26: 33 steps → 10 nodes)", () 
     expect(names(w.steps)).toEqual(["s1", "ai1", "l1"]);
     const loop = w.steps[3] as { steps: Step[] };
     expect(names(loop.steps)).toEqual(["Fill in Google Sheets"]);
+  });
+
+  it("is the same as edits, for a workflow saved before blocks (Tidy up, R2.5)", () => {
+    const old = workflow([
+      nav("s2", "https://drive.google.com/drive/my-drive"),
+      click("s4", "Recent"),
+      nav("s6", "https://jobs.example.com/jobs"),
+      copy("s8", "company"),
+      nav("s9", SHEET),
+      type("s10", "{{company}}"),
+    ]);
+    const plan = blockPlan(old);
+    expect(plan.map((e) => (e.op === "wrap" ? e.steps : []))).toEqual([
+      ["s2", "s4"],
+      ["s6", "s8"],
+      ["s9", "s10"],
+    ]);
+    const applied = applyEdits(old, plan);
+    if (!applied.ok) throw new Error(applied.problems.join("; "));
+    expect(names(applied.skill.steps)).toEqual(names(blocksOf(old).steps));
+    // Already in blocks: nothing to do.
+    expect(blockPlan(applied.skill)).toEqual([]);
   });
 
   it("keeps a design's own blocks, and never makes a workflow that doesn't parse", () => {

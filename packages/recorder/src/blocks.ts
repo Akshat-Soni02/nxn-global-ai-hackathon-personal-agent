@@ -5,7 +5,17 @@
 // A page segment starts at each step that opens a page (web.navigate) and takes the web steps after it, up to the next
 // open or the next step that isn't a web step. AI steps, app steps, files, Mac apps, loops and ifs stay nodes of their
 // own; a segment of one step stays a step. Blocks already there (the design's) are kept as they are.
-import { cleanName as clean, isAction, isGroup, type PageNames, pageName, Skill, type Step } from "@shadow/core";
+import {
+  cleanName as clean,
+  type EditInput,
+  isAction,
+  isGroup,
+  type PageNames,
+  pageName,
+  Skill,
+  type Step,
+  walkSteps,
+} from "@shadow/core";
 
 export type BlockNames = PageNames;
 export { clean, pageName };
@@ -115,6 +125,17 @@ export function blocksOf(skill: Skill, names: BlockNames = {}): Skill {
   collect(skill.steps);
   const parsed = Skill.safeParse({ ...skill, steps: group(skill.steps, names, taken, { current: "the page" }) });
   return parsed.success ? parsed.data : skill;
+}
+
+// The same grouping as edits (R2.5, "Tidy up" for a workflow saved before blocks): one `wrap` per block blocksOf
+// would make, applied to a draft so the user sees it and saves it as a version.
+export function blockPlan(skill: Skill, names: BlockNames = {}): EditInput[] {
+  const had = new Set([...walkSteps(skill.steps)].map(({ step }) => step.id));
+  return [...walkSteps(blocksOf(skill, names).steps)].flatMap(({ step }) =>
+    isGroup(step) && !had.has(step.id)
+      ? [{ op: "wrap" as const, steps: step.steps.map((s) => s.id), intent: step.intent, id: step.id }]
+      : [],
+  );
 }
 
 // How many nodes a reader sees: blocks and steps at the top level of each list, a loop or if counting once.

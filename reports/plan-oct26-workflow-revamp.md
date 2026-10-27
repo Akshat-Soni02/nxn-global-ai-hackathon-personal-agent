@@ -91,7 +91,7 @@ commit that does it.
 | R2.3 | The recorded workflow is saved with blocks (compile), so even a design that does nothing is readable | `packages/recorder/src/compile.ts` | ☑ R2 (at save in `apps/daemon/src/record.ts`, after the change summary, not in compile: a design could empty a block) |
 | R2.4 | Measure on the YC recording offline (`pnpm design:eval`, fake model, free): node count and names, in the log below | `scripts/design-eval.ts` | ☑ R2: 33 steps → 10 nodes, all named (see log) |
 | R2.6 | Values a recording copied are saved as `copied_1`…`copied_4` (seen in the "+" AI form's "It reads"): name each by what was copied (the control's label or the text's role: "company", "pay"), by code in compile, the design agent renaming when it knows better | `packages/recorder/src/compile.ts` (`save_as` for copies) | ◐ R2.6 (`copyName` in `skeleton.ts`: the sheet's column, the label, the words before it, its kind, the value's shape; the YC copies: amount, amount_2, link, copied_1 (the company: nothing says what it is; the design agent's to rename)) |
-| R2.5 | Workflows saved before blocks keep their flat steps and long names: a "Tidy up" on their page that groups them (`blocksOf` as `wrap` edits on a draft, so it is a version the user saves) and gives a short name | `Workflow.tsx`, daemon draft API | ☐ |
+| R2.5 | Workflows saved before blocks keep their flat steps and long names: a "Tidy up" on their page that groups them (`blocksOf` as `wrap` edits on a draft, so it is a version the user saves) and gives a short name | `Workflow.tsx`, daemon draft API | ☑ R2.5 ("Tidy up" on the page when there are no blocks and more than 8 steps; daemon `tidyDraft` applies `blockPlan` + the short name to the draft, then the editor opens) |
 
 ### R3. The workflow page: clean nodes, details on the side
 
@@ -155,12 +155,13 @@ commit that does it.
 
 ## Resume here
 
-**Next:** R2.5, "Tidy up" for workflows saved before blocks (your real YC workflow is one: flat 33 steps, long name).
-On the workflow page, when its top level has no block and more than ~8 steps: a button that opens the editor's draft
-and applies `blocksOf`'s grouping as `wrap` edits (needs the grouping as edits: return `{ steps, intent }[]` from a
-`blockPlan(skill)` beside `blocksOf`, so the daemon or the window can apply them) plus `set_skill name` from
-`shortName(goal)`; the user sees it in the editor and saves it as the next version. Then R4.6 (Edit / Test as modes
-of the page, "+" on the page), R5 (the design agent writes blocks).
+**Next:** R5.1–R5.3, the design agent works in blocks. Give the agent the recording already grouped (`blocksOf` on
+the plain list before the design, in `designV2`, so its first message and `read_workflow` show ~10 named blocks, not
+33 steps), fold a block's inner steps to one line each in `workflowFile` (`read_workflow { step: "b2" }` unfolds it),
+accept `{ "block": "name", "steps": [ … ] }` in `write_workflow` (`expandStep` → a group), and say in the prompt: plan
+5–8 named things, then fill each. Watch the gate (`lostWork`) and the plain changes still find recorded steps inside
+blocks. Measure with the free eval, then one real run (ledger $5.63 of $10). Then R4.6 (Edit / Test as modes of the
+page, "+" on the page).
 
 Done so far: R1 (blocks in the core), R2.1–R2.4 (code groups every saved workflow), R3 (one node per block, icon +
 plain title, details panel with Details / Debug, no addresses; the review's problems as badges on their nodes; the
@@ -224,3 +225,7 @@ Never commit a real document id, email or recording: use made-up ones in tests.
   label, the words before it, its kind (a heading is a title), the value's shape (an amount, a date, an email, a link),
   else `copied_N` as before. The YC copies: `copied_1`…`copied_4` → `copied_1` (the company: nothing says so),
   `link`, `amount`, `amount_2`. 788 tests pass.
+- **Oct 27, R2.5**: "Tidy up" on a workflow saved before blocks: the daemon's `tidyDraft` applies `blockPlan` (the
+  grouping `blocksOf` would make, as `wrap` edits) and the short name to the draft, and the editor opens on it to save
+  as the next version or undo. Checked read-only on the user's own saved YC workflow, in memory: 32 nodes → 10, named
+  "Collect top jobs from ycombinator". It shows once the daemon runs this branch's code. 789 tests pass.
