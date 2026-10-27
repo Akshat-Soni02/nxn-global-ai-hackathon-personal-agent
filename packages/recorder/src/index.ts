@@ -54,7 +54,7 @@ export { type Review, reviewOf } from "./design/v2/review.ts";
 export { type ChangeNote, changeNotes, type RecordingFacts } from "./design/v2/rules.ts";
 export { applyAnswer, type DrillResult, drill, type Prompter } from "./drill.ts";
 export { checkExpectations, Expectation, Expectations, type Verdict } from "./eval/expect.ts";
-export { answerFromEvidence } from "./evidence/answers.ts";
+export { answerFromEvidence, neverFromSpeech } from "./evidence/answers.ts";
 export { CAPTION_CHARS, captionQuestion, captionsOf, type DescribePicture } from "./evidence/captions.ts";
 export { classOf, type StepClass } from "./evidence/classes.ts";
 export {

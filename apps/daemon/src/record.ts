@@ -35,6 +35,7 @@ import {
   drill,
   type Evidence,
   effectsOf,
+  neverFromSpeech,
   nodeCount,
   normaliseAll,
   type Prompter,
@@ -207,12 +208,16 @@ export async function finishRecording(
   stopped();
   // The description form filled in before Record; recordings made before Oct 13 have none.
   const recorded = readForm(dataDir, sessionId);
+  // A Never rule said aloud while recording ("never email the client") is one (N16), with the form's.
+  const spoken = neverFromSpeech(readNotes(dataDir, sessionId).filter((n) => n.kind === "said"));
+  const never = [...(recorded?.never ?? []), ...spoken.filter((r) => !recorded?.never.includes(r))];
+  if (spoken.length > 0) log(`Never rules you said: ${spoken.map((r) => `"${r}"`).join(", ")}`);
   const form = recorded && {
     description: {
       goal: recorded.goal,
       changes: recorded.changes,
       constants: recorded.constants,
-      never: recorded.never,
+      never,
     },
     when: recorded.when,
     // Only the goal is asked before recording, so how often it runs is set from what was said; unless it was given:

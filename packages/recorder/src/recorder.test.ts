@@ -676,6 +676,7 @@ describe("which file a skill uses next time", () => {
       "ask me each time I run it",
       "the newest *.jpeg in ~/Downloads",
       "always Rushil Jariwala Photo.jpeg",
+      "all of them: every *.jpeg in ~/Downloads, one after another",
     ]);
     expect(question?.default).toBe("ask me each time I run it");
     const always = applyAnswer(skill, question as Question, "3");
@@ -683,6 +684,17 @@ describe("which file a skill uses next time", () => {
       glob: "Rushil Jariwala Photo.jpeg",
       ask: false,
     });
+    // All of them (N19): the input is every matching file, and the steps that use it go through them one by one, the
+    // file named as before inside the loop.
+    const all = applyAnswer(skill, question as Question, "4");
+    if (!all.ok) throw new Error(all.error);
+    expect(inputsOf(all.skill).rushil_files).toMatchObject({
+      type: { type: "list", items: { type: "file" } },
+      resolve: { glob: "*.jpeg", pick: "all", ask: false },
+    });
+    expect(inputsOf(all.skill).rushil).toBeUndefined();
+    const loop = all.skill.steps.find((s) => s.type === "control" && s.kind === "loop");
+    expect(loop).toMatchObject({ over: "{{rushil_files}}", item: { name: "rushil", type: { type: "file" } } });
   });
 });
 

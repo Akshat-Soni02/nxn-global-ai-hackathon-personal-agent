@@ -588,6 +588,11 @@ function fileQuestion(
         { label: each, value: askEachTime },
         { label: `the newest ${like} in ${found.dir}`, value: { ...found, glob: like, ask: false } },
         { label: `always ${fileName}`, value: { ...found, glob: fileName, ask: false } },
+        // Every one, one after another (N19): the answer puts the steps that use it in a loop (drill.ts everyFile).
+        {
+          label: `all of them: every ${like} in ${found.dir}, one after another`,
+          value: { ...found, glob: like, ask: false, pick: "all" },
+        },
       ],
       default: each,
     }),

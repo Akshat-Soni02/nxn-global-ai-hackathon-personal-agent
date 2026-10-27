@@ -107,10 +107,47 @@ export function applyAnswer(
   }
   const last = keys.at(-1) as string;
   node[last] = valueFor(question, answer, node[last]);
+  everyFile(copy, question.appliesTo ?? "");
 
   const parsed = Skill.safeParse(copy);
   if (parsed.success) return { ok: true, skill: parsed.data };
   return { ok: false, error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+}
+
+// "All of them" for a file input (N19): its resolve now takes every matching file, so the input becomes the list
+// (<name>_files) and the steps that use the file go through it one by one, in a loop whose item keeps the file's name:
+// every {{name.path}} in them stays right. Only for a single file input, answered at its resolve.
+function everyFile(copy: Record<string, unknown>, appliesTo: string): void {
+  const m = /^steps\.([^.]+)\.inputs\.([^.]+)\.resolve$/.exec(appliesTo);
+  if (!m) return;
+  const steps = copy.steps as Record<string, unknown>[];
+  const trigger = m[1] === "0" ? steps[0] : steps.find((s) => s.id === m[1]);
+  const inputs = trigger?.inputs as
+    | Record<string, { type?: { type?: string }; resolve?: { pick?: string } }>
+    | undefined;
+  const name = m[2] as string;
+  const input = inputs?.[name];
+  if (!inputs || !input || input.resolve?.pick !== "all" || input.type?.type !== "file") return;
+  const list = `${name}_files`;
+  delete inputs[name];
+  inputs[list] = { ...input, type: { type: "list", items: { type: "file" } } } as never;
+  const uses = new RegExp(`\\{\\{\\s*${name}\\b`);
+  const at = steps.map((s, i) => (s.type !== "trigger" && uses.test(JSON.stringify(s)) ? i : -1)).filter((i) => i >= 0);
+  if (at.length === 0) return;
+  const first = at[0] as number;
+  const end = (at.at(-1) as number) + 1;
+  const taken = new Set(steps.map((s) => String(s.id)));
+  let n = 1;
+  while (taken.has(`l${n}`)) n++;
+  steps.splice(first, end - first, {
+    id: `l${n}`,
+    type: "control",
+    kind: "loop",
+    intent: `for each ${name.replace(/_/g, " ")} file`,
+    over: `{{${list}}}`,
+    item: { name, type: { type: "file" } },
+    steps: steps.slice(first, end),
+  });
 }
 
 // A step by id anywhere in the tree: inside a loop, or either arm of a branch. Answers address steps by id, and the
