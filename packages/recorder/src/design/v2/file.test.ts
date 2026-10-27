@@ -293,7 +293,9 @@ describe("the workflow as a file", () => {
     expect(String(written.works_on)).toMatch(/reads mail\.example\.com \(the page \w+ opened\)/);
     const read = s.draft.steps.at(-1) as { intent: string };
     expect(read.intent).toBe("read all .job");
-    expect(pagesOfSteps(session().draft, new Set(["s3"]))).toEqual(["s3 types on mail.example.com (the page s1 opened)"]);
+    expect(pagesOfSteps(session().draft, new Set(["s3"]))).toEqual([
+      "s3 types on mail.example.com (the page s1 opened)",
+    ]);
   });
 
   it("names the step a problem is in, with what it does", async () => {

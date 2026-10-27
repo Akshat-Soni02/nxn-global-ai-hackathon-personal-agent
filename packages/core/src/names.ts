@@ -1,7 +1,7 @@
 // Names people read (reports/plan-oct26-workflow-revamp.md, R2–R3): a page by its tab's name or app, never its address
 // (a sheet's address holds its id); a control without what only a screen reader needed; a step by what it does. Shared
 // by the recorder (block names) and the window (node titles).
-import { isAction, type Step } from "./skill.ts";
+import { isAction, type Skill, type Step, walkSteps } from "./skill.ts";
 
 export interface PageNames {
   // A page's name by its address (the recording's tab names: "Ycomb jobs", "Jobs | Y Combinator").
@@ -55,6 +55,20 @@ export function cleanName(text: string): string {
 // Sheets").
 export const withoutAddresses = (text: string, names: PageNames = {}): string =>
   text.replace(/https?:\/\/[^\s"')]+/g, (url) => pageName(url, names));
+
+// Where a step is, for a message to the user (R7.2): the block it is in, else the step, by title, with the step's id
+// for the run log: “Fill in Google Sheets” (s11).
+export function whereIn(skill: Pick<Skill, "steps">, id: string): string {
+  for (const { step, parents } of walkSteps(skill.steps)) {
+    if (step.id !== id) continue;
+    const block = [...parents]
+      .reverse()
+      .map((p) => [...walkSteps(skill.steps)].find((x) => x.step.id === p)?.step)
+      .find((p) => p?.type === "control" && p.kind === "group");
+    return `“${stepTitle(block ?? step)}” (${id})`;
+  }
+  return id;
+}
 
 // A step's title for a reader: a block's name, "Open ‹page›" for an open, the intent cleaned of addresses and
 // screen-reader words otherwise.

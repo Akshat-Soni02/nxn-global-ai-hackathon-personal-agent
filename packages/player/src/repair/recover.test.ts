@@ -69,7 +69,7 @@ describe("recovery that waits", () => {
       waiting: { kind: "recovery", path: "s1", stepId: "s1", error: "target not found" },
       resume: { at: "s1" },
     });
-    expect(waiting.waiting?.kind === "recovery" && waiting.waiting.message).toContain("couldn't repair s1");
+    expect(waiting.waiting?.kind === "recovery" && waiting.waiting.message).toContain("couldn't repair “write s1” (s1)");
 
     // Later (perhaps after a restart): the user did s1 by hand and chose skip.
     const later = fake([]);
