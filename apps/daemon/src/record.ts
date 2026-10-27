@@ -7,7 +7,17 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, sep } from "node:path";
-import { type Effect, isAction, type Skill, type Step, type TraceEvent, triggerOf, walkSteps } from "@shadow/core";
+import {
+  type EditInput,
+  type Effect,
+  isAction,
+  type Position,
+  type Skill,
+  type Step,
+  type TraceEvent,
+  triggerOf,
+  walkSteps,
+} from "@shadow/core";
 import { type Llm, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
 import {
@@ -407,6 +417,81 @@ export async function finishRecording(
 // or a control it changed, is only outlined).
 // A click at a place a recorded step acted at counts too: it is that control, whatever it says that day (D, 24 Oct: the
 // final check only outlined the click on the featured article's place, and saved the Main Page as the PDF).
+// Show me (R4.7): one part of a workflow you have, recorded by doing it once. What was done is compiled by code alone,
+// as a recording is before the design agent reads it, into one block named as you said, with step ids and value names
+// the workflow doesn't use yet, so it goes in at the "+" as an edit to the draft (looked at, refined by hand or by chat,
+// then saved). Before, a part that was wrong or new meant recording the whole task again or building it step by step.
+export async function blockFromRecording(
+  sessionId: string,
+  options: { dataDir: string; log: Log; name: string; into: Skill; locate?: LocateOptions },
+): Promise<
+  | {
+      block: { id: string; type: "control"; kind: "group"; intent: string; steps: Step[] };
+      edits(at: Position): EditInput[];
+    }
+  | undefined
+> {
+  const raw = readTrace(options.dataDir, sessionId);
+  const trace = options.locate ? await locateFiles(raw, options.locate) : raw;
+  const { steps } = normaliseAll(trace);
+  options.log(`show me ${sessionId}: ${trace.length} event(s) -> ${steps.length} step(s)`);
+  if (steps.length === 0) return undefined;
+  const compiled = await compile(steps, {});
+  const [first, ...body] = compiled.skill.steps;
+  const recordedInputs = first?.type === "trigger" ? first.inputs : {};
+  const into = triggerOf(options.into);
+  // Ids and value names the workflow has: the block's own are renamed so nothing in it clashes.
+  const taken = new Set([...walkSteps(options.into.steps)].map(({ step }) => step.id));
+  const named = new Set<string>(Object.keys(into.inputs));
+  for (const { step } of walkSteps(options.into.steps)) {
+    if ("output" in step && step.output) named.add(step.output.name);
+    if (step.type === "control" && step.kind === "loop") named.add(step.item.name);
+  }
+  const fresh = (prefix: string) => {
+    let n = 1;
+    while (taken.has(`${prefix}${n}`)) n++;
+    taken.add(`${prefix}${n}`);
+    return `${prefix}${n}`;
+  };
+  const ids = new Map<string, string>();
+  const names = new Map<string, string>();
+  for (const { step } of walkSteps(body)) {
+    ids.set(step.id, fresh("s"));
+    const out = "output" in step ? step.output?.name : undefined;
+    if (out && named.has(out)) {
+      let k = 2;
+      while (named.has(`${out}_${k}`)) k++;
+      names.set(out, `${out}_${k}`);
+      named.add(`${out}_${k}`);
+    }
+  }
+  for (const name of Object.keys(recordedInputs)) if (named.has(name) && !names.has(name)) names.set(name, `${name}_2`);
+  const rename = (text: string) =>
+    [...names].reduce((t, [from, to]) => t.replace(new RegExp(`\\{\\{\\s*${from}\\b`, "g"), `{{${to}`), text);
+  const renamed = JSON.parse(rename(JSON.stringify(body)), (key, value) => {
+    if (key === "id" && typeof value === "string" && ids.has(value)) return ids.get(value);
+    if (key === "name" && typeof value === "string" && names.has(value)) return names.get(value);
+    return value;
+  }) as Step[];
+  const inputs = Object.fromEntries(Object.entries(recordedInputs).map(([k, v]) => [names.get(k) ?? k, v]));
+  const block = {
+    id: fresh("b"),
+    type: "control" as const,
+    kind: "group" as const,
+    intent: options.name,
+    steps: renamed,
+  };
+  return {
+    block,
+    edits: (at) => [
+      ...(Object.keys(inputs).length > 0
+        ? [{ op: "set", step: into.id, field: "inputs", value: { ...into.inputs, ...inputs } } as EditInput]
+        : []),
+      { op: "insert", at, step: block as never },
+    ],
+  };
+}
+
 export function unchangedControls(recorded: Skill, draft: Skill, places: Set<string> = new Set()): Set<string> {
   const target = (step: Step) => JSON.stringify(isAction(step) ? step.target : undefined);
   const was = new Map([...walkSteps(recorded.steps)].map(({ step }) => [step.id, target(step)]));

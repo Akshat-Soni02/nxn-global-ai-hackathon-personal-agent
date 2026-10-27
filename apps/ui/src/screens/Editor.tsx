@@ -112,6 +112,10 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
               skill={d.skill}
               tools={tools.data ?? []}
               apply={(edits) => session.call("editDraft", { id, edits }).then(draft.reload)}
+              showMe={async (name, at) => {
+                await session.call("recordStart", { goal: `Show me: ${name}`, into: { skillId: id, at, name } });
+                location.hash = "#/record";
+              }}
               close={() => setAdding(undefined)}
             />
           ) : spot ? (

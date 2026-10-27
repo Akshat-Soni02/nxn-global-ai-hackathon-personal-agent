@@ -111,6 +111,7 @@ isn't built. The plan's own order was design quality first (R5.3, R5.4), then R4
   again or build the part by hand. It also lets a user teach repair the right way.
 - **Why not built.** It needs a recording session with a *scope* (start and stop around one block), compile
   into an existing workflow, and UI for the demonstration. Nothing in the recorder takes a scope today.
+- **✔ Built 28 Oct.** "Show me" in the "+" menu: name the part, Start recording, do it once, Stop. The recording form carries `into { skillId, at, name }`; what was done is compiled by code alone (no model, no cost) into one block named as you said, with step ids and value names the workflow doesn't use yet (`record.ts` `blockFromRecording`), and put into that workflow's draft at the spot. The workflow page now says when a draft with changes waits. **Checked live** (scratch daemon, Chrome for Testing, through the window): "Open the details" came back as block b3 (s5, s6) after b2. Refining it: by hand, or by the chat box (R6.1).
 
 ### R5.4 The gate and the critic speak in blocks (medium)
 

@@ -22,6 +22,7 @@ const KINDS: { kind: Kind | Marker; title: string; about: string }[] = [
   { kind: "app", title: "App action", about: "Something a connected app does directly" },
   { kind: "ask", title: "Ask me", about: "A question before the next step, answered each run" },
   { kind: "approve", title: "Wait for my OK", about: "The next step waits until you approve it" },
+  { kind: "show", title: "Show me", about: "Do it once in Chrome: it is recorded as a block here" },
 ];
 
 // A variable's name from what a person types: "Top jobs" → "top_jobs".
@@ -155,7 +156,7 @@ export function stepOf(kind: Kind, f: Record<string, string>, tools: ToolInfo[] 
 
 // Two more ways to build, which add no step: they set a field on the step that follows the spot (R4.2, B4). "Ask me"
 // puts a question on it, answered before it runs; "Wait for my OK" makes it wait for your approval.
-export type Marker = "ask" | "approve";
+export type Marker = "ask" | "approve" | "show";
 
 // The id of the step that follows a spot, if there is one: after a step is its next sibling, before is that step, and
 // into a loop, a branch or a block at its start is its first step.
@@ -187,6 +188,8 @@ export function editsFor(
   skill: Skill,
   tools: ToolInfo[] = [],
 ): EditInput[] | string {
+  // Show me adds nothing here: the recording comes back as an edit of its own (the daemon).
+  if (kind === "show") return "Show me starts a recording";
   if (kind !== "ask" && kind !== "approve") {
     const step = stepOf(kind, f, tools);
     return typeof step === "string" ? step : [{ op: "insert", at, step } as EditInput];
@@ -214,12 +217,15 @@ export function AddNode({
   skill,
   tools = [],
   apply,
+  showMe,
   close,
 }: {
   at: At;
   skill: Skill;
   tools?: ToolInfo[];
   apply(edits: EditInput[]): Promise<unknown>;
+  // Show me (R4.7): start a recording of one part, to come back here as a block at this spot.
+  showMe?(name: string, at: At): Promise<unknown>;
   close(): void;
 }) {
   const [kind, setKind] = useState<Kind | Marker>();
@@ -297,6 +303,16 @@ export function AddNode({
   };
   const submit = async () => {
     if (!kind) return;
+    if (kind === "show") {
+      const name = (form.name ?? "").trim();
+      if (!name) return setProblem("say what this part does, for its block's name");
+      try {
+        await showMe?.(name, at);
+      } catch (e) {
+        setProblem((e as Error).message);
+      }
+      return;
+    }
     const edits = editsFor(kind, form, at, skill, tools);
     if (typeof edits === "string") return setProblem(edits);
     setProblem(undefined);
@@ -320,7 +336,7 @@ export function AddNode({
         <>
           <p className="muted small">It goes {where}.</p>
           <div className="node-kinds">
-            {KINDS.filter((k) => k.kind !== "app" || tools.length > 0).map((k) => (
+            {KINDS.filter((k) => (k.kind !== "app" || tools.length > 0) && (k.kind !== "show" || showMe)).map((k) => (
               <button key={k.kind} type="button" className="node-kind" onClick={() => setKind(k.kind)}>
                 <strong>{k.title}</strong>
                 <span className="muted small">{k.about}</span>
@@ -342,6 +358,15 @@ export function AddNode({
               {field("question", "What to ask", "for example: Which month is this for?")}
               {choose("answer", "Answered with", ["a value", "yes/no"])}
               {form.answer === "yes/no" ? null : field("name", "Save the answer as", "a short name, for later steps")}
+            </>
+          ) : null}
+          {kind === "show" ? (
+            <>
+              {field("name", "What does this part do?", "its block's name: Fill in the order form")}
+              <p className="muted small">
+                Shadow starts recording: do it once in Chrome, then press Stop. It comes back here as a block in the
+                draft, to look at and save.
+              </p>
             </>
           ) : null}
           {kind === "approve" ? (
@@ -408,7 +433,7 @@ export function AddNode({
               Back
             </button>
             <button type="submit" className="button primary">
-              Add
+              {kind === "show" ? "Start recording" : "Add"}
             </button>
           </div>
         </form>

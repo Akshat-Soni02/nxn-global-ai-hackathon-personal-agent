@@ -42,7 +42,7 @@ export interface RecordControlOptions {
     sessionId: string,
     progress: (line: string) => void,
     signal: AbortSignal,
-  ): Promise<{ skill: { id: string } } | undefined>;
+  ): Promise<{ skill: { id: string }; text?: string } | undefined>;
   // Answers a recording's waiting questions with their defaults, so nothing keeps waiting for a design that was stopped.
   dismissQuestions?(sessionId: string): number;
   log: Log;
@@ -129,8 +129,13 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
         // The recording's folder is deleted a day from now (recording-store.ts).
         writeMeta(dataDir, id, { savedAt: Date.now(), skillId: saved.skill.id, outcome: "saved" });
         log(`replay it with: run ${saved.skill.id}`);
-        last = { sessionId: id, outcome: "saved", skillId: saved.skill.id, text: `Saved ${saved.skill.id}` };
-        status("saved", `Saved ${saved.skill.id}. Replay: run ${saved.skill.id}`);
+        last = {
+          sessionId: id,
+          outcome: "saved",
+          skillId: saved.skill.id,
+          text: saved.text ?? `Saved ${saved.skill.id}`,
+        };
+        status("saved", saved.text ?? `Saved ${saved.skill.id}. Replay: run ${saved.skill.id}`);
       } else {
         last = {
           sessionId: id,

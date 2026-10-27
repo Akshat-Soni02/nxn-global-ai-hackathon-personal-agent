@@ -23,7 +23,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { Skill } from "@shadow/core";
+import { type Position, Skill } from "@shadow/core";
 import { bundlePath, dataDir, logDir, migrateLegacyDataDir, socketPath } from "@shadow/ipc";
 import { configFromEnv, createLlm, type Llm, type LlmConfig, UsageMeter } from "@shadow/llm";
 import { openMemory } from "@shadow/memory";
@@ -42,7 +42,7 @@ import { startHttp } from "./http.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
 import { appsOfWorkflow, listedToolsOf, type McpTools, mcpTools } from "./mcp-tools.ts";
-import { finishRecording } from "./record.ts";
+import { blockFromRecording, finishRecording } from "./record.ts";
 import { createRecordControl, type RecordControl } from "./record-control.ts";
 import { maskTermsOf, readConsent, readForm, recordingDir, sweepRecordings } from "./recording-store.ts";
 import { rehearse } from "./rehearse.ts";
@@ -303,6 +303,21 @@ record = createRecordControl({
   // Stop on "Turning your recording into a workflow": what the design asked stops waiting.
   dismissQuestions: (sessionId) => service.dismissQuestions(sessionId),
   finish: async (sessionId, progress, signal) => {
+    // Show me (R4.7): the part done once goes into that workflow's draft as a block, by code alone.
+    const into = readForm(home, sessionId)?.into;
+    if (into) {
+      const workflow = service.workflow(into.skillId)?.latest;
+      if (!workflow) throw new Error(`no workflow ${into.skillId} to add it to`);
+      const base = service.draft(into.skillId).skill;
+      progress(`Turning what you showed into the block "${into.name}"`);
+      const made = await blockFromRecording(sessionId, { dataDir: home, log, name: into.name, into: base });
+      if (!made) return undefined;
+      service.editDraft(into.skillId, made.edits(into.at as Position));
+      return {
+        skill: { id: into.skillId },
+        text: `Added "${into.name}" (${made.block.steps.length} steps) to ${workflow.name}'s draft: look at it on its page, then save it`,
+      };
+    }
     // Every screenshot is read and masked, and the narration turned into text, before the recording becomes a workflow:
     // both at the same time (both run in Shadow.app, on the Mac).
     progress("Reading the words on your screen and turning your voice into text");

@@ -12,7 +12,7 @@ import { type Daemon, startDaemon } from "./daemon.ts";
 import { classify, type FsChange, ignored, watchDirsFromEnv, watchFiles } from "./fs-watch.ts";
 import { readState, writeState } from "./lifecycle.ts";
 import { locateFile, locateFiles } from "./locate-file.ts";
-import { finishRecording, noticesOf, unchangedControls } from "./record.ts";
+import { blockFromRecording, finishRecording, noticesOf, unchangedControls } from "./record.ts";
 import { recordingDir, writeForm } from "./recording-store.ts";
 import { findSkills, listSkills, loadSkill, saveSkill, versions } from "./skill-store.ts";
 import { appendTrace, readTrace, tracePath } from "./trace-store.ts";
@@ -844,5 +844,49 @@ describe("choosing the file when a skill runs", () => {
         () => {},
       ),
     ).rejects.toThrow(/no file chosen/);
+  });
+});
+
+describe("Show me (R4.7): one part recorded, as a block for a workflow you have", () => {
+  it("compiles what was done into one block, named as said, with ids and names the workflow doesn't use yet", async () => {
+    const home = temp();
+    const sessionId = "show-1";
+    appendTrace(home, { id: "e0", sessionId, at: 500, event: "navigate", url: PAGE });
+    appendTrace(home, { id: "e1", sessionId, at: 1000, event: "click", url: PAGE, target: submit });
+    // The workflow it goes into already has s1 and s2.
+    const into = Skill.parse({
+      id: "w",
+      name: "w",
+      version: 3,
+      description: { goal: "g" },
+      steps: [
+        { id: "start", type: "trigger", intent: "by hand" },
+        { id: "s1", type: "action", intent: "open", channel: "web", action: "navigate", args: { url: PAGE } },
+        { id: "s2", type: "action", intent: "open", channel: "web", action: "navigate", args: { url: PAGE } },
+      ],
+    });
+    const made = await blockFromRecording(sessionId, { dataDir: home, log: () => {}, name: "Submit the form", into });
+    expect(made?.block).toMatchObject({ type: "control", kind: "group", intent: "Submit the form" });
+    const ids = (made?.block.steps ?? []).map((s) => s.id);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids.some((id) => id === "s1" || id === "s2")).toBe(false);
+    // It goes in as an edit the draft takes.
+    const { applyEdits } = await import("@shadow/core");
+    const applied = applyEdits(into, made?.edits({ after: "s2" }) ?? []);
+    expect(applied.ok).toBe(true);
+  });
+
+  it("is nothing when nothing was done", async () => {
+    const into = Skill.parse({
+      id: "w",
+      name: "w",
+      version: 1,
+      description: { goal: "g" },
+      steps: [
+        { id: "start", type: "trigger", intent: "by hand" },
+        { id: "s1", type: "action", intent: "open", channel: "web", action: "navigate", args: { url: PAGE } },
+      ],
+    });
+    expect(await blockFromRecording("none", { dataDir: temp(), log: () => {}, name: "x", into })).toBeUndefined();
   });
 });

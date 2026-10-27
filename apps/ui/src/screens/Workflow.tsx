@@ -30,6 +30,8 @@ export function Workflow({ id }: { id: string }) {
   const [testing, setTesting] = useState(false);
   // The chat box (R6.1): what Shadow said it changed, shown over the draft it changed.
   const [asked, setAsked] = useState<{ text: string; changed: boolean; costUsd?: number }>();
+  // A draft with changes waits (Show me, a chat change, an edit left open): said, so it isn't missed.
+  const pending = useQuery<{ changes: string[] }>("draft", { id });
   if (workflow.data === null) return <p className="error">No workflow {id}.</p>;
   if (!workflow.data) return <Loading error={workflow.error} />;
   const { latest, versions } = workflow.data;
@@ -207,6 +209,15 @@ export function Workflow({ id }: { id: string }) {
           {asked.costUsd !== undefined ? <span className="muted small"> (${asked.costUsd.toFixed(3)})</span> : null}
         </p>
       ) : null}
+      {!editing && (pending.data?.changes.length ?? 0) > 0 ? (
+        <p className="notice">
+          A draft with {pending.data?.changes.length} change{pending.data?.changes.length === 1 ? "" : "s"} waits:{" "}
+          {pending.data?.changes.slice(0, 3).join(" · ")}.{" "}
+          <button type="button" className="button link" onClick={() => setEditing(true)}>
+            Look at it
+          </button>
+        </p>
+      ) : null}
       {editing ? (
         <Editor
           id={id}
@@ -214,6 +225,7 @@ export function Workflow({ id }: { id: string }) {
             setEditing(false);
             setAsked(undefined);
             workflow.reload();
+            pending.reload();
           }}
         />
       ) : (

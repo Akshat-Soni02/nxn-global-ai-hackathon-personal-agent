@@ -47,6 +47,15 @@ export const RecordForm = Description.extend({
     .string()
     .regex(/^[a-z0-9][a-z0-9-]*$/)
     .optional(),
+  // Show me (R4.7): one part of a workflow you have, recorded and put in as a block at a spot ("+") of its draft.
+  into: z
+    .object({
+      skillId: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+      // Where it goes, as an insert edit takes it (core's Position).
+      at: z.record(z.string(), z.unknown()),
+      name: z.string().trim().min(1).max(120),
+    })
+    .optional(),
 });
 export type RecordForm = z.infer<typeof RecordForm>;
 
