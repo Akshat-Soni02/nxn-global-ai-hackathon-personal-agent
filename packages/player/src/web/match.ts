@@ -8,7 +8,7 @@
 // and shadow roots are searched too (querySelector and XPath from the page never reach inside them, and Chrome's
 // accessibility tree reaches shadow roots but not frames). A frame from another site is a page of its own: not searched.
 import type { Locator } from "@shadow/core";
-import type { Cdp } from "./cdp.ts";
+import { type Cdp, CdpTimeout } from "./cdp.ts";
 
 // Roles a recorder or Chrome may report for the same kind of control.
 const ROLE_GROUPS = [
@@ -73,7 +73,8 @@ async function backendIds(cdp: Cdp, nodeIds: number[]): Promise<number[]> {
 }
 
 // Where a match looks: documents for the accessibility tree (backend ids), scopes for selectors and text (node ids,
-// all from one DOM.getDocument, which re-numbers nodes each time it is called). `nested`: scopes past the page's own.
+// all from one DOM.getDocument, which re-numbers nodes each time it is called). `nested`: frames and shadow roots
+// only, never the page's own document, which the first pass has scored already.
 interface Roots {
   documents: number[];
   scopes: number[];
@@ -96,8 +97,9 @@ interface DomNode {
   contentDocument?: DomNode;
 }
 
-// The page, its frames of the same site and its shadow roots (not the browser's own, inside an <input>), or undefined
-// when it has none: then a second pass would find nothing new.
+// The page's frames of the same site and its shadow roots (not the browser's own, inside an <input>), or undefined when
+// it has none. Measured on a 12,000-element page (28 Oct): reading the pierced tree takes ~80 ms, while each query over
+// the page's own document takes seconds; so the second pass never repeats those.
 async function nestedRoots(cdp: Cdp): Promise<Roots | undefined> {
   const has = await cdp
     .send<{ result: { value?: boolean } }>("Runtime.evaluate", {
@@ -105,10 +107,13 @@ async function nestedRoots(cdp: Cdp): Promise<Roots | undefined> {
       returnByValue: true,
     })
     .then((r) => r.result.value === true)
-    .catch(() => false);
+    .catch((error) => {
+      if (error instanceof CdpTimeout) throw error;
+      return false;
+    });
   if (!has) return undefined;
   const { root } = await cdp.send<{ root: DomNode }>("DOM.getDocument", { depth: -1, pierce: true });
-  const roots: Roots = { documents: [root.backendNodeId], scopes: [root.nodeId], nested: true };
+  const roots: Roots = { documents: [], scopes: [], nested: true };
   const walk = (node: DomNode) => {
     if (node.contentDocument) {
       roots.documents.push(node.contentDocument.backendNodeId);
@@ -123,7 +128,7 @@ async function nestedRoots(cdp: Cdp): Promise<Roots | undefined> {
     for (const child of node.children ?? []) walk(child);
   };
   walk(root);
-  return roots.scopes.length > 1 ? roots : undefined;
+  return roots.scopes.length > 0 ? roots : undefined;
 }
 
 // An XPath inside a frame or a shadow root, run there by the page: DOM.performSearch searches the page's own tree only.
@@ -177,15 +182,12 @@ async function xpathIn(cdp: Cdp, scope: number, xpath: string): Promise<number[]
 async function selectIn(cdp: Cdp, roots: Roots, selector: string): Promise<number[]> {
   const xpath = selector.startsWith("/") || selector.startsWith("(");
   const ids = new Set<number>();
-  for (const [i, scope] of roots.scopes.entries()) {
-    const found =
-      i === 0
-        ? xpath
-          ? await selectAll(cdp, selector)
-          : await selectAll(cdp, selector, scope)
-        : xpath
-          ? await xpathIn(cdp, scope, selector)
-          : await selectAll(cdp, selector, scope);
+  for (const scope of roots.scopes) {
+    const found = !xpath
+      ? await selectAll(cdp, selector, scope)
+      : roots.nested
+        ? await xpathIn(cdp, scope, selector)
+        : await selectAll(cdp, selector);
     for (const id of found) ids.add(id);
   }
   return [...ids];
@@ -234,16 +236,20 @@ export async function axNodeOf(cdp: Cdp, backendNodeId: number): Promise<AXNode 
 const cssEscape = (s: string) => s.replace(/["\\]/g, "\\$&");
 
 export async function match(cdp: Cdp, target: Locator): Promise<MatchOutcome> {
-  const onPage = await matchIn(cdp, target, await pageRoots(cdp));
+  // One set of scores: the second pass adds what frames and shadow roots show to what the page showed (a shadow-root
+  // button is found by its role on the page, and by its selector inside its root).
+  const scores = new Map<number, Candidate>();
+  const onPage = await matchIn(cdp, target, await pageRoots(cdp), scores);
   if (onPage.status !== "none") return onPage;
   const nested = await nestedRoots(cdp);
-  return nested ? matchIn(cdp, target, nested) : onPage;
+  return nested ? matchIn(cdp, target, nested, scores) : onPage;
 }
 
-async function matchIn(cdp: Cdp, target: Locator, roots: Roots): Promise<MatchOutcome> {
-  const scores = new Map<number, Candidate>();
+async function matchIn(cdp: Cdp, target: Locator, roots: Roots, scores: Map<number, Candidate>): Promise<MatchOutcome> {
   const bump = (id: number, points: number, why: string) => {
     const c = scores.get(id) ?? { backendNodeId: id, score: 0, matchedBy: [] };
+    // Counted once per signal, though both passes may see it (a search of the page may reach a frame).
+    if (c.matchedBy.includes(why)) return;
     c.score += points;
     c.matchedBy.push(why);
     scores.set(id, c);
@@ -257,9 +263,13 @@ async function matchIn(cdp: Cdp, target: Locator, roots: Roots): Promise<MatchOu
   const axQuery = async (query: Record<string, unknown>) => {
     const nodes = new Map<number, AXNode>();
     for (const backendNodeId of roots.documents) {
+      // A frame's tree may be gone mid-query (no nodes); a Chrome that doesn't answer is said, never "not found".
       const found = await cdp
         .send<{ nodes: AXNode[] }>("Accessibility.queryAXTree", { backendNodeId, ...query })
-        .catch(() => ({ nodes: [] as AXNode[] }));
+        .catch((error) => {
+          if (error instanceof CdpTimeout) throw error;
+          return { nodes: [] as AXNode[] };
+        });
       for (const n of found.nodes) if (n.backendDOMNodeId) nodes.set(n.backendDOMNodeId, n);
     }
     return [...nodes.values()];

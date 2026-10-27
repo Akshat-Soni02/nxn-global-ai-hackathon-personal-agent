@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type DevChrome, launchChrome, MAC_CHROME } from "../node/chrome.ts";
-import { evaluate } from "./cdp.ts";
+import { CdpTimeout, evaluate } from "./cdp.ts";
 import { executeWebStep } from "./executor.ts";
 import { attributesOf, match, xpathLiteral } from "./match.ts";
 
@@ -125,6 +125,20 @@ describe.skipIf(!existsSync(MAC_CHROME))("the matcher inside shadow roots and fr
     expect(await found({ fallbacks: ["#sb"] })).toBe("sb");
     expect(await found({ fallbacks: ["#fb"] })).toBe("fb");
     expect(await found({ attrs: { id: "fi" }, fallbacks: [] })).toBe("fi");
+  });
+});
+
+describe("a Chrome that doesn't answer (N3 review)", () => {
+  it("says so, never 'not found': a hung accessibility query isn't a missing target", async () => {
+    const hung = {
+      send: async (method: string) => {
+        if (method === "DOM.getDocument") return { root: { nodeId: 1, backendNodeId: 1 } };
+        throw new CdpTimeout(`${method} did not answer`);
+      },
+    };
+    await expect(match(hung as never, { role: "button", name: "Save", fallbacks: [] })).rejects.toBeInstanceOf(
+      CdpTimeout,
+    );
   });
 });
 
