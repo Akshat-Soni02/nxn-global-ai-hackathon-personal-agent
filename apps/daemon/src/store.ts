@@ -19,7 +19,9 @@ export interface Store {
   listRuns(options?: { skillId?: string; status?: RunState; limit?: number }): RunRow[];
   // At startup: runs left "running" by a daemon that stopped become "interrupted". Returns their ids.
   interruptRunning(now?: number): string[];
-  addItem(item: Omit<InboxItem, "id" | "createdAt" | "answeredAt" | "answer">): InboxItem;
+  // Runs that ended before `cutoff` (never one going or waiting), and their inbox items: forgotten. Their ids.
+  deleteRunsEndedBefore(cutoff: number): string[];
+  addItem(item: Omit<InboxItem, "id" | "createdAt" | "answeredAt" | "answer">, at?: number): InboxItem;
   getItem(id: string): InboxItem | undefined;
   listItems(options?: { open?: boolean; runId?: string; limit?: number }): InboxItem[];
   // Records the answer if the item is still open. False when it was already answered (the first answer wins).
@@ -121,6 +123,19 @@ export function openStore(path: string): Store {
         .all(...params, options.limit ?? 50)
         .map(toRun);
     },
+    deleteRunsEndedBefore(cutoff) {
+      const ids = db
+        .prepare(
+          "SELECT id FROM runs WHERE ended_at IS NOT NULL AND ended_at < ? AND status NOT IN ('running', 'waiting')",
+        )
+        .all(cutoff)
+        .map((r) => String(r.id));
+      for (const id of ids) {
+        db.prepare("DELETE FROM inbox WHERE run_id = ?").run(id);
+        db.prepare("DELETE FROM runs WHERE id = ?").run(id);
+      }
+      return ids;
+    },
     interruptRunning(now = Date.now()) {
       const ids = db
         .prepare("SELECT id FROM runs WHERE status = 'running'")
@@ -131,7 +146,7 @@ export function openStore(path: string): Store {
       ).run(now);
       return ids;
     },
-    addItem(item) {
+    addItem(item, at = Date.now()) {
       const id = randomUUID();
       db.prepare(
         "INSERT INTO inbox (id, kind, run_id, skill_id, path, title, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -143,7 +158,7 @@ export function openStore(path: string): Store {
         item.path ?? null,
         item.title,
         JSON.stringify(item.detail),
-        Date.now(),
+        at,
       );
       return getItem(id) as InboxItem;
     },

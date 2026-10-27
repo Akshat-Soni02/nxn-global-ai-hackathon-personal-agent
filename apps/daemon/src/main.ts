@@ -387,6 +387,16 @@ const sweep = () => {
   } catch (error) {
     log.error("could not delete old recordings:", (error as Error).message);
   }
+  // What has waited a day or more is announced again, once a day: Shadow.app notifies on it (N20).
+  const reminded = service.remind();
+  if (reminded.length > 0) log(`reminded you of ${reminded.length} item(s) waiting a day or more`);
+  // Runs that ended more than 30 days ago, with their logs (N12): never one going or waiting.
+  try {
+    const forgotten = service.pruneRuns(30);
+    if (forgotten.length > 0) log(`forgot ${forgotten.length} run(s) that ended more than 30 days ago`);
+  } catch (error) {
+    log.error("could not forget old runs:", (error as Error).message);
+  }
 };
 sweep();
 setInterval(sweep, 60 * 60_000).unref();

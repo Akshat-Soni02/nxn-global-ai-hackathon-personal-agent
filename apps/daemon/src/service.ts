@@ -7,7 +7,7 @@
 // from the checkpoint. So a run can wait for hours, or across a daemon restart.
 //
 // One leg acts at a time (there is one automation window): legs queue behind each other. Waiting runs hold nothing.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { applyEdits, describeEdit, type EditInput, Skill, triggerOf } from "@shadow/core";
 import {
@@ -91,6 +91,11 @@ export interface Service {
   run(id: string): { run: RunRow; events: unknown[]; repairs: unknown[] } | undefined;
   inbox(options?: { open?: boolean }): InboxItem[];
   usage(): { todayUsd: number };
+  // Announces again what has waited a day or more, once a day (Shadow.app notifies on it): the ids (N20).
+  remind(): string[];
+  // Forgets runs that ended more than `days` ago (30: docs/product.md), with their logs and repair transcripts; a run
+  // going or waiting for you is never forgotten. The ids forgotten (N12).
+  pruneRuns(days?: number): string[];
   // Runs the safe test on the latest version (R4.6), or only one block of it (N1).
   test(id: string, block?: string): Promise<TestResult>;
   health(): Record<string, unknown>;
@@ -154,6 +159,8 @@ export interface Service {
 export function createService(options: ServiceOptions): Service {
   const { store, dataDir } = options;
   const runsDir = options.runsDir ?? join(dataDir, "runs");
+  // When each waiting item was last announced again (remind, N20): forgotten on a restart, so it is announced once more.
+  const reminded = new Map<string, number>();
   const now = options.now ?? Date.now;
   const spent = options.spent ?? (() => 0);
   const listeners = new Set<(event: ServiceEvent) => void>();
@@ -176,7 +183,7 @@ export function createService(options: ServiceOptions): Service {
     return run;
   };
   const addItem = (item: Parameters<Store["addItem"]>[0]) => {
-    const added = store.addItem(item);
+    const added = store.addItem(item, now());
     emit({ type: "inbox", item: added });
     return added;
   };
@@ -701,6 +708,28 @@ export function createService(options: ServiceOptions): Service {
         });
       }
       return service.start(skillId, provided, trigger);
+    },
+
+    remind() {
+      const DAY = 24 * 60 * 60 * 1000;
+      const due = store
+        .listItems({ open: true })
+        .filter((item) => item.kind !== "repaired" && now() - item.createdAt >= DAY)
+        .filter((item) => now() - (reminded.get(item.id) ?? item.createdAt) >= DAY);
+      for (const item of due) {
+        reminded.set(item.id, now());
+        emit({ type: "inbox", item });
+      }
+      return due.map((item) => item.id);
+    },
+
+    pruneRuns(days = 30) {
+      const ids = store.deleteRunsEndedBefore(now() - days * 24 * 60 * 60 * 1000);
+      if (ids.length > 0 && existsSync(runsDir)) {
+        for (const file of readdirSync(runsDir))
+          if (ids.some((id) => file.startsWith(`${id}.`))) rmSync(join(runsDir, file), { force: true });
+      }
+      return ids;
     },
 
     async test(id, block) {

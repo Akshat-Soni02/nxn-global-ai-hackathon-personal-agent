@@ -91,7 +91,7 @@ Mac apps, with your files. When a website changes, it fixes the task itself and 
 | Thing | Where | How long |
 | --- | --- | --- |
 | Your workflows and their versions | `~/Library/Application Support/Shadow/skills/` | Until you delete them |
-| What each run did | `…/Shadow/runs/` | Kept (a 30-day limit is planned) |
+| What each run did | `…/Shadow/runs/` | 30 days after the run ended (a run waiting for you is kept) |
 | The inbox and the runs list | `…/Shadow/shadow.db` | Kept |
 | What Shadow remembers from your answers | `…/Shadow/memory.db` | Until you press Forget in Settings |
 | A recording's raw files (events, pictures, audio) | `…/Shadow/recordings/<session>/` | Deleted 24 hours after the workflow is saved |

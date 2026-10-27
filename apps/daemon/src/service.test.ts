@@ -1,6 +1,6 @@
 // The service with the real interpreter and fake channels: runs that wait in the inbox, go on after an answer, and
 // survive a daemon restart (a new service on the same database file).
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ActionStep, Skill } from "@shadow/core";
@@ -294,6 +294,60 @@ describe("the daemon as a service", () => {
     expect(service.draft("report").skill.steps[2]).toMatchObject({ intent: "write s2 (say why)" });
     // Nothing runs on it until it is saved.
     expect(service.workflow("report")?.versions).toEqual([1]);
+  });
+
+  it("forgets runs that ended more than 30 days ago, with their logs; never one that is going or waiting (N12)", async () => {
+    const { open, dataDir } = setup([write("s1"), write("s2", { requires_approval: true })]);
+    let clock = Date.parse("2026-09-01T09:00:00Z");
+    const runsDir = join(dataDir, "runs");
+    const { service } = open(undefined, { now: () => clock, runsDir });
+    const old = service.start("report"); // waits for approval: kept however old it is
+    await service.idle();
+    service.cancel(old.id); // now ended, on 1 Sep
+    const waiting = service.start("report");
+    await service.idle();
+    mkdirSync(runsDir, { recursive: true });
+    writeFileSync(join(runsDir, `${old.id}.jsonl`), "{}\n");
+    writeFileSync(join(runsDir, `${old.id}.repair-1.json`), "{}");
+    clock = Date.parse("2026-10-15T09:00:00Z"); // 44 days later
+    const recent = service.start("report");
+    await service.idle();
+    service.cancel(recent.id);
+    expect(service.pruneRuns()).toEqual([old.id]);
+    expect(
+      service
+        .runs()
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual([recent.id, waiting.id].sort());
+    expect(existsSync(join(runsDir, `${old.id}.jsonl`))).toBe(false);
+    expect(existsSync(join(runsDir, `${old.id}.repair-1.json`))).toBe(false);
+  });
+
+  it("reminds you once a day of what has waited a day or more: Shadow.app notifies again (N20)", async () => {
+    const { open } = setup([write("s1", { requires_approval: true })]);
+    let clock = Date.parse("2026-10-01T09:00:00Z");
+    const { service, events } = open(undefined, { now: () => clock });
+    service.start("report");
+    await service.idle();
+    const [item] = service.inbox({ open: true });
+    const hours = (h: number) => {
+      clock += h * 60 * 60 * 1000;
+    };
+    hours(2);
+    expect(service.remind()).toEqual([]);
+    hours(23); // 25 h
+    const before = events.length;
+    expect(service.remind()).toEqual([item?.id]);
+    expect(events.slice(before)).toMatchObject([{ type: "inbox", item: { id: item?.id, answeredAt: undefined } }]);
+    hours(1);
+    expect(service.remind()).toEqual([]); // once a day
+    hours(24);
+    expect(service.remind()).toEqual([item?.id]);
+    service.answer(item?.id as string, "approve");
+    await service.idle();
+    hours(48);
+    expect(service.remind()).toEqual([]); // answered: nothing waits
   });
 
   it("marks runs left going by a stopped daemon as interrupted, and expires questions nobody can receive", async () => {
