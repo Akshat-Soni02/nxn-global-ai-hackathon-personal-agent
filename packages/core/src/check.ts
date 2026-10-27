@@ -65,6 +65,9 @@ export function checkVariables(steps: Step[]): string[] {
         const inner = new Map(scope);
         declare(inner, step.item.name, step.item.type, `${at}.item`);
         run(step.steps, inner, `${at}.steps`);
+      } else if (step.kind === "group") {
+        // A block scopes nothing: what its steps save is there after it.
+        run(step.steps, scope, `${at}.steps`);
       } else {
         refs(scope, step.if, `${at}.if`);
         const before = declared;

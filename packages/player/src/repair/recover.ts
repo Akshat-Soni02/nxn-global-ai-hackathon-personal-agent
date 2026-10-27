@@ -3,7 +3,7 @@
 // fix is saved as the next version and the run resumes from where it stopped. A site that is down is retried
 // later; anything that needs the user waits for them (retry the step, skip it because they did it by hand, or stop).
 // Used by the daemon and by `pnpm replay`; each supplies the hooks.
-import { type Availability, type Skill, walkSteps } from "@shadow/core";
+import { type Availability, type Skill, walkSteps, whereIn } from "@shadow/core";
 import { type RunOptions, runSkill } from "../run.ts";
 import {
   type Failure,
@@ -144,10 +144,10 @@ export async function runWithRecovery(
     // Needs the user: something to do first, or a fix repair couldn't find.
     const message =
       repaired.kind === "escalate"
-        ? `couldn't repair ${failure.path}: ${repaired.reason}.${repaired.whatToShow ? ` Do it by hand: ${repaired.whatToShow}.` : ""}`
+        ? `couldn't repair ${whereIn(current, failure.stepId)}: ${repaired.reason}.${repaired.whatToShow ? ` Do it by hand: ${repaired.whatToShow}.` : ""}`
         : repaired.need
-          ? `${failure.path} needs you: ${repaired.need}.`
-          : `${failure.path} failed: ${failure.result.error}.`;
+          ? `${whereIn(current, failure.stepId)} needs you: ${repaired.need}.`
+          : `${whereIn(current, failure.stepId)} failed: ${failure.result.error}.`;
     const choice = await recovery.waitForUser(message, failure);
     if (choice === WAIT) {
       return keep({

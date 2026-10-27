@@ -1,5 +1,5 @@
 // One workflow: what it is for, its steps as a tree, its versions (who made each and why), and its runs.
-import type { Skill } from "@shadow/core";
+import { findStep, type Skill, stepTitle } from "@shadow/core";
 import type { Review, RunRow, WorkflowSummary } from "@shadow/daemon/src/types.ts";
 import { useState } from "react";
 import { useQuery, useSession } from "../api.ts";
@@ -7,7 +7,8 @@ import { Action, Loading, StateChip, StatusChip } from "../components.tsx";
 import { FrequencyPicker } from "../FrequencyPicker.tsx";
 import { ago, duration, money, when } from "../format.ts";
 import { describe } from "../frequency.ts";
-import { badgesOf, cantRunNow, summaryOf } from "../review.ts";
+import { NodePanel } from "../NodePanel.tsx";
+import { badgesOf, cantRunNow, nodeProblems, summaryOf } from "../review.ts";
 import { WorkflowTree } from "../WorkflowTree.tsx";
 import { Editor } from "./Editor.tsx";
 
@@ -22,10 +23,20 @@ export function Workflow({ id }: { id: string }) {
   const review = useQuery<Review | null>("review", { id });
   const [picking, setPicking] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [nodeId, setNodeId] = useState<string>();
   if (workflow.data === null) return <p className="error">No workflow {id}.</p>;
   if (!workflow.data) return <Loading error={workflow.error} />;
   const { latest, versions } = workflow.data;
   const trigger = latest.steps.find((s) => s.type === "trigger");
+  const picked = nodeId ? findStep(latest, nodeId) : undefined;
+  const node = picked && picked.type !== "trigger" ? picked : undefined;
+  // A long list of steps with no blocks: one saved before them, which "Tidy up" groups.
+  const flat = latest.steps.length > 9 && !latest.steps.some((s) => s.type === "control" && s.kind === "group");
+  // What the design's review says is wrong, on the nodes (R3.5), while the version it is about hasn't been looked at.
+  const problems =
+    review.data && !review.data.reviewed && review.data.version === latest.version
+      ? nodeProblems(review.data, latest)
+      : undefined;
   const triggers = trigger?.type === "trigger" ? trigger.when : [];
   const history = [...latest.history].reverse();
   const mine = summary.data?.find((w) => w.id === id);
@@ -55,6 +66,17 @@ export function Workflow({ id }: { id: string }) {
               <button type="button" className="button" onClick={() => setEditing(true)}>
                 Edit
               </button>
+            )}
+            {/* Saved before blocks (R2.5): group its steps into named blocks, shown in the editor to save or undo. */}
+            {editing || !flat ? null : (
+              <Action
+                run={async () => {
+                  await session.call("tidyDraft", { id });
+                  setEditing(true);
+                }}
+              >
+                Tidy up
+              </Action>
             )}
             {state?.state === "live" ? (
               <Action run={() => session.call("pause", { id })}>Pause</Action>
@@ -135,6 +157,9 @@ export function Workflow({ id }: { id: string }) {
         <ReviewCard
           review={review.data}
           cantRun={cantRun}
+          skill={latest}
+          problems={problems}
+          onPick={setNodeId}
           onLooksRight={async () => {
             await session.call("looksRight", { id });
             review.reload();
@@ -153,7 +178,25 @@ export function Workflow({ id }: { id: string }) {
       ) : (
         <section className="section">
           <h2>Steps</h2>
-          <WorkflowTree steps={latest.steps} />
+          {/* A node picked shows its details beside the tree (reports/plan-oct26-workflow-revamp.md, R3.3). */}
+          <div className={node ? "edit-layout" : undefined}>
+            <WorkflowTree
+              steps={latest.steps}
+              selected={node?.id}
+              onSelect={(picked) => setNodeId(picked === nodeId ? undefined : picked)}
+              problems={problems?.byNode}
+            />
+            {node ? (
+              <aside className="inspector" aria-label="The picked step">
+                <NodePanel
+                  key={node.id}
+                  step={node}
+                  close={() => setNodeId(undefined)}
+                  problems={problems?.byNode.get(node.id)}
+                />
+              </aside>
+            ) : null}
+          </div>
         </section>
       )}
 
@@ -219,13 +262,24 @@ export function Workflow({ id }: { id: string }) {
 // do the task yet has no Looks right, only what to do about it (checkpoint 6: D was offered one).
 function ReviewCard({
   review,
+  skill,
   cantRun,
+  problems,
+  onPick,
   onLooksRight,
 }: {
   review: Review;
+  skill: Skill;
   cantRun: string[];
+  problems?: ReturnType<typeof nodeProblems>;
+  onPick(node: string): void;
   onLooksRight: () => Promise<unknown>;
 }) {
+  const titleOf = (id: string) => {
+    const s = findStep(skill, id);
+    return s && s.type !== "trigger" ? stepTitle(s) : id;
+  };
+  const onNodes = [...(problems?.byNode ?? [])];
   const list = (title: string, items: string[]) =>
     items.length > 0 ? (
       <>
@@ -257,7 +311,7 @@ function ReviewCard({
         {badgesOf(review).map((b) => (
           <li key={`${b.step}-${b.label}`}>
             <span className={`review-badge review-badge-${b.label.toLowerCase()}`}>{b.label}</span>{" "}
-            <code>{b.step}</code> {b.why ?? ""}
+            <strong>{titleOf(b.step)}</strong> {b.why ?? ""}
             {b.untested ? <span className="review-badge review-badge-untested">Not tested</span> : null}
           </li>
         ))}
@@ -266,9 +320,27 @@ function ReviewCard({
         "What you said → what was built",
         review.said.map((s) => `“${s.quote}” → ${s.notBuilt ? `not built: ${s.notBuilt}` : s.steps.join(", ")}`),
       )}
-      {list("Not tested", review.notTested)}
+      {/* What is wrong with a step is on its node, said for you (R3.5); here, how many and where. */}
+      {onNodes.length > 0 ? (
+        <>
+          <h3>
+            {onNodes.reduce((n, [, p]) => n + p.length, 0)} thing
+            {onNodes.reduce((n, [, p]) => n + p.length, 0) === 1 ? "" : "s"} to check on the steps
+          </h3>
+          <ul className="review-nodes">
+            {onNodes.map(([node, p]) => (
+              <li key={node}>
+                <button type="button" className="button link" onClick={() => onPick(node)}>
+                  {titleOf(node)}
+                </button>{" "}
+                <span className="muted">{p[0]}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {list("Also to check", problems ? problems.other : [...review.notTested, ...review.gaps])}
       {list("Not asked (each took its default)", review.notAsked ?? [])}
-      {list("Still to check", review.gaps)}
       {review.made?.length ? (
         <details>
           <summary>How this was made</summary>

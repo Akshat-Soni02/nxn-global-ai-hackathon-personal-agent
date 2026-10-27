@@ -294,7 +294,9 @@ describe("recovery during a run", () => {
           : undefined,
     );
     const outcome = await login.run(login.recovery("skip"));
-    expect(login.asked).toEqual(["s1 needs you: log in to reports.example.com in the automation window."]);
+    expect(login.asked).toEqual([
+      "“Open the report” (s1) needs you: log in to reports.example.com in the automation window.",
+    ]);
     expect(outcome.status).toBe("succeeded"); // the user did s1 by hand; s2 ran
     login.ext.end();
   });

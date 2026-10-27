@@ -363,9 +363,9 @@ describe("copy, paste and drawn apps", () => {
     expect(acts(result.skill).map((s) => [s.channel, s.action, s.args, s.output?.name])).toEqual([
       ["web", "navigate", { url: SHEET }, undefined],
       ["web", "extract", { source: "google_sheet" }, "sheet_1"],
-      ["data", "pick", { from: "{{sheet_1}}", where: { Date: shown }, column: "Amount" }, "copied_1"],
+      ["data", "pick", { from: "{{sheet_1}}", where: { Date: shown }, column: "Amount" }, "amount"],
       ["web", "navigate", { url: PAGE }, undefined],
-      ["web", "type", { text: "{{copied_1}}", clear: true }, undefined],
+      ["web", "type", { text: "{{amount}}", clear: true }, undefined],
     ]);
     // The copied row was dated the recording day, so the drill offers "today's row" first.
     expect(result.questions[0]).toMatchObject({

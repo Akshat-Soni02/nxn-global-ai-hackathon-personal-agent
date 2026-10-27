@@ -19,6 +19,7 @@ import {
   type Wait,
   type Waiting,
 } from "@shadow/player";
+import { blockPlan, shortName } from "@shadow/recorder";
 import { deleteDraft, draftSkill, readDraft, writeDraft } from "./draft-store.ts";
 import { goLiveProblems, nextTime, readState, triggerKey, writeState } from "./lifecycle.ts";
 import { markReviewed, readReview } from "./review-store.ts";
@@ -110,6 +111,8 @@ export interface Service {
   // autosaved after every change. editDraft refuses an edit the workflow can't take (check.ts) and says why.
   draft(id: string): DraftView;
   editDraft(id: string, edits: EditInput[]): DraftView;
+  // Groups a workflow saved before blocks into named blocks, and gives it a short name, on its draft.
+  tidyDraft(id: string): DraftView;
   undoDraft(id: string): DraftView;
   redoDraft(id: string): DraftView;
   discardDraft(id: string): DraftView;
@@ -398,6 +401,19 @@ export function createService(options: ServiceOptions): Service {
 
     // ── The editor's draft (draft-store.ts) ──
     draft: (id) => draftView(id),
+    // A workflow saved before blocks, grouped and named as one saved now would be (reports/plan-oct26-workflow-revamp.md,
+    // R2.5): edits on the draft, so the user sees it in the editor and saves it as the next version, or undoes it.
+    tidyDraft(id) {
+      const skill = draftView(id).skill;
+      const name = shortName(skill.description.goal);
+      const edits: EditInput[] = [
+        ...blockPlan(skill),
+        ...(skill.name !== name && skill.name.length > 40
+          ? [{ op: "set_skill" as const, field: "name" as const, value: name }]
+          : []),
+      ];
+      return edits.length > 0 ? service.editDraft(id, edits) : draftView(id);
+    },
     editDraft(id, edits) {
       const current = readDraft(dataDir, id) ?? { base: latest(id).version, ops: [], undone: [], updatedAt: now() };
       const base = loadSkill(dataDir, id, current.base);

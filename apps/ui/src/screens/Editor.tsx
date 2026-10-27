@@ -4,12 +4,13 @@
 // of the edit operations the agents use, applied by the daemon to a draft beside the workflow and saved at once; the
 // live version keeps running unchanged until the draft is saved as the next version. A refused change (the workflow
 // could not take it: a reference that doesn't exist, a step that can't move there) is shown with the daemon's reason.
-import type { EditInput, Step } from "@shadow/core";
+import { type EditInput, type Step, stepTitle, walkSteps } from "@shadow/core";
 import type { DraftView } from "@shadow/daemon/src/types.ts";
 import { useEffect, useState } from "react";
+import { AddNode } from "../AddNode.tsx";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
-import { WorkflowTree } from "../WorkflowTree.tsx";
+import { type At, WorkflowTree } from "../WorkflowTree.tsx";
 
 type Body = Exclude<Step, { type: "trigger" }>;
 
@@ -18,6 +19,9 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
   const draft = useQuery<DraftView>("draft", { id });
   const [error, setError] = useState<string>();
   const [picked, setPicked] = useState<string>();
+  // Where a step is being added ("+" in the tree), its form in the panel.
+  const [adding, setAdding] = useState<At>();
+  const tools = useQuery<{ name: string; description: string }[]>("appTools");
   // Escape puts the step down, as it closes a panel anywhere else on the Mac. The field being typed in loses focus
   // first, so what was typed is saved (on blur) before the panel goes.
   useEffect(() => {
@@ -86,19 +90,46 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
       {error ? <p className="error">{error}</p> : null}
       <div className="edit-layout">
         <WorkflowTree
+          // Each step of a block can be picked and changed here, so blocks are drawn open.
+          blocks="open"
           steps={d.skill.steps}
           selected={spot?.step.id}
-          onSelect={(step) => setPicked(step === picked ? undefined : step)}
+          onSelect={(step) => {
+            setAdding(undefined);
+            setPicked(step === picked ? undefined : step);
+          }}
+          onAdd={(at) => {
+            setPicked(undefined);
+            setAdding(at);
+          }}
         />
         <aside className="inspector" aria-label="The picked step">
-          {spot ? (
+          {adding ? (
+            <AddNode
+              key={JSON.stringify(adding)}
+              at={adding}
+              skill={d.skill}
+              tools={tools.data ?? []}
+              add={(step) =>
+                session.call("editDraft", { id, edits: [{ op: "insert", at: adding, step }] }).then(draft.reload)
+              }
+              close={() => setAdding(undefined)}
+            />
+          ) : spot ? (
             // Keyed on the step itself: after any change (or undo) the panel starts again from what was saved.
-            <EditStep key={JSON.stringify(spot.step)} {...spot} edit={edit} close={() => setPicked(undefined)} />
+            <EditStep
+              key={JSON.stringify(spot.step)}
+              {...spot}
+              lists={listsIn(d.skill.steps)}
+              edit={edit}
+              close={() => setPicked(undefined)}
+            />
           ) : (
             <div className="inspector-empty">
               <span className="inspector-empty-title">No step picked</span>
               <span className="muted small">
-                Click a step in the tree to change what it is for, have it wait for your approval, move it or remove it.
+                Click a step in the tree to change what it is for, have it wait for your approval, move it or remove it;
+                + adds one.
               </span>
             </div>
           )}
@@ -106,6 +137,17 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
       </div>
     </section>
   );
+}
+
+// The lists the workflow saves (an AI step's list, files found, an input that is a list): what a loop repeats over.
+function listsIn(steps: Step[]): string[] {
+  const lists: string[] = [];
+  for (const { step } of walkSteps(steps)) {
+    if (step.type === "trigger")
+      for (const [name, input] of Object.entries(step.inputs)) if (input.type.type === "list") lists.push(name);
+    if ("output" in step && step.output?.type.type === "list") lists.push(step.output.name);
+  }
+  return lists;
 }
 
 // Where a step sits: the list it is in (the workflow, a loop's steps, either side of an "if") and its place there.
@@ -125,7 +167,9 @@ const kindOf = (step: Body): string =>
   step.type === "control"
     ? step.kind === "loop"
       ? "for each"
-      : "if"
+      : step.kind === "group"
+        ? "block"
+        : "if"
     : step.type === "llm"
       ? "AI"
       : step.channel === "ax"
@@ -133,16 +177,125 @@ const kindOf = (step: Body): string =>
         : step.channel;
 
 // The picked step: what it is for, whether it waits for your approval, its fields, and its place among its neighbours.
+// The picked step and the ones after it, put in a block, repeated for each item of a list, or done only if something
+// holds (R4.5): the `wrap` edit, so it is one change in the draft, undone as one.
+function Wrap({
+  step,
+  siblings,
+  index,
+  lists,
+  edit,
+}: {
+  step: Body;
+  siblings: Body[];
+  index: number;
+  lists: string[];
+  edit(edits: EditInput[]): Promise<void>;
+}) {
+  const [how, setHow] = useState<"" | "group" | "loop" | "branch">("");
+  const [count, setCount] = useState(1);
+  const [name, setName] = useState("");
+  const [over, setOver] = useState(lists[0] ?? "");
+  const [item, setItem] = useState("item");
+  const [when, setWhen] = useState(lists[0] ?? "");
+  const rest = siblings.slice(index, index + count).map((s) => s.id);
+  const inBlock = step.type === "control" && step.kind === "group";
+  const wrap = () => {
+    if (how === "group") return edit([{ op: "wrap", steps: rest, intent: name || "Steps" }]);
+    if (how === "loop")
+      return edit([
+        {
+          op: "wrap",
+          steps: rest,
+          intent: name || `For each ${item}`,
+          as: "loop",
+          over: `{{${over}}}`,
+          item: { name: item.replace(/\W+/g, "_") || "item", type: { type: "text" } },
+        },
+      ]);
+    return edit([
+      {
+        op: "wrap",
+        steps: rest,
+        intent: name || `Only if there is ${when}`,
+        as: "branch",
+        if: { left: `{{${when}}}`, op: "exists" },
+      },
+    ]);
+  };
+  return (
+    <div className="wrap-steps">
+      <label className="field">
+        <span>Group it</span>
+        <select value={how} onChange={(e) => setHow(e.target.value as typeof how)}>
+          <option value="">…</option>
+          {inBlock ? null : <option value="group">Put in a block</option>}
+          <option value="loop" disabled={lists.length === 0}>
+            Repeat for each item of a list{lists.length === 0 ? " (no list saved yet)" : ""}
+          </option>
+          <option value="branch">Only if a value is there</option>
+        </select>
+      </label>
+      {how ? (
+        <>
+          <label className="field">
+            <span>With the steps after it</span>
+            <select value={count} onChange={(e) => setCount(Number(e.target.value))}>
+              {siblings.slice(index).map((s, i) => (
+                <option key={s.id} value={i + 1}>
+                  {i === 0 ? "just this one" : `and the next ${i} (to “${stepTitle(s)}”)`}
+                </option>
+              ))}
+            </select>
+          </label>
+          {how === "loop" ? (
+            <>
+              <label className="field">
+                <span>For each item of</span>
+                <select value={over} onChange={(e) => setOver(e.target.value)}>
+                  {lists.map((l) => (
+                    <option key={l}>{l}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Call each one</span>
+                <input value={item} onChange={(e) => setItem(e.target.value)} />
+              </label>
+            </>
+          ) : null}
+          {how === "branch" ? (
+            <label className="field">
+              <span>Only if there is</span>
+              <input value={when} onChange={(e) => setWhen(e.target.value)} />
+            </label>
+          ) : null}
+          <label className="field">
+            <span>Name it</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Add a row for each job" />
+          </label>
+          <button type="button" className="button small primary" onClick={() => void wrap()}>
+            {how === "group" ? "Put in a block" : how === "loop" ? "Repeat them" : "Only then"}
+          </button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function EditStep({
   step,
   siblings,
   index,
+  lists,
   edit,
   close,
 }: {
   step: Body;
   siblings: Body[];
   index: number;
+  // The lists earlier steps save: what a loop can repeat over.
+  lists: string[];
   edit(edits: EditInput[]): Promise<void>;
   close(): void;
 }) {
@@ -183,18 +336,27 @@ function EditStep({
           </span>
         </p>
       ) : null}
-      <label className="check-row">
-        <input
-          type="checkbox"
-          checked={step.requires_approval}
-          onChange={(e) => set("requires_approval", e.target.checked)}
-        />
-        <span>
-          Wait for my approval
-          <span className="muted small">Shadow asks you before this step runs.</span>
-        </span>
-      </label>
-      <Fields step={step} set={set} />
+      {step.type === "control" && step.kind === "group" ? (
+        <button type="button" className="button small" onClick={() => edit([{ op: "unwrap", step: step.id }])}>
+          Take the steps out of this block
+        </button>
+      ) : (
+        <>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={step.requires_approval}
+              onChange={(e) => set("requires_approval", e.target.checked)}
+            />
+            <span>
+              Wait for my approval
+              <span className="muted small">Shadow asks you before this step runs.</span>
+            </span>
+          </label>
+          <Fields step={step} set={set} />
+        </>
+      )}
+      <Wrap step={step} siblings={siblings} index={index} lists={lists} edit={edit} />
       <footer className="inspector-foot">
         <button
           type="button"
@@ -234,7 +396,7 @@ const FIELD = {
 } as const;
 
 // The step's own fields, as JSON where they are structured (args, a condition), as text where they are text.
-function Fields({ step, set }: { step: Body; set(field: string, value: unknown): void }) {
+function Fields({ step, set }: { step: Exclude<Body, { kind: "group" }>; set(field: string, value: unknown): void }) {
   const field = step.type === "action" ? "args" : step.type === "llm" ? "inputs" : step.kind === "loop" ? "over" : "if";
   const [json, setJson] = useState(() =>
     JSON.stringify(

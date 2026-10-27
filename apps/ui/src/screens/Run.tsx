@@ -6,7 +6,7 @@ import type { RunLogEvent } from "@shadow/player";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading, StatusChip } from "../components.tsx";
 import { duration, money, when } from "../format.ts";
-import { groupsOf, intentsOf, kindText, type Logged, lineOf } from "../runlog.ts";
+import { blocksIn, type Group, groupsOf, intentsOf, kindText, type Logged, lineOf, sectionsOf } from "../runlog.ts";
 
 interface Episode {
   failure: string;
@@ -126,30 +126,60 @@ function Timeline({ events, skillId, version }: { events: Logged[]; skillId: str
   const workflow = useQuery<{ latest: Skill } | null>("workflow", { id: skillId });
   // The steps' intents, when the run was on the version shown (an older version's steps may differ).
   const latest = workflow.data?.latest;
-  const intents = latest && latest.version === version ? intentsOf(latest.steps) : new Map<string, string>();
+  const same = latest && latest.version === version;
+  const intents = same ? intentsOf(latest.steps) : new Map<string, string>();
+  // By block (R7.1): a block's steps under its title and how it went, folded when it went well.
+  const sections = sectionsOf(groupsOf(events), same ? blocksIn(latest.steps) : new Map());
+  const STATE = { done: "done", failed: "failed", waiting: "waiting for you", skipped: "skipped", running: "running" };
   return (
     <ol className="timeline">
-      {groupsOf(events).map((g, gi) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: a run's log is only ever appended, never reordered
-        <li key={`${g.step ?? "run"}-${gi}`} className="step-group">
-          {g.step ? (
-            <div className="step-head">
-              <code>{g.step}</code> {intents.get(g.id ?? "") ?? ""}
-              {kindText(g.kind) ? <span className="muted small"> · {kindText(g.kind)}</span> : null}
-            </div>
-          ) : null}
-          <ol className="step-events">
-            {g.events.map((e, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: a run's log is only ever appended, never reordered
-              <li key={`${e.at}-${i}`} className={`event ${tone(e)}`}>
-                <span className="event-time">{new Date(e.at).toLocaleTimeString()}</span>
-                <span className="event-text">{lineOf(e, g.kind)}</span>
-              </li>
-            ))}
-          </ol>
-        </li>
-      ))}
+      {sections.map((s, si) =>
+        s.block ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: a run's log is only ever appended, never reordered
+          <li key={`${s.block.id}-${si}`} className={`block-section block-${s.state}`}>
+            <details open={s.state !== "done" && s.state !== "skipped"}>
+              <summary>
+                <strong>{s.block.title}</strong> <span className="muted small">· {STATE[s.state]}</span>
+              </summary>
+              <ol className="timeline">
+                {s.groups.map((g, gi) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: a run's log is only ever appended, never reordered
+                  <StepLog key={`${g.step ?? "run"}-${gi}`} group={g} intent={intents.get(g.id ?? "")} />
+                ))}
+              </ol>
+            </details>
+          </li>
+        ) : (
+          s.groups.map((g, gi) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: a run's log is only ever appended, never reordered
+            <StepLog key={`${g.step ?? "run"}-${si}-${gi}`} group={g} intent={intents.get(g.id ?? "")} />
+          ))
+        ),
+      )}
     </ol>
+  );
+}
+
+// One step's lines under its name and what it does.
+function StepLog({ group: g, intent }: { group: Group; intent?: string }) {
+  return (
+    <li className="step-group">
+      {g.step ? (
+        <div className="step-head">
+          <code>{g.step}</code> {intent ?? ""}
+          {kindText(g.kind) ? <span className="muted small"> · {kindText(g.kind)}</span> : null}
+        </div>
+      ) : null}
+      <ol className="step-events">
+        {g.events.map((e, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: a run's log is only ever appended, never reordered
+          <li key={`${e.at}-${i}`} className={`event ${tone(e)}`}>
+            <span className="event-time">{new Date(e.at).toLocaleTimeString()}</span>
+            <span className="event-text">{lineOf(e, g.kind)}</span>
+          </li>
+        ))}
+      </ol>
+    </li>
   );
 }
 

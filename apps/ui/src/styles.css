@@ -998,6 +998,64 @@ nav a.active .badge {
   align-items: center;
   gap: 8px;
 }
+/* A node's details on a workflow's page (NodePanel.tsx): Details and Debug. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.tab {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.tab.on {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.facts {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.facts dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+.facts dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.node-steps {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.node-debug {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+.node-json {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 180px;
+  overflow: auto;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--line) 35%, transparent);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .inspector-close {
   margin-left: auto;
   display: inline-grid;
@@ -1172,9 +1230,143 @@ nav a.active .badge {
 }
 .wf-head {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  align-items: flex-start;
+  gap: 8px;
+}
+/* A node's kind (reports/plan-oct26-workflow-revamp.md, R3): an icon, not a word. */
+.wf-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wf-ai .wf-icon {
+  stroke: var(--accent);
+}
+/* A run's log by block (Run.tsx, R7.1): the block's title and how it went; its steps folded when it went well. */
+.block-section {
+  list-style: none;
+  border-left: 3px solid var(--line);
+  padding-left: 12px;
+  margin: 8px 0;
+}
+.block-section > details > summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+.block-failed {
+  border-left-color: var(--danger, #dc2626);
+}
+.block-waiting {
+  border-left-color: var(--warn, #d97706);
+}
+.block-done {
+  border-left-color: var(--ok, #16a34a);
+}
+/* "+" between steps in the editor (AddNode.tsx, R4): quiet until hovered. */
+.wf-plus {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: 2px auto;
+  padding: 0;
+  border: 1px dashed var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wf-plus:hover,
+.wf-plus:focus-visible {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* The step panel's "Group it" (Editor.tsx, R4.5). */
+.wrap-steps {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.wrap-steps .field select,
+.wrap-steps .field input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.node-kinds {
+  display: grid;
+  gap: 6px;
+}
+.node-kind {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.node-kind:hover {
+  border-color: var(--accent);
+}
+.node-form {
+  display: grid;
+  gap: 12px;
+}
+.node-form .field input,
+.node-form .field textarea,
+.node-form .field select {
+  width: 100%;
+  box-sizing: border-box;
+}
+/* Something to check on this node (the review's problems, in its panel). */
+.wf-badge {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--warn, #d97706);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.node-problems {
+  margin: 0;
+  padding: 10px 12px 10px 28px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn, #d97706) 12%, transparent);
+  display: grid;
+  gap: 6px;
+}
+/* A block: one node standing for several steps, drawn as a small stack. */
+.wf-block {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 4px 0 -1px var(--card),
+    0 4px 0 0 var(--line);
 }
 .wf-kind {
   font-size: 10.5px;
@@ -1188,6 +1380,12 @@ nav a.active .badge {
   min-width: 0;
   font-size: 13.5px;
   font-weight: 600;
+  /* Never past the card's edge (Oct 26: a sheet's address ran out of it). */
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .wf-id {
   font-size: 11px;

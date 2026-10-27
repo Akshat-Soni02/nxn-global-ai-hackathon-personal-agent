@@ -12,6 +12,8 @@ import { z } from "zod";
 export const TaskModel = z.object({
   // What is true when the task is done, in the user's terms.
   outcome: z.string().min(1),
+  // What the workflow is called in lists: a few words, verb first ("Log new YC jobs in my sheet").
+  name: z.string().min(1).max(60).optional(),
   // How often it runs, and the words that say so.
   cadence: z.object({
     kind: z.enum(["manual", "schedule", "folder"]),

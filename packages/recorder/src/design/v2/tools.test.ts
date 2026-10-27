@@ -442,8 +442,11 @@ describe("what the re-designs after the fixes showed (round 2)", () => {
     expect(looped.output.ok).toBe(true);
   });
 
-  it("says plainly when a step to copy a control from has none", async () => {
-    const out = await run(session(), "add", { step: { do: "read_all", intent: "read", target: { like: "s1" } } });
+  it("says plainly when a step to copy a control from has none; a read like an open reads that page (Oct 27)", async () => {
+    const s = session();
+    const read = await run(s, "add", { step: { do: "read_all", intent: "read", target: { like: "s1" } } });
+    expect(JSON.stringify(read.output)).toMatch(/"ok":true/);
+    const out = await run(session(), "add", { step: { do: "click", intent: "click", target: { like: "s1" } } });
     expect(JSON.stringify(out.output)).toMatch(
       /s1 has no control to copy \(it opens a page: to click what is in the place it was, target \{ place: \\"s1\\" \}\)/,
     );
