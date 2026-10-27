@@ -28,12 +28,17 @@ export function Record({ again }: { again?: string }) {
       return;
     }
     const saved = savedSince(seen.current, data.last);
-    if (saved) location.hash = `#/workflows/${saved}`;
+    // Not while you are recording the next one (N23): that one's screen stays.
+    if (saved && data.phase === "idle") location.hash = `#/workflows/${saved}`;
   }, [data]);
   if (!data) return <Loading error={error} />;
   // Questions outside a run: the form's (from the terminal) and the ones about this recording. They are answered in the
   // Inbox, not here: this screen shows what is happening, so you aren't left in the dark, and points there (W2).
-  const waiting = waitingNote(data.phase === "idle" ? 0 : questionsFor(inbox.data ?? [], data.sessionId).length);
+  // The questions of every recording being turned into a workflow (N23), and of the one going on.
+  const jobs = data.compiling ?? [];
+  const sessions = [...jobs.map((j) => j.sessionId), ...(data.phase === "idle" ? [] : [data.sessionId])];
+  const asked = new Set(sessions.flatMap((id) => questionsFor(inbox.data ?? [], id).map((q) => q.id)));
+  const waiting = waitingNote(sessions.length === 0 ? 0 : asked.size);
 
   return (
     <>
@@ -67,7 +72,10 @@ export function Record({ again }: { again?: string }) {
       ) : null}
       {data.phase === "describing" ? <p>Answer in the Inbox (or in the terminal) to start recording.</p> : null}
       {data.phase === "recording" ? <Recording view={data} /> : null}
-      {data.phase === "compiling" ? <Compiling view={data} /> : null}
+      {data.phase === "compiling" ? <p className="muted">Stopping the recording…</p> : null}
+      {jobs.map((job) => (
+        <Compiling key={job.sessionId} job={job} />
+      ))}
       {waiting ? (
         <p className="notice">
           {waiting} <a href="#/inbox">Open the Inbox</a>
@@ -79,21 +87,23 @@ export function Record({ again }: { again?: string }) {
 
 // While a recording becomes a workflow: what is happening, and a Stop (W1). Stop ends the design at its next model call,
 // saves nothing and keeps the recording for a day; a new recording can start at once.
-function Compiling({ view }: { view: RecordingView }) {
+// One recording being turned into a workflow (N23: there may be several, while you record the next).
+type Job = NonNullable<RecordingView["compiling"]>[number];
+function Compiling({ job }: { job: Job }) {
   const session = useSession();
   return (
     <section className="section">
       <h2>Turning your recording into a workflow…</h2>
-      <p className="muted">{view.form?.goal}</p>
-      {progressOf(view).length > 0 ? (
+      <p className="muted">{job.goal}</p>
+      {job.progress.length > 0 ? (
         <ol className="progress-feed" aria-live="polite">
-          {progressOf(view).map((p) => (
+          {job.progress.map((p) => (
             <li key={`${p.at}-${p.line}`}>{p.line}</li>
           ))}
         </ol>
       ) : null}
       <div className="answers">
-        {view.stopping ? (
+        {job.stopping ? (
           <button type="button" className="button" disabled>
             Stopping…
           </button>
@@ -101,7 +111,7 @@ function Compiling({ view }: { view: RecordingView }) {
           <Action
             kind="danger"
             confirm="Stop? Nothing will be saved; the recording is kept for a day."
-            run={() => session.call("recordCancel")}
+            run={() => session.call("recordCancel", { sessionId: job.sessionId })}
           >
             Stop
           </Action>

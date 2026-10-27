@@ -302,7 +302,8 @@ describe("keeping a recording for a day", () => {
     control.start({ goal: "x" });
     const compiling = control.stop();
     await vi.waitFor(() => expect(seen).toBeDefined());
-    expect(control.view()).toMatchObject({ phase: "compiling" });
+    // The Record button is free again (N23); this one is in the list of recordings becoming workflows.
+    expect(control.view()).toMatchObject({ phase: "idle", compiling: [{ sessionId: "s1", goal: "x" }] });
     expect(control.view().stopping).toBeFalsy();
 
     expect(control.cancel()).toEqual({ sessionId: "s1" });
@@ -318,6 +319,61 @@ describe("keeping a recording for a day", () => {
     expect(existsSync(join(home, "recordings", "s1"))).toBe(true);
     // And a new recording can start at once.
     expect(() => control.start({ goal: "another" })).not.toThrow();
+  });
+
+  it("starts another recording while the last is still turning into a workflow, each with its own feed and Stop (N23)", async () => {
+    const home = temp();
+    let n = 0;
+    let current: string | undefined;
+    const daemon: RecordControlOptions["daemon"] = {
+      startRecording: () => {
+        current ??= `s${++n}`;
+        return current;
+      },
+      stopRecording: async () => {
+        const stopped = current;
+        current = undefined;
+        return stopped;
+      },
+      broadcast: () => {},
+      mac: () => ({ connected: false, trusted: false }),
+    };
+    const finishing = new Map<string, (saved: { skill: { id: string } }) => void>();
+    const control = createRecordControl({
+      dataDir: home,
+      daemon,
+      ask: async () => "",
+      finish: (id, progress, signal) =>
+        new Promise((resolve, reject) => {
+          progress(`designing ${id}`);
+          finishing.set(id, resolve);
+          signal.addEventListener("abort", () => reject(new Error("cancelled")));
+        }),
+      log: () => {},
+    });
+    control.start({ goal: "first" });
+    const first = control.stop();
+    await vi.waitFor(() => expect(finishing.has("s1")).toBe(true));
+    expect(control.view()).toMatchObject({
+      phase: "idle",
+      compiling: [{ sessionId: "s1", goal: "first", progress: [{ line: "designing s1" }] }],
+    });
+    // Before, "still turning the last recording into a workflow": now a new recording starts at once.
+    expect(control.start({ goal: "second" })).toEqual({ sessionId: "s2" });
+    expect(control.view()).toMatchObject({ phase: "recording", form: { goal: "second" } });
+    const second = control.stop();
+    await vi.waitFor(() => expect(finishing.has("s2")).toBe(true));
+    expect(control.view().compiling?.map((j) => j.sessionId)).toEqual(["s1", "s2"]);
+    // The second finishes first; the first goes on.
+    finishing.get("s2")?.({ skill: { id: "w2" } });
+    await second;
+    expect(control.view().compiling?.map((j) => j.sessionId)).toEqual(["s1"]);
+    expect(control.view().last).toMatchObject({ sessionId: "s2", outcome: "saved" });
+    // Each has its own Stop.
+    expect(control.cancel("s1")).toEqual({ sessionId: "s1" });
+    await first;
+    expect(control.view().compiling).toEqual([]);
+    expect(control.view().last).toMatchObject({ sessionId: "s1", outcome: "cancelled" });
   });
 
   it("tells the window whether Chrome is connected, and says why an empty recording was empty when it wasn't (a real recording captured nothing and said only 'no steps')", async () => {

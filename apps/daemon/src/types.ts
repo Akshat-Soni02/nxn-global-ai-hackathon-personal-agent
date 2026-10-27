@@ -172,6 +172,15 @@ export interface RecordingView {
   progress: { at: number; line: string }[];
   // Stop was pressed while the recording was becoming a workflow: it is winding down (the next model call ends it).
   stopping?: boolean;
+  // Every recording being turned into a workflow now (N23), oldest first, each with its feed; the Record button is
+  // free meanwhile. Absent from a daemon older than the window.
+  compiling?: {
+    sessionId: string;
+    goal?: string;
+    startedAt: number;
+    progress: { at: number; line: string }[];
+    stopping?: boolean;
+  }[];
 }
 // A design's review (skills/<id>/review.json; built by packages/recorder/src/design/v2/review.ts), as the window reads
 // it. Declared here, not imported: the recorder package needs Node, and the window's code must not load it. record.ts
