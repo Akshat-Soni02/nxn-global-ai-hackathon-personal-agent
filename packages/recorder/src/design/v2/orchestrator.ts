@@ -28,7 +28,7 @@ import { critique } from "./critic.ts";
 import { drawnProblems, gate, inBlocks, lostWork, runProblems, unmadeProblems, withoutUnusedInputs } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
 import { BUILD, BUILD_FILE, PLAN, PLAN_FILE } from "./prompt.ts";
-import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
+import { askBatch, batchOf, MAX_QUESTIONS, openCodeQuestions } from "./questions.ts";
 import { type ChangeNote, changeNotes, type RecordingFacts } from "./rules.ts";
 import { newSession, type QueuedQuestion, type SessionV2 } from "./session.ts";
 import { type DesignMode, designToolsV2, isFrequency, isHowTo, isTimeOfDay, workflowFile } from "./tools.ts";
@@ -46,6 +46,9 @@ export interface DesignV2Options {
   pages: Map<string, string>;
   memory?: Pick<MemoryStore, "search">;
   prompter: Prompter;
+  // The user is watching while it builds (the daemon's Record screen): the agent's question is put to them at once and
+  // it builds with the answer (N9), instead of guessing and changing its work after the batch at the end.
+  askWhileBuilding?: boolean;
   // The recording's Never and private words: every tool result is masked with them (the evidence already is).
   maskTerms?: string[];
   // What an unattended run still needs (the daemon's go-live checks).
@@ -281,6 +284,21 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     pages: new Map([...options.pages].map(([name, url]) => [maskText(name, options.maskTerms ?? []).text, url])),
     maskTerms: options.maskTerms ?? [],
   });
+  if (options.askWhileBuilding)
+    session.askNow = async (q) => {
+      const answer = await options.prompter.ask(
+        {
+          id: q.id,
+          text: q.text,
+          options: q.options.map((o) => ({ label: o, value: o })),
+          ...(q.default ? { default: q.default } : {}),
+        },
+        { step: q.step, draft: session.draft },
+      );
+      // As many as the batch would ask; past that they wait for the batch, which takes their defaults.
+      if ((session.answeredNow?.length ?? 0) + 1 >= MAX_QUESTIONS) session.askNow = undefined;
+      return answer;
+    };
   let task: TaskModel | undefined;
   let done: DoneReport | undefined;
   const asked: DesignV2Outcome["asked"] = [];
@@ -313,7 +331,14 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     gaps: session.gaps,
     ...(session.critique.length > 0 ? { critique: session.critique } : {}),
     test: session.lastTest,
-    asked,
+    asked: [
+      ...asked,
+      ...(session.answeredNow ?? []).map(({ question, answer }) => ({
+        question: question.text,
+        answer,
+        by: "agent" as const,
+      })),
+    ],
     answered,
     pending: reachedQuestions
       ? []

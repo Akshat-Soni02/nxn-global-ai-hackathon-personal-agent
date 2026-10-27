@@ -701,7 +701,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     name: "ask",
     kind: "look",
     description:
-      'Queue a question for the user: only what the recording, the goal and what they said can\'t answer. step: the step its answer changes ("start" for its inputs). Asked after you build, with the others, in one batch',
+      'Ask the user a question: only what the recording, the goal and what they said can\'t answer. step: the step its answer changes ("start" for its inputs). Answered at once when the user is watching (then build with the answer), else asked after you build, with the others, in one batch',
     input: z.object({
       question: z.string().min(1),
       why: z.string().min(1),
@@ -712,7 +712,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     }),
     prepare: unstring,
     // `confirm` is still accepted from older prompts, and means nothing now.
-    run: ({ question, why, step: named, options, default: fallback }) => {
+    run: async ({ question, why, step: named, options, default: fallback }) => {
       // A step written as words ("after opening the jobs page"; the YC design sent one six times, refused each time):
       // asked about the workflow's start, and said so.
       const step = named === "start" || known(named) ? named : "start";
@@ -756,15 +756,28 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       if (session.questions.some((q) => key(q.step, q.text) === key(step, question))) {
         return { output: { ok: true, note: "already queued" } };
       }
-      const id = `q${session.questions.length + 1}`;
-      session.questions.push({
+      const id = `q${session.questions.length + (session.answeredNow?.length ?? 0) + 1}`;
+      const queued = {
         id,
         text: question,
         why,
         step,
         options: options ?? [],
         ...(fallback ? { default: fallback } : {}),
-      });
+      };
+      // Asked now (N9): the user answers while it builds, and the agent builds with the answer, instead of a guess it
+      // must undo after the batch at the end.
+      if (session.askNow) {
+        const given = (await session.askNow(queued)).trim() || fallback || "";
+        session.answeredNow = [...(session.answeredNow ?? []), { question: queued, answer: given }];
+        return {
+          output: {
+            answered: given,
+            note: given ? "the user answered: build with it" : "no answer: decide it yourself, and say so in a why",
+          },
+        };
+      }
+      session.questions.push(queued);
       return {
         output: {
           queued: id,

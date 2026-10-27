@@ -487,8 +487,7 @@ describe("after Stop, with a model", () => {
             { type: { type: "text" }, description: "the ISO week", default: "2026-W41" },
             "a scheduled run logs the current week",
           ),
-          call("done", { summary: "Built; one question for you", rules: [] }),
-          // After the answer: the apply episode's done is the design's last word.
+          // The question was answered while it built (N9): its done is the design's last word.
           call("done", { summary: "A scheduled run logs the current week", rules: [] }),
         ],
         task,
@@ -514,7 +513,10 @@ describe("after Stop, with a model", () => {
     expect(skill.history[0]?.summary).toMatch(/^Recorded; .*asks for the week when it starts/);
     const kept = JSON.parse(readFileSync(join(home, "recordings", sessionId, "design.json"), "utf8"));
     expect(kept).toMatchObject({ kind: "designed", summary: "A scheduled run logs the current week" });
-    expect(kept.asked).toEqual([{ question: "Which week should a scheduled run log?", answer: "", by: "agent" }]);
+    // Left to it: the question's default is what it built with.
+    expect(kept.asked).toEqual([
+      { question: "Which week should a scheduled run log?", answer: "the current week", by: "agent" },
+    ]);
     // One AI read the recording: stage 1 wrote the task model, the next call planned its changes (none here), every
     // later call was the agent's, with its tools, or the critic's second look at done (critic.ts).
     expect(kept.task).toMatchObject({ cadence: { kind: "schedule" } });

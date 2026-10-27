@@ -324,6 +324,8 @@ export async function finishRecording(
       pages: pagesOf(steps, compiled.base.idsByStep, tabsOf(trace, steps).tabs),
       memory: options.memory,
       prompter: options.prompter,
+      // The Record screen shows the design's questions as they come (N9).
+      askWhileBuilding: true,
       // The Never and private words: every tool result the agent reads is masked with them.
       maskTerms: maskTermsOf(recorded),
       unattended: unattendedGaps,

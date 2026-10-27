@@ -833,6 +833,47 @@ describe("what the YC design of 28 Oct asked twice", () => {
   });
 });
 
+describe("a question asked while building (N9)", () => {
+  it("is answered at once when the design can ask now, and the agent builds with the answer", async () => {
+    const s = session();
+    const asked: string[] = [];
+    s.askNow = async (q) => {
+      asked.push(q.text);
+      return "the next empty row";
+    };
+    const out = await run(s, "ask", {
+      question: "Which row should the numbers go in?",
+      why: "the recording wrote A4",
+      step: "start",
+      options: ["A4", "the next empty row"],
+    });
+    expect(asked).toEqual(["Which row should the numbers go in?"]);
+    expect(out.output).toMatchObject({ answered: "the next empty row" });
+    // Answered: not asked again in the batch at the end.
+    expect(s.questions).toEqual([]);
+    expect(s.answeredNow).toMatchObject([
+      { question: { text: "Which row should the numbers go in?" }, answer: "the next empty row" },
+    ]);
+  });
+
+  it("takes the default when the answer is empty, and queues it as before when it can't ask now", async () => {
+    const now = session();
+    now.askNow = async () => "";
+    const out = await run(now, "ask", {
+      question: "How many?",
+      why: "w",
+      step: "start",
+      options: ["3", "5"],
+      default: "5",
+    });
+    expect(out.output).toMatchObject({ answered: "5" });
+    const later = session();
+    expect((await run(later, "ask", { question: "How many?", why: "w", step: "start" })).output).toMatchObject({
+      queued: "q1",
+    });
+  });
+});
+
 describe("what live C showed", () => {
   it("lets a read drop its control to read the whole page (change target: null); nothing else can", async () => {
     const s = session();

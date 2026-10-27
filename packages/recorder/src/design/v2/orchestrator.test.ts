@@ -548,6 +548,21 @@ describe("design agent v2, stage by stage", () => {
   });
 });
 
+describe("a question asked while building (N9)", () => {
+  it("puts the agent's question to the user at once when they are watching, and never asks it again in the batch", async () => {
+    const ask = call("ask", { question: "Which sheet tab should it use?", why: "two tabs", step: "start" });
+    const llm = fakeLlm(scriptedDesigner([ask, done("x")], task));
+    const { options, asked } = await setup({ llm });
+    const out = await designV2({ ...options, askWhileBuilding: true });
+    // The answer reached the agent while it built: the call after ask reads it.
+    expect(JSON.stringify(llm.requests.at(-1))).toContain('\\"answered\\"');
+    expect(asked.filter((q) => q.text === "Which sheet tab should it use?")).toHaveLength(1);
+    expect(out.asked).toContainEqual(
+      expect.objectContaining({ question: "Which sheet tab should it use?", by: "agent" }),
+    );
+  });
+});
+
 describe("what Checkpoint 4 kept that it shouldn't have", () => {
   it("keeps the recorded steps when a stopped design reached steps that can't run, and lists the questions it never asked", async () => {
     const look = call("look", {});
