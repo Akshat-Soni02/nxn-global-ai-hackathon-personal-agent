@@ -1248,6 +1248,26 @@ nav a.active .badge {
 .wf-ai .wf-icon {
   stroke: var(--accent);
 }
+/* A run's log by block (Run.tsx, R7.1): the block's title and how it went; its steps folded when it went well. */
+.block-section {
+  list-style: none;
+  border-left: 3px solid var(--line);
+  padding-left: 12px;
+  margin: 8px 0;
+}
+.block-section > details > summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+.block-failed {
+  border-left-color: var(--danger, #dc2626);
+}
+.block-waiting {
+  border-left-color: var(--warn, #d97706);
+}
+.block-done {
+  border-left-color: var(--ok, #16a34a);
+}
 /* "+" between steps in the editor (AddNode.tsx, R4): quiet until hovered. */
 .wf-plus {
   display: grid;

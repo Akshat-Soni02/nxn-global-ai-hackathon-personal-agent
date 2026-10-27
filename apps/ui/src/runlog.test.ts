@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupsOf, type Logged, lineOf } from "./runlog.ts";
+import { groupsOf, type Logged, lineOf, sectionsOf } from "./runlog.ts";
 
 // Rushil's walk-through of D on 23 Oct, as the log had it: one long list.
 let at = 0;
@@ -57,5 +57,25 @@ describe("the run log (checkpoint 6: one long list, the step in every line)", ()
     const missed = ev({ type: "step.walk", stepId: "s2", path: "s2", choice: "skip", highlighted: false });
     expect(lineOf(missed, "web.click")).toBe("You said: skip it");
     expect(lineOf(missed, "web.save_pdf")).toBe("You said: skip it (it saves the page: nothing to outline)");
+  });
+});
+
+describe("a run's log by block (R7.1)", () => {
+  const result = (id: string, ok: boolean) =>
+    ev({ type: "step.result", stepId: id, path: id, result: ok ? { ok: true } : { ok: false, error: "x" }, ms: 1 });
+  const blocks = new Map([
+    ["s1", { id: "b1", title: "Open the jobs" }],
+    ["s2", { id: "b1", title: "Open the jobs" }],
+    ["s3", { id: "b2", title: "Fill in the sheet" }],
+  ]);
+
+  it("puts a block's steps under its title, with how it went", () => {
+    const log = [result("s1", true), result("s2", true), result("s3", false), result("s4", true)];
+    const sections = sectionsOf(groupsOf(log), blocks);
+    expect(sections.map((s) => [s.block?.title ?? s.groups[0]?.id, s.groups.length, s.state])).toEqual([
+      ["Open the jobs", 2, "done"],
+      ["Fill in the sheet", 1, "failed"],
+      ["s4", 1, "done"],
+    ]);
   });
 });
