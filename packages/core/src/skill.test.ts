@@ -218,6 +218,21 @@ describe("variables", () => {
     expect(() => valueAt("invoice", { vendor: "Acme" }, ["amount"])).toThrow("invoice has no field amount");
   });
 
+  it("reads a number from text only when the text holds exactly one, and fails rather than guess (C29)", () => {
+    const n = (s: string) => fitValue({ type: "number" }, s);
+    expect(n("Rs. 500")).toBe(500); // the dot belongs to "Rs.", not to the number
+    expect(n("$1,234.50")).toBe(1234.5);
+    expect(n("142 points")).toBe(142);
+    expect(n("-5")).toBe(-5);
+    expect(n("1.234,56")).toBeUndefined(); // European grouping: two readings, so none
+    expect(n("12k")).toBeUndefined(); // a multiplier is not a digit to drop
+    expect(n("3 of 5")).toBeUndefined(); // two numbers used to become 35
+    expect(n("2026-10-09")).toBeUndefined();
+    expect(n("Version 2.0.1")).toBeUndefined();
+    expect(n("1,23")).toBeUndefined(); // not a grouping
+    expect(n("A1")).toBeUndefined();
+  });
+
   it("fits values to types, converting text that means a number, yes/no or a date", () => {
     expect(fitValue({ type: "number" }, "1,234")).toBe(1234);
     expect(fitValue({ type: "boolean" }, "Yes")).toBe(true);

@@ -120,9 +120,18 @@ export async function fsChannel(step: Step, ctx: RunContext): Promise<StepResult
     case "read":
       return { ok: true, value: await readFile(source(path(a.path, "path")), "utf8") };
     case "write": {
-      const target = expandHome(path(a.path, "path"));
+      // Text, or a number or yes/no as its text. A list or an object used to become an empty file, silently.
+      const raw = a.content;
+      if (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "boolean")
+        return {
+          ok: false,
+          error: "fs.write needs text to write: content is not text (a list or an object can't be a file's text)",
+        };
+      const content = String(raw);
+      const asked = expandHome(path(a.path, "path"));
+      // Like every other action here it never overwrites (the header): only "append" goes into an existing file.
+      const target = a.append ? asked : freePath(asked);
       await mkdir(dirname(target), { recursive: true });
-      const content = typeof a.content === "string" ? a.content : "";
       if (a.append) await appendFile(target, content);
       else await writeFile(target, content);
       return { ok: true, value: fileValue(target) };

@@ -132,18 +132,26 @@ async function typeText(cdp: Cdp, text: string): Promise<void> {
   }
 }
 
-async function navigate(cdp: Cdp, url: string, timeoutMs: number): Promise<string | undefined> {
+const withoutHash = (u: string) => u.split("#")[0];
+const hashOf = (u: string) => (u.includes("#") ? u.slice(u.indexOf("#")) : "");
+
+export async function navigate(cdp: Cdp, url: string, timeoutMs: number): Promise<string | undefined> {
   const before = await evaluate<number>(cdp, "performance.timeOrigin").catch(() => 0);
+  const here = await evaluate<string>(cdp, "location.href").catch(() => "");
+  // Another #fragment of the same page (Google Sheets #gid=, single-page apps) is no new document: the origin never
+  // changes, so waiting for a new one timed out, and the retries after it waited minutes.
+  const sameDocument = hashOf(url) !== "" && here !== "" && withoutHash(here) === withoutHash(url) && here !== url;
   const { errorText } = await cdp.send<{ errorText?: string }>("Page.navigate", { url });
   if (errorText) return `navigation failed: ${errorText}`;
   const loaded = await pollUntil(async () => {
-    const state = await evaluate<{ origin: number; ready: string }>(
+    const state = await evaluate<{ origin: number; ready: string; href: string }>(
       cdp,
-      "({ origin: performance.timeOrigin, ready: document.readyState })",
+      "({ origin: performance.timeOrigin, ready: document.readyState, href: location.href })",
     );
     // "interactive" = parsed. Waiting for "complete" would block on slow images and ads; the next step waits
     // for its own target anyway.
-    return state.origin !== before && state.ready !== "loading" ? true : undefined;
+    if (state.ready === "loading") return undefined;
+    return state.origin !== before || (sameDocument && hashOf(state.href) === hashOf(url)) ? true : undefined;
   }, timeoutMs);
   return loaded ? undefined : `page did not finish loading: ${url}`;
 }

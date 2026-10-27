@@ -74,6 +74,31 @@ describe("fs channel", () => {
     const r = await fsChannel(step("write", { path: join(d, "a/b/c.md"), content: "hi" }), ctx());
     expect(readFileSync(pathOf(r.value), "utf8")).toBe("hi");
   });
+
+  it("never overwrites a file it writes: a clash gets a suffix, as the header says (C28)", async () => {
+    const d = dir();
+    writeFileSync(join(d, "notes.md"), "mine");
+    const r = await fsChannel(step("write", { path: join(d, "notes.md"), content: "new" }), ctx());
+    expect(pathOf(r.value)).toBe(join(d, "notes (1).md"));
+    expect(readFileSync(join(d, "notes.md"), "utf8")).toBe("mine");
+    expect(readFileSync(join(d, "notes (1).md"), "utf8")).toBe("new");
+  });
+
+  it("appends to the file it is told to, and only then touches an existing one (C28)", async () => {
+    const d = dir();
+    writeFileSync(join(d, "log.txt"), "a\n");
+    await fsChannel(step("write", { path: join(d, "log.txt"), content: "b\n", append: true }), ctx());
+    expect(readFileSync(join(d, "log.txt"), "utf8")).toBe("a\nb\n");
+  });
+
+  it("writes a number or a yes/no as its text, and fails on a list or an object instead of writing an empty file (C28)", async () => {
+    const d = dir();
+    const n = await fsChannel(step("write", { path: join(d, "n.txt"), content: 42 }), ctx());
+    expect(readFileSync(pathOf(n.value), "utf8")).toBe("42");
+    const bad = await fsChannel(step("write", { path: join(d, "l.txt"), content: ["a", "b"] }), ctx());
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toMatch(/text/);
+  });
 });
 
 describe("file inputs resolved without asking", () => {

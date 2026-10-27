@@ -71,12 +71,14 @@ export function classify(failure: Failure, signals?: PageSignals): Classificatio
   // The data didn't fit: a model answer, a row that isn't there, a value of the wrong type.
   if (step.type === "llm") return { class: "data", reason: error };
   if (step.type === "action" && step.channel === "data") return { class: "data", reason: error };
-  if (/should be|is not (a|an) |no row where|not a list/i.test(error)) return { class: "data", reason: error };
+  // (A control that is no longer the kind it was, "target is not a <select>", is the page that changed: drift, below.)
+  if (/should be|is not (a|an) |no row where|not a list/i.test(error) && !/target is not a </i.test(error))
+    return { class: "data", reason: error };
 
   // The page changed: the control isn't where the workflow expects it.
   if (step.type === "action" && (step.channel === "web" || step.channel === "ax")) {
     if (
-      /target not found|ambiguous target|covered by|not visible|no menu item|precondition did not hold|like the recorded one|two controls look like the target|has no action to press|did not come forward/i.test(
+      /target not found|ambiguous target|covered by|not visible|no menu item|precondition did not hold|like the recorded one|two controls look like the target|has no action to press|did not come forward|target is not a </i.test(
         error,
       )
     ) {

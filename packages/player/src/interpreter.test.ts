@@ -313,6 +313,22 @@ describe("asks", () => {
 });
 
 describe("pause and resume", () => {
+  it("a run resumed inside a loop item doesn't keep that item's scope past the item (C34)", async () => {
+    const s = skill(
+      [loop("l1", "{{people}}", { name: "p", type: row }, [read("s1", "note"), write("s2", "{{p.name}}: {{note}}")])],
+      { people: { type: rows } },
+    );
+    const one = (value: string) => ({ ok: true, value });
+    const fresh = await runSkill(s, fake({ s1: [one("a"), one("b"), one("c")] }).deps, { inputs: { people } });
+    // Paused in the second item, after its read, then resumed: items 2 and 3 are left to run.
+    const resumed = await runSkill(s, fake({ s1: [one("c")] }).deps, {
+      inputs: { people },
+      resume: { at: "l1[1] > s2", vars: { people, p: people[1], note: "b" } },
+    });
+    expect(resumed.status).toBe("succeeded");
+    expect(Object.keys(resumed.vars).sort()).toEqual(Object.keys(fresh.vars).sort());
+  });
+
   const inbox = skill(
     [
       write("s1", "start"),
@@ -404,6 +420,33 @@ describe("pause and resume", () => {
     );
     expect((await runSkill(skipping, deps, { inputs: { people } })).status).toBe("succeeded");
     expect(wrote).toEqual(["Globex", "Initech"]);
+  });
+
+  it("a loop that skips failing items skips them even when recovery is on (onFailure says pause) (C5)", async () => {
+    let asked = 0;
+    const { deps, wrote } = fake(
+      { s2: [{ ok: false, error: "bad file" }] },
+      {
+        onFailure: () => {
+          asked++;
+          return "pause";
+        },
+      },
+    );
+    const skipping = skill(
+      [loop("l1", "{{people}}", { name: "p", type: row }, [write("s2", "{{p.name}}")], { on_item_fail: "skip" })],
+      { people: { type: rows } },
+    );
+    expect((await runSkill(skipping, deps, { inputs: { people } })).status).toBe("succeeded");
+    expect(wrote).toEqual(["Globex", "Initech"]);
+    expect(asked).toBe(0); // no repair, no waiting: the author said to skip a bad item
+    // A loop that stops still pauses for recovery.
+    const stopping = skill(
+      [loop("l1", "{{people}}", { name: "p", type: row }, [write("s2", "{{p.name}}")], { on_item_fail: "stop" })],
+      { people: { type: rows } },
+    );
+    const again = fake({ s2: [{ ok: false, error: "bad file" }] }, { onFailure: () => "pause" });
+    expect((await runSkill(stopping, again.deps, { inputs: { people } })).status).toBe("paused");
   });
 
   it("goes on after a step the user did by hand, unless later steps need its output", async () => {

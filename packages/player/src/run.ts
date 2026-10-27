@@ -101,6 +101,9 @@ interface Env {
   // Action steps that acted (not only read), counted across the whole run.
   acted: { n: number };
   signal?: AbortSignal;
+  // Inside a loop that skips a failing item: a failing step ends its item, it doesn't pause the run for repair (the
+  // author said a bad item is to be skipped; repair would spend money and may save a version fitted to that one item).
+  skipsFailure?: boolean;
 }
 
 type Vars = Record<string, unknown>;
@@ -403,7 +406,7 @@ async function runLeaf(
   }
   if (!result.ok) {
     const failure: Failure = { stepId: step.id, path, step: resolved, result, attempts, vars: { ...vars } };
-    if ((await env.deps.onFailure?.(failure)) === "pause") {
+    if (!env.skipsFailure && (await env.deps.onFailure?.(failure)) === "pause") {
       return {
         status: "paused",
         failedStep: path,
@@ -431,6 +434,17 @@ async function runLeaf(
     vars[output.name] = value;
   }
   return undefined;
+}
+
+// The names that live only inside one item of a loop: its item, and what the steps in it save or ask for.
+function scopeNames(loop: LoopStep): Set<string> {
+  const names = new Set([loop.item.name]);
+  for (const { step } of walkSteps(loop.steps)) {
+    if (step.type === "control" && step.kind === "loop") names.add(step.item.name);
+    if ("output" in step && step.output) names.add(step.output.name);
+    if ("ask" in step && step.ask?.output) names.add(step.ask.output.name);
+  }
+  return names;
 }
 
 async function runLoop(
@@ -465,6 +479,11 @@ async function runLoop(
   }
   if (startAt === undefined) env.log({ type: "loop.start", stepId: step.id, path, items: list.length });
 
+  // A run resumed inside an item carries that item's scope (the item, what its steps made). Only the item it resumes in
+  // may see it: later items and the steps after the loop must not, as in a run that never paused.
+  const resumedItem = startAt === undefined ? undefined : { ...vars };
+  if (resumedItem) for (const name of scopeNames(step)) delete vars[name];
+
   for (const [index, raw] of list.entries()) {
     if (startAt !== undefined && index < startAt) continue;
     const at = `${path}[${index}]`;
@@ -475,7 +494,11 @@ async function runLoop(
     } else {
       env.log({ type: "loop.item", stepId: step.id, path, index });
       // Each item gets its own scope: the item, plus what its steps produce. Nothing leaks to the next item.
-      halt = await runSteps(step.steps, { ...vars, [step.item.name]: item }, { ...env, at: `${at} > ` });
+      halt = await runSteps(
+        step.steps,
+        { ...(index === startAt && resumedItem ? resumedItem : vars), [step.item.name]: item },
+        { ...env, at: `${at} > `, skipsFailure: env.skipsFailure || step.on_item_fail === "skip" },
+      );
     }
     if (!halt) continue;
     // "skip" goes on with the next item after a failure; a denial or a pause always stops the run.

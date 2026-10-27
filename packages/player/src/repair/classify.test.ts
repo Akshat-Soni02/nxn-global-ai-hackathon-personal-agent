@@ -15,6 +15,29 @@ const step = ActionStep.parse({
 const failure = (error: string): Failure =>
   ({ stepId: "s7", path: "s7", step, result: { ok: false, error }, attempts: 1, vars: {} }) as Failure;
 
+describe("a control that changed kind (C30)", () => {
+  it("is drift a repair can fix, not bad data: a select that became a text box", () => {
+    const pick = ActionStep.parse({
+      id: "s3",
+      type: "action",
+      intent: "Choose a size",
+      channel: "web",
+      action: "select",
+      target: { role: "combobox", name: "Size", fallbacks: [] },
+      args: { value: "Large" },
+    });
+    const c = classify({
+      stepId: "s3",
+      path: "s3",
+      step: pick,
+      result: { ok: false, error: "target is not a <select>" },
+      attempts: 1,
+      vars: {},
+    } as Failure);
+    expect(c.class).toBe("drift");
+  });
+});
+
 describe("a hung Chrome", () => {
   it("is the environment, with what to do, not an unknown failure", () => {
     for (const error of [
