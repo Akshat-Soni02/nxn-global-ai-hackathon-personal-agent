@@ -23,8 +23,16 @@ import { attributesOf, type MatchOutcome, match, matchAll, selectAll } from "./m
 export const DEFAULT_WEB_TIMEOUT_MS = 10_000;
 
 // Page-side functions, kept as strings so build tools cannot rewrite them before they are sent to the page.
+// What is at the point, asked where the element lives (N3): in a shadow root the page's elementFromPoint answers with
+// the root's host, and a frame's own viewport starts where the frame sits in the page.
 const FN_HIT_TEST = `function (x, y) {
-  const hit = document.elementFromPoint(x, y);
+  for (let win = this.ownerDocument.defaultView; win && win.frameElement; win = win.parent) {
+    const frame = win.frameElement.getBoundingClientRect();
+    x -= frame.left + win.frameElement.clientLeft;
+    y -= frame.top + win.frameElement.clientTop;
+  }
+  const root = this.getRootNode();
+  const hit = (typeof root.elementFromPoint === "function" ? root : this.ownerDocument).elementFromPoint(x, y);
   if (!hit) return "nothing";
   if (hit === this || this.contains(hit) || hit.contains(this)) return "";
   if (this.labels && Array.from(this.labels).some((l) => l === hit || l.contains(hit))) return "";
