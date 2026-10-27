@@ -55,13 +55,14 @@ function setup(steps: unknown[]) {
   };
   const db = join(dataDir, "shadow.db");
   const released: string[] = [];
-  const open = (exec: Execute = execute) => {
+  const open = (exec: Execute = execute, more: Partial<Parameters<typeof createService>[0]> = {}) => {
     const events: ServiceEvent[] = [];
     const service = createService({
       dataDir,
       store: openStore(db),
       execute: exec,
       release: (runId) => released.push(runId),
+      ...more,
     });
     service.subscribe((e) => events.push(e));
     return { service, events };
@@ -383,6 +384,48 @@ describe("the workflow lifecycle", () => {
       await service.idle();
     }
     expect(service.state("report").state).toBe("live"); // it would be paused after 3 real failures
+  });
+
+  describe("Run now asks which file to use, as the terminal does (C22)", () => {
+    const succeed: Execute = async () => ({ status: "succeeded", vars: {} });
+
+    it("settles the inputs first, then starts with the answer", async () => {
+      const { open } = setup([write("s1")]);
+      let given: Record<string, unknown> | undefined;
+      const { service } = open(
+        async (_skill, leg) => {
+          given = leg.provided;
+          return { status: "succeeded", vars: {} };
+        },
+        {
+          chooseInputs: async (skill, provided) => {
+            expect(skill.id).toBe("report");
+            provided.invoice = "/tmp/invoice-1.pdf";
+          },
+        },
+      );
+      const run = await service.startAsking("report");
+      await service.idle();
+      expect(run.trigger).toBe("manual");
+      expect(given).toEqual({ invoice: "/tmp/invoice-1.pdf" });
+    });
+
+    it("starts no run when the answer is wrong: it stops before anything runs", async () => {
+      const { open } = setup([write("s1")]);
+      const { service } = open(succeed, {
+        chooseInputs: async () => {
+          throw new Error("invoice: no file at /tmp/missing.pdf");
+        },
+      });
+      await expect(service.startAsking("report")).rejects.toThrow(/no file at/);
+      expect(service.runs()).toEqual([]);
+    });
+
+    it("is just a start when nothing is to be asked", async () => {
+      const { open } = setup([write("s1")]);
+      const { service } = open(succeed);
+      expect((await service.startAsking("report")).skillId).toBe("report");
+    });
   });
 
   it("skips a triggered run while the previous one waits for you, and says why", async () => {

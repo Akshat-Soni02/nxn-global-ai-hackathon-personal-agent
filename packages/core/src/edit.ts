@@ -227,7 +227,7 @@ function place(draft: Draft, at: Position, step: Step): string | undefined {
     const found = locate(draft.steps, at.into);
     const parent = found?.list[found.index];
     if (!parent) return `no step ${at.into}`;
-    if (parent.type !== "control") return `${at.into} is not a loop or branch: steps go before or after it`;
+    if (parent.type !== "control") return `${at.into} is not a loop, branch or block: steps go before or after it`;
     if (at.arm === "else" && parent.kind !== "branch") return `${at.into} is a ${parent.kind}: it has no else`;
     const list = at.arm === "else" && parent.kind === "branch" ? parent.else : parent.steps;
     if (at.at === "start") list.unshift(step);

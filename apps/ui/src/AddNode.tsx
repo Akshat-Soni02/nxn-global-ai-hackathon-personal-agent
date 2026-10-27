@@ -2,7 +2,7 @@
 // needs. The form makes the step itself and the daemon inserts it into the draft as any edit (checked like the agent's:
 // a step that can't run, or a value nothing saves yet, is refused with the reason). Loops and ifs hold steps, so they
 // are made by wrapping steps already there (the step's panel), not added empty here.
-import type { Skill } from "@shadow/core";
+import type { EditInput, Skill, Step } from "@shadow/core";
 import { walkSteps } from "@shadow/core";
 import { useState } from "react";
 import type { At } from "./WorkflowTree.tsx";
@@ -11,7 +11,7 @@ export type Kind = "open" | "click" | "type" | "read" | "ai" | "files" | "app";
 // A step as an insert edit takes it: the daemon gives it an id and checks it.
 export type NewStep = Record<string, unknown>;
 
-const KINDS: { kind: Kind; title: string; about: string }[] = [
+const KINDS: { kind: Kind | Marker; title: string; about: string }[] = [
   { kind: "open", title: "Open a page", about: "Go to an address in the browser" },
   { kind: "click", title: "Click on a page", about: "A button or link, by its words" },
   { kind: "type", title: "Type on a page", about: "Into a box, by its label" },
@@ -19,6 +19,8 @@ const KINDS: { kind: Kind; title: string; about: string }[] = [
   { kind: "ai", title: "AI step", about: "Work something out from what earlier steps read" },
   { kind: "files", title: "Find files", about: "In a folder on your Mac" },
   { kind: "app", title: "App action", about: "Something a connected app does directly" },
+  { kind: "ask", title: "Ask me", about: "A question before the next step, answered each run" },
+  { kind: "approve", title: "Wait for my OK", about: "The next step waits until you approve it" },
 ];
 
 // A variable's name from what a person types: "Top jobs" → "top_jobs".
@@ -134,20 +136,70 @@ export function stepOf(kind: Kind, f: Record<string, string>): NewStep | string 
   }
 }
 
+// Two more ways to build, which add no step: they set a field on the step that follows the spot (R4.2, B4). "Ask me"
+// puts a question on it, answered before it runs; "Wait for my OK" makes it wait for your approval.
+export type Marker = "ask" | "approve";
+
+// The id of the step that follows a spot, if there is one: after a step is its next sibling, before is that step, and
+// into a loop, a branch or a block at its start is its first step.
+function stepAfter(skill: Skill, at: At): string | undefined {
+  const lists = (steps: Step[]): Step[][] => [
+    steps,
+    ...steps.flatMap((s) =>
+      s.type === "control" ? [...lists(s.steps), ...(s.kind === "branch" ? lists(s.else) : [])] : [],
+    ),
+  ];
+  if ("before" in at) return at.before;
+  if ("after" in at) {
+    for (const list of lists(skill.steps)) {
+      const i = list.findIndex((s) => s.id === at.after);
+      if (i >= 0) return list[i + 1]?.id;
+    }
+    return undefined;
+  }
+  const parent = [...walkSteps(skill.steps)].map(({ step }) => step).find((s) => s.id === at.into);
+  if (parent?.type !== "control" || at.at === "end") return undefined;
+  return (at.arm === "else" && parent.kind === "branch" ? parent.else : parent.steps)[0]?.id;
+}
+
+// The edits a form makes at a spot, or why it can't yet: an insert for a step, a `set` for a question or an approval.
+export function editsFor(kind: Kind | Marker, f: Record<string, string>, at: At, skill: Skill): EditInput[] | string {
+  if (kind !== "ask" && kind !== "approve") {
+    const step = stepOf(kind, f);
+    return typeof step === "string" ? step : [{ op: "insert", at, step } as EditInput];
+  }
+  const next = stepAfter(skill, at);
+  if (!next) return "there is no step after this spot to do that for: pick a spot above a step";
+  if (kind === "approve") return [{ op: "set", step: next, field: "requires_approval", value: true }];
+  const question = (f.question ?? "").trim();
+  if (!question) return "say what to ask";
+  const confirm = f.answer === "yes/no";
+  return [
+    {
+      op: "set",
+      step: next,
+      field: "ask",
+      value: confirm
+        ? { question, kind: "confirm" }
+        : { question, kind: "value", output: { name: varName(f.name || question), type: { type: "text" } } },
+    },
+  ];
+}
+
 export function AddNode({
   at,
   skill,
   tools = [],
-  add,
+  apply,
   close,
 }: {
   at: At;
   skill: Skill;
   tools?: { name: string; description: string }[];
-  add(step: NewStep): Promise<unknown>;
+  apply(edits: EditInput[]): Promise<unknown>;
   close(): void;
 }) {
-  const [kind, setKind] = useState<Kind>();
+  const [kind, setKind] = useState<Kind | Marker>();
   const [form, setForm] = useState<Record<string, string>>({ output: "text", pick: "newest" });
   const [problem, setProblem] = useState<string>();
   const field = (name: string, label: string, hint?: string, wide = false) => (
@@ -176,11 +228,11 @@ export function AddNode({
   );
   const submit = async () => {
     if (!kind) return;
-    const step = stepOf(kind, form);
-    if (typeof step === "string") return setProblem(step);
+    const edits = editsFor(kind, form, at, skill);
+    if (typeof edits === "string") return setProblem(edits);
     setProblem(undefined);
     try {
-      await add(step);
+      await apply(edits);
       close();
     } catch (e) {
       setProblem((e as Error).message);
@@ -216,6 +268,16 @@ export function AddNode({
           }}
         >
           {kind === "open" ? field("url", "Address", "https://…") : null}
+          {kind === "ask" ? (
+            <>
+              {field("question", "What to ask", "for example: Which month is this for?")}
+              {choose("answer", "Answered with", ["a value", "yes/no"])}
+              {form.answer === "yes/no" ? null : field("name", "Save the answer as", "a short name, for later steps")}
+            </>
+          ) : null}
+          {kind === "approve" ? (
+            <p className="muted small">The step after this spot will wait for your OK before it runs, every time.</p>
+          ) : null}
           {kind === "click" ? (
             <>
               {field("name", "The words on it", "as they read on the page: Submit, Next, the link's text")}

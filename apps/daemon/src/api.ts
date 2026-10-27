@@ -41,7 +41,8 @@ const methods = {
       id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "a workflow id"),
       inputs: z.record(z.string(), z.unknown()).default({}),
     }),
-    run: (s: Service, p: { id: string; inputs: Record<string, unknown> }) => s.start(p.id, p.inputs, "manual"),
+    // Asks which file to use first (the same way the terminal's `run` does), unless the caller gave the inputs.
+    run: (s: Service, p: { id: string; inputs: Record<string, unknown> }) => s.startAsking(p.id, p.inputs),
   },
   // A walk-through (docs/design.md, "7. Test"): a run that stops before every step with its target outlined.
   walk: {

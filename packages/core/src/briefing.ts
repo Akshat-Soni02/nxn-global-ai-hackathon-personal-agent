@@ -102,6 +102,8 @@ export function briefing(options: BriefingOptions = {}): string {
     "- llm: { instruction, inputs: [references], output } transforms data into one typed value. Never drives the UI;",
     "  sees only its inputs; can't produce files or secrets.",
     '- loop (type: control, kind: loop): { over: "{{list}}", item: { name, type }, max_items, on_item_fail: stop | skip, steps }.',
+    "- group (type: control, kind: group): { intent, steps }. A named block of the steps that did one thing: its steps",
+    "  run in place with their own ids; a block holds steps, never another block; it has no variables of its own.",
     "- branch (type: control, kind: branch): { if: Condition, steps, else }. Condition: { left, op, right? } with op",
     "  equals | not_equals | contains | greater_than | less_than | exists | not_exists, or { all | any: [..] }, { not }.",
     "",

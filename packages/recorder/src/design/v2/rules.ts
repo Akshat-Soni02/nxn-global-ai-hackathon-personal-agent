@@ -192,6 +192,11 @@ export interface ChangeNote {
   unverified?: boolean;
 }
 
+// A block, loop or branch without its steps: they are noted on their own, so a change inside doesn't also mark every
+// container around it as changed (B1).
+const shallow = (step: Step): unknown =>
+  step.type === "control" ? { ...step, steps: undefined, else: undefined } : step;
+
 export function changeNotes(
   original: Skill,
   draft: Skill,
@@ -215,8 +220,11 @@ export function changeNotes(
     const old = was.get(id);
     if (step.type === "trigger") continue;
     if (!old) notes.push(note(step, "added"));
-    else if (JSON.stringify(old.step) !== JSON.stringify(step)) notes.push(note(step, "changed"));
-    else if (old.parent !== parent) notes.push(note(step, "moved"));
+    else if (JSON.stringify(shallow(old.step)) !== JSON.stringify(shallow(step))) notes.push(note(step, "changed"));
+    // Moved to another parent, unless that is only a block coming or going: grouping steps is one note (the block's), not
+    // a "moved" for each step in it (B1).
+    else if (old.parent !== parent && !(parent && !was.has(parent)) && !(old.parent && !now.has(old.parent)))
+      notes.push(note(step, "moved"));
   }
   return notes;
 }

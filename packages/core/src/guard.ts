@@ -174,12 +174,18 @@ function completesOutward(draft: Skill, step: Step, before: Map<string, Step>): 
   return !!original && isOutward(original) && isOutward(previous as Step);
 }
 
-function previousSibling(steps: Step[], id: string): Step | undefined {
+// The step just before this one. A block is only a folder of the steps in it, so the first step of a block follows the
+// last step of the block before (the confirmation a send needs may open the next block); a loop or an if still ends it.
+function previousSibling(steps: Step[], id: string, before?: Step): Step | undefined {
+  const lastOf = (s: Step | undefined): Step | undefined =>
+    s?.type === "control" && s.kind === "group" ? lastOf(s.steps.at(-1)) : s;
   for (const [i, step] of steps.entries()) {
-    if (step.id === id) return i > 0 ? steps[i - 1] : undefined;
+    const previous = i > 0 ? lastOf(steps[i - 1]) : before;
+    if (step.id === id) return previous;
     if (step.type === "control") {
       const inner =
-        previousSibling(step.steps, id) ?? (step.kind === "branch" ? previousSibling(step.else, id) : undefined);
+        previousSibling(step.steps, id, step.kind === "group" ? previous : undefined) ??
+        (step.kind === "branch" ? previousSibling(step.else, id) : undefined);
       if (inner) return inner;
     }
   }

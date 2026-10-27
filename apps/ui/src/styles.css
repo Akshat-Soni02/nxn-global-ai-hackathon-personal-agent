@@ -914,6 +914,10 @@ nav a.active .badge {
 .answers.other {
   margin-top: 10px;
 }
+/* (Apps' search box; kept above the more specific rule below, which sets another input's width) */
+.app-filters .input {
+  max-width: 420px;
+}
 .answers.other .input {
   flex: 1;
   min-width: 200px;
@@ -1742,9 +1746,6 @@ details.advanced h3 {
   flex-direction: column;
   gap: 10px;
   margin-bottom: 14px;
-}
-.app-filters .input {
-  max-width: 420px;
 }
 .chips {
   display: flex;

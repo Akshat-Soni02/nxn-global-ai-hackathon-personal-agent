@@ -50,7 +50,7 @@ import { runSkillOn } from "./runner.ts";
 import { createScreenReader, type ScreenReader, screenToolsFrom } from "./screen.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
 import { createAppControl, type KeySource, llmFromKeychain } from "./settings.ts";
-import { findSkills, listSkills, saveRepair, saveSkill, versions } from "./skill-store.ts";
+import { findSkills, listSkills, saveRepair, versions } from "./skill-store.ts";
 import { type InboxItem, openStore, type RunRow } from "./store.ts";
 import { listTraces } from "./trace-store.ts";
 import { startTriggers } from "./triggers.ts";
@@ -220,6 +220,9 @@ const service = createService({
   dataDir: home,
   store,
   execute,
+  // Run now from the window asks which file to use before the first step, as the terminal's `run` does (C22): the
+  // question waits in the inbox. `prompter` is made below; this runs only when someone presses Run now.
+  chooseInputs: (skill, provided) => chooseFiles(skill, provided, (question) => prompter.ask(question), log),
   spent: () => usage.usage.costUsd,
   // A waiting run kept its tabs (runner.ts); ended from the inbox, the extension lets them go.
   release: (runId) => daemon.notify({ id: randomUUID(), type: "run.end", runId }),

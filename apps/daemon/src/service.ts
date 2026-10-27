@@ -63,6 +63,9 @@ export interface ServiceOptions {
   release?: (runId: string) => void;
   // What main.ts knows about the outside: connected extension and app, model configured.
   health?: () => Record<string, unknown>;
+  // Settles the inputs of a run you start by hand (which file to use) before the first step, as the terminal's `run`
+  // does: it fills `provided`, or throws when an answer is wrong. Without one, Run now takes the newest match.
+  chooseInputs?: (skill: Skill, provided: Record<string, unknown>) => Promise<void>;
   now?: () => number;
 }
 
@@ -76,6 +79,9 @@ export interface Service {
   health(): Record<string, unknown>;
   // Starts a run: a workflow id from the store, or the absolute path of a workflow file. Resolves when it is queued.
   start(ref: string, provided?: Record<string, unknown>, trigger?: string): RunRow;
+  // Run now from the window: settles which file to use (chooseInputs) first, then starts it by hand. A wrong answer
+  // starts nothing.
+  startAsking(id: string, provided?: Record<string, unknown>): Promise<RunRow>;
   // Walks through a workflow: a run that stops before every step with its target highlighted, and goes on with
   // "do it" / "next", "skip" or "stop" from the inbox. Reads run on "next"; acting steps only on "do it".
   walk(id: string, provided?: Record<string, unknown>): RunRow;
@@ -400,6 +406,12 @@ export function createService(options: ServiceOptions): Service {
       emit({ type: "run", run });
       enqueue(() => leg(run, skill, provided, undefined, file, draft));
       return run;
+    },
+
+    async startAsking(id, provided = {}) {
+      const skill = loadSkill(dataDir, id);
+      if (skill && options.chooseInputs) await options.chooseInputs(skill, provided);
+      return service.start(id, provided, "manual");
     },
 
     walk: (id, provided = {}) => service.start(id, provided, "walk"),

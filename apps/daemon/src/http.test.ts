@@ -17,8 +17,9 @@ function fakeService() {
   const service = {
     workflows: () => [{ id: "report", name: "Weekly report", versions: [1] }],
     goLive: (id: string) => ({ state: "live", since: 1, id }),
-    start: (...args: unknown[]) => {
-      calls.push(["start", ...args]);
+    // Run now from the window asks which file to use first (startAsking), then starts it by hand.
+    startAsking: async (...args: unknown[]) => {
+      calls.push(["startAsking", ...args]);
       return { id: "run-1", status: "running" };
     },
   } as unknown as Service;
@@ -104,7 +105,7 @@ describe("the API on local HTTP", () => {
     expect(JSON.parse(path.body)).toMatchObject({ ok: false, error: expect.stringContaining("a workflow id") });
     const started = await send(http.port, "/api/start", { headers: auth, body: JSON.stringify({ id: "report" }) });
     expect(JSON.parse(started.body)).toEqual({ ok: true, value: { id: "run-1", status: "running" } });
-    expect(calls).toEqual([["start", "report", {}, "manual"]]);
+    expect(calls).toEqual([["startAsking", "report", {}]]);
     // Method names with capitals reach the API too.
     const live = await send(http.port, "/api/goLive", { headers: auth, body: JSON.stringify({ id: "report" }) });
     expect(JSON.parse(live.body)).toEqual({ ok: true, value: { state: "live", since: 1, id: "report" } });
