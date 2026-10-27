@@ -78,7 +78,7 @@ async function onDaemonMessage(message: Message) {
     }
     case "run.step": {
       const { id, runId, step } = message;
-      const result = await runWebStep(step).catch((error: Error) => ({ ok: false, error: error.message }));
+      const result = await runWebStep(step, runId).catch((error: Error) => ({ ok: false, error: error.message }));
       send({ ...result, id, type: "run.step_result", runId, stepId: step.id });
       break;
     }
@@ -88,7 +88,7 @@ async function onDaemonMessage(message: Message) {
       break;
     }
     case "page.op": {
-      const result = await runPageOp(message.op as PageOp).catch((error: Error) => ({
+      const result = await runPageOp(message.op as PageOp, message.runId).catch((error: Error) => ({
         ok: false,
         error: error.message,
       }));
@@ -96,7 +96,7 @@ async function onDaemonMessage(message: Message) {
       break;
     }
     case "run.end":
-      await endRun();
+      await endRun(message.runId); // only this run's tabs: another run may be waiting for you with its own
       break;
     default:
       console.log("[extension] unhandled", message.type);

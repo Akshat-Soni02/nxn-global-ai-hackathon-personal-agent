@@ -15,6 +15,18 @@ const step = ActionStep.parse({
 const failure = (error: string): Failure =>
   ({ stepId: "s7", path: "s7", step, result: { ok: false, error }, attempts: 1, vars: {} }) as Failure;
 
+describe("a question the page asked (A5)", () => {
+  it("is the user's to answer, not drift: no repair, no model, and the words say what to do", () => {
+    const c = classify(
+      failure(
+        'the page asked "Delete 3 items?" (confirm) and nothing says what to answer: answer it by hand in the automation window, then go on',
+      ),
+    );
+    expect(c.class).toBe("environment");
+    expect(c.need).toMatch(/Delete 3 items\?.*by hand/);
+  });
+});
+
 describe("a control that changed kind (C30)", () => {
   it("is drift a repair can fix, not bad data: a select that became a text box", () => {
     const pick = ActionStep.parse({

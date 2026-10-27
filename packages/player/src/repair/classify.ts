@@ -44,6 +44,11 @@ export function classify(failure: Failure, signals?: PageSignals): Classificatio
       need: "bring the Shadow automation window to the front, then try the step again",
     };
   }
+  // The page asked a question nobody could answer (extension/src/dialogs.ts dismissed it): not drift, nothing a repair
+  // can change; the user answers it by hand in the automation window.
+  if (/^the page asked /i.test(error)) {
+    return { class: "environment", reason: error, need: error };
+  }
   if (/Shadow\.app is not running/i.test(error)) {
     return { class: "environment", reason: error, need: "start Shadow.app" };
   }

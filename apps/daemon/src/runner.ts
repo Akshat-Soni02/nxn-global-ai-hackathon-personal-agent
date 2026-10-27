@@ -205,7 +205,8 @@ export async function runSkillOn(
   const highlight = async (step: ActionStep): Promise<void> => {
     if (!step.target) return;
     if (step.channel === "web") {
-      const result = await page({ op: "highlight", target: step.target });
+      // In the step's own tab: the extension's last-used one is the previous step's.
+      const result = await page({ op: "highlight", target: step.target, ...(step.tab ? { tab: step.tab } : {}) });
       if (!result.ok) throw new Error(result.error);
       return;
     }

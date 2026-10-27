@@ -37,7 +37,7 @@ export type PageOp =
   | { op: "navigate"; url: string }
   | { op: "wait"; ms: number }
   // A walk-through (docs/design.md, "7. Test"): outlines the step's target on the page for a moment, acting on nothing.
-  | { op: "highlight"; target: Locator; ms?: number }
+  | { op: "highlight"; target: Locator; ms?: number; tab?: string }
   // A picture of the page as it is, as a JPEG data URL. The daemon masks it before anything else sees it.
   | { op: "screenshot" };
 
