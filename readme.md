@@ -11,6 +11,8 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 | Page | For |
 | --- | --- |
 | [`docs/product.md`](docs/product.md) | Opening Shadow for the first time: install, record a task, look at it, run it, what stays on your Mac |
+| [`reports/changes.md`](reports/changes.md) | The status of the whole product on Oct 27: what is done, partly done and not started, every known bug, what can fail while running |
+| [`CLAUDE.md`](CLAUDE.md) | For anyone (or any agent) changing the code: the pipeline and where each stage lives, commands, conventions, which document is the truth |
 | [`docs/design.md`](docs/design.md) | The design, every decision with its date, and the [status table](docs/design.md#status-design-vs-code) of what is built |
 | [`docs/cloud-architecture.md`](docs/cloud-architecture.md) | Shadow, managed: sign-in, `shadow-api` on Google Cloud, model calls with Shadow's key, connected apps through Composio, quotas |
 | [`docs/questions.md`](docs/questions.md) | The questions people ask, answered by mechanism: what runs when, which file does it, and why not the other way |
@@ -20,19 +22,21 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 
 ## What works today
 
-Status on **Oct 13, 2026**, evening. Everything below was checked by tests and by hand on this Mac, with a scripted model; [doc 14](docs/guide/14-shadow-end-to-end.md#8-what-is-left-and-the-sign-off-list) lists what a person still has to try.
+Status on **Oct 27, 2026**, from the code on `main` (the blocks revamp, PRs #25 and #26, is in). Built things are checked by tests; the record → workflow path also by real-model runs on real recordings (the spend is in [`testing/design-eval-ledger.md`](testing/design-eval-ledger.md)). [`reports/changes.md`](reports/changes.md) is the full list, with every known bug; [doc 14](docs/guide/14-shadow-end-to-end.md#8-what-is-left-and-the-sign-off-list) lists what a person still has to try.
 
 | Built | Not yet |
 | --- | --- |
-| **Recording** web pages, Mac apps (Accessibility) and file moves, after a short form (goal, how often, what changes, never), with optional **screenshots** (only the words read on the Mac, masked, leave it) and **narration** (turned into text on the Mac), turned into a workflow by the **design agent** (inputs, loops, branches, LLM steps), with questions on what is unclear. **Record again** on a workflow records it anew as its next version | Screenshots and narration tried by a person with macOS's permissions; the design agent tried on the real model |
-| **Editing** any step in the window: what it is for, its values, approval on or off, remove, move; every change checked and saved at once, undo and redo, saved as the next version | Adding a step from the editor |
+| **Recording** web pages, Mac apps (Accessibility) and file moves, after a short form (goal, how often, what changes, never), with optional **screenshots** (only the words read on the Mac, masked, leave it) and **narration** (turned into text on the Mac). The **design agent** (plan, then apply, in file mode; a critic checks the result) turns it into a workflow (inputs, loops, branches, LLM steps, connected-app steps), saved as about 10 named **blocks** instead of one card per event, with questions on what is unclear. **Record again** records it anew as the next version | Clicks into a spreadsheet's cells can't be replayed on the page (they need the connected app); a password field becomes a secret input that nothing can fill yet (the Keychain lookup is not built), so that run stops with "has no value"; screenshots and narration tried by a person with macOS's permissions |
+| **Editing** in the window: what any step is for, its values, approval on or off, remove, move; **"+"** adds an Open, Click, Type, Read, AI, Find-files or App step; **Group it** puts steps in a block, a "for each" or an "only if"; **Tidy up** groups a workflow saved before blocks; every change checked and saved at once, undo and redo, saved as the next version | "+" on the workflow's own page (only in the editor), a form per app tool, Edit and Test as modes of the page, change-by-chat, **Show me** |
 | **Walk through**: the workflow runs one step at a time with each target outlined, and you say Next, Do it, Skip or Stop | |
-| **Running** the workflow tree: loops, branches, LLM steps, questions and approvals, in your own Chrome and in Mac apps | |
-| **Recovering** from failures: classify, repair with cheap fixes or the repair agent (Nemotron 3 Super), which may ask to see a masked picture if you allow it, keep the fix as a new version, roll back | The fix shown by you recorded as the repair; Mac-app repair beyond the first cheap fix |
+| **Running** the workflow tree: loops, branches, LLM steps, questions and approvals, in your own Chrome and in Mac apps; a run's page shows its blocks, each with how it went | Pop-ups over the page (a `confirm`, the print dialog, a window the page opens) are not handled; one block can't be run alone |
+| **Recovering** from failures: classify, repair with cheap fixes or the repair agent (Nemotron 3 Super), which may ask to see a masked picture if you allow it, keep the fix as a new version, roll back; it names the block a step is in | Repair can't switch a step to a connected app's tool; the fix shown by you recorded as the repair; Mac-app repair beyond the first cheap fix |
+| **Connected apps**: Google Sheets, Docs, Gmail, Drive, Calendar, Slack, Notion, GitHub through Composio, on the **Apps** screen; the design agent writes app steps instead of clicking through those pages | Asking to connect an app before a run that needs it |
 | **The inbox**: a run that needs you waits there, even across a restart, and goes on when you answer | |
 | **Triggers**: live, paused and draft workflows; schedules; "when a file appears in a folder"; auto-pause after 3 failures | "When an email arrives" |
-| **Shadow.app**: menu bar, window (inbox, workflows, editor, runs, versions, Frequency, Settings with memory), notifications, the floating Record button, first-run setup, starts at login | Tried by a person on a clean Mac |
-| **The daemon** as a service: local API (socket and HTTP), log files, starting at login; **packaged** inside the app with its own Node, the API key in the Keychain (`pnpm package` → one `.dmg`) | The GitHub Release (`pnpm release` not yet run); CI building the `.dmg` |
+| **Shadow.app**: menu bar, window (inbox, workflows, editor, runs, versions, Frequency, Apps, Settings with memory), notifications, the floating Record button, first-run setup, starts at login | Tried by a person on a clean Mac |
+| **The daemon** as a service: local API (socket and HTTP), log files, starting at login; **packaged** inside the app with its own Node, your sign-in token in the Keychain (`pnpm package` → one `.dmg`) | The GitHub Release (`pnpm release` not yet run); CI building the `.dmg` |
+| **shadow-api**: device sign-in, the model relay, one MCP endpoint per user over Composio, free-tier quotas; runs locally with `pnpm api` | |
 
 ## How it works
 
@@ -53,7 +57,7 @@ flowchart LR
 2. **Record.** You do the task your usual way while Shadow records **events** in Chrome, Mac apps and Finder. With your consent: **a screenshot at each event**, of which only the words read on the Mac (private ones masked) leave it ([how](#privacy)), and **voice narration** turned into text on the Mac (the audio never leaves it).
 3. **Understand.** The **design agent** (Nemotron 3 Super in a loop with tools) turns the description, the events, what you said and the masked screen words into a **workflow**: a click on an email becomes "the newest email from this sender", changing values become variables, repeated work becomes a loop, "only if" a branch. It checks its own draft after every change.
 4. **Drill.** Questions only on the steps it is unsure about, shown next to the draft workflow with the step marked; answers go to memory.
-5. **Workflow tree.** Each step is a browser or Mac action, or an **LLM step** that transforms data (summarise, classify, read a document). LLM steps never drive the UI. The tree also has **variables**, **loops** and **branches**, and any step can **ask you** something or need your **approval** before it runs.
+5. **Workflow tree.** Each step is a browser or Mac action, a connected-app action (an **app step**: "add a row to the sheet" instead of clicking through the sheet), or an **LLM step** that transforms data (summarise, classify, read a document). LLM steps never drive the UI. The tree also has **variables**, **loops** and **branches**, and any step can **ask you** something or need your **approval** before it runs. Steps are grouped into named **blocks** ("Open the jobs page", "Fill in the sheet"): one level deep, no variables of their own; the window shows one node per block.
 6. **Edit.** On a workflow's page, Edit opens a draft beside it. Change what any step is for, its values, an LLM step's instruction, toggle **human approval**, remove or move steps. Each change is checked and saved at once; undo, redo, Discard, and **Save as the next version**. The live version keeps running until you save.
 7. **Walk through.** The workflow (or its draft) runs one step at a time. Before each step its target is outlined on the page or in the Mac app, and you choose **Next** (a step that only reads), **Do it** (a step that acts; this counts as its approval), **Skip** or **Stop**. Pages behind a click are reached by doing that click.
 8. **Run.** A workflow runs by hand, or on its own once it is **live**: on a schedule or when a file appears in a folder. A workflow that keeps failing pauses itself and tells you. Actions are deterministic; no model call unless an LLM step needs one or a step fails.
@@ -67,7 +71,7 @@ flowchart LR
 
 Outside the app: the **Chrome extension** (web recording and replay through `chrome.debugger` in your own, logged-in Chrome) and a tiny **native-host shim** (Chrome starts a fresh process for every connection, so the shim only forwards bytes to the daemon). 
 
-**One small service in the cloud: `shadow-api`** (`apps/api`, on Google Cloud Run). You sign in instead of bringing an API key; the daemon sends its model calls there, and the service adds Shadow's Nebius key, counts the call against your free tier and forwards it to Token Factory. It also gives each user one MCP endpoint with the tools of the apps they connected (Google Sheets, Gmail, Slack…, through Composio), which workflows call as `mcp` steps. Everything about your work still runs on the Mac ([cloud architecture](docs/cloud-architecture.md), [diagram 13](docs/guide/13-the-whole-picture.md)). For development, `NEBIUS_API_KEY` in `.env` skips the service.
+**One small service in the cloud: `shadow-api`** (`apps/api`, on Google Cloud Run). You sign in instead of bringing an API key; the daemon sends its model calls there, and the service adds Shadow's Nebius key, counts the call against your free tier and forwards it to Token Factory. It also gives each user one MCP endpoint with the tools of the apps they connected (Google Sheets, Gmail, Slack…, through Composio), which workflows call as `mcp` steps. Everything about your work still runs on the Mac ([cloud architecture](docs/cloud-architecture.md), [diagram 13](docs/guide/13-the-whole-picture.md)). For development, `NEBIUS_API_KEY` in `.env` skips the service for the model calls; connected apps always go through it (`pnpm api` runs one on your Mac).
 
 **Memory.** Local SQLite in the daemon: drill answers, run context, and site notes from repairs. Never secrets. Settings shows the entries and deletes them.
 
@@ -148,6 +152,15 @@ pnpm build                  # the extension, the native host, the window and the
 pnpm daemon                 # in a terminal you can see
 ```
 
+**With connected apps** (Google Sheets, Gmail…), run shadow-api beside it. `pnpm daemon` does not start it:
+
+```sh
+pnpm api                    # terminal 1: shadow-api on :8080, memory store, dev sign-in, no quotas; reads COMPOSIO_API_KEY and NEBIUS_API_KEY from .env
+pnpm daemon                 # terminal 2, with SHADOW_API_URL=http://localhost:8080 in .env
+```
+
+Then **Settings → Sign in** (the local page takes any email) and **Apps → Connect**. With the memory store, sign in again after `pnpm api` restarts. A `NEBIUS_API_KEY` in `.env` still serves the model calls directly; the service serves the apps. Details in [`apps/api/README.md`](apps/api/README.md).
+
 Shadow appears in the menu bar (how many things wait for you, Record, health, the next run, and a warning when the daemon is down), and, while you record, the red Record button at the bottom right (it shows only for a recording: from the moment one starts until it is saved). **Open Shadow** from the menu bar opens the window; the terminal also prints a link to open it in a browser. The extension connects within a minute (or reload it).
 
 **Keep it running without a terminal** (optional): `pnpm setup:daemon` starts the daemon at login and again if it stops; it opens Shadow.app. `pnpm setup:daemon --uninstall` stops it; do that before running `pnpm daemon` in a terminal, since only one daemon runs at a time. Logs are in `~/Library/Logs/Shadow` (Console.app shows them).
@@ -190,7 +203,7 @@ curl -s -X POST http://127.0.0.1:$PORT/api/inbox -H "Authorization: Bearer $TOKE
 curl -s -X POST http://127.0.0.1:$PORT/api/answer -H "Authorization: Bearer $TOKEN" -d '{"itemId":"<id>","answer":"approve"}'
 ```
 
-Methods: `workflows`, `workflow`, `runs`, `run`, `inbox`, `usage`, `health`, `start` (a saved workflow's id, never a file path), `walk`, `answer`, `cancel`, `rollback`, `state`, `goLive`, `pause`, `resume`, `setTrigger`, `draft`, `editDraft`, `undoDraft`, `redoDraft`, `discardDraft`, `publishDraft`, `recording`, `recordStart`, `recordStop`, `recordDiscard`, `settings`, `setApiKey`, `setConsent`, `checkModel`, `memory`, `forget`, `setupChrome`. `GET /api/events?token=…` streams changes.
+Methods (`apps/daemon/src/api.ts` is the list): `workflows`, `workflow`, `runs`, `run`, `inbox`, `usage`, `health`, `start` (a saved workflow's id, never a file path), `walk`, `answer`, `cancel`, `rollback`, `state`, `goLive`, `review`, `looksRight`, `pause`, `resume`, `setTrigger`, `draft`, `editDraft`, `tidyDraft`, `undoDraft`, `redoDraft`, `discardDraft`, `publishDraft`, `recording`, `recordStart`, `recordStop`, `recordDiscard`, `settings`, `setApiKey`, `setConsent`, `checkModel`, `memory`, `forget`, `setupChrome`, `signIn`, `signOut`, `accountUsage`, `connectedApps`, `connectApp`, `disconnectApp`, `appTools`, `checkApp`, `offerAppAgain`. `GET /api/events?token=…` streams changes.
 
 ### Development
 
@@ -247,6 +260,9 @@ TypeScript monorepo (pnpm workspaces), plus the Swift app. One language for the 
 │   └── snapshots/     # saved copies of the real pages; tests check every locator against them
 ├── scripts/           # fixture server, installers (native host, daemon at login), Mac app build, package (.dmg) and release, sandbox seeder, page snapshots, llm check
 ├── docs/              # design.md, product.md, questions.md, design-ui.md, examples.md (15 real workflows), guide/ (explainers and diagrams)
+├── reports/           # dated studies and plans; changes.md is the status of the whole product
+├── testing/           # checkpoint write-ups and design-eval-ledger.md (the real-model spend)
+├── CLAUDE.md          # the pipeline map, commands and conventions for whoever changes the code
 └── .github/           # CI (lint, typecheck, test, build) and CODEOWNERS template
 ```
 

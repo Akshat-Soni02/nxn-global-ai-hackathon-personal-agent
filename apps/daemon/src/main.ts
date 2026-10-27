@@ -1,4 +1,4 @@
-// Daemon entry point: the always-on process (launched at login later; `pnpm daemon` for now).
+// Daemon entry point: the always-on process (launched at login by `pnpm setup:daemon`; `pnpm daemon` runs it by hand).
 // Everything that waits for you is in the inbox (shadow.db), answered here, over the socket, or over local HTTP
 // (api.json says where); a run that needs you waits there and goes on when it is answered, even after a restart.
 // Record and Stop are also a floating button in Chrome (and the extension's toolbar icon), on the desktop and in the

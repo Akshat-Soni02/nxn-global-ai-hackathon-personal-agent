@@ -151,6 +151,7 @@ export function AddNode({
   const [form, setForm] = useState<Record<string, string>>({ output: "text", pick: "newest" });
   const [problem, setProblem] = useState<string>();
   const field = (name: string, label: string, hint?: string, wide = false) => (
+    // biome-ignore lint/a11y/noLabelWithoutControl: its control is the textarea or the input inside, chosen by `wide`
     <label className={`field${wide ? " wide" : ""}`}>
       <span>{label}</span>
       {wide ? (

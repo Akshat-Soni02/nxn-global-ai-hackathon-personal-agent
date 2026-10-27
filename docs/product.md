@@ -1,7 +1,7 @@
 # Shadow, for someone opening it for the first time
 
-> Written 13 Oct 2026. What Shadow is, how to install it, and how to record, test and run your first task. No
-> jargon on purpose. The design behind it is [design.md](design.md); the questions people ask are in
+> Written 13 Oct 2026, updated 27 Oct 2026 (blocks, the side panel, Apps, "Looks right"). What Shadow is, how to
+> install it, and how to record, test and run your first task. No jargon on purpose. The design behind it is [design.md](design.md); the questions people ask are in
 > [questions.md](questions.md).
 
 ## What it is, in three lines
@@ -36,15 +36,29 @@ Mac apps, with your files. When a website changes, it fixes the task itself and 
    the task the way you always do, in Chrome, in a Mac app, in Finder. If you like, say out loud why you choose what you choose: "always the newest one".
 5. Press **Stop**. (The trash next to it throws the recording away.)
 6. Shadow turns the recording into a workflow. If it is unsure about something, a question appears next to the step
-   it is about. Answer it. The workflow appears under **Workflows**.
+   it is about. Answer it. The workflow appears under **Workflows**. If the task worked in an app Shadow can connect
+   (Google Sheets, Docs, Gmail…), Shadow asks first whether to use it directly (with a Connect button if you haven't
+   connected it): say yes and the workflow writes to the app itself instead of clicking through its page. Connect apps
+   under **Apps** (see Apps below).
 
 ## Look at it, change it, walk through it
 
-- Open the workflow. The steps are a tree: browser steps, Mac steps, model steps that read text, loops ("for
-  each") and branches ("if"). Steps that send, pay or delete carry an **approval** flag: they will wait for you.
+- Open the workflow. It is a short list of **blocks**, named in plain words ("Open the jobs page", "Copy the title
+  from the page", "Fill in the sheet"); a recording of 33 clicks becomes about 10 blocks. Inside a block are its steps:
+  browser steps, Mac steps, connected-app steps, model steps that read text. Loops ("for each") and branches ("if")
+  are blocks too. Steps that send, pay or delete carry an **approval** flag: they will wait for you.
+- **Click a block** to open its side panel: **Details** says in plain words what it does, what it needs and what it
+  makes; **Debug** lists its steps with their technical details. A block with something to check shows an orange count,
+  and the panel says what in a sentence.
+- Before **Go live** you read what the design changed and press **Looks right**. If the design says "Can't run yet"
+  (for example a file the recording shows that no step makes), Go live waits until you fix that: Edit it, or record
+  again.
 - **Edit** lets you change any step: what it is for, its values, whether it needs your approval; remove or reorder
-  steps. Changes are kept as a draft; **Save as v2** makes them the new version. The old one keeps running until
-  then.
+  steps. **+** adds a step: Open a page, Click, Type, Read from a page, an AI step, Find files, or an App action.
+  **Group it** (in a step's panel) puts the next steps in a block, repeats them for each item of a list, or does
+  them only if a value is there; **Take the steps out** undoes a block. A workflow saved before blocks shows
+  **Tidy up**, which groups it and gives it a short name as a draft you can save or undo. Changes are kept as a draft;
+  **Save as v2** makes them the new version. The old one keeps running until then.
 - **Walk through** runs the workflow one step at a time. Each step's target is outlined on the page or in the app;
   you press Next (a step that only reads or opens a page), Do it (a step that acts), Skip or Stop.
 - **Record again** records the same task once more, as the next version, with the form filled in from last time.
@@ -53,6 +67,8 @@ Mac apps, with your files. When a website changes, it fixes the task itself and 
 
 - **Run now** runs it in a separate Chrome window you can watch. If a step needs your approval, it waits in the
   **Inbox**, with a notification. Press Approve or Deny. It waits as long as needed, even if you close everything.
+  The run's page shows the blocks in order, each with how it went (done, failed, waiting, skipped); a block that went
+  well is folded.
 - To let it run on its own, set its **Frequency** on the workflow's page (every day at…, every Monday, when a file
   appears in a folder…) and press **Go live**. **Pause** stops it starting on its own; Run now still works.
 - A workflow that fails three times in a row pauses itself and tells you why.
@@ -60,7 +76,12 @@ Mac apps, with your files. When a website changes, it fixes the task itself and 
 ## When something changes
 
 - A website renames a button or adds a banner: Shadow fixes the step, keeps the fix only when it can see it worked,
-  and saves it as a new version. An inbox card says what changed; **Roll back** undoes it in one click.
+  and saves it as a new version. An inbox card says what changed, naming the block the step is in; **Roll back**
+  undoes it in one click.
+- Not handled yet: a pop-up over the page (a "Are you sure?" box, the print dialog, a window the page opens by
+  itself) stops the run at that step, and clicks into a spreadsheet's cells can't be replayed on the page (connect
+  Google Sheets so the workflow writes to it directly). [`reports/changes.md`](../reports/changes.md) lists what else
+  can go wrong.
 - Something only you can do (log in, a code by text): the run waits in the inbox. Do it by hand in the automation
   window and press "I did it by hand: go on".
 - If Shadow can't fix a step, it asks you to show it: do the step by hand, press go on.
@@ -83,11 +104,14 @@ outline of the page. Pictures leave only if you turn that on, blacked out first.
 To the apps you connect (through Composio, which keeps your sign-in to them): what a step writes or reads there,
 such as the row it adds to a sheet.
 
-## Settings
+## Apps and Settings
 
-Shadow in the menu bar → Open Shadow → **Settings**: your account (sign out), check the connection, **Connected
-apps** (connect Google Sheets, Gmail and others, or disconnect them), **Usage** this month, the three switches,
-connect Chrome again, see and forget what Shadow remembers, and where its files are.
+Shadow in the menu bar → Open Shadow → **Apps** (in the sidebar): connect Google Sheets, Docs, Gmail, Drive,
+Calendar, Slack, Notion, GitHub and others, check one works, see what it can do, or disconnect it. You must be signed
+in first.
+
+→ **Settings**: your account (sign out), check the connection, **Usage** this month, the three switches, connect
+Chrome again, see and forget what Shadow remembers, and where its files are.
 
 ## If something is off
 

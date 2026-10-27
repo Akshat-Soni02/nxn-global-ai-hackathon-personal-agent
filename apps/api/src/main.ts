@@ -1,5 +1,5 @@
 // Starts shadow-api: on Cloud Run (PORT is set by it), or locally:
-//   STORE=memory AUTH=dev TOOLS=fake QUOTAS=off NEBIUS_API_KEY=… pnpm --filter @shadow/api dev
+//   pnpm api   (STORE=memory AUTH=dev QUOTAS=off, the keys from the repo's .env: NEBIUS_API_KEY, COMPOSIO_API_KEY)
 // or with the Firestore emulator (FIRESTORE_EMULATOR_HOST=localhost:8081). See apps/api/README.md.
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.ts";

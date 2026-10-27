@@ -19,14 +19,20 @@ memory) stays on their Mac. Design: [`docs/cloud-architecture.md`](../../docs/cl
 
 ## Run it on your Mac
 
-No Google Cloud and no Composio needed:
+No Google Cloud needed. From the repo root, with `NEBIUS_API_KEY` and `COMPOSIO_API_KEY` in the root `.env`:
 
 ```sh
-STORE=memory AUTH=dev TOOLS=fake QUOTAS=off NEBIUS_API_KEY=<your key> pnpm --filter @shadow/api dev
+pnpm api        # STORE=memory AUTH=dev QUOTAS=off, the keys read from the root .env; answers on :8080
+pnpm daemon     # in another terminal: `pnpm daemon` does not start the service
 ```
 
-Then point the daemon at it: `SHADOW_API_URL=http://localhost:8080` in the repo's `.env`, with `NEBIUS_API_KEY`
-left empty there (a key in `.env` skips the service). Settings → Sign in opens a local page that takes any email.
+Then point the daemon at it: `SHADOW_API_URL=http://localhost:8080` in the root `.env`. The daemon reads that file, so
+a key there serves the model calls directly, and the service serves the connected apps; leave `NEBIUS_API_KEY` empty
+there to send the model calls through the service too. Settings → Sign in opens a local page that takes any email;
+Apps → Connect then links a Google account through Composio. With `STORE=memory` a restart forgets the sign-in: sign
+in again. Without a Composio key, `TOOLS=fake pnpm api` serves a toy sheet instead (no real app).
+
+Check it: `curl localhost:8080/healthz` answers `{"ok":true}`.
 
 With the Firestore emulator instead of memory: `gcloud emulators firestore start --host-port=localhost:8081`, then
 `FIRESTORE_EMULATOR_HOST=localhost:8081 GOOGLE_CLOUD_PROJECT=demo-shadow AUTH=dev …` without `STORE=memory`.
