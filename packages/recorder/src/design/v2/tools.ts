@@ -12,6 +12,7 @@ import {
   isAction,
   isLlm,
   type Locator,
+  pageName,
   Skill,
   type Step,
   triggerOf,
@@ -179,6 +180,29 @@ function folded(steps: Step[]): unknown[] {
   });
 }
 
+// Which page each of these steps reads or types on: the page the last open before it went to (Oct 27: the design put
+// "Read all job listings" right after "Open the sheet", and read the sheet). Said with every write, so a step on the
+// wrong page shows at once. In run order; a loop's steps follow what is open when it starts.
+export function pagesOfSteps(skill: Skill, ids: Set<string>): string[] {
+  const out: string[] = [];
+  let open: { id: string; url: string } | undefined;
+  for (const { step } of walkSteps(skill.steps)) {
+    if (!isAction(step) || step.channel !== "web") continue;
+    if (step.action === "navigate") {
+      open = { id: step.id, url: String(step.args.url ?? "") };
+      continue;
+    }
+    if (!ids.has(step.id) || !["extract", "type", "click", "select", "press"].includes(step.action)) continue;
+    const verb = step.action === "extract" ? "reads" : step.action === "type" ? "types on" : "acts on";
+    out.push(
+      open
+        ? `${step.id} ${verb} ${pageName(open.url)} (the page ${open.id} opened)`
+        : `${step.id} ${verb} no page yet: a run starts on a blank window, open one first`,
+    );
+  }
+  return out.slice(0, 12);
+}
+
 // What file mode keeps from the verbs: looking, testing, asking, proposals, and finishing.
 const FILE_MODE = new Set(["accept", "reject", "restore", "look", "test", "ask", "done", "finish", "ask_user"]);
 
@@ -196,8 +220,10 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     return `${prefix}${n}`;
   };
   // A recorded step anywhere: in the draft, the recording, or what code left out.
+  // Code's left-out steps too (x4): the model names them as targets (Oct 27, "no step x4" four times).
   const anyStep = (id: string): Step | undefined =>
-    [...walkSteps(session.draft.steps), ...walkSteps(session.original.steps)].find(({ step }) => step.id === id)?.step;
+    [...walkSteps(session.draft.steps), ...walkSteps(session.original.steps)].find(({ step }) => step.id === id)
+      ?.step ?? (session.dropped.get(id)?.step as Step | undefined);
   // The locator for a control the model names. A recorded one is as recorded; one in a recorded place is that place's
   // selector without its words, so it finds whatever is there next time (checkpoint 6: today's featured article).
   const locatorOf = (
@@ -329,6 +355,10 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         ...(added.length > 0 ? { approval_added: added } : {}),
         ...(tidy.fixed.size > 0 ? { tabs_fixed: [...tidy.fixed].map(([id, note]) => `${id}: ${note}`) } : {}),
         ...(made.length > 0 ? { new_steps: made } : {}),
+        ...(() => {
+          const on = pagesOfSteps(session.draft, new Set([...touched, ...made]));
+          return on.length > 0 ? { works_on: on } : {};
+        })(),
         ...(unchanged ? { note: "nothing changed: the workflow is exactly as it was (its why is kept)" } : {}),
         workflow: outlineOf(session.draft),
       },
@@ -932,6 +962,12 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       // { output: { name } } on a do step is its save_as.
       const named = (s.output as { name?: unknown } | undefined)?.name;
       if (values.save_as === undefined && typeof named === "string") values.save_as = named;
+      // An empty or missing intent is said for it (Oct 27: a write with "intent": "" on ten steps was refused ten times).
+      if (typeof values.intent !== "string" || !values.intent.trim()) {
+        const t = values.target as { like?: string; place?: string; css?: string; name?: string } | undefined;
+        const on = t?.name ?? t?.css ?? (t?.like ? `like ${t.like}` : t?.place ? `at ${t.place}'s place` : "");
+        values.intent = `${String(s.do).replace(/_/g, " ")}${on ? ` ${on}` : ""}${values.page ? ` ${values.page}` : ""}`;
+      }
       const spec = StepSpec.safeParse({ intent: `${s.do}`, ...values });
       if (!spec.success) {
         out.problems.push(

@@ -134,6 +134,8 @@ const FILE = `The workflow is a file
   is; read_workflow { "step": "s3" } shows one in full. Think in blocks first: the task is 5–8 named things ("Pick the
   top 5 jobs", "Add a row for each new job"), then fill each. Write a new one as { "block": "Its name", "steps": [ … ] }
   (steps by id, or new ones). A block holds steps, never a block; a loop or an if may hold blocks.
+- A step reads, clicks or types on the page the last open before it went to: put each right after the open of its
+  page (read the jobs on the jobs page, then open the sheet and write). Every write answers works_on: check it.
 - Keep each recorded step's id. A new step needs no id: code gives it one. Put "why" on each step you add or change:
   the user reads it. A recorded step you leave out is removed: the write's why says why, or "whys": { "s11": "…" } on
   any write explains a step by id, also one an earlier write left out.

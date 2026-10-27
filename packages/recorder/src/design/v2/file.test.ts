@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { DoneReport } from "./contracts.ts";
 import { lostWork } from "./gate.ts";
 import { newSession, type SessionV2 } from "./session.ts";
-import { designToolsV2, workflowFile } from "./tools.ts";
+import { designToolsV2, pagesOfSteps, workflowFile } from "./tools.ts";
 
 const INBOX = "https://mail.example.com/inbox";
 const recorded = Skill.parse({
@@ -273,6 +273,27 @@ describe("the workflow as a file", () => {
     ]);
     expect(removed.ok).toBe(true);
     if (removed.ok) expect(removed.skill.steps.map((x) => x.id)).toEqual(["start", "s3"]);
+  });
+
+  it("says which page each step it wrote works on, and fills an empty intent (the Oct 27 YC design)", async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const written = await run(s, "write_workflow", {
+      workflow: {
+        steps: [
+          trigger,
+          s1,
+          { do: "open", intent: "", page: "s1" },
+          { do: "read_all", intent: "", target: { css: ".job" }, save_as: "jobs" },
+        ],
+      },
+      why: "x",
+    });
+    expect(written.problems).toBeUndefined();
+    expect(String(written.works_on)).toMatch(/reads mail\.example\.com \(the page \w+ opened\)/);
+    const read = s.draft.steps.at(-1) as { intent: string };
+    expect(read.intent).toBe("read all .job");
+    expect(pagesOfSteps(session().draft, new Set(["s3"]))).toEqual(["s3 types on mail.example.com (the page s1 opened)"]);
   });
 
   it("names the step a problem is in, with what it does", async () => {
