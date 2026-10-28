@@ -435,7 +435,11 @@ describe("app steps written the way a model writes them (28 Oct)", () => {
         why: "append",
       });
     const bad = await write({ type: "list", items: { type: "object" } });
-    expect(bad.problems?.join(" ")).toMatch(/values.*rows.*a list of lists.*{{rows}}.*"list of list"/);
+    // The way out is a loop writing one row per item, never an AI step that builds rows (the fourth YC re-design).
+    expect(bad.problems?.join(" ")).toMatch(
+      /values.*rows.*a list of lists.*{{rows}}.*loop over {{rows}}.*one row per item/,
+    );
+    expect(bad.problems?.join(" ")).toMatch(/never an AI step to build rows/);
     expect((await write("list of list")).problems ?? []).toEqual([]);
   });
 

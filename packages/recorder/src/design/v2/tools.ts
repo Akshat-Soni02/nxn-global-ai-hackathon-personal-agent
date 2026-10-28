@@ -166,6 +166,39 @@ const typeFrom = (t: unknown): unknown => {
     : t;
 };
 
+// Names written in camelCase (rowsToAdd) are the names a workflow may hold (rows_to_add), with every reference to them
+// (the fourth YC re-design, 28 Oct: refused twice for save_as "getExisting" and output "rowsToAdd").
+export function snakeNames(steps: unknown[]): unknown[] {
+  const renames = new Map<string, string>();
+  const note = (name: unknown) => {
+    if (typeof name === "string" && /^[A-Za-z][A-Za-z0-9_]*$/.test(name) && !/^[a-z][a-z0-9_]*$/.test(name))
+      renames.set(name, name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase());
+  };
+  const find = (x: unknown): void => {
+    if (Array.isArray(x)) return x.forEach(find);
+    if (!x || typeof x !== "object") return;
+    const s = x as Record<string, unknown>;
+    note(s.save_as);
+    note(typeof s.output === "string" ? s.output : (s.output as { name?: unknown } | undefined)?.name);
+    if ("over" in s) note(typeof s.item === "string" ? s.item : (s.item as { name?: unknown } | undefined)?.name);
+    for (const v of Object.values(s)) find(v);
+  };
+  find(steps);
+  if (renames.size === 0) return steps;
+  const swap = (x: unknown, key?: string): unknown => {
+    if (typeof x === "string") {
+      if (key && ["save_as", "output", "name", "item"].includes(key) && renames.has(x)) return renames.get(x);
+      return x.replace(/\{\{\s*([A-Za-z][A-Za-z0-9_]*)/g, (all, name: string) =>
+        renames.has(name) ? all.replace(name, renames.get(name) as string) : all,
+      );
+    }
+    if (Array.isArray(x)) return x.map((v) => swap(v));
+    if (!x || typeof x !== "object") return x;
+    return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, swap(v, k)]));
+  };
+  return swap(steps) as unknown[];
+}
+
 // A question about the time of day it runs: never asked, 9:00 is the default (Checkpoint 5: A, B and D2 asked it; D2
 // made it an input), and the review shows the time so it can be changed.
 export const isTimeOfDay = (question: string) => /\b(what|which) time\b|\btime of day\b|\bwhat hour\b/i.test(question);
@@ -1227,9 +1260,18 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     };
     // "success" is the workflow's own field (its final checks), never a step (the third YC design wrote it as a step,
     // then as a word in the list, and was refused for it until it stopped).
+    // Markers that do nothing (an "end" or "done" with no steps, list or condition: the fourth wrote one) go too.
     const isSuccess = (x: unknown) =>
-      x === "success" || (Boolean(x) && typeof x === "object" && (x as { id?: unknown }).id === "success");
-    const plain = (unmasked(body.steps, out.problems) as unknown[]).filter((x) => !isSuccess(x));
+      (typeof x === "string" && /^(success|done|end|finish)$/i.test(x.trim()) && !anyStep(x.trim())) ||
+      (Boolean(x) && typeof x === "object" && (x as { id?: unknown }).id === "success");
+    const isMarker = (x: unknown) => {
+      if (!x || typeof x !== "object" || Array.isArray(x)) return false;
+      const m = x as Record<string, unknown>;
+      return Array.isArray(m.steps) && m.steps.length === 0 && !("over" in m) && !("if" in m) && !("else" in m);
+    };
+    const plain = snakeNames(
+      (unmasked(body.steps, out.problems) as unknown[]).filter((x) => !isSuccess(x) && !isMarker(x)),
+    );
     let steps = plain.map((s) => expandStep(s, out)) as Record<string, unknown>[];
     // The trigger stays first: a workflow written without it keeps the one it had.
     if (steps[0]?.type !== "trigger") steps = [session.draft.steps[0] as unknown as Record<string, unknown>, ...steps];

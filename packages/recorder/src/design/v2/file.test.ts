@@ -181,6 +181,33 @@ describe("the workflow as a file", () => {
     expect(ai.output.type).toEqual({ type: "list", items: { type: "object", fields: { title: { type: "text" } } } });
   });
 
+  it("settles how the fourth YC re-design wrote names and ends (28 Oct): camelCase names, an end marker", async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const written = await run(s, "write_workflow", {
+      workflow: {
+        steps: [
+          trigger,
+          s1,
+          { do: "read", intent: "read the inbox", save_as: "inboxText" },
+          {
+            instruction: "the Acme reports in the inbox",
+            inputs: ["{{inboxText}}"],
+            output: { name: "newReports", type: "list" },
+          },
+          { over: "{{newReports}}", item: "report", steps: ["s2"] },
+          { id: "end", type: "control", intent: "Done", steps: [] },
+        ],
+      },
+      why: "x",
+    });
+    expect(written.problems).toBeUndefined();
+    const text = JSON.stringify(s.draft.steps);
+    expect(text).toContain('"inputs":["{{inbox_text}}"]');
+    expect(text).toContain('"over":"{{new_reports}}"');
+    expect(text).not.toMatch(/inboxText|newReports|"id":"end"/);
+  });
+
   it("takes what the YC design wrote (Oct 25): steps named by id in a loop, a cron as expr, a bad JSON string said so", async () => {
     const s = session();
     const [trigger, s1] = steps(s) as Record<string, unknown>[];

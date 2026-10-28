@@ -24,7 +24,7 @@ export const APPS: App[] = [
     name: "Google Sheets",
     why: "it writes and reads cells directly, so it keeps working when the sheet's layout or size changes",
     notes:
-      'a range with no tab name ("A:C") is the first tab, so no step is needed to learn tab names; rows read come back as lists of cells ([["Acme (S21)", "Engineer"]]) and are written the same way, one list per row',
+      'a range with no tab name ("A:C") is the first tab, so no step is needed to learn tab names; rows read come back as lists of cells ([["Acme (S21)", "Engineer"]]) and are written the same way, one list per row; an append takes valueInputOption "USER_ENTERED"',
     pages: (u) => u.hostname === "docs.google.com" && u.pathname.startsWith("/spreadsheets"),
   },
   {
@@ -303,7 +303,7 @@ export function rowProblems(
     const item = name ? (lists.get(name) as { type?: string } | undefined) : undefined;
     return name && item && item.type !== "list"
       ? [
-          `${key} takes rows (a list of lists) but {{${name}}} is a list of ${item.type ?? "object"}s: make the step that makes it give "list of list" (output: { name: "${name}", type: "list of list" }), one list of cells for each row`,
+          `${key} takes rows (a list of lists) but {{${name}}} is a list of ${item.type ?? "object"}s: loop over {{${name}}} and write one row per item (${key}: [["{{today|DD/MM/YYYY}}", "{{item.field}}"]], each cell a reference), never an AI step to build rows; a list already made of rows is "list of list"`,
         ]
       : [];
   });
