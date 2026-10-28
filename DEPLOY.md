@@ -37,15 +37,13 @@ token-signing key in **Secret Manager**, creates the service account (Firestore 
 image repository, builds the image with Cloud Build and deploys `shadow-api` to Cloud Run with the secrets mounted.
 It prints the service URL and saves it to `.deploy/api-url` for step 2.
 
-**Two clicks in the console** (Identity Platform has no CLI for these). The script stops and tells you when:
+**One step in the console**: Google sign-in needs an OAuth client, which only the console makes.
+https://console.cloud.google.com/customer-identity → **Enable**, then **Providers → Add a provider → Google** →
+enable → Save. Top right, **Application setup details** shows `apiKey` and `authDomain`: paste them when the script
+asks (public values, kept in `scripts/deploy/deploy.env`, which git ignores). The script adds the service's host to
+the authorized domains itself.
 
-1. https://console.cloud.google.com/customer-identity → **Enable**, then **Providers → Add a provider → Google** →
-   enable → Save. Top right, **Application setup details** shows `apiKey` and `authDomain`: paste them when asked
-   (they are public values, kept in `scripts/deploy/deploy.env`, which git ignores).
-2. After the deploy: **Settings → Authorized domains → Add** the Cloud Run host the script prints
-   (`shadow-api-….run.app`).
-
-Check it: `curl $(cat .deploy/api-url)/healthz` answers `{"ok":true}`.
+Check it: `curl $(cat .deploy/api-url)/health` answers `{"ok":true}`.
 
 After the demo, to pay nothing while idle: `MIN_INSTANCES=0 PROJECT_ID=… pnpm deploy:api`.
 
@@ -72,6 +70,27 @@ pnpm deploy:site             # or: pnpm deploy:site --preview   for a preview UR
 
 It builds `apps/website` to static pages (`apps/website/out`) and deploys that folder to Vercel. Nothing to configure
 on Vercel. A custom domain: Vercel → the project → Settings → Domains.
+
+## Continuous deploy: `pnpm deploy:ci`
+
+After the first `deploy:api`, run once:
+
+```sh
+PROJECT_ID=my-shadow-project pnpm deploy:ci
+```
+
+It makes a **Cloud Build trigger**: every push to `main` that touches `apps/api/`, `packages/` or the lockfile
+builds the image and rolls it out to Cloud Run (`apps/api/cloudbuild.deploy.yaml`). Only the image changes: secrets,
+environment and sizes stay as `deploy:api` set them. It runs on Cloud Build's **default machine**, whose free tier
+(2,500 build-minutes a month) covers this: a build takes a few minutes. Builds run as their own service account,
+`shadow-ci`, which may deploy `shadow-api` and push images, nothing else.
+
+One step is yours: the script prints a link to authorize **Cloud Build's GitHub app** on the repository, and waits.
+
+What it doesn't cover, and how to keep them current:
+- **The site**: in Vercel, import the repository with Root Directory `apps/website` (framework Next.js, which
+  Vercel detects): then every push to `main` redeploys it. Or run `pnpm deploy:site`.
+- **The Mac app** needs macOS to build: `pnpm deploy:app` from a Mac when a new version should go out.
 
 ## Afterwards
 

@@ -108,10 +108,18 @@ gcloud run services update shadow-api --region="$REGION" --update-env-vars="PUBL
 mkdir -p .deploy
 printf %s "$URL" >.deploy/api-url
 say "Deployed: $URL"
-if curl -fsS "$URL/healthz" >/dev/null; then echo "healthz: ok"; else echo "healthz: not answering yet (give it a minute, then: curl $URL/healthz)"; fi
-cat <<EOF
+if curl -fsS "$URL/health" >/dev/null; then echo "health: ok"; else echo "health: not answering yet (give it a minute, then: curl $URL/health)"; fi
 
-Last step in the console (once): Identity Platform → Settings → Authorized domains → add
-  ${URL#https://}
-Then build the app with this URL in it: scripts/deploy/app.sh
-EOF
+# The sign-in page runs on the service's own host: Identity Platform must allow it (the API does what the console's
+# Settings → Authorized domains does). Both forms of the Cloud Run URL, and the ones already there.
+TOKEN=$(gcloud auth print-access-token)
+ADMIN="https://identitytoolkit.googleapis.com/admin/v2/projects/$PROJECT_ID/config"
+NUMBERED="shadow-api-$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)').$REGION.run.app"
+HAVE=$(curl -fsS -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: $PROJECT_ID" "$ADMIN" |
+  tr -d ' \n' | sed -E 's/.*"authorizedDomains":\[([^]]*)\].*/\1/' | tr ',' '\n' | tr -d '"')
+DOMAINS=$(printf '%s\n' $HAVE "${URL#https://}" "$NUMBERED" | sort -u | sed 's/.*/"&"/' | paste -sd, -)
+curl -fsS -X PATCH -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: $PROJECT_ID" -H "Content-Type: application/json" \
+  "$ADMIN?updateMask=authorizedDomains" -d "{\"authorizedDomains\":[$DOMAINS]}" >/dev/null &&
+  echo "sign-in: ${URL#https://} is an authorized domain" ||
+  echo "sign-in: add ${URL#https://} in Identity Platform → Settings → Authorized domains"
+echo "Then build the app with this URL in it: scripts/deploy/app.sh"
