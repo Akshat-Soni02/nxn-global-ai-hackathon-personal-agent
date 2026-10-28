@@ -163,6 +163,27 @@ describe("loops", () => {
     });
   });
 
+  it('goes through only the first N of a longer list, in its order, and the cap counts those (28 Oct: "the top 5")', async () => {
+    const s = (extra: Record<string, unknown>) =>
+      skill([loop("l1", "{{list}}", { name: "p", type: row }, [write("s1", "{{p.name}}")], extra)], {
+        list: { type: rows },
+      });
+    const some = fake();
+    // 3 items, a cap of 2, but only the first 2 are gone through: no failure.
+    expect((await runSkill(s({ first: 2, max_items: 2 }), some.deps, { inputs: { list: people } })).status).toBe(
+      "succeeded",
+    );
+    expect(some.wrote).toEqual(["Acme", "Globex"]);
+    // A first larger than the list goes through all of it.
+    const all = fake();
+    await runSkill(s({ first: 10 }), all.deps, { inputs: { list: people } });
+    expect(all.wrote).toEqual(["Acme", "Globex", "Initech"]);
+    // Without it, the cap still refuses a longer list.
+    expect(await runSkill(s({ max_items: 2 }), fake().deps, { inputs: { list: people } })).toMatchObject({
+      status: "failed",
+    });
+  });
+
   it("runs loops inside loops, and names each step by where it ran", async () => {
     const grid = { type: "list", items: { type: "list", items: T.text } };
     const s = skill(
@@ -312,7 +333,49 @@ describe("asks", () => {
   });
 });
 
+describe("a step that typed into a drawn area (A2)", () => {
+  it("fails at once and says why, never touching the page: on replay it would land in whichever cell is selected", async () => {
+    const drawn = {
+      id: "s1",
+      type: "action",
+      intent: "type the number into the sheet",
+      channel: "web",
+      action: "type",
+      target: { role: "textbox", name: "Cell", fallbacks: [] },
+      args: { text: "42" },
+      drawn: true,
+    };
+    const { deps, events } = fake();
+    let touched = 0;
+    deps.web = async () => {
+      touched++;
+      return { ok: true };
+    };
+    const outcome = await runSkill(skill([drawn], {}), deps, { inputs: {} });
+    expect(outcome.status).toBe("failed");
+    expect(outcome.error).toMatch(/drawn area replay can't reach/);
+    expect(touched).toBe(0);
+    expect(events.some((e) => e.type === "step.result" && e.result.ok === false)).toBe(true);
+  });
+});
+
 describe("pause and resume", () => {
+  it("a run resumed inside a loop item doesn't keep that item's scope past the item (C34)", async () => {
+    const s = skill(
+      [loop("l1", "{{people}}", { name: "p", type: row }, [read("s1", "note"), write("s2", "{{p.name}}: {{note}}")])],
+      { people: { type: rows } },
+    );
+    const one = (value: string) => ({ ok: true, value });
+    const fresh = await runSkill(s, fake({ s1: [one("a"), one("b"), one("c")] }).deps, { inputs: { people } });
+    // Paused in the second item, after its read, then resumed: items 2 and 3 are left to run.
+    const resumed = await runSkill(s, fake({ s1: [one("c")] }).deps, {
+      inputs: { people },
+      resume: { at: "l1[1] > s2", vars: { people, p: people[1], note: "b" } },
+    });
+    expect(resumed.status).toBe("succeeded");
+    expect(Object.keys(resumed.vars).sort()).toEqual(Object.keys(fresh.vars).sort());
+  });
+
   const inbox = skill(
     [
       write("s1", "start"),
@@ -406,6 +469,33 @@ describe("pause and resume", () => {
     expect(wrote).toEqual(["Globex", "Initech"]);
   });
 
+  it("a loop that skips failing items skips them even when recovery is on (onFailure says pause) (C5)", async () => {
+    let asked = 0;
+    const { deps, wrote } = fake(
+      { s2: [{ ok: false, error: "bad file" }] },
+      {
+        onFailure: () => {
+          asked++;
+          return "pause";
+        },
+      },
+    );
+    const skipping = skill(
+      [loop("l1", "{{people}}", { name: "p", type: row }, [write("s2", "{{p.name}}")], { on_item_fail: "skip" })],
+      { people: { type: rows } },
+    );
+    expect((await runSkill(skipping, deps, { inputs: { people } })).status).toBe("succeeded");
+    expect(wrote).toEqual(["Globex", "Initech"]);
+    expect(asked).toBe(0); // no repair, no waiting: the author said to skip a bad item
+    // A loop that stops still pauses for recovery.
+    const stopping = skill(
+      [loop("l1", "{{people}}", { name: "p", type: row }, [write("s2", "{{p.name}}")], { on_item_fail: "stop" })],
+      { people: { type: rows } },
+    );
+    const again = fake({ s2: [{ ok: false, error: "bad file" }] }, { onFailure: () => "pause" });
+    expect((await runSkill(stopping, again.deps, { inputs: { people } })).status).toBe("paused");
+  });
+
   it("goes on after a step the user did by hand, unless later steps need its output", async () => {
     const { deps, wrote, events } = fake();
     await runSkill(inbox, deps, {
@@ -480,6 +570,21 @@ describe("waiting", () => {
     expect((await runSkill(s, later.deps, { inputs: {}, resume })).status).toBe("succeeded");
     expect(later.wrote).toEqual(["two", "three"]);
     expect(asked).toBe(1); // the answer was used; the hook wasn't asked again
+  });
+
+  it("shows on the approval what the step will do, its values filled in, a secret never (Y9, 28 Oct)", async () => {
+    const s = skill([write("s1", "{{who}} pays {{amount}} with {{pin}}", { requires_approval: true })], {
+      who: { type: T.text },
+      amount: { type: T.number },
+      pin: { type: { type: "secret" } },
+    });
+    const waiting = await runSkill(s, fake({}, { approve: async () => WAIT }).deps, {
+      inputs: { who: "Acme", amount: 1200, pin: "4242" },
+    });
+    const what = (waiting as { waiting?: { what?: string } }).waiting?.what ?? "";
+    expect(what).toContain("Acme pays 1200");
+    expect(what).toContain("~/out.txt");
+    expect(what).not.toContain("4242");
   });
 
   it("ends as denied when the answer is no", async () => {

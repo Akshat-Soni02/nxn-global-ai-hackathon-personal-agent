@@ -77,6 +77,30 @@ describe("listPosition", () => {
     expect(listPosition($("#m3"))).toMatchObject({ index: 3, count: 4 });
   });
 
+  it("records the item's place in its list, which finds whatever item is there next time (N4, N17)", () => {
+    // A link that names its job (aria-label): its own selector finds only that job again, never "the top one".
+    const jobs = (names: string[]) =>
+      `<ul class="jobs">${names.map((n) => `<li class="job"><a aria-label="${n} job" href="/j/${n}"><span>${n}</span></a><p>Remote</p></li>`).join("")}</ul>`;
+    document.body.innerHTML = jobs(["Eventual", "Numeral", "Arc"]);
+    const top = $("a");
+    expect(describeElement(top).selectors.css).toBe('a[aria-label="Eventual job"]');
+    const place = listPosition(top)?.place as string;
+    expect(Array.from(document.querySelectorAll(place))).toEqual([top]);
+    // The next day a new job is on top: the place finds it.
+    document.body.innerHTML = jobs(["Zeta", "Eventual", "Numeral", "Arc"]);
+    expect(document.querySelector(place)?.textContent).toBe("Zeta");
+
+    // A table's row: the place is the row's, then the cell and the link in it.
+    const table = (names: string[]) =>
+      `<table id="t"><tbody>${names.map((n) => `<tr><td>${n.length}</td><td><a href="/wiki/${n}">${n}</a></td></tr>`).join("")}</tbody></table>`;
+    document.body.innerHTML = table(["Japan", "India", "France"]);
+    const india = document.querySelectorAll("a")[1] as Element;
+    const row = listPosition(india)?.place as string;
+    expect(Array.from(document.querySelectorAll(row))).toEqual([india]);
+    document.body.innerHTML = table(["Peru", "Chad", "India", "France"]);
+    expect(document.querySelector(row)?.textContent).toBe("Chad");
+  });
+
   it("never makes a list of paragraphs or page sections (an article's text is not a list)", () => {
     document.body.innerHTML = `<main><section><p id="a">Gross domestic product <a href="/x">GDP</a></p><p>Two</p>
       <p>Three</p></section><section><p>Four</p></section><section><p>Five</p></section></main>`;

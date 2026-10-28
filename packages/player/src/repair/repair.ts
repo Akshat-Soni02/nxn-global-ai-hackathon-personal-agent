@@ -5,11 +5,13 @@
 //   const repairer = createRepairer({ llm, meter });           one per run: it keeps the per-run limits
 //   const outcome = await repairer.repair(skill, failure, env); resolve | commit | escalate
 import { type Budget, type Episode, runAgent } from "@shadow/agent";
-import { briefing, type EditInput, isOutward, Skill, type Step, walkSteps } from "@shadow/core";
+import { briefing, type EditInput, isOutward, Skill, type Step, walkSteps, whereIn } from "@shadow/core";
 import type { Llm, UsageMeter } from "@shadow/llm";
 import { UsageMeter as Meter } from "@shadow/llm";
-import type { Failure, Resume } from "../types.ts";
+import { whatItDoes } from "../run.ts";
+import { type Failure, type Resume, WAIT } from "../types.ts";
 import type { PageSignals } from "../web/inspect.ts";
+import { appFirst } from "./app-first.ts";
 import { type Classification, classify, type FailureClass } from "./classify.ts";
 import type { RepairEnv } from "./env.ts";
 import { ladder } from "./ladder.ts";
@@ -30,11 +32,24 @@ export const DEFAULT_REPAIR_LIMITS: RepairLimits = {
   episode: { turns: 20, costUsd: 0.2, liveActions: 30 },
 };
 
+// What one run has used of its repair allowance. A run is several legs (every wait ends one), each with its own
+// repairer, so the caller keeps one of these per run and hands it to each leg: a wait doesn't give the allowance back.
+export interface RepairBudget {
+  episodes: number;
+  meter: ReturnType<UsageMeter["child"]>;
+}
+export const newRepairBudget = (meter?: UsageMeter): RepairBudget => ({
+  episodes: 0,
+  meter: (meter ?? new Meter()).child(),
+});
+
 export interface RepairerOptions {
   // Without a model, only classification and the cheap ladder run.
   llm?: Llm;
   // The run's meter: repair's cost is counted there too.
   meter?: UsageMeter;
+  // The run's allowance so far; without one, this repairer starts a new one.
+  budget?: RepairBudget;
   limits?: Partial<RepairLimits>;
   protocol?: "tools" | "json";
   signal?: AbortSignal;
@@ -57,6 +72,17 @@ export type RepairOutcome = { classification: Classification; episode?: Episode<
       approveOnce: string[];
     }
   | { kind: "escalate"; reason: string; whatToShow?: string }
+  // A fix that needs the user's OK nobody can give now (a run in the daemon): it waits as a proposal.
+  | {
+      kind: "propose";
+      skill: Skill;
+      summary: string;
+      what: string;
+      edits: EditInput[];
+      resume?: Resume;
+      // The fix removes the failing step (N22): this run goes on after it, on the version it was running.
+      skip?: boolean;
+    }
 );
 
 export interface Repairer {
@@ -67,8 +93,8 @@ export interface Repairer {
 
 export function createRepairer(options: RepairerOptions = {}): Repairer {
   const limits = { ...DEFAULT_REPAIR_LIMITS, ...options.limits };
-  const meter = (options.meter ?? new Meter()).child();
-  let episodes = 0;
+  const budget = options.budget ?? newRepairBudget(options.meter);
+  const { meter } = budget;
 
   async function repair(skill: Skill, failure: Failure, env: RepairEnv): Promise<RepairOutcome> {
     const isWeb = failure.step.type === "action" && failure.step.channel === "web";
@@ -105,11 +131,51 @@ export function createRepairer(options: RepairerOptions = {}): Repairer {
       ...(whatToShow ? { whatToShow } : {}),
     });
     if (!options.llm) return escalate(`no model configured to repair it (${classification.reason})`);
-    if (episodes >= limits.episodesPerRun)
+    if (budget.episodes >= limits.episodesPerRun)
       return escalate(`this run already used its ${limits.episodesPerRun} repairs`);
     const left = limits.costPerRunUsd - meter.usage.costUsd;
     if (left <= 0.005) return escalate(`this run already spent its repair budget ($${limits.costPerRunUsd})`);
-    episodes++;
+
+    // 2a. A page an app covers: the app's tool, built by code from one question (app-first.ts), put to the user.
+    if (env.appFor) {
+      const app = await appFirst(skill, failure, env.appFor, options.llm, { meter, signal: options.signal });
+      if (app) {
+        const what = changedSteps(skill, app.draft);
+        const next = nextVersion(skill, app.draft, app.summary, options.now);
+        // They saw exactly what the step will do: the run goes on without asking for that step's approval again.
+        const resume: Resume = {
+          at: failure.path,
+          vars: failure.vars,
+          answers: [{ kind: "approval", approved: true }],
+        };
+        const answer = env.deps.ask
+          ? await env.deps
+              .ask(
+                {
+                  kind: "confirm",
+                  question: `"${skill.name}" stopped at ${whereIn(skill, failure.stepId)}: ${failure.result.error}. Shadow can do it in the app directly: ${what}. Use it?`,
+                },
+                failure.step,
+              )
+              .catch(() => WAIT)
+          : WAIT;
+        if (answer === true)
+          return {
+            kind: "commit",
+            by: "agent",
+            skill: next,
+            summary: app.summary,
+            edits: app.edits,
+            resume,
+            approveOnce: [],
+            classification,
+          };
+        if (answer !== false)
+          return { kind: "propose", skill: next, summary: app.summary, what, edits: app.edits, resume, classification };
+        // No: the agent looks for a fix on the page.
+      }
+    }
+    budget.episodes++;
 
     const session: RepairSession = {
       original: skill,
@@ -146,6 +212,20 @@ export function createRepairer(options: RepairerOptions = {}): Repairer {
     const finish = outcome.value;
     if (finish.kind === "resolve") return { ...finish, classification, episode };
     if (finish.kind === "escalate") return escalate(finish.reason, episode, finish.whatToShow);
+    if (finish.kind === "propose") {
+      return {
+        kind: "propose",
+        skill: nextVersion(skill, session.draft, finish.summary, options.now),
+        summary: finish.summary,
+        // A removed step has no new step to show: what goes is said instead.
+        what: finish.skip ? `removes ${failure.stepId}: ${failure.step.intent}` : changedSteps(skill, session.draft),
+        edits: session.edits,
+        resume: { at: failure.path, vars: failure.vars, ...(finish.skip ? { skip: true } : {}) },
+        ...(finish.skip ? { skip: true } : {}),
+        classification,
+        episode,
+      };
+    }
     const tried = session.tried?.result;
     return {
       kind: "commit",
@@ -163,7 +243,7 @@ export function createRepairer(options: RepairerOptions = {}): Repairer {
   return {
     repair,
     get spent() {
-      return { episodes, costUsd: meter.usage.costUsd };
+      return { episodes: budget.episodes, costUsd: meter.usage.costUsd };
     },
   };
 }
@@ -178,7 +258,16 @@ requires, keep step ids, and never change what the user decided. The report says
 was recorded: find that again on the page. You may add, remove, reorder and change steps to get the run done; a change
 that acts outward, opens a new site or removes a step that asks for approval is put to the user when you commit, and
 made on yes. Calling the same look again with nothing done in between gets the same answer: act instead. If you can't
-find a safe fix, escalate and say in plain words what you would change, or what the user should show you.`;
+find a safe fix, escalate and say in plain words what you would change, or what the user should show you. If the
+failing step shouldn't be in the workflow at all (a mis-click that was recorded, a step the site no longer needs), say
+so with remove_step and why: the user decides, and the run goes on without it.
+When the failing step is work inside an app that has a connected tool listed under "Available now" (a sheet's cells, a
+document, a mail), try the app first, before you look at the page: the page may be what can't be replayed. Replace the
+step with that tool's mcp.call in one edit: { channel: "mcp", action: "call", args: { tool: "NAME", arguments: { … } } }
+(keep requires_approval on; the document or sheet id is in the address of the page the workflow opened). Read the
+tool's arguments with app_tool first and use only what it needs: don't guess them or build extra steps around it. Page
+repair is for steps no tool does. It can't be tried, because it would write for real: commit puts it to the user, and that yes is
+its check.`;
 
 // What the repair did before it handed over, in plain words for the user (Oct 25, X7): "It looked at the page 9 times,
 // changed the workflow once and tried a fix once (the last try: target not found)."
@@ -202,6 +291,16 @@ export function whatItTried(episode: Episode<RepairFinish>): string {
   const error = last?.output ? /"error":"([^"]{1,160})/.exec(last.output)?.[1] : undefined;
   const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
   return `It ${list}${error ? ` (the last try: ${error})` : ""}.`;
+}
+
+// What a proposed fix's changed steps will do, filled in as far as the workflow says (whatItDoes), for the card.
+function changedSteps(original: Skill, draft: Skill): string {
+  const was = new Map([...walkSteps(original.steps)].map(({ step }) => [step.id, JSON.stringify(step)]));
+  return [...walkSteps(draft.steps)]
+    .map(({ step }) => step)
+    .filter((step) => was.get(step.id) !== JSON.stringify(step) && step.type !== "control")
+    .map((step) => `${step.id}: ${whatItDoes(step, []) ?? step.intent}`)
+    .join("\n");
 }
 
 // The repaired workflow as the next version, with a note saying how it came about.

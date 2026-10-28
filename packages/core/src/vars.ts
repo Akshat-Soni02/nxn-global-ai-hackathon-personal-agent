@@ -150,6 +150,22 @@ export function valueAt(name: string, value: unknown, path: string[]): unknown {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
+// The number in a piece of text, or undefined. Only text holding exactly one number counts ("Rs. 500", "$1,234.50",
+// "142 points"); the old way of dropping every character that wasn't a digit, dot or minus turned "3 of 5" into 35 and
+// "Rs. 500" into 0.5. A number touching a letter ("12k", "A1"), a comma that isn't a thousands group ("1.234,56",
+// "1,23") or a second number (a date, "2.0.1") has more than one reading, so it has none: the run fails and says so.
+export function numberFrom(text: string): number | undefined {
+  const found = [...text.matchAll(/[-+]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)/g)];
+  const [only] = found;
+  if (found.length !== 1 || !only) return undefined;
+  const at = only.index ?? 0;
+  if (/[A-Za-z]/.test(text[at - 1] ?? "") || /[A-Za-z]/.test(text[at + only[0].length] ?? "")) return undefined;
+  const digits = only[0].replace(/^[-+]/, "");
+  if (digits.includes(",") && !/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(digits)) return undefined;
+  const n = Number(only[0].replace(/,/g, ""));
+  return Number.isFinite(n) ? n : undefined;
+}
+
 // A value made to fit a type, or undefined when it cannot. Text that means a number or a yes/no is converted
 // ("1,234" → 1234), so values read from pages and models can be checked against the declared type.
 export function fitValue(type: VarType, value: unknown): unknown {
@@ -162,9 +178,7 @@ export function fitValue(type: VarType, value: unknown): unknown {
         : undefined;
     case "number": {
       if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-      if (typeof value !== "string") return undefined;
-      const n = Number(value.replace(/[^\d.-]/g, ""));
-      return value.trim() && /\d/.test(value) && Number.isFinite(n) ? n : undefined;
+      return typeof value === "string" ? numberFrom(value) : undefined;
     }
     case "boolean":
       if (typeof value === "boolean") return value;

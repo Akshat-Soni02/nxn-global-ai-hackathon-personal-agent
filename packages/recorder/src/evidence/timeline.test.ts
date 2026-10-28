@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { narrationOf } from "../narration.ts";
 import type { NormalisedStep } from "../normalise.ts";
-import { describeStep, timelineOf, timelineSlice } from "./timeline.ts";
+import { describeStep, placeOf, timelineOf, timelineSlice } from "./timeline.ts";
 
 const SHEET = "https://docs.google.com/spreadsheets/d/ID/edit";
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
@@ -54,6 +54,32 @@ describe("one timeline", () => {
       '00:14  (left out) clicked "Print all": changed nothing on the page, and nothing was copied from it',
     ]);
     expect(timelineSlice(lines, "s2", "s2").map((l) => l.step)).toEqual(["s2"]);
+  });
+
+  it("shows a list item's place by its place in the list, not by a selector naming the item (N4)", () => {
+    const job: NormalisedStep = {
+      index: 0,
+      kind: "click",
+      at: 1_000,
+      tabId: 1,
+      url: MAIL,
+      events: ["e1"],
+      target: {
+        tag: "a",
+        url: MAIL,
+        role: "link",
+        name: "Eventual job",
+        fallbacks: [],
+        selectors: { css: 'a[aria-label="Eventual job"]' },
+      },
+      list: {
+        container: { tag: "ul", url: MAIL, fallbacks: [], selectors: { css: "ul.jobs" } },
+        index: 0,
+        count: 3,
+        place: "ul.jobs > li:nth-of-type(1) > a",
+      },
+    };
+    expect(placeOf(job)).toBe("ul.jobs > li:nth-of-type(1) > a");
   });
 
   it("names the draft's steps in the narration, not the recorded order", () => {

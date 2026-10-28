@@ -1,8 +1,8 @@
 // The "+" forms (AddNode.tsx, R4): each makes a step the workflow takes, through the same insert edit the daemon
 // applies, or says what is missing.
-import { applyEdits, Skill } from "@shadow/core";
+import { applyEdits, type EditInput, findStep, Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
-import { type Kind, stepOf } from "./AddNode.tsx";
+import { editsFor, type Kind, stepOf } from "./AddNode.tsx";
 
 const base = Skill.parse({
   id: "w",
@@ -20,6 +20,50 @@ const base = Skill.parse({
       args: { url: "https://example.com" },
     },
   ],
+});
+
+describe('"Ask me" and "Wait for my OK" (B4)', () => {
+  // Both are fields on the step that follows the spot: it asks first, or waits for the user's OK before it runs.
+  const two = Skill.parse({
+    ...base,
+    steps: [
+      ...base.steps,
+      { id: "s2", type: "action", intent: "send", channel: "web", action: "click", target: { name: "Send" } },
+    ],
+  });
+  const apply = (edits: EditInput[] | string) => {
+    if (typeof edits === "string") throw new Error(edits);
+    const done = applyEdits(two, edits);
+    if (!done.ok) throw new Error(done.problems.join("; "));
+    return done.skill;
+  };
+
+  it("Wait for my OK sets the approval on the step after the spot", () => {
+    const done = apply(editsFor("approve", {}, { after: "s1" }, two));
+    expect(findStep(done, "s2")).toMatchObject({ requires_approval: true });
+    expect(findStep(done, "s1")).toMatchObject({ requires_approval: false });
+    // Picking the spot from the other side is the same step.
+    expect(editsFor("approve", {}, { before: "s2" }, two)).toEqual(editsFor("approve", {}, { after: "s1" }, two));
+  });
+
+  it("Ask me puts a question on the step after the spot: a value it saves, or a yes/no", () => {
+    const value = apply(editsFor("ask", { question: "Which month?", name: "Month" }, { before: "s2" }, two));
+    expect(findStep(value, "s2")).toMatchObject({
+      ask: { question: "Which month?", kind: "value", output: { name: "month", type: { type: "text" } } },
+    });
+    const yesNo = apply(editsFor("ask", { question: "Send it now?", answer: "yes/no" }, { before: "s2" }, two));
+    expect(findStep(yesNo, "s2")).toMatchObject({ ask: { question: "Send it now?", kind: "confirm" } });
+  });
+
+  it("says why when there is no step after the spot, or no question", () => {
+    expect(editsFor("approve", {}, { after: "s2" }, two)).toMatch(/no step after/);
+    expect(editsFor("ask", { question: "" }, { before: "s2" }, two)).toMatch(/say what to ask/);
+  });
+
+  it("the older kinds still insert a step", () => {
+    const edits = editsFor("open", { url: "https://example.com/x" }, { after: "s1" }, two);
+    expect(edits).toEqual([expect.objectContaining({ op: "insert", at: { after: "s1" } })]);
+  });
 });
 
 const add = (skill: Skill, kind: Kind, form: Record<string, string>, after = "s1") => {
@@ -57,5 +101,43 @@ describe("adding a step by hand", () => {
 
   it("is refused by the workflow when the AI reads something nothing saves", () => {
     expect(() => add(base, "ai", { instruction: "x", reads: "nothing_here", save_as: "y" })).toThrow(/nothing_here/);
+  });
+});
+
+describe("App action, a field per argument (R4.4)", () => {
+  it("makes the app step from the form's fields and the tool's schema, and says what is missing", () => {
+    const tools = [
+      {
+        name: "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+        description: "Append",
+        inputSchema: {
+          properties: {
+            spreadsheetId: { type: "string" },
+            range: { type: "string" },
+            values: { type: "array", items: { type: "array" } },
+          },
+          required: ["spreadsheetId", "range", "values"],
+        },
+      },
+    ];
+    const form = {
+      tool: "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+      "arg.spreadsheetId": "1AbCdEfGhIjKlMnOpQrStUv",
+      "arg.range": "Sheet1!A:B",
+      "arg.values": "{{today}} | done",
+    };
+    const edits = editsFor("app", form, { after: "s1" }, base, tools);
+    if (typeof edits === "string") throw new Error(edits);
+    const done = applyEdits(base, edits);
+    if (!done.ok) throw new Error(done.problems.join("; "));
+    const added = done.skill.steps.at(-1);
+    expect(added).toMatchObject({
+      channel: "mcp",
+      args: {
+        tool: "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+        arguments: { spreadsheetId: "1AbCdEfGhIjKlMnOpQrStUv", range: "Sheet1!A:B", values: [["{{today}}", "done"]] },
+      },
+    });
+    expect(editsFor("app", { tool: form.tool }, { after: "s1" }, base, tools)).toMatch(/fill in spreadsheetId/);
   });
 });

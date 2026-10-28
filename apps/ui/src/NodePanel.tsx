@@ -7,7 +7,18 @@ import { conditionText, words } from "./WorkflowTree.tsx";
 
 type Body = Exclude<Step, { type: "trigger" }>;
 
-export function NodePanel({ step, close, problems = [] }: { step: Body; close(): void; problems?: string[] }) {
+export function NodePanel({
+  step,
+  close,
+  problems = [],
+  testBlock,
+}: {
+  step: Body;
+  close(): void;
+  problems?: string[];
+  // A block can be tested alone (N1): the safe test up to its end, its steps marked.
+  testBlock?(): Promise<unknown>;
+}) {
   const [tab, setTab] = useState<"details" | "debug">("details");
   const toCheck =
     problems.length > 0 ? (
@@ -40,6 +51,7 @@ export function NodePanel({ step, close, problems = [] }: { step: Body; close():
         ))}
       </div>
       {toCheck}
+      {testBlock && step.type === "control" && step.kind === "group" ? <TestBlock run={testBlock} /> : null}
       {tab === "details" ? <Details step={step} /> : <Debug step={step} />}
     </div>
   );
@@ -53,6 +65,7 @@ function Details({ step }: { step: Body }) {
     lines.push(["Makes", words(step.output.name)]);
   } else if (step.type === "control" && step.kind === "loop") {
     lines.push(["Repeats", `for each ${words(step.item.name)} in ${words(step.over.replace(/[{}]/g, ""))}`]);
+    if (step.first) lines.push(["Only", `the first ${step.first}`]);
     lines.push(["At most", `${step.max_items} times`]);
   } else if (step.type === "control" && step.kind === "branch") {
     lines.push(["When", conditionText(step.if)]);
@@ -116,5 +129,29 @@ function Debug({ step }: { step: Body }) {
         );
       })}
     </ol>
+  );
+}
+
+function TestBlock({ run }: { run(): Promise<unknown> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="row">
+      <button
+        type="button"
+        className="button"
+        disabled={busy}
+        title="Runs the safe test up to the end of this block (earlier blocks read what it needs), then marks its steps"
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await run();
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Testing…" : "Test this block"}
+      </button>
+    </div>
   );
 }

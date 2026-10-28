@@ -393,15 +393,32 @@ export function listPosition(el: Element): ListPosition | undefined {
     const shape = shapeOf(item);
     const same = Array.from(parent.children).filter((c) => shapeOf(c) === shape);
     if (same.length >= 3 && (ITEM_ROLES.has(getRole(item) ?? "") || item.children.length > 0)) {
+      const container = briefly(parent);
+      const place = placeInList(container.selectors.css, item, el);
       return {
-        container: briefly(parent),
+        container,
         index: same.indexOf(item),
         count: same.length,
         itemText: clean(textPieces(item), 120),
+        ...(place ? { place } : {}),
       };
     }
   }
   return undefined;
+}
+
+// The element by its place in the list (N4): the list's selector, the item's place among its siblings of the same tag,
+// then each step down to the element by its place. Kept only when it finds this element and nothing else.
+function placeInList(list: string | undefined, item: Element, el: Element): string | undefined {
+  if (!list) return undefined;
+  const step = (node: Element) => {
+    const same = Array.from(node.parentElement?.children ?? []).filter((c) => c.localName === node.localName);
+    return same.length > 1 ? `${node.localName}:nth-of-type(${same.indexOf(node) + 1})` : node.localName;
+  };
+  const path: string[] = [];
+  for (let node: Element | null = el; node && node !== item; node = node.parentElement) path.unshift(step(node));
+  const selector = [list, step(item), ...path].join(" > ");
+  return cssResolvesTo(selector, el) ? selector : undefined;
 }
 
 // An item's text with its pieces apart ("Numeral Remote", not "NumeralRemote": textContent runs blocks together).

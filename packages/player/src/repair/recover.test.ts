@@ -85,6 +85,88 @@ describe("recovery that waits", () => {
     expect(later.ran).toEqual(["s2"]);
   });
 
+  it("puts a fix that needs the user's OK to them as a proposal, and saves it and goes on when they say use it (A3)", async () => {
+    // In the daemon nobody can answer while a run is going: a repair that needs a yes (an app step that writes for
+    // real) could never commit there. It waits as a proposal instead, with what it would do.
+    const s = skill([write("s1"), write("s2")]);
+    const fixed = skill([write("s1", { intent: "write s1 in the app" }), write("s2")], 2);
+    const propose = repairer(() => ({
+      kind: "propose",
+      skill: fixed,
+      summary: "do s1 in the app",
+      what: 'APP_WRITE {"cell":"A1"}',
+      edits: [],
+      resume: { at: "s1", vars: {} },
+      classification,
+    }));
+    const waiting = await runWithRecovery(s, fake(["s1"]).deps, {
+      inputs: {},
+      recovery: { repairer: propose, saveVersion: (x) => x, waitForUser: async () => WAIT },
+    });
+    expect(waiting).toMatchObject({
+      status: "waiting",
+      waiting: {
+        kind: "recovery",
+        path: "s1",
+        proposal: { summary: "do s1 in the app", what: 'APP_WRITE {"cell":"A1"}' },
+      },
+    });
+    const proposal = waiting.waiting?.kind === "recovery" ? waiting.waiting.proposal : undefined;
+    expect(proposal?.skill.version).toBe(2);
+    expect(waiting.waiting?.kind === "recovery" && waiting.waiting.message).toMatch(
+      /Shadow can fix it: do s1 in the app/,
+    );
+
+    // Answered at once (the terminal): "use" saves the proposal and the run goes on with it.
+    const saved: number[] = [];
+    const now = fake(["s1"]);
+    const done = await runWithRecovery(s, now.deps, {
+      inputs: {},
+      recovery: {
+        repairer: propose,
+        saveVersion: (x) => {
+          saved.push(x.version);
+          return x;
+        },
+        waitForUser: async () => "use",
+      },
+    });
+    expect(saved).toEqual([2]);
+    expect(done.status).toBe("succeeded");
+    expect(now.ran).toEqual(["s1", "s2"]);
+  });
+
+  it("on a removal, saves the version without the step and goes on after it in this run (N22)", async () => {
+    const s = skill([write("s1"), write("s2")]);
+    const without = skill([write("s2")], 2);
+    const removal = repairer(() => ({
+      kind: "propose",
+      skill: without,
+      summary: "s1 isn't needed: a banner click",
+      what: "removes s1: write s1",
+      edits: [{ op: "remove", step: "s1" }],
+      resume: { at: "s1", vars: {}, skip: true },
+      skip: true,
+      classification,
+    }));
+    const saved: number[] = [];
+    const now = fake(["s1"]);
+    const done = await runWithRecovery(s, now.deps, {
+      inputs: {},
+      recovery: {
+        repairer: removal,
+        saveVersion: (x) => {
+          saved.push(x.version);
+          return x;
+        },
+        waitForUser: async () => "use",
+      },
+    });
+    expect(saved).toEqual([2]);
+    expect(done.status).toBe("succeeded");
+    expect(now.ran).toEqual(["s2"]);
+  });
+
   it("keeps a retargeted outward step's first-time approval across a wait", async () => {
     // s1 fails and is repaired; the fix retargeted s3 (outward) without running it. The run then waits for s2's
     // approval. When it goes on, s3 must still ask for approval although it doesn't require it in the workflow.

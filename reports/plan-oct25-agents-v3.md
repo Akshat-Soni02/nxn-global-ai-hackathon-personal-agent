@@ -1,5 +1,7 @@
 # Plan, Oct 25: agents that are free to do the job (design v3, repair v2)
 
+> **Status as of 27 Oct 2026:** a dated study. Which of its items are now fixed, partly done or still open is in [`changes.md` §7](changes.md#7-the-older-reports-reconciled); where they differ, `changes.md` is right.
+
 > Written after `oct25-yc-jobs-to-sheet.md`. The recording and the understanding worked; the build, the finish check
 > and the repair didn't, and a policy (text masking) hid the one value the task needed. This plan changes how the
 > agents are set up rather than patching one more case. Owners: **R** = Rushil (record, design agent), **A** = Akshat

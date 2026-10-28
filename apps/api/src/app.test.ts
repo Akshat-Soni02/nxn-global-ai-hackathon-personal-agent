@@ -313,6 +313,33 @@ describe("connected apps", () => {
     await client.close();
   });
 
+  it("connects an app that needs the user's own key with that key, and never logs it (N13)", async () => {
+    const t = setup();
+    const { access_token } = await t.signIn();
+    const kits = (await (await t.call("/v1/tools/toolkits", { token: access_token })).json()) as {
+      toolkits: { slug: string; key?: boolean }[];
+    };
+    expect(kits.toolkits.find((k) => k.slug === "weather")).toMatchObject({ key: true });
+    const asked = (await (await t.call("/v1/tools/key-fields?toolkit=weather", { token: access_token })).json()) as {
+      fields: { name: string; secret: boolean; required: boolean }[];
+    };
+    expect(asked.fields).toEqual([expect.objectContaining({ name: "api_key", secret: true, required: true })]);
+    // Without the key: said what is missing, nothing connected.
+    const missing = await t.call("/v1/tools/connect", { token: access_token, json: { toolkit: "weather" } });
+    expect(missing.status).toBe(400);
+    expect(((await missing.json()) as { error: string }).error).toMatch(/API Key/);
+    const made = await t.call("/v1/tools/connect", {
+      token: access_token,
+      json: { toolkit: "weather", fields: { api_key: "wk-made-up-123" } },
+    });
+    expect(await made.json()).toMatchObject({ connected: true });
+    const list = (await (await t.call("/v1/tools/connections", { token: access_token })).json()) as {
+      connections: { toolkit: string; status: string }[];
+    };
+    expect(list.connections).toContainEqual(expect.objectContaining({ toolkit: "weather", status: "ACTIVE" }));
+    expect(JSON.stringify(t.logs)).not.toContain("wk-made-up-123");
+  });
+
   it("without a tools provider the routes say so", async () => {
     const t = setup();
     const app = createApp({ config: t.config, store: t.store, verifyIdentity: devIdentity, log: () => {}, now: t.now });

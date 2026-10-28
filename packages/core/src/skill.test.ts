@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { findStep, isBranch, isLoop, Skill, triggerOf, walkSteps } from "./skill.ts";
+import { findStep, isBranch, isLoop, Skill, triggerOf, walkSteps, webPages } from "./skill.ts";
 import { fitValue, parseRef, typeAt, valueAt } from "./vars.ts";
 
 const skillsDir = join(import.meta.dirname, "../../../skills/real");
@@ -122,6 +122,55 @@ describe("skill schema", () => {
     expect(branch && isBranch(branch) && branch.else).toEqual([]);
   });
 
+  it("tells each web step the page last opened in its own tab, which is how a drawn step finds its app (27 Oct)", () => {
+    const open = (id: string, url: string, tab?: string) => ({
+      ...nav(id),
+      ...(tab ? { tab } : {}),
+      args: { url },
+    });
+    const type = (id: string, tab?: string) => ({
+      id,
+      type: "action",
+      intent: "type",
+      channel: "web",
+      action: "type",
+      ...(tab ? { tab } : {}),
+      args: { text: "x" },
+    });
+    const skill = Skill.parse(
+      withSteps(
+        type("s0"),
+        open("s1", "https://docs.google.com/spreadsheets/d/S/edit"),
+        type("s2"),
+        open("s3", "https://www.ycombinator.com/jobs", "Jobs"),
+        type("s4", "Jobs"),
+        type("s5"),
+      ),
+    );
+    expect([...webPages(skill.steps)].map(({ step, url }) => [step.id, url])).toEqual([
+      ["s0", undefined],
+      ["s1", "https://docs.google.com/spreadsheets/d/S/edit"],
+      ["s2", "https://docs.google.com/spreadsheets/d/S/edit"],
+      ["s3", "https://www.ycombinator.com/jobs"],
+      ["s4", "https://www.ycombinator.com/jobs"],
+      ["s5", "https://docs.google.com/spreadsheets/d/S/edit"],
+    ]);
+  });
+
+  it("shows an agent the shape of an app step when it puts the tool outside args (a real repair run did, and never recovered)", () => {
+    const wrong = {
+      id: "s2",
+      type: "action",
+      intent: "add the line",
+      channel: "mcp",
+      action: "call",
+      tool: "DOCS_ADD",
+    };
+    const message = issues(withSteps(wrong)).join("\n");
+    expect(message).toMatch(/needs args\.tool/);
+    expect(message).toContain('{ channel: "mcp", action: "call", args: { tool: "NAME", arguments: { … } } }');
+  });
+
   it("needs ids unique across the whole tree", () => {
     const loop = { ...invoices().steps[2], id: "s1" };
     expect(issues({ ...invoices(), steps: [...invoices().steps.slice(0, 2), loop] })).toContain(
@@ -216,6 +265,21 @@ describe("variables", () => {
     expect(typeAt({ type: "object" }, ["anything", "deeper"])).toBe("unknown"); // rows of unknown shape
     expect(valueAt("e", [{ subject: "Hi" }], ["0", "subject"])).toBe("Hi");
     expect(() => valueAt("invoice", { vendor: "Acme" }, ["amount"])).toThrow("invoice has no field amount");
+  });
+
+  it("reads a number from text only when the text holds exactly one, and fails rather than guess (C29)", () => {
+    const n = (s: string) => fitValue({ type: "number" }, s);
+    expect(n("Rs. 500")).toBe(500); // the dot belongs to "Rs.", not to the number
+    expect(n("$1,234.50")).toBe(1234.5);
+    expect(n("142 points")).toBe(142);
+    expect(n("-5")).toBe(-5);
+    expect(n("1.234,56")).toBeUndefined(); // European grouping: two readings, so none
+    expect(n("12k")).toBeUndefined(); // a multiplier is not a digit to drop
+    expect(n("3 of 5")).toBeUndefined(); // two numbers used to become 35
+    expect(n("2026-10-09")).toBeUndefined();
+    expect(n("Version 2.0.1")).toBeUndefined();
+    expect(n("1,23")).toBeUndefined(); // not a grouping
+    expect(n("A1")).toBeUndefined();
   });
 
   it("fits values to types, converting text that means a number, yes/no or a date", () => {

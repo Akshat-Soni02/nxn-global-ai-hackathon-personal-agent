@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:net";
 import { Message } from "@shadow/core";
+import { builtExtension, staleExtension } from "./extension-build.ts";
 import { openRecording, type Recording } from "./record.ts";
 import { recordingDir } from "./recording-store.ts";
 import { type Connection, listen } from "./server.ts";
@@ -12,6 +13,8 @@ const VERSION = "0.0.0";
 export interface Daemon {
   server: Server;
   extensions: ReadonlySet<Connection>;
+  // A connected extension that isn't the build in this checkout: Chrome needs to reload it (C25).
+  staleExtension(): boolean;
   // Starts a recording session. Web capture joins if Chrome is connected; Mac-only tasks work without it. `consent`
   // (from the description form) says whether the extension and Shadow.app take screenshots and record the microphone.
   startRecording(options?: { consent?: { screen: boolean; microphone: boolean; pictures?: boolean } }): string;
@@ -52,6 +55,11 @@ export async function startDaemon(options: {
   watchDirs?: string[];
   // How long to keep accepting a stopped session's events that were already in flight.
   drainMs?: number;
+  // The extension built in this checkout (apps/extension/dist): a copy in Chrome from another build is said (C25).
+  extensionDist?: string;
+  // The port the window is served on (http.ts starts after the daemon, so it is asked for at each event). Events from
+  // that page are Shadow's own, never the user's work: the Record button's Stop was recorded as a step (28 Oct).
+  ownPort?(): number | undefined;
   // The Record / Stop button in Chrome. main.ts routes it to the same code as a typed `record` / `stop`, so a click
   // is refused while a recording is still being compiled. Without it, the button only starts and stops the session.
   onRecordCommand?(command: "start" | "stop" | "discard"): void;
@@ -66,6 +74,8 @@ export async function startDaemon(options: {
 }): Promise<Daemon> {
   const log = options.log ?? (() => {});
   const extensions = new Set<Connection>();
+  const versions = new Map<Connection, string>();
+  const built = () => (options.extensionDist ? builtExtension(options.extensionDist) : undefined);
   const macs = new Map<Connection, { trusted: boolean }>(); // Shadow.app; one at a time in practice
   let sessionId: string | undefined;
   let startedAt = 0;
@@ -114,7 +124,12 @@ export async function startDaemon(options: {
             desktopButton();
           } else {
             extensions.add(connection);
+            versions.set(connection, message.version);
             log("extension connected, version", message.version);
+            if (staleExtension(message.version, built()))
+              log(
+                `the extension in Chrome (${message.version}) is not the one built (${built()}): reload it in chrome://extensions`,
+              );
             for (const wake of extensionWaiters) wake();
           }
           send(connection, { id: message.id, type: "hello", from: "daemon", version: VERSION });
@@ -148,7 +163,9 @@ export async function startDaemon(options: {
           options.onSystem?.(message.type === "system.wake" ? "wake" : "sleep");
           break;
         case "record.event":
-          // Into the session's trace, alongside the file events (record.ts). Events for any other session are dropped.
+          // Into the session's trace, alongside the file events (record.ts). Events for any other session are dropped,
+          // and so are Shadow's own window's.
+          if (isOwnWindow(message.url)) break;
           if (recording && message.sessionId === recording.sessionId) recording.append(message);
           else log("record.event", message.event, "(no open trace)");
           break;
@@ -195,6 +212,7 @@ export async function startDaemon(options: {
     },
     onClose(connection) {
       subscribers.delete(connection);
+      versions.delete(connection);
       if (extensions.delete(connection)) log("extension disconnected");
       if (macs.delete(connection)) {
         log("Shadow.app disconnected");
@@ -238,9 +256,21 @@ export async function startDaemon(options: {
     });
   }
 
+  const isOwnWindow = (url: string | undefined): boolean => {
+    const port = options.ownPort?.();
+    if (!url || !port) return false;
+    try {
+      const u = new URL(url);
+      return u.hostname === "127.0.0.1" && Number(u.port) === port;
+    } catch {
+      return false;
+    }
+  };
+
   const daemon: Daemon = {
     server,
     extensions,
+    staleExtension: () => [...versions.values()].some((v) => staleExtension(v, built())),
     startRecording(start) {
       if (!sessionId) {
         sessionId = randomUUID();

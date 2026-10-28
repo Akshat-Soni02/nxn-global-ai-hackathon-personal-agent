@@ -2,17 +2,25 @@ import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
 import {
+  chainedAi,
+  drawnProblems,
   emptyIn,
   gate,
   guessed,
+  inBlocks,
   joined,
   madeUpAddresses,
+  otherDays,
   roleAlone,
   runProblems,
   sameReads,
+  stepProblems,
   tabsFixed,
+  unbuiltProposals,
   unfoundIn,
   unmadeProblems,
+  unsaidTime,
+  withoutUnusedInputs,
 } from "./gate.ts";
 
 const CHAT = "https://chat.google.com/room/X";
@@ -68,6 +76,201 @@ const input = (workflow: Skill, extra: Partial<Parameters<typeof gate>[0]> = {})
   appeared: new Set(["Message sent", "Arilo Stats"]),
   explained: new Map<string, string>(),
   ...extra,
+});
+
+describe("an AI step that is told to read something it isn't given (28 Oct)", () => {
+  const ai = (inputs: string[], instruction: string) => ({
+    id: "ai5",
+    type: "llm",
+    intent: "pick",
+    instruction,
+    inputs,
+    output: { name: "jobs", type: { type: "list", items: { type: "object" } } },
+  });
+  const problemsOf = (step: unknown) => stepProblems(step as Parameters<typeof stepProblems>[0]);
+
+  it("says it sees only its inputs when it has none and its instruction names the page, a sheet or a list", () => {
+    const problems = problemsOf(ai([], "Extract all job listings visible on the page. Return as a list."));
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/ai5.*sees only its inputs.*read the page.*as an input/);
+  });
+
+  it("sends a count of a list to the loop's first: an AI step counts wrong (it picked items 1, 2, 3, 2, 5)", () => {
+    for (const instruction of [
+      "Take the first {{num_jobs}} jobs from the new_jobs list.",
+      "Return the top 5 listings from the list.",
+      "Keep the first 3 items.",
+    ]) {
+      const problems = problemsOf(ai(["{{jobs}}"], instruction));
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toMatch(/ai5.*counting is code's.*first: N/);
+    }
+    // A ranking the list doesn't hold is judgement: the AI step's.
+    expect(problemsOf(ai(["{{jobs}}"], "Return the top 3 stories by points."))).toEqual([]);
+    expect(problemsOf(ai(["{{jobs}}"], "Pick the 3 cheapest flights."))).toEqual([]);
+    // Choosing by a rule is the model's: it isn't a count.
+    expect(problemsOf(ai(["{{jobs}}"], "Return the jobs whose title is not in {{existing}}."))).toEqual([]);
+  });
+
+  it("leaves one with an input, or one that asks for nothing outside it, alone", () => {
+    expect(problemsOf(ai(["{{page_text}}"], "Extract the job listings on the page."))).toEqual([]);
+    expect(problemsOf(ai([], "Write a one-line greeting."))).toEqual([]);
+  });
+});
+
+describe("what the gate and the critic say, in blocks (R5.4)", () => {
+  // The agent thinks in blocks (R5.1–R5.3); feedback in bare step ids made it fix at the wrong level.
+  const blocked = Skill.parse({
+    id: "w",
+    name: "w",
+    version: 1,
+    description: { goal: "x" },
+    success: [],
+    steps: [
+      { id: "start", type: "trigger", intent: "by hand", when: [{ type: "manual" }] },
+      {
+        id: "b1",
+        type: "control",
+        kind: "group",
+        intent: "Add a row for each job",
+        steps: [act("s3", "web", "navigate", { url: CHAT }), act("s14", "web", "type", { text: "x" })],
+      },
+      act("s20", "web", "navigate", { url: CHAT }),
+    ],
+  });
+
+  it("names the block a step is in, and keeps the id the agent edits by", () => {
+    expect(inBlocks(["s14: replay can't find its control", "rule 0 is built by s3 and s20"], blocked)).toEqual([
+      'In "Add a row for each job": s14: replay can\'t find its control',
+      'rule 0 is built by s3 (in "Add a row for each job") and s20',
+    ]);
+  });
+
+  it("leaves a message about no step, or about a step in no block, as it is", () => {
+    expect(inBlocks(["they said monthly", "s20: open it directly"], blocked)).toEqual([
+      "they said monthly",
+      "s20: open it directly",
+    ]);
+    // A longer id that starts like a shorter one is not mistaken for it.
+    expect(inBlocks(["s140: x"], blocked)).toEqual(["s140: x"]);
+  });
+});
+
+describe("inputs nothing uses (28 Oct)", () => {
+  it("drops a trigger input once the step that used it is gone, and keeps one a step still reads", () => {
+    const withInputs = Skill.parse({
+      id: "w",
+      name: "w",
+      version: 1,
+      description: { goal: "x" },
+      success: [],
+      steps: [
+        {
+          id: "start",
+          type: "trigger",
+          intent: "by hand",
+          when: [{ type: "manual" }],
+          inputs: {
+            pasted_text: { type: { type: "text" }, description: "what you pasted" },
+            company: { type: { type: "text" }, description: "which company" },
+          },
+        },
+        act("s1", "web", "navigate", { url: CHAT }),
+        act("s2", "web", "type", { text: "{{company}}" }),
+      ],
+    });
+    const out = withoutUnusedInputs(withInputs, withInputs);
+    // An input the recording didn't have is the agent's: kept even when nothing reads it yet.
+    const added = withoutUnusedInputs(withInputs, skill([act("s1", "web", "navigate", { url: CHAT })]));
+    expect(Object.keys((added.steps[0] as { inputs: object }).inputs)).toEqual(["pasted_text", "company"]);
+    expect(Object.keys((out.steps[0] as { inputs: object }).inputs)).toEqual(["company"]);
+    // Nothing else is touched.
+    expect(out.steps.slice(1)).toEqual(withInputs.steps.slice(1));
+  });
+});
+
+describe("steps that type into a drawn area (A1)", () => {
+  // s3 typed into a sheet's cells after clicks that were dropped: replay would type into whichever cell is selected.
+  const drawnType = act("s3", "web", "type", { text: "42" }, { drawn: true });
+  const withDrawn = skill([act("s1", "web", "navigate", { url: SHEET }), drawnType]);
+  // As the recorder makes it (pagesOf): the pages that were opened, by the step that opened them, never the typing step
+  // (the first test of this keyed the map by the drawn step's own id, so it passed while the real map missed it).
+  const pages = new Map([["s1", SHEET]]);
+
+  it("asks for an app step when a connected app covers the page: the step can't be replayed on it", () => {
+    const { fix, cantRun } = drawnProblems(withDrawn, pages, new Set(["googlesheets"]));
+    // The agent is sent back for it (fix); if the design ends with it still there, the review says it can't run (28 Oct:
+    // a design that gave up kept the drawn steps and showed no warning, with Sheets connected).
+    expect(cantRun).toHaveLength(1);
+    expect(cantRun[0]).toMatch(/s3.*drawn area of Google Sheets.*didn't turn.*into Google Sheets steps/);
+    expect(fix).toHaveLength(1);
+    expect(fix[0]).toMatch(/s3.*drawn area of Google Sheets.*replay can't reach.*the app's tool/);
+  });
+
+  it("says it can't run yet, and what to connect, when the app isn't connected", () => {
+    const { fix, cantRun } = drawnProblems(withDrawn, pages, new Set());
+    expect(fix).toEqual([]);
+    expect(cantRun).toHaveLength(1);
+    expect(cantRun[0]).toMatch(/s3.*Google Sheets.*connect Google Sheets in Apps/);
+  });
+
+  it("says so plainly when no app covers the site", () => {
+    const canvas = "https://canvas-editor.example.com/doc/1";
+    const onCanvas = skill([act("s1", "web", "navigate", { url: canvas }), drawnType]);
+    const { cantRun } = drawnProblems(onCanvas, new Map([["s1", canvas]]), new Set(["googlesheets"]));
+    expect(cantRun[0]).toMatch(/s3.*no connected app covers canvas-editor\.example\.com/);
+  });
+
+  it("leaves a workflow with no drawn step alone", () => {
+    const plain = skill([act("s1", "web", "navigate", { url: SHEET }), act("s3", "web", "type", { text: "42" })]);
+    expect(drawnProblems(plain, pages, new Set())).toEqual({ fix: [], cantRun: [] });
+  });
+
+  it("the finish gate sends the agent back for it", () => {
+    const problems = gate(input(withDrawn, { pages, connectedToolkits: new Set(["googlesheets"]) }));
+    expect(problems.join("\n")).toMatch(/s3.*drawn area of Google Sheets/);
+  });
+});
+
+describe("a proposal accepted with nothing prepared must really be built (C15)", () => {
+  const proposal = {
+    id: "p1",
+    kind: "list_item" as const,
+    summary: "s2 clicked item 3 of 9 in the jobs list: next time the newest, or the one with this text?",
+    steps: ["s3"],
+    evidence: [],
+    edits: [], // nothing prepared: the agent builds it
+    runnable: true,
+  };
+  const proposals = new Map([["p1", proposal]]);
+  const accepted = new Map([["p1", { decision: "accept" as const, why: "the newest" }]]);
+
+  it("says so while the steps are still as recorded", () => {
+    const problems = unbuiltProposals(recorded, recorded, proposals, accepted);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/p1.*accepted.*s3.*still as recorded/);
+  });
+
+  it("is satisfied once a step it is about changed, or is gone", () => {
+    const changed = skill([
+      act("s1", "web", "navigate", { url: CHAT }),
+      act("s2", "web", "upload", { file: "~/Downloads/x.csv" }),
+      act("s3", "web", "type", { text: "the newest" }),
+      act("s4", "web", "press", { key: "Enter" }),
+    ]);
+    expect(unbuiltProposals(recorded, changed, proposals, accepted)).toEqual([]);
+    const gone = skill([act("s1", "web", "navigate", { url: CHAT }), act("s4", "web", "press", { key: "Enter" })]);
+    expect(unbuiltProposals(recorded, gone, proposals, accepted)).toEqual([]);
+  });
+
+  it("leaves alone what was rejected, what has edits applied, and what replay can't run", () => {
+    const rejected = new Map([["p1", { decision: "reject" as const, why: "no" }]]);
+    expect(unbuiltProposals(recorded, recorded, proposals, rejected)).toEqual([]);
+    const prepared = new Map([["p1", { ...proposal, edits: [{ op: "remove", step: "s3" } as never] }]]);
+    expect(unbuiltProposals(recorded, recorded, prepared, accepted)).toEqual([]);
+    const notRunnable = new Map([["p1", { ...proposal, runnable: false }]]);
+    expect(unbuiltProposals(recorded, recorded, notRunnable, accepted)).toEqual([]);
+  });
 });
 
 describe("the finish gate", () => {
@@ -239,6 +442,14 @@ describe("what Checkpoint 4 let through", () => {
       /test run couldn't start.*input day has no value/,
     );
     expect(gate(input(ok, { test: { outcome: "not run: Chrome is not connected to Shadow", steps: [] } }))).toEqual([]);
+    // Nobody signed in: the agent can't fix that, so it isn't sent round the fix loop (C8).
+    expect(
+      gate(
+        input(ok, {
+          test: { outcome: "not run: sign in to Shadow in Settings to test its connected-app steps", steps: [] },
+        }),
+      ),
+    ).toEqual([]);
   });
 
   it("a check that still holds the recorded page on a step that now opens a {{…}} page is a problem", () => {
@@ -291,6 +502,21 @@ describe("what the re-designs after the fixes showed (round 2)", () => {
   it("turns back a rule about picking what changes, said not to be built, with how to build it", () => {
     const problems = gate(input(ok, { task: pick, done: done([{ rule: 0, not_built: "not enough selectors" }]) }));
     expect(problems.join("\n")).toMatch(/rule 0 "note the newest video" isn't built: .*reading the page.*ai_step/);
+  });
+
+  it("takes the user's own answer as the reason (28 Oct YC → Sheet: 'exactly 5', answered 'Add as many as available')", () => {
+    const five = TaskModel.parse({
+      ...task,
+      rules: [{ quote: "exactly 5 new unique roles are appended each day", where: "goal" }],
+    });
+    const theirs = "User chose to add as many as available when fewer than five new jobs are present";
+    const answered = gate(
+      input(ok, { task: five, done: done([{ rule: 0, not_built: theirs }]), answers: ["Add as many as available"] }),
+    );
+    expect(answered.join("\n")).not.toMatch(/rule 0/);
+    // An answer it doesn't quote is no reason.
+    const other = gate(input(ok, { task: five, done: done([{ rule: 0, not_built: theirs }]), answers: ["Column C"] }));
+    expect(other.join("\n")).toMatch(/rule 0 .* isn't built/);
   });
 
   it("counts a new step doing what a recorded write did, on the same control, as that work kept", () => {
@@ -361,6 +587,165 @@ describe("what live C showed", () => {
     expect(read({ role: "cell", fallbacks: [] }, { all: true })).toEqual([]);
     expect(read({ role: "main", fallbacks: [] })).toEqual([]);
     expect(read({ role: "cell", name: "94.89", fallbacks: [] })).toEqual([]);
+  });
+});
+
+describe("a run's AI calls (28 Oct YC → Sheet: the 4th AI step hit the run's limit of 3)", () => {
+  const ai = (id: string, inputs = ["{{today}}"]) => ({
+    id,
+    type: "llm",
+    intent: id,
+    instruction: "pick",
+    inputs,
+    output: { name: `${id}_out`, type: { type: "text" } },
+  });
+  it("says a workflow asks the AI more often than a run may, naming the AI steps and a loop's count", () => {
+    const four = skill([ai("ai6"), ai("ai7"), ai("ai8"), ai("ai9")]);
+    expect(runProblems(four, { aiCallsPerRun: 3 }).join()).toMatch(
+      /asks the AI up to 4 times a run \(ai6, ai7, ai8, ai9\)/,
+    );
+    expect(runProblems(four, { aiCallsPerRun: 4 })).toEqual([]);
+    expect(runProblems(four)).toEqual([]); // no limit given: not judged
+    const looped = skill([
+      { ...ai("ai1"), output: { name: "ai1_out", type: { type: "list", items: { type: "text" } } } },
+      {
+        id: "l1",
+        type: "control",
+        kind: "loop",
+        intent: "each job",
+        over: "{{ai1_out}}",
+        item: { name: "job", type: { type: "text" } },
+        first: 5,
+        steps: [ai("ai2", ["{{job}}"])],
+      },
+    ]);
+    expect(runProblems(looped, { aiCallsPerRun: 3 }).join()).toMatch(/up to 6 times a run \(ai1, ai2 ×5\)/);
+  });
+});
+
+describe("AI steps that only reshape another AI step's answer (28 Oct YC → Sheet)", () => {
+  const ai = (id: string, inputs: string[], out: string) => ({
+    id,
+    type: "llm",
+    intent: id,
+    instruction: "x",
+    inputs,
+    output: { name: out, type: { type: "list", items: { type: "text" } } },
+  });
+  it("names an AI step whose every input is another AI step's answer, and not one that reads a page or an app", () => {
+    const chained = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      ai("ai6", ["{{page_text}}"], "listings"),
+      ai("ai8", ["{{listings}}"], "pairs"),
+    ]);
+    expect(chainedAi(chained).join()).toMatch(
+      /ai8 reads what ai6 answered.*give ai8 what they read \(\{\{page_text\}\}\)/,
+    );
+    const one = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      ai("ai6", ["{{page_text}}"], "listings"),
+    ]);
+    expect(chainedAi(one)).toEqual([]);
+    // A built-in value ({{today}}) beside another AI step's answer is still only a reshape (the second YC design:
+    // rows made from the new jobs and today's date by a model call).
+    const dated = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      ai("ai6", ["{{page_text}}"], "listings"),
+      ai("ai9", ["{{listings}}", "{{today}}"], "rows"),
+    ]);
+    expect(chainedAi(dated).join()).toMatch(/ai9 reads what ai6 answered/);
+    // The seventh re-design: one AI step tidies the sheet's rows, one reads the page, a third compares them. The two
+    // first are read by the third only: folded into it, one model call a run.
+    const three = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      act("s2", "web", "extract", {}, { output: { name: "rows_raw", type: { type: "text" } } }),
+      ai("tidy", ["{{rows_raw}}"], "rows"),
+      ai("jobs", ["{{page_text}}"], "all_jobs"),
+      ai("new", ["{{all_jobs}}", "{{rows}}"], "new_jobs"),
+    ]);
+    expect(chainedAi(three).join()).toMatch(
+      /new reads what jobs and tidy answered.*\{\{page_text\}\}.*\{\{rows_raw\}\}/,
+    );
+    // An AI answer a loop also reads is not only another AI step's: not folded.
+    const looped = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      ai("jobs", ["{{page_text}}"], "all_jobs"),
+      ai("sum", ["{{all_jobs}}"], "summary"),
+      {
+        id: "l1",
+        type: "control",
+        kind: "loop",
+        intent: "each",
+        over: "{{all_jobs}}",
+        item: { name: "job", type: { type: "text" } },
+        steps: [act("s9", "web", "navigate", { url: CHAT })],
+      },
+    ]);
+    expect(chainedAi(looped)).toEqual([]);
+  });
+
+  it("refuses a count on an AI step that returns a list, wherever the count is in the sentence", () => {
+    const top = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      {
+        ...ai("ai6", ["{{page_text}}"], "top5"),
+        instruction: "From the job board page, extract the top 5 job listings in order as they appear",
+      },
+    ]);
+    expect(runProblems(top).join()).toMatch(/ai6: counting is code's/);
+    // A count inside one text (its first paragraphs) is reading, and stays the AI step's.
+    const text = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      {
+        ...ai("ai6", ["{{page_text}}"], "gist"),
+        instruction: "summarise the first 2 paragraphs",
+        output: { name: "gist", type: { type: "text" } },
+      },
+    ]);
+    expect(runProblems(text).join()).not.toMatch(/counting/);
+  });
+
+  it("refuses 'up to 5 newest' too, and a ranking only exempts the count it ranks (the third YC design, 28 Oct)", () => {
+    const page = act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } });
+    const pick = (instruction: string) =>
+      runProblems(skill([page, { ...ai("ai6", ["{{page_text}}"], "jobs"), instruction }])).join();
+    expect(
+      pick("Return up to 5 newest job listings that are not already recorded (compare by title and link)"),
+    ).toMatch(/counting is code's/);
+    expect(pick("the 5 newest jobs not in the sheet")).toMatch(/counting is code's/);
+    expect(pick("the top 3 stories by points")).not.toMatch(/counting/);
+    expect(pick("the 3 stories with the most points")).not.toMatch(/counting/);
+    // A time window is not a count (advisor, 28 Oct): "the last 7 days" stays the AI step's; "the last 5 jobs" doesn't.
+    expect(pick("the emails from the last 7 days that mention the invoice")).not.toMatch(/counting/);
+    expect(pick("jobs posted in the last 24 hours")).not.toMatch(/counting/);
+    expect(pick("the last 5 jobs on the page")).toMatch(/counting is code's/);
+  });
+
+  it("says a schedule on other days than they said ('every day', built for weekdays: the third YC design)", () => {
+    const at = (cron: string) => skill([act("s1", "web", "navigate", { url: CHAT })], [{ type: "schedule", cron }]);
+    const daily = TaskModel.parse({ ...task, cadence: { kind: "schedule", cron: "0 9 * * *", quote: "Every day" } });
+    expect(otherDays(at("0 9 * * 1-5"), daily).join()).toMatch(/Every day.*0 9 \* \* \*.*0 9 \* \* 1-5/);
+    expect(otherDays(at("30 8 * * *"), daily)).toEqual([]); // another time, the same days
+    expect(otherDays(at("0 9 1 * *"), task)).toEqual([]); // monthly asked, monthly built
+    // No cron in the task model (the third re-design's was empty): their own words say the days.
+    const unsaid = TaskModel.parse({ ...task, cadence: { kind: "schedule", cron: "", quote: "" } });
+    const goal = ["Every day, fetch the latest top job listings from Y Combinator's job board"];
+    expect(otherDays(at("0 9 * * 1-5"), unsaid, goal).join()).toMatch(/every day.*0 9 \* \* 1-5/i);
+    expect(otherDays(at("0 9 * * *"), unsaid, goal)).toEqual([]);
+    expect(otherDays(at("0 9 * * *"), unsaid, ["on weekdays, the report"]).join()).toMatch(/weekdays/);
+  });
+
+  it("says a time they never said is 9:00 (the second YC design ran at 0 0, the seventh at 0 8)", () => {
+    const at = (cron: string) => skill([act("s1", "web", "navigate", { url: CHAT })], [{ type: "schedule", cron }]);
+    expect(unsaidTime(at("0 0 * * *"), ["every day"]).join()).toMatch(/9:00/);
+    expect(unsaidTime(at("0 8 * * *"), ["Every day, fetch the latest jobs"]).join()).toMatch(/8:00.*9:00/);
+    expect(unsaidTime(at("0 0 * * *"), ["every night at midnight"])).toEqual([]);
+    expect(unsaidTime(at("30 8 * * *"), ["every day at 8:30"])).toEqual([]);
+    expect(unsaidTime(at("0 9 * * *"), ["every day"])).toEqual([]);
+    expect(unsaidTime(at("0 * * * *"), ["every hour"])).toEqual([]);
+    // The form's Frequency said Friday 17:00: that time is theirs (the daemon's timesheet test).
+    const friday = TaskModel.parse({ ...task, cadence: { kind: "schedule", cron: "0 17 * * 5" } });
+    expect(unsaidTime(at("0 17 * * 5"), ["This week's hours are logged"], friday)).toEqual([]);
   });
 });
 

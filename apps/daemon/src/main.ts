@@ -1,4 +1,4 @@
-// Daemon entry point: the always-on process (launched at login later; `pnpm daemon` for now).
+// Daemon entry point: the always-on process (launched at login by `pnpm setup:daemon`; `pnpm daemon` runs it by hand).
 // Everything that waits for you is in the inbox (shadow.db), answered here, over the socket, or over local HTTP
 // (api.json says where); a run that needs you waits there and goes on when it is answered, even after a restart.
 // Record and Stop are also a floating button in Chrome (and the extension's toolbar icon), on the desktop and in the
@@ -23,14 +23,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { Skill } from "@shadow/core";
+import { type Position, Skill } from "@shadow/core";
 import { bundlePath, dataDir, logDir, migrateLegacyDataDir, socketPath } from "@shadow/ipc";
 import { configFromEnv, createLlm, type Llm, type LlmConfig, UsageMeter } from "@shadow/llm";
 import { openMemory } from "@shadow/memory";
 import type { RunLogEvent } from "@shadow/player";
 import { aiLimitsFromEnv, dataChannel, llmExecutor } from "@shadow/player/node";
-import { createRepairer } from "@shadow/player/repair";
-import type { Prompter, Question } from "@shadow/recorder";
+import { createRepairer, newRepairBudget, type RepairBudget } from "@shadow/player/repair";
+import { changeByChat, type Prompter, type Question } from "@shadow/recorder";
 import { createAccount } from "./account.ts";
 import { type Api, createApi } from "./api.ts";
 import { chooseFiles, givenInputs, splitArgs } from "./choose-file.ts";
@@ -41,8 +41,8 @@ import { askFolderAccess, watchDirsFromEnv } from "./fs-watch.ts";
 import { startHttp } from "./http.ts";
 import { defaultSearchDirs } from "./locate-file.ts";
 import { createLogger } from "./logger.ts";
-import { type McpTools, mcpTools } from "./mcp-tools.ts";
-import { finishRecording } from "./record.ts";
+import { appsOfWorkflow, listedToolsOf, type McpTools, mcpTools } from "./mcp-tools.ts";
+import { blockFromRecording, finishRecording } from "./record.ts";
 import { createRecordControl, type RecordControl } from "./record-control.ts";
 import { maskTermsOf, readConsent, readForm, recordingDir, sweepRecordings } from "./recording-store.ts";
 import { rehearse } from "./rehearse.ts";
@@ -50,7 +50,7 @@ import { runSkillOn } from "./runner.ts";
 import { createScreenReader, type ScreenReader, screenToolsFrom } from "./screen.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
 import { createAppControl, type KeySource, llmFromKeychain } from "./settings.ts";
-import { findSkills, listSkills, saveSkill, versions } from "./skill-store.ts";
+import { findSkills, listSkills, saveRepair, versions } from "./skill-store.ts";
 import { type InboxItem, openStore, type RunRow } from "./store.ts";
 import { listTraces } from "./trace-store.ts";
 import { startTriggers } from "./triggers.ts";
@@ -85,11 +85,14 @@ let api: Api | undefined; // set once the service exists; api.call messages befo
 let record: RecordControl | undefined; // the same: Record pressed before then is ignored
 let screen: ScreenReader | undefined; // screenshots arriving before then are dropped
 let onWake: () => void = () => {}; // set once the triggers exist: a wake looks at them at once
+let httpPort: number | undefined;
 const daemon = await startDaemon({
   socketPath: path,
   log,
   dataDir: home,
   watchDirs,
+  ownPort: () => httpPort,
+  extensionDist: join(import.meta.dirname, "../../extension/dist"),
   onRecordCommand: (command) =>
     command === "start" ? record?.press() : command === "stop" ? void record?.stop() : void record?.discard(),
   onSystem: (event) => {
@@ -171,7 +174,22 @@ log(
 
 // One leg of a run (service.ts): through the extension and Shadow.app, with recovery. The service's hooks make a
 // run that needs you end its leg as waiting, so nothing waits in memory here.
-const execute: Execute = (skill, leg) =>
+// A run's repair allowance (2 repairs, a dollar cap) outlives its legs: every wait ends one, and a new repairer per leg
+// used to start the count again. Kept here per run, dropped when the run can't come back.
+const repairBudgets = new Map<string, RepairBudget>();
+const execute: Execute = async (skill, leg) => {
+  const budget = repairBudgets.get(leg.runId) ?? newRepairBudget(usage);
+  repairBudgets.set(leg.runId, budget);
+  let comesBack = false;
+  try {
+    const outcome = await runLeg(skill, leg, budget);
+    comesBack = outcome.status === "waiting" || outcome.status === "paused";
+    return outcome;
+  } finally {
+    if (!comesBack) repairBudgets.delete(leg.runId);
+  }
+};
+const runLeg = (skill: Skill, leg: Parameters<Execute>[1], budget: RepairBudget) =>
   runSkillOn(
     daemon,
     skill,
@@ -191,25 +209,47 @@ const execute: Execute = (skill, leg) =>
       recovery: leg.walk
         ? undefined
         : {
-            repairer: createRepairer({ llm: model, meter: usage, signal: leg.signal }),
+            repairer: createRepairer({ llm: model, meter: usage, budget, signal: leg.signal }),
             memory,
-            saveVersion: (repaired) => saveSkill(home, repaired).skill,
+            saveVersion: (repaired, edits) => saveRepair(home, repaired, edits),
             waitForUser: leg.hooks.waitForUser,
           },
     },
     join(home, "runs"),
   );
 
-let httpPort: number | undefined;
 const service = createService({
   dataDir: home,
   store,
   execute,
+  // Run now from the window asks which file to use before the first step, as the terminal's `run` does (C22): the
+  // question waits in the inbox. `prompter` is made below; this runs only when someone presses Run now.
+  chooseInputs: (skill, provided) => chooseFiles(skill, provided, (question) => prompter.ask(question), log),
   spent: () => usage.usage.costUsd,
+  // The chat box (R6.1): the design agent changes the workflow from a sentence, with the apps its pages are in.
+  // The model is looked at when asked: a key pasted in Settings after the start counts.
+  chat: async (skill, message) => {
+    if (!model) throw new Error("changing a workflow by chat needs a model: add one in Settings");
+    const before = usage.usage.costUsd;
+    const made = await changeByChat({
+      skill,
+      message,
+      llm: model,
+      meter: usage,
+      apps: appsOfWorkflow(skill, tools ? await listedToolsOf(tools) : []),
+      aiCallsPerRun: aiLimitsFromEnv().maxCallsPerRun,
+    });
+    // What the change cost, shown beside it.
+    return { ...made, costUsd: usage.usage.costUsd - before };
+  },
+  // Test from the workflow's page (R4.6, N1): the safe test, its log with the runs'.
+  test: (skill, block) =>
+    rehearse(daemon, skill, { effects: new Map(), hooks: { data, llm, tools }, logDir: join(home, "runs"), block }),
   // A waiting run kept its tabs (runner.ts); ended from the inbox, the extension lets them go.
   release: (runId) => daemon.notify({ id: randomUUID(), type: "run.end", runId }),
   health: () => ({
     extensions: daemon.extensions.size,
+    extensionStale: daemon.staleExtension(),
     macApp: daemon.mac(),
     model: model ? "configured" : "none",
     keySource,
@@ -260,7 +300,25 @@ record = createRecordControl({
   daemon,
   ask: (question) => service.ask(question),
   screenReady: () => screenTools !== undefined,
-  finish: async (sessionId, progress) => {
+  chromeConnected: () => daemon.extensions.size > 0,
+  // Stop on "Turning your recording into a workflow": what the design asked stops waiting.
+  dismissQuestions: (sessionId) => service.dismissQuestions(sessionId),
+  finish: async (sessionId, progress, signal) => {
+    // Show me (R4.7): the part done once goes into that workflow's draft as a block, by code alone.
+    const into = readForm(home, sessionId)?.into;
+    if (into) {
+      const workflow = service.workflow(into.skillId)?.latest;
+      if (!workflow) throw new Error(`no workflow ${into.skillId} to add it to`);
+      const base = service.draft(into.skillId).skill;
+      progress(`Turning what you showed into the block "${into.name}"`);
+      const made = await blockFromRecording(sessionId, { dataDir: home, log, name: into.name, into: base });
+      if (!made) return undefined;
+      service.editDraft(into.skillId, made.edits(into.at as Position));
+      return {
+        skill: { id: into.skillId },
+        text: `Added "${into.name}" (${made.block.steps.length} steps) to ${workflow.name}'s draft: look at it on its page, then save it`,
+      };
+    }
     // Every screenshot is read and masked, and the narration turned into text, before the recording becomes a workflow:
     // both at the same time (both run in Shadow.app, on the Mac).
     progress("Reading the words on your screen and turning your voice into text");
@@ -276,6 +334,7 @@ record = createRecordControl({
     ]);
     return finishRecording(sessionId, {
       dataDir: home,
+      signal,
       prompter,
       llm: model,
       memory,
@@ -328,6 +387,16 @@ const sweep = () => {
     if (gone.length > 0) log(`deleted ${gone.length} recording(s) older than a day`);
   } catch (error) {
     log.error("could not delete old recordings:", (error as Error).message);
+  }
+  // What has waited a day or more is announced again, once a day: Shadow.app notifies on it (N20).
+  const reminded = service.remind();
+  if (reminded.length > 0) log(`reminded you of ${reminded.length} item(s) waiting a day or more`);
+  // Runs that ended more than 30 days ago, with their logs (N12): never one going or waiting.
+  try {
+    const forgotten = service.pruneRuns(30);
+    if (forgotten.length > 0) log(`forgot ${forgotten.length} run(s) that ended more than 30 days ago`);
+  } catch (error) {
+    log.error("could not forget old runs:", (error as Error).message);
   }
 };
 sweep();

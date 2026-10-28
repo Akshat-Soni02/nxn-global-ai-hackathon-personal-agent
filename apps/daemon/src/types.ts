@@ -141,6 +141,8 @@ export interface Consent {
   microphone: boolean;
   // The masked picture may be sent to the vision model to be described (design and repair). Off: words only.
   pictures: boolean;
+  // Hide emails and ids from the AI (N7). Absent from a daemon older than the window: off.
+  identifiers?: boolean;
 }
 // The description form, as recording-store.ts checks and saves it.
 export interface RecordFormView {
@@ -160,13 +162,27 @@ export interface RecordingView {
   // The consents the form starts with: the ones given last time.
   consent: Consent;
   // How the last recording ended.
-  last?: { sessionId: string; outcome: "saved" | "empty" | "failed"; skillId?: string; text: string };
+  last?: { sessionId: string; outcome: "saved" | "empty" | "failed" | "cancelled"; skillId?: string; text: string };
   // Whether Shadow.app is running (it shows the form in its window).
   macApp: boolean;
   // Whether pictures can be read and masked (Shadow.app's tools): when not, the Record screen says so before recording.
   screenReady: boolean;
+  // Whether Chrome's extension is connected to the daemon: without it nothing done in Chrome is recorded. Absent from a daemon
+  // older than the window.
+  chromeConnected?: boolean;
   // What is happening while a recording becomes a workflow, in plain words, oldest first.
   progress: { at: number; line: string }[];
+  // Stop was pressed while the recording was becoming a workflow: it is winding down (the next model call ends it).
+  stopping?: boolean;
+  // Every recording being turned into a workflow now (N23), oldest first, each with its feed; the Record button is
+  // free meanwhile. Absent from a daemon older than the window.
+  compiling?: {
+    sessionId: string;
+    goal?: string;
+    startedAt: number;
+    progress: { at: number; line: string }[];
+    stopping?: boolean;
+  }[];
 }
 // A design's review (skills/<id>/review.json; built by packages/recorder/src/design/v2/review.ts), as the window reads
 // it. Declared here, not imported: the recorder package needs Node, and the window's code must not load it. record.ts

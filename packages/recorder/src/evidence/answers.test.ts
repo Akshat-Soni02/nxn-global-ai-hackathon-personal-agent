@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Question } from "../compile.ts";
-import { answerFromEvidence } from "./answers.ts";
+import { answerFromEvidence, neverFromSpeech } from "./answers.ts";
 
 const said = (...texts: string[]) => ({ goal: "Upload this month's invoice", said: texts.map((text) => ({ text })) });
 
@@ -67,5 +67,19 @@ describe("questions the recording answers", () => {
       ],
     };
     expect(answerFromEvidence(row, said("I always take today's row"))?.answer).toBe("today's row");
+  });
+});
+
+describe("a Never rule said aloud while recording (N16)", () => {
+  it("is kept as a rule, in the words after never / don't, and casual words are not", () => {
+    expect(
+      neverFromSpeech([
+        { text: "Copy the totals into the sheet. Never email the client from here." },
+        { text: "Don't touch the archive folder, it's the auditors'." },
+        { text: "Do not send it before Friday" },
+        { text: "Don't worry about the colours." },
+        { text: "This is never easy" },
+      ]),
+    ).toEqual(["email the client from here", "touch the archive folder", "send it before Friday"]);
   });
 });

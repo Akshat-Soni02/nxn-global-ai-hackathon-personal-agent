@@ -24,6 +24,7 @@ export {
 } from "./compile.ts";
 export { DESIGN_V2_BUDGET, remaining } from "./design/v2/budget.ts";
 export { changesSummary, describeChanges, plainChanges } from "./design/v2/changes.ts";
+export { changeByChat } from "./design/v2/chat.ts";
 export {
   APPS,
   type AppTool,
@@ -31,6 +32,8 @@ export {
   type ConnectorChance,
   type Connectors,
   connectorChances,
+  documentIdOf,
+  type UsableApp,
 } from "./design/v2/connectors.ts";
 export {
   DoneReport,
@@ -51,7 +54,7 @@ export { type Review, reviewOf } from "./design/v2/review.ts";
 export { type ChangeNote, changeNotes, type RecordingFacts } from "./design/v2/rules.ts";
 export { applyAnswer, type DrillResult, drill, type Prompter } from "./drill.ts";
 export { checkExpectations, Expectation, Expectations, type Verdict } from "./eval/expect.ts";
-export { answerFromEvidence } from "./evidence/answers.ts";
+export { answerFromEvidence, neverFromSpeech } from "./evidence/answers.ts";
 export { CAPTION_CHARS, captionQuestion, captionsOf, type DescribePicture } from "./evidence/captions.ts";
 export { classOf, type StepClass } from "./evidence/classes.ts";
 export {
@@ -72,7 +75,7 @@ export { type Picture, type StepScreen, screensOf } from "./evidence/screens.ts"
 export { type TabInfo, tabName, tabsOf } from "./evidence/tabs.ts";
 export { describeStep, type TimelineLine, timelineOf, timelineSlice } from "./evidence/timeline.ts";
 export { toLocator } from "./locator.ts";
-export { type Box, type Line, MASK, maskLines, maskText } from "./mask.ts";
+export { type Box, HIDE_IDENTIFIERS, type Line, MASK, maskLines, maskText } from "./mask.ts";
 export { type Note, narrationOf, notesByStep } from "./narration.ts";
 export {
   globFor,

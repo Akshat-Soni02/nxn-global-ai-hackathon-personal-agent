@@ -81,3 +81,21 @@
 | 2026-10-26T05:23:49.229Z | yc-recording | nvidia/nemotron-3-super-120b-a12b | $0.2540 | 1/1 |
 | 2026-10-26T05:28:15.813Z | yc-recording | nvidia/nemotron-3-super-120b-a12b | $0.0975 | 1/1 |
 | 2026-10-27T06:06:55.901Z | yc-recording | nvidia/nemotron-3-super-120b-a12b | $0.1306 | 1/1 |
+| 2026-10-27 | day-2 re-runs of A, B, C through Run now (their AI steps only; D has none), `main` + audit Phase 2 code | nvidia/nemotron-3-super-120b-a12b | $0.0003 | 4/4 |
+| 2026-10-27 | repair check 1: a failing click on a Google Doc, Docs connected (agent probed the page 13 turns, then put the app step outside args; escalated) | nvidia/nemotron-3-super-120b-a12b | $0.0714 | 0/1 |
+| 2026-10-27 | repair check 2, after the app-first fix (went to the app at once, guessed arguments, output type wrong ten times; escalated) | nvidia/nemotron-3-super-120b-a12b | $0.0742 | 0/1 |
+| 2026-10-27 | repair check 3, after app_tool and the output-shape fix (wrote the right app step, then escalated: its instructions said a try comes before commit) | nvidia/nemotron-3-super-120b-a12b | $0.0373 | 0/1 |
+| 2026-10-27 | repair check 4, after the try-refusal fix (never used the app: 9 page looks, then escalated; the model varies run to run) | nvidia/nemotron-3-super-120b-a12b | $0.0675 | 0/1 |
+| 2026-10-28 | YC jobs → Google Sheet, designed by Rushil's own daemon (Sheets connected, 40 tools shown): the gate said "no connected app covers this site" with Sheets connected, the agent's app steps were refused for argument spelling and shape, it stopped after 5 refusals | nvidia/nemotron-3-super-120b-a12b | $0.0966 | 0/1 |
+| 2026-10-28 | same recording designed again with the real Sheets tools after the page-of-step, argument-spelling and short-form fixes (built app steps; AI step with no input, rows as objects, a stray cell write remained) | nvidia/nemotron-3-super-120b-a12b | $0.1024 | 0/1 |
+| 2026-10-28 | same recording, third design (after the argument, row-shape and trigger-input fixes the model had hit): stopped after 5 refusals on trigger input types; its calls replayed free ($0.0009) now all go through | nvidia/nemotron-3-super-120b-a12b | $0.0909 | 0/1 |
+| 2026-10-28 | Run now of the designed YC workflow on Rushil's daemon, real page, real Sheets read, 3 runs (take-first-5 AI step failed its pick check twice; nothing written) | nvidia/nemotron-3-super-120b-a12b | $0.0010 | 0/3 |
+| 2026-10-28 | chat box (R6.1), two real changes on a scratch workflow ("only print, don't press Send"; rename a block): both made the asked change in the draft; cost not metered (the cost return came after), estimated at ≈ $0.02 from the turn budget | nvidia/nemotron-3-super-120b-a12b | $0.0200 | 2/2 |
+| 2026-10-28 | N21 measurement: the file-mode design prompt sent 3 times, 5 tokens out each: the host cached 2,784 of 2,806 prompt tokens on the 2nd and 3rd call (cached_tokens in usage) | nvidia/nemotron-3-super-120b-a12b | $0.0026 | n/a |
+| 2026-10-28T05:55:33.631Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.0448 | 1/1 |
+| 2026-10-28T06:53:48.983Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.1128 | 1/1 |
+| 2026-10-28T06:59:59.651Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.1070 | 1/1 |
+| 2026-10-28T07:04:30.440Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.0679 | 1/1 |
+| 2026-10-28T07:09:19.203Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.0901 | 1/1 |
+| 2026-10-28T07:17:42.579Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.2014 | 1/1 |
+| 2026-10-28T07:23:04.811Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.0806 | 1/1 |

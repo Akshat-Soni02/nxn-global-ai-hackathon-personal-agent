@@ -28,6 +28,8 @@ type Marks = {
   onSelect?(id: string): void;
   blocks?: "fold" | "open";
   problems?: Map<string, string[]>;
+  // A test from the page (R4.6): the steps that worked get a ✓.
+  passed?: Set<string>;
   // In the editor: a "+" after each step adds one there (R4).
   onAdd?(at: At): void;
 };
@@ -315,6 +317,11 @@ function Face({ kind, step, sub, marks }: { kind: string; step: Body; sub: strin
       <span className="wf-head">
         <KindIcon kind={kind} />
         <span className="wf-title">{stepTitle(step)}</span>
+        {marks.passed?.has(step.id) && !marks.problems?.get(step.id)?.length ? (
+          <span className="wf-pass" title="It worked in the test">
+            ✓<span className="visually-hidden"> worked in the test</span>
+          </span>
+        ) : null}
         {marks.problems?.get(step.id)?.length ? (
           <span className="wf-badge" title={marks.problems.get(step.id)?.join("\n")}>
             {marks.problems.get(step.id)?.length}

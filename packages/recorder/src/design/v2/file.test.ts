@@ -1,6 +1,7 @@
 import type { AnyTool } from "@shadow/agent";
 import { applyEdits, findStep, Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
+import { HIDE_IDENTIFIERS } from "../../mask.ts";
 import type { DoneReport } from "./contracts.ts";
 import { lostWork } from "./gate.ts";
 import { newSession, type SessionV2 } from "./session.ts";
@@ -99,7 +100,7 @@ describe("the workflow as a file", () => {
             why: "the subjects to pick from",
           },
           {
-            instruction: "the subjects of KPI emails, the first 3 in the list's order",
+            instruction: "the subjects of KPI emails, in the list's order",
             inputs: ["{{subjects}}"],
             output: { name: "reports", type: "list" },
           },
@@ -125,6 +126,107 @@ describe("the workflow as a file", () => {
     // s1 was rewritten as a new step: the recorded one is gone with the change's why, so no work is lost.
     expect(lostWork(recorded, s.draft, s.whys)).toEqual([]);
     void s1;
+  });
+
+  it('makes an AI step\'s bare input names references (the second YC design wrote inputs: ["yc_page"])', async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const written = await run(s, "write_workflow", {
+      workflow: {
+        steps: [
+          trigger,
+          s1,
+          { do: "read", intent: "read the inbox", save_as: "inbox" },
+          {
+            instruction: "the Acme reports in the inbox",
+            inputs: ["inbox", "only Acme's"],
+            output: { name: "acme", type: "list" },
+          },
+        ],
+      },
+      why: "x",
+    });
+    expect(written.problems).toBeUndefined();
+    const step = s.draft.steps.find((x) => x.type === "llm") as { inputs: string[] };
+    // A name becomes a reference; words stay words.
+    expect(step.inputs).toEqual(["{{inbox}}", "only Acme's"]);
+  });
+
+  it("settles how the second YC re-design wrote things: success as a step, JSON-Schema types (28 Oct)", async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const written = await run(s, "write_workflow", {
+      workflow: {
+        steps: [
+          trigger,
+          s1,
+          { do: "read", intent: "read the inbox", save_as: "inbox" },
+          {
+            instruction: "the Acme reports in the inbox",
+            inputs: ["{{inbox}}"],
+            output: {
+              name: "acme",
+              type: { type: "array", items: { type: "object", properties: { title: { type: "string" } } } },
+            },
+          },
+          { id: "success", type: "control", intent: "Success", requires_approval: false, steps: [] },
+          "success",
+        ],
+      },
+      why: "x",
+    });
+    expect(written.problems).toBeUndefined();
+    expect(s.draft.steps.some((x) => x.id === "success")).toBe(false);
+    const ai = s.draft.steps.find((x) => x.type === "llm") as { output: { type: unknown } };
+    expect(ai.output.type).toEqual({ type: "list", items: { type: "object", fields: { title: { type: "text" } } } });
+  });
+
+  it("settles how the fourth YC re-design wrote names and ends (28 Oct): camelCase names, an end marker", async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const written = await run(s, "write_workflow", {
+      workflow: {
+        steps: [
+          trigger,
+          s1,
+          { do: "read", intent: "read the inbox", save_as: "inboxText" },
+          {
+            instruction: "the Acme reports in the inbox",
+            inputs: ["{{inboxText}}"],
+            output: { name: "newReports", type: "list" },
+          },
+          { over: "{{newReports}}", item: "report", steps: ["s2"] },
+          { id: "end", type: "control", intent: "Done", steps: [] },
+        ],
+      },
+      why: "x",
+    });
+    expect(written.problems).toBeUndefined();
+    const text = JSON.stringify(s.draft.steps);
+    expect(text).toContain('"inputs":["{{inbox_text}}"]');
+    expect(text).toContain('"over":"{{new_reports}}"');
+    expect(text).not.toMatch(/inboxText|newReports|"id":"end"/);
+  });
+
+  it("settles what the sixth YC re-design was refused for (28 Oct): escaped twice, whitespace, an end trigger", async () => {
+    const s = session();
+    const [trigger, s1, s2, s3] = steps(s) as Record<string, unknown>[];
+    // The whole workflow as text with every quote escaped once too often.
+    const twice = JSON.stringify({ steps: [trigger, s1, s2, s3] }).replace(/"/g, '\\"');
+    expect((await run(s, "write_workflow", { workflow: twice, why: "x" })).problems).toBeUndefined();
+    // An edit whose old text differs from the file only in its spaces.
+    const loose = await run(s, "edit_workflow", {
+      edits: [{ old: '"text":"19 Oct"', new: '"text": "{{today|D MMM}}"' }],
+      why: "the day it runs",
+    });
+    expect(loose.problems).toBeUndefined();
+    expect(findStep(s.draft, "s3")).toMatchObject({ args: { text: "{{today|D MMM}}" } });
+    // A marker called "end" written as a second trigger.
+    const end = await run(s, "write_workflow", {
+      workflow: { steps: [trigger, s1, s2, s3, { id: "end", type: "trigger", intent: "End", when: [] }] },
+      why: "x",
+    });
+    expect(end.problems).toBeUndefined();
   });
 
   it("takes what the YC design wrote (Oct 25): steps named by id in a loop, a cron as expr, a bad JSON string said so", async () => {
@@ -175,7 +277,7 @@ describe("the workflow as a file", () => {
             id: "pick",
             type: "ai_step",
             intent: "pick",
-            instruction: "the first 5 in the list's order",
+            instruction: "the new ones, in the list's order",
             inputs: ["{{jobs}}"],
             output: { name: "top", type: "list" },
           },
@@ -214,7 +316,7 @@ describe("the workflow as a file", () => {
       text: "{{today|D MMM}}",
     };
     const row = {
-      instruction: "the number of the sheet's next empty row",
+      instruction: "the row number to type in: 4",
       inputs: [],
       output: { name: "row", type: "number" },
     };
@@ -352,5 +454,67 @@ describe("the workflow as a file", () => {
     });
     expect(typed.ok).toBe(false);
     expect(typed.problems?.[0]).toContain("private value");
+  });
+});
+
+describe('the trigger as a model writes it (28 Oct, the YC design: refused four times for "a step, type: Invalid input")', () => {
+  const withTrigger = (trigger: Record<string, unknown>, s = session()) => {
+    const [, ...rest] = steps(s);
+    return run(s, "write_workflow", {
+      workflow: { steps: [{ id: "start", type: "trigger", intent: "daily", ...trigger }, ...rest] },
+      why: "daily",
+    });
+  };
+
+  it("takes an input's type as a word, and a bare word for the whole input", async () => {
+    const s = session();
+    const out = await withTrigger(
+      {
+        when: [{ type: "cron", expression: "0 9 * * *" }],
+        inputs: { count: { type: "number", default: 5 }, label: "text" },
+      },
+      s,
+    );
+    expect(out.problems).toBeUndefined();
+    expect((steps(s)[0] as { inputs: unknown }).inputs).toEqual({
+      count: { type: { type: "number" }, default: 5 },
+      label: { type: { type: "text" } },
+    });
+  });
+
+  it('says where a bad value is by its path, not as "a step"', async () => {
+    const out = await withTrigger({ when: [{ type: "sometimes" }] });
+    expect(out.problems?.join(" ")).toMatch(/start, when\.0\.type/);
+    expect(out.problems?.join(" ")).not.toMatch(/a step/);
+  });
+});
+
+describe("with emails and ids hidden from the AI (N7)", () => {
+  it("shows the agent no email, and puts the real one back when it writes the step as it read it", async () => {
+    const withEmail = Skill.parse({
+      ...recorded,
+      steps: [
+        ...recorded.steps,
+        {
+          id: "s4",
+          type: "action",
+          intent: "type the address",
+          channel: "web",
+          action: "type",
+          target: { role: "textbox", name: "To", fallbacks: [] },
+          args: { text: "ana@example.com" },
+        },
+      ],
+    });
+    const s = newSession(
+      withEmail,
+      { pages: [INBOX], folders: [] },
+      { pages: new Map([["s1", INBOX]]), maskTerms: [HIDE_IDENTIFIERS] },
+    );
+    const shown = String(await run(s, "read_workflow", {}));
+    expect(shown).not.toContain("ana@example.com");
+    const written = await run(s, "write_workflow", { workflow: JSON.parse(shown), why: "as it is" });
+    expect(written.problems).toBeUndefined();
+    expect(JSON.stringify(s.draft)).toContain("ana@example.com");
   });
 });

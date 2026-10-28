@@ -9,6 +9,7 @@ import { ago, duration, money, when } from "../format.ts";
 import { describe } from "../frequency.ts";
 import { NodePanel } from "../NodePanel.tsx";
 import { badgesOf, cantRunNow, nodeProblems, summaryOf } from "../review.ts";
+import { type TestReport, testMarks } from "../test-marks.ts";
 import { WorkflowTree } from "../WorkflowTree.tsx";
 import { Editor } from "./Editor.tsx";
 
@@ -24,6 +25,13 @@ export function Workflow({ id }: { id: string }) {
   const [picking, setPicking] = useState(false);
   const [editing, setEditing] = useState(false);
   const [nodeId, setNodeId] = useState<string>();
+  // A test from this page (R4.6): its marks on the nodes, for the version it ran on.
+  const [tested, setTested] = useState<{ version: number; report: TestReport; block?: string }>();
+  const [testing, setTesting] = useState(false);
+  // The chat box (R6.1): what Shadow said it changed, shown over the draft it changed.
+  const [asked, setAsked] = useState<{ text: string; changed: boolean; costUsd?: number }>();
+  // A draft with changes waits (Show me, a chat change, an edit left open): said, so it isn't missed.
+  const pending = useQuery<{ changes: string[] }>("draft", { id });
   if (workflow.data === null) return <p className="error">No workflow {id}.</p>;
   if (!workflow.data) return <Loading error={workflow.error} />;
   const { latest, versions } = workflow.data;
@@ -43,13 +51,23 @@ export function Workflow({ id }: { id: string }) {
   const state = mine?.state;
   const needsLook = Boolean(review.data && !review.data.reviewed && review.data.version <= latest.version);
   const cantRun = cantRunNow(review.data, latest.version);
+  const test = async (block?: string) => {
+    setTesting(true);
+    try {
+      const report = await session.call<TestReport>("test", { id, ...(block ? { block } : {}) });
+      setTested({ version: latest.version, report, ...(block ? { block } : {}) });
+    } finally {
+      setTesting(false);
+    }
+  };
+  const marks = tested && tested.version === latest.version ? testMarks(tested.report, latest) : undefined;
+  // The review's problems and the test's, together on the nodes.
+  const onNodes = new Map(problems?.byNode ?? []);
+  for (const [id, why] of marks?.failed ?? []) onNodes.set(id, [...(onNodes.get(id) ?? []), ...why]);
 
   return (
     <>
       <header className="page-header">
-        <a href="#/workflows" className="muted small">
-          Workflows
-        </a>
         <div className="title-row">
           <h1>
             {latest.name} {state ? <StateChip state={state} /> : null}
@@ -94,6 +112,15 @@ export function Workflow({ id }: { id: string }) {
                 {state?.state === "paused" ? "Resume" : "Go live"}
               </Action>
             )}
+            <button
+              type="button"
+              className="button"
+              disabled={testing}
+              title="Safe test in the automation window: it opens pages and reads, and only outlines what would type, send or write"
+              onClick={() => void test()}
+            >
+              {testing ? "Testing…" : "Test"}
+            </button>
             <Action
               run={async () => {
                 const run = await session.call<{ id: string }>("walk", { id });
@@ -133,6 +160,8 @@ export function Workflow({ id }: { id: string }) {
         ) : null}
       </header>
 
+      <Secrets id={id} />
+
       <section className="section">
         <div className="title-row">
           <h2>Frequency</h2>
@@ -167,24 +196,57 @@ export function Workflow({ id }: { id: string }) {
         />
       ) : null}
 
+      <ChatBox
+        onSaid={(said) => {
+          setAsked(said);
+          if (said.changed) setEditing(true);
+        }}
+        id={id}
+      />
+      {asked ? (
+        <p className={`notice${asked.changed ? "" : " warn"}`}>
+          {asked.changed
+            ? `Shadow changed it: ${asked.text.replace(/\.$/, "")}. Look at the draft below, then save it or undo.`
+            : asked.text}
+          {asked.costUsd !== undefined ? <span className="muted small"> (${asked.costUsd.toFixed(3)})</span> : null}
+        </p>
+      ) : null}
+      {!editing && (pending.data?.changes.length ?? 0) > 0 ? (
+        <p className="notice">
+          A draft with {pending.data?.changes.length} change{pending.data?.changes.length === 1 ? "" : "s"} waits:{" "}
+          {pending.data?.changes.slice(0, 3).join(" · ")}.{" "}
+          <button type="button" className="button link" onClick={() => setEditing(true)}>
+            Look at it
+          </button>
+        </p>
+      ) : null}
       {editing ? (
         <Editor
           id={id}
           onDone={() => {
             setEditing(false);
+            setAsked(undefined);
             workflow.reload();
+            pending.reload();
           }}
         />
       ) : (
         <section className="section">
           <h2>Steps</h2>
+          {marks ? (
+            <p className={`muted small${marks.failed.size > 0 ? " warn" : ""}`}>
+              {tested?.block ? `Test of "${findStep(latest, tested.block)?.intent ?? tested.block}": ` : "Test: "}
+              {marks.line}
+            </p>
+          ) : null}
           {/* A node picked shows its details beside the tree (reports/plan-oct26-workflow-revamp.md, R3.3). */}
           <div className={node ? "edit-layout" : undefined}>
             <WorkflowTree
               steps={latest.steps}
               selected={node?.id}
               onSelect={(picked) => setNodeId(picked === nodeId ? undefined : picked)}
-              problems={problems?.byNode}
+              problems={onNodes}
+              passed={marks?.passed}
             />
             {node ? (
               <aside className="inspector" aria-label="The picked step">
@@ -192,7 +254,8 @@ export function Workflow({ id }: { id: string }) {
                   key={node.id}
                   step={node}
                   close={() => setNodeId(undefined)}
-                  problems={problems?.byNode.get(node.id)}
+                  problems={onNodes.get(node.id)}
+                  testBlock={() => test(node.id)}
                 />
               </aside>
             ) : null}
@@ -379,4 +442,112 @@ function keyed(lines: string[]): { key: string; line: string }[] {
     seen.set(line, n);
     return { key: `${line}#${n}`, line };
   });
+}
+
+// "What would you like to change?" (R6.1): one sentence, and the design agent changes the workflow into a draft you look
+// at before saving.
+function ChatBox({
+  id,
+  onSaid,
+}: {
+  id: string;
+  onSaid(said: { text: string; changed: boolean; costUsd?: number }): void;
+}) {
+  const session = useSession();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  return (
+    <section className="section">
+      <form
+        className="chat-box"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!text.trim()) return;
+          setBusy(true);
+          setError(undefined);
+          try {
+            const out = await session.call<{ summary: string; changed: boolean; costUsd?: number }>("chat", {
+              id,
+              message: text.trim(),
+            });
+            onSaid({ text: out.summary, changed: out.changed, costUsd: out.costUsd });
+            if (out.changed) setText("");
+          } catch (err) {
+            setError((err as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label className="field wide">
+          <span>What would you like to change?</span>
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="also skip jobs older than a week"
+            disabled={busy}
+          />
+        </label>
+        <button type="submit" className="button primary" disabled={busy || !text.trim()}>
+          {busy ? "Changing…" : "Change it"}
+        </button>
+      </form>
+      {error ? <p className="error">{error}</p> : null}
+    </section>
+  );
+}
+
+// A workflow's secret inputs (N2): a password field it types. Each is typed once here and kept in your Mac's Keychain;
+// this page only ever learns whether one is set, never what it is.
+function Secrets({ id }: { id: string }) {
+  const session = useSession();
+  const secrets = useQuery<{ name: string; set: boolean }[]>("secrets", { id });
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string>();
+  if (!secrets.data || secrets.data.length === 0) return null;
+  return (
+    <section className="section">
+      <h2>Secrets</h2>
+      <p className="muted small">
+        Typed once here, kept in your Mac's Keychain, read when it runs. Shadow never shows them, logs them or sends
+        them to a model.
+      </p>
+      {secrets.data.map((secret) => (
+        <form
+          key={secret.name}
+          className="chat-box"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setError(undefined);
+            try {
+              await session.call("setSecret", { id, name: secret.name, value: values[secret.name] ?? "" });
+              setValues({ ...values, [secret.name]: "" });
+              secrets.reload();
+            } catch (err) {
+              setError((err as Error).message);
+            }
+          }}
+        >
+          <label className="field wide">
+            <span>
+              {secret.name}{" "}
+              {secret.set ? <span className="chip quiet">set</span> : <span className="chip">not set</span>}
+            </span>
+            <input
+              type="password"
+              autoComplete="off"
+              value={values[secret.name] ?? ""}
+              placeholder={secret.set ? "type a new one to change it" : "type it once"}
+              onChange={(e) => setValues({ ...values, [secret.name]: e.target.value })}
+            />
+          </label>
+          <button type="submit" className="button" disabled={!(values[secret.name] ?? "").trim()}>
+            Save
+          </button>
+        </form>
+      ))}
+      {error ? <p className="error">{error}</p> : null}
+    </section>
+  );
 }

@@ -1,5 +1,7 @@
 # Oct 26: the YC jobs → sheet recording, designed five times with the workflow as a file
 
+> **Status as of 27 Oct 2026:** a dated study. Which of its items are now fixed, partly done or still open is in [`changes.md` §7](changes.md#7-the-older-reports-reconciled); where they differ, `changes.md` is right.
+
 The Oct 25 recording ("collect the top 5 YC jobs every day into my sheet, skip ones already there"; diagnosis in
 `oct25-yc-jobs-to-sheet.md`) re-designed offline with `pnpm design:eval --real` (Nemotron 3 Super, no connected apps),
 after the plan's build (`plan-oct25-agents-v3.md`): the design agent edits the workflow as a JSON file

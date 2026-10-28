@@ -149,7 +149,8 @@ describe("normalise", () => {
       "/maps/",
       "/maps/place/The+Rameshwaram+Cafe+Pune/",
       "/maps/dir/",
-      "/document/d/",
+      // A document opened by a click is that document every time: its id is kept (N6).
+      "/document/d/1YBEtjYmbo_T7iWVx5de37OxoQ2kZ",
     ]);
   });
 
@@ -183,6 +184,39 @@ describe("normalise", () => {
       intent: "Open 'Akcent - Stay with Me (Lyrics)'",
       check: { url_matches: "/watch" },
     });
+  });
+
+  it("keeps the document a click opened from a list by its id, so repair can open it by its address (N6)", async () => {
+    const drive = "https://drive.google.com/drive/recent";
+    const sheet = "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUv/edit#gid=0";
+    const row = {
+      ...submitButton,
+      tag: "div",
+      role: "row",
+      name: "Ycomb jobs",
+      text: "Ycomb jobs",
+      url: drive,
+      attrs: {},
+    };
+    const steps = normalise([
+      ev("navigate", 0, { url: drive, transition: "typed" }),
+      ev("click", 3_000, { url: drive, target: row }),
+      ev("navigate", 3_400, { url: sheet, transition: "link" }),
+    ]);
+    const { skill } = await compile(steps, {});
+    const opened = acts(skill).find((s) => s.action === "click");
+    expect(opened?.check?.url_matches).toBe("/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUv");
+    // A control that makes a new document opens a new id every run: that one is cut, as before.
+    const blank = { ...row, role: "button", name: "Blank spreadsheet", text: "Blank spreadsheet" };
+    const made = await compile(
+      normalise([
+        ev("navigate", 0, { url: drive, transition: "typed" }),
+        ev("click", 3_000, { url: drive, target: blank }),
+        ev("navigate", 3_400, { url: sheet, transition: "link" }),
+      ]),
+      {},
+    );
+    expect(acts(made.skill).find((s) => s.action === "click")?.check?.url_matches).toBe("/spreadsheets/d/");
   });
 
   it("starts from the page you went to, not a new tab page replay can't open", async () => {
@@ -425,6 +459,17 @@ describe("copy, paste and drawn apps", () => {
     expect(result.questions.map((q) => q.appliesTo)).toContain("steps.start.inputs.pasted_amount.default");
     expect(result.warnings.join(" ")).toMatch(/s2: 1 click\(s\) before it landed on a drawn area/);
   });
+
+  it("keeps on the step that it typed into a drawn area, so replay and the gate can say what it can't do (A1)", async () => {
+    const result = await compile(
+      normalise([ev("click", 0, { target: canvas, drawn: true }), ev("type", 1_000, { target: amount, pasted: true })]),
+    );
+    // The clicks into the grid were dropped (no element to aim at again); the typing that followed would land in
+    // whichever cell is selected on replay. That fact used to be only a note at compile.
+    expect(acts(result.skill)[1]).toMatchObject({ action: "type", drawn: true });
+    // A step that wasn't after a drawn click carries nothing.
+    expect(acts(result.skill)[0]).not.toHaveProperty("drawn");
+  });
 });
 
 describe("compile", () => {
@@ -665,6 +710,7 @@ describe("which file a skill uses next time", () => {
       "ask me each time I run it",
       "the newest *.jpeg in ~/Downloads",
       "always Rushil Jariwala Photo.jpeg",
+      "all of them: every *.jpeg in ~/Downloads, one after another",
     ]);
     expect(question?.default).toBe("ask me each time I run it");
     const always = applyAnswer(skill, question as Question, "3");
@@ -672,6 +718,17 @@ describe("which file a skill uses next time", () => {
       glob: "Rushil Jariwala Photo.jpeg",
       ask: false,
     });
+    // All of them (N19): the input is every matching file, and the steps that use it go through them one by one, the
+    // file named as before inside the loop.
+    const all = applyAnswer(skill, question as Question, "4");
+    if (!all.ok) throw new Error(all.error);
+    expect(inputsOf(all.skill).rushil_files).toMatchObject({
+      type: { type: "list", items: { type: "file" } },
+      resolve: { glob: "*.jpeg", pick: "all", ask: false },
+    });
+    expect(inputsOf(all.skill).rushil).toBeUndefined();
+    const loop = all.skill.steps.find((s) => s.type === "control" && s.kind === "loop");
+    expect(loop).toMatchObject({ over: "{{rushil_files}}", item: { name: "rushil", type: { type: "file" } } });
   });
 });
 

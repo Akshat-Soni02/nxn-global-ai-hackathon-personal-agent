@@ -74,6 +74,31 @@ describe("fs channel", () => {
     const r = await fsChannel(step("write", { path: join(d, "a/b/c.md"), content: "hi" }), ctx());
     expect(readFileSync(pathOf(r.value), "utf8")).toBe("hi");
   });
+
+  it("never overwrites a file it writes: a clash gets a suffix, as the header says (C28)", async () => {
+    const d = dir();
+    writeFileSync(join(d, "notes.md"), "mine");
+    const r = await fsChannel(step("write", { path: join(d, "notes.md"), content: "new" }), ctx());
+    expect(pathOf(r.value)).toBe(join(d, "notes (1).md"));
+    expect(readFileSync(join(d, "notes.md"), "utf8")).toBe("mine");
+    expect(readFileSync(join(d, "notes (1).md"), "utf8")).toBe("new");
+  });
+
+  it("appends to the file it is told to, and only then touches an existing one (C28)", async () => {
+    const d = dir();
+    writeFileSync(join(d, "log.txt"), "a\n");
+    await fsChannel(step("write", { path: join(d, "log.txt"), content: "b\n", append: true }), ctx());
+    expect(readFileSync(join(d, "log.txt"), "utf8")).toBe("a\nb\n");
+  });
+
+  it("writes a number or a yes/no as its text, and fails on a list or an object instead of writing an empty file (C28)", async () => {
+    const d = dir();
+    const n = await fsChannel(step("write", { path: join(d, "n.txt"), content: 42 }), ctx());
+    expect(readFileSync(pathOf(n.value), "utf8")).toBe("42");
+    const bad = await fsChannel(step("write", { path: join(d, "l.txt"), content: ["a", "b"] }), ctx());
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toMatch(/text/);
+  });
 });
 
 describe("file inputs resolved without asking", () => {
@@ -99,6 +124,42 @@ describe("file inputs resolved without asking", () => {
     await expect(
       resolveInputs(skillWith({ dir: d, glob: "*.pdf", pick: "newest", accept: "video/*" })),
     ).rejects.toThrow(/no file matches \*\.pdf .* \(taking video\/\*\)/);
+  });
+});
+
+describe("a secret input, from the Keychain (N2)", () => {
+  // A recorded password field became a secret input with no value, and the run stopped: "input password has no value".
+  const withSecret = Skill.parse({
+    id: "t",
+    version: 1,
+    name: "t",
+    description: { goal: "t" },
+    steps: [
+      { id: "start", type: "trigger", intent: "t", inputs: { password: { type: { type: "secret" } } } },
+      {
+        id: "s",
+        type: "action",
+        intent: "t",
+        channel: "fs",
+        action: "write",
+        args: { path: "~/x.txt", content: "{{password}}" },
+      },
+    ],
+  });
+
+  it("takes its value from where secrets are kept, and says where to set it when none is", async () => {
+    const asked: string[] = [];
+    const secret = async (name: string) => {
+      asked.push(name);
+      return name === "password" ? "hunter2" : undefined;
+    };
+    expect(await resolveInputs(withSecret, {}, { secret })).toEqual({ password: "hunter2" });
+    expect(asked).toEqual(["password"]);
+    await expect(resolveInputs(withSecret, {}, { secret: async () => undefined })).rejects.toThrow(
+      /password is a secret nobody has set yet: set it on the workflow's page/,
+    );
+    // A value given for this run wins.
+    expect(await resolveInputs(withSecret, { password: "given" }, { secret })).toEqual({ password: "given" });
   });
 });
 

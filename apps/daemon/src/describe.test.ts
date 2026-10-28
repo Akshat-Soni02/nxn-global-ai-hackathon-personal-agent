@@ -37,7 +37,7 @@ function setup(pictures: boolean, withTools = true) {
     dataDir,
     tools: withTools ? t : undefined,
     llm: () => llm,
-    consent: () => ({ screen: true, microphone: false, pictures }),
+    consent: () => ({ screen: true, microphone: false, pictures, identifiers: false }),
     log: () => {},
   });
   return { dataDir, llm, describer, tools: t };
@@ -110,7 +110,7 @@ describe("describing a picture for the model", () => {
     createScreenDescriber({
       dataDir,
       llm: () => undefined,
-      consent: () => ({ screen: false, microphone: false, pictures: false }),
+      consent: () => ({ screen: false, microphone: false, pictures: false, identifiers: false }),
       log: () => {},
     });
     expect(existsSync(join(dataDir, "tmp", "shot-old.jpg"))).toBe(false);

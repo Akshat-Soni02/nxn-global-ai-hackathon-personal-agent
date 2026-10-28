@@ -5,6 +5,9 @@ import { type Cdp, evaluate, pollUntil } from "./cdp.ts";
 import { match } from "./match.ts";
 
 export async function pageCheckHolds(cdp: Cdp, check: Check): Promise<boolean> {
+  // An empty text or address is contained in every page, so it would prove nothing (a {{variable}} that came out
+  // empty): it never holds. The schema still loads it, so a workflow saved with one can be opened and fixed.
+  if (check.url_matches === "" || check.text_visible === "") return false;
   if (check.url_matches !== undefined) {
     const href = await evaluate<string>(cdp, "location.href");
     if (!href.includes(check.url_matches)) return false;

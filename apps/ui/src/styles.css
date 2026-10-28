@@ -293,15 +293,32 @@ nav a.active .badge {
   line-height: 16px;
   text-align: center;
 }
+/* Every screen takes the whole stage (W3: a 980px cap left the Record, Workflow and Run screens contained in a column).
+   Text that reads badly very wide keeps its own cap (the goal box, notes). */
 .content {
   overflow-y: auto;
   padding: 28px 36px 48px;
-  max-width: 980px;
   animation: enter var(--t-enter) var(--ease);
 }
-/* Editing takes the whole width (the panel sits on the right); the padding keeps space around it. */
-.content:has(.editor) {
-  max-width: none;
+/* Back (W3): from a detail screen to the list it came from. */
+.back-link {
+  display: inline-block;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+.back-link:hover {
+  color: var(--text);
+}
+/* A line that points somewhere else (the Record screen's "questions are waiting in the Inbox"). */
+.notice {
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface);
 }
 @keyframes enter {
   from {
@@ -581,6 +598,25 @@ nav a.active .badge {
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+}
+.progress-feed + .answers {
+  margin-top: 14px;
+}
+/* The warning above the goal box: Chrome isn't connected. */
+.notice.warn {
+  margin-bottom: 14px;
+  border-left-color: var(--wait);
+  background: var(--wait-bg);
+  color: var(--text);
+}
+/* The feed kept under "Last recording" (folded). */
+.last-feed {
+  margin: 4px 0 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.last-feed summary {
+  cursor: pointer;
 }
 .card-link {
   display: inline-block;
@@ -913,6 +949,10 @@ nav a.active .badge {
 /* "Or write your own answer", under a question's options (screens/Inbox.tsx). */
 .answers.other {
   margin-top: 10px;
+}
+/* (Apps' search box; kept above the more specific rule below, which sets another input's width) */
+.app-filters .input {
+  max-width: 420px;
 }
 .answers.other .input {
   flex: 1;
@@ -1743,9 +1783,6 @@ details.advanced h3 {
   gap: 10px;
   margin-bottom: 14px;
 }
-.app-filters .input {
-  max-width: 420px;
-}
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -1808,8 +1845,45 @@ details.advanced h3 {
 .app-foot .link-button {
   white-space: nowrap;
 }
+/* An app connected with your own key (N13): its fields, in the card. */
+.key-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+}
 .app-buttons {
   display: flex;
   gap: 6px;
   flex: none;
+}
+
+/* What an approval will do (Y9): the values as the run filled them in. */
+.what pre {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+/* A step that worked in a test from the workflow's page (R4.6). */
+.wf-pass {
+  margin-left: 6px;
+  color: var(--ok);
+  font-weight: 600;
+}
+
+/* The chat box on a workflow's page (R6.1). */
+.chat-box {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.chat-box .field {
+  flex: 1;
 }

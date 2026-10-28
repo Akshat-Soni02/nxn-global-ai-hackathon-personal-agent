@@ -46,7 +46,7 @@ export function outlineOf(skill: Skill): string {
         );
       } else if (step.kind === "loop") {
         lines.push(
-          `${pad}${step.id}  loop "${step.intent}"  for each ${step.item.name} in ${step.over} (max ${step.max_items}, ${step.on_item_fail} on a failing item)${approval}`,
+          `${pad}${step.id}  loop "${step.intent}"  for each ${step.item.name} in ${step.over} (${step.first ? `the first ${step.first}, ` : ""}max ${step.max_items}, ${step.on_item_fail} on a failing item)${approval}`,
         );
         walk(step.steps, depth + 1);
       } else if (step.kind === "group") {

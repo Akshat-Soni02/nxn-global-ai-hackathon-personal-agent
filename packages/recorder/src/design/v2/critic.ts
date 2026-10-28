@@ -15,8 +15,15 @@ Name only what is really missing or wrong, each in one sentence a designer can a
 - a value that changes each time (a date, the newest item, a list) kept as the recorded text;
 - steps that only get to a page that a later step works in, when that page could be opened directly by its address;
 - page steps doing work a connected app listed in the message could do directly (a sheet written by typing into
-  cells);
-- something the test couldn't find or got wrong that the agent didn't fix or explain.
+  cells), or an app write whose columns differ from the cells the recording typed each value into;
+- something the test couldn't find or got wrong that the agent didn't fix or explain;
+- an AI step doing what a reference does ({{x.0}} a list's first item, {{row.1}} a row's cell, {{x.field}}) or what
+  a loop's first: N does, or AI steps chained so one only reshapes another's answer: each is a model call on every
+  run, so the judgement belongs in one AI step given everything it needs.
+A value the evidence puts in a cell of a sheet (A2, A3) shows where one row of a table landed that day: an app step
+that writes the same columns to the table's next free row builds it. Never ask for the literal cell (it would write
+over the sheet's earlier rows), nor for the recorded selector of one item (s4, s8): a list is read whole and an AI step
+picks from it.
 Never ask for extra checks, waits, AI steps or polish the user didn't ask for, and never repeat a rule the agent says
 is not built with a reason. Most finished workflows have no gaps: then say none.
 Reply with JSON only: {"gaps": ["…", …]} (an empty list when it is right).`;

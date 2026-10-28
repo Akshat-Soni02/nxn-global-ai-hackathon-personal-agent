@@ -79,7 +79,7 @@ export const DEFAULT_PROFILES: Record<ProfileName, Profile> = {
     timeoutMs: 180_000,
   },
   // Describing redacted screenshots.
-  vision: { model: "zai-org/GLM-5.3-Flash", thinking: false, maxTokens: 2_048, temperature: 0, timeoutMs: 90_000 },
+  vision: { model: "zai-org/GLM-5.3-Flash", thinking: false, maxTokens: 2_048, temperature: 0, timeoutMs: 45_000 },
 };
 
 export function costOf(model: ModelInfo | undefined, input: number, output: number): number {

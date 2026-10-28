@@ -34,3 +34,23 @@ export function answerFromEvidence(
   if (question.id.startsWith("row-")) return pick((o) => optionText(o).includes("{{today"), TODAY);
   return undefined;
 }
+
+// Never rules said aloud while recording (N16): "never email the client", "don't touch the archive folder". Only the
+// goal is asked before recording, so the Never list started empty and what was said was never enforced. The words after
+// never / don't, up to a comma (the reason after it isn't the rule), at least two words; "don't worry", "don't forget"
+// and the like are talk, not rules.
+const NEVER = /\b(?:never|don'?t|do not|must not|mustn'?t|should not|shouldn'?t)\s+([^,;]+)/i;
+const TALK = /^(worry|forget|mind|know|think|care|bother|panic|be|have to|need to|remember)\b/i;
+export function neverFromSpeech(said: { text: string }[]): string[] {
+  const rules: string[] = [];
+  for (const { text } of said) {
+    for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+      const rule = NEVER.exec(sentence)?.[1]
+        ?.replace(/[.!?]+$/, "")
+        .trim();
+      if (!rule || rule.split(/\s+/).length < 2 || TALK.test(rule) || rules.includes(rule)) continue;
+      rules.push(rule);
+    }
+  }
+  return rules;
+}

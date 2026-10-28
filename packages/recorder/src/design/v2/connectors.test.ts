@@ -10,6 +10,9 @@ import {
   type Connectors,
   connectorChances,
   documentIdOf,
+  fitArguments,
+  LISTED_TOOLS,
+  readOnlyTools,
   shortlist,
   type UsableApp,
   withIds,
@@ -163,9 +166,42 @@ describe("the tools listed", () => {
     expect(both.slice(0, 2)).toContain("GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND");
     expect(both).not.toContain("GOOGLESHEETS_DELETE_SHEET");
     const text = appsSection([{ ...app, tools, work: { writes: true, reads: true } }]).join("\n");
-    expect(text).toContain('look { app_tools: "googlesheets" }');
+    // A dozen tools all fit in the list (up to 40); the "…N more: look" line is for an app with more (see A4 below).
+    expect(text).not.toContain("more: look");
     // One line for one document, however many steps worked in it.
     expect(text.match(/<id:/g)).toHaveLength(1);
+  });
+});
+
+describe("how many of an app's tools the agent is shown (A4)", () => {
+  // Oct 25: all of Gmail's or Drive's tools (40–80, a 160-character line each) made a 27 k-character message the agent
+  // never read, so the list was cut to 8, which hid the tool a task needed. 40 short lines keep it small and wide.
+  const many = (n: number, toolkit = "googlesheets"): AppTool[] =>
+    Array.from({ length: n }, (_, i) => ({
+      ...APPEND,
+      name: `${toolkit.toUpperCase()}_DO_THING_${String(i).padStart(2, "0")}`,
+      description: `Does thing number ${i} with a long explanation that goes on and on. `.repeat(8),
+      toolkit,
+    }));
+
+  it("lists up to 40 tools of an app, each line short, and says how many more look shows", () => {
+    expect(LISTED_TOOLS).toBe(40);
+    const text = appsSection([{ ...app, tools: many(60) }]);
+    const lines = text.filter((l) => l.startsWith("- GOOGLESHEETS_"));
+    expect(lines).toHaveLength(40);
+    expect(Math.max(...lines.map((l) => l.length))).toBeLessThan(160);
+    expect(text.join("\n")).toContain("…20 more: look");
+  });
+
+  it("keeps the whole message far below the 27 k that was never read, even with 60 tools in each of three apps", () => {
+    const three = ["googlesheets", "gmail", "googledrive"].map((t) => ({
+      ...app,
+      toolkit: t,
+      name: t,
+      tools: many(60, t),
+    }));
+    expect(appsSection(three).join("\n").length).toBeLessThan(20_000);
+    expect(appsSection([{ ...app, tools: many(60) }]).join("\n").length).toBeLessThan(7_000);
   });
 });
 
@@ -244,6 +280,20 @@ describe("app steps in the design", () => {
     expect(lostWork(recorded, s.draft, s.whys)).toEqual([]);
   });
 
+  it("a read-only app step doesn't make removing every recorded write look like work done by the app (C3)", async () => {
+    const s = session();
+    await run(s, "add", {
+      step: { do: "app", intent: "read the sheet", tool: READ.name, arguments: {} },
+      after: "s1",
+      why: "reads the rows",
+    });
+    await run(s, "remove", { steps: ["s2", "s3"], why: "not needed" });
+    // The app only reads, so nothing replaced the writes: the work the user showed is gone, and the gate says so.
+    expect(lostWork(recorded, s.draft, s.whys, readOnlyTools([app]))).not.toEqual([]);
+    // With no read-only list (an app step might write), the removal stays explained as before.
+    expect(lostWork(recorded, s.draft, s.whys)).toEqual([]);
+  });
+
   it("refuses a tool that isn't offered, a missing argument, and any app step with no app connected", async () => {
     const refused = async (s: SessionV2, step: Record<string, unknown>) =>
       JSON.stringify((await run(s, "add", { step: { do: "app", intent: "x", ...step }, why: "y" })).output);
@@ -257,5 +307,228 @@ describe("app steps in the design", () => {
   it("shows a tool's arguments on look", async () => {
     const out = (await run(session(), "look", { app_tool: APPEND.name })).output as { arguments: unknown };
     expect(out.arguments).toEqual(APPEND.inputSchema);
+  });
+});
+
+// The YC design (28 Oct) kept writing the right tools with the wrong shapes, was refused five times and gave up: it wrote
+// spreadsheet_id for the tool that says spreadsheetId, a row where a list of rows goes, and a step with no `do`.
+describe("app steps written the way a model writes them (28 Oct)", () => {
+  const CAMEL: AppTool = {
+    name: "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+    description: "Append values",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string" },
+        range: { type: "string" },
+        values: { type: "array", items: { type: "array", items: { type: "string" } } },
+      },
+      required: ["spreadsheetId", "range", "values"],
+    },
+    toolkit: "googlesheets",
+    readOnly: false,
+    destructive: false,
+  };
+  const SNAKE: AppTool = {
+    ...READ,
+    name: "GOOGLESHEETS_VALUES_GET",
+    inputSchema: {
+      type: "object",
+      properties: { spreadsheet_id: { type: "string" }, range: { type: "string" } },
+      required: ["spreadsheet_id", "range"],
+    },
+  };
+  const both = (): SessionV2 => session([{ ...app, tools: [CAMEL, SNAKE] }]);
+  const file = async (s: SessionV2, name: string, input: unknown) => {
+    const t = designToolsV2(s, { mode: "file" }).find((x) => x.name === name) as AnyTool<DoneReport>;
+    const parsed = t.input.safeParse(t.prepare ? t.prepare(input) : input);
+    if (!parsed.success) throw new Error(parsed.error.message);
+    return ((await t.run(parsed.data, { turn: 1 })) as { output: { ok?: boolean; problems?: string[] } }).output;
+  };
+  const added = async (s: SessionV2, step: Record<string, unknown>) =>
+    (await run(s, "add", { step: { do: "app", intent: "x", ...step }, why: "y" })).output as {
+      ok: boolean;
+      new_steps?: string[];
+      problems?: string[];
+      error?: string;
+    };
+
+  it("takes the argument's spelling the tool uses when it differs only in case or underscores, and says so", async () => {
+    const s = both();
+    const out = await added(s, {
+      tool: CAMEL.name,
+      arguments: { spreadsheet_id: "<id:s3>", range: "Sheet1!A:B", values: [["a", "b"]] },
+    });
+    expect(JSON.stringify(out)).toContain("spreadsheet_id");
+    const step = findStep(s.draft, out.new_steps?.[0] ?? "");
+    expect(step).toMatchObject({ args: { arguments: { spreadsheetId: "1AbCdEfGhIjKlMnOpQrStUv" } } });
+    expect(JSON.stringify(step)).not.toContain("spreadsheet_id");
+    // The other tool is the other way round: its own spelling is kept, the near miss renamed.
+    const read = await added(s, { tool: SNAKE.name, arguments: { spreadsheetId: "<id:s3>", range: "A:B" } });
+    expect(findStep(s.draft, read.new_steps?.[0] ?? "")).toMatchObject({
+      args: { arguments: { spreadsheet_id: "1AbCdEfGhIjKlMnOpQrStUv" } },
+    });
+  });
+
+  it("makes a single row the list of rows the tool takes", async () => {
+    const s = both();
+    const out = await added(s, {
+      tool: CAMEL.name,
+      arguments: { spreadsheetId: "<id:s3>", range: "A:B", values: ["{{today}}", "Acme"] },
+    });
+    expect(JSON.stringify(out)).toContain("one row made the list of rows");
+    expect(findStep(s.draft, out.new_steps?.[0] ?? "")).toMatchObject({
+      args: { arguments: { values: [["{{today}}", "Acme"]] } },
+    });
+  });
+
+  it("names an argument the tool doesn't have, with the ones it does", async () => {
+    const out = await added(both(), {
+      tool: CAMEL.name,
+      arguments: { spreadsheetId: "<id:s3>", range: "A:B", rows: [] },
+    });
+    expect(JSON.stringify(out)).toMatch(/rows.*not an argument.*spreadsheetId, range, values/);
+  });
+
+  it("says what a missing argument takes: the choices, or that it is a list of rows", async () => {
+    const strict: AppTool = {
+      ...CAMEL,
+      name: "GOOGLESHEETS_STRICT_APPEND",
+      inputSchema: {
+        type: "object",
+        properties: {
+          spreadsheetId: { type: "string" },
+          valueInputOption: { type: "string", enum: ["RAW", "USER_ENTERED"] },
+          values: { type: "array", items: { type: "array" } },
+        },
+        required: ["spreadsheetId", "valueInputOption", "values"],
+      },
+    };
+    const out = await added(session([{ ...app, tools: [strict] }]), {
+      tool: strict.name,
+      arguments: { spreadsheetId: "<id:s3>" },
+    });
+    expect(JSON.stringify(out)).toContain("valueInputOption (one of RAW, USER_ENTERED)");
+    expect(JSON.stringify(out)).toContain("values (a list of rows: [[…], […]])");
+  });
+
+  it("refuses rows that are a list of objects where the tool takes a list of rows, and says how to make them", async () => {
+    const s = both();
+    const write = (type: unknown) =>
+      file(s, "write_workflow", {
+        workflow: {
+          steps: [
+            { ...(s.draft.steps[0] as object) },
+            {
+              instruction: "one row per job: date, company",
+              inputs: ["{{today|D MMM}}"],
+              output: { name: "rows", type },
+            },
+            {
+              do: "app",
+              intent: "add the rows",
+              tool: CAMEL.name,
+              arguments: { spreadsheetId: "<id:s3>", range: "A:B", values: "{{rows}}" },
+            },
+          ],
+        },
+        why: "append",
+      });
+    const bad = await write({ type: "list", items: { type: "object" } });
+    // The way out is a loop writing one row per item, never an AI step that builds rows (the fourth YC re-design).
+    expect(bad.problems?.join(" ")).toMatch(
+      /values.*rows.*a list of lists.*{{rows}}.*loop over {{rows}}.*one row per item/,
+    );
+    expect(bad.problems?.join(" ")).toMatch(/never an AI step to build rows/);
+    expect((await write("list of list")).problems ?? []).toEqual([]);
+  });
+
+  it("reads a step with a tool and no `do` as an app step, in a loop too (what the model wrote, refused five times)", async () => {
+    const s = both();
+    const out = await file(s, "write_workflow", {
+      workflow: {
+        steps: [
+          { ...(s.draft.steps[0] as object) },
+          {
+            id: "get",
+            tool: SNAKE.name,
+            arguments: { spreadsheet_id: "<id:s3>", range: "A:B" },
+            intent: "read",
+            save_as: "old",
+          },
+          {
+            instruction: "the rows not in {{old}}",
+            inputs: ["{{old}}"],
+            output: { name: "rows", type: "list" },
+          },
+          {
+            id: "each",
+            over: "{{rows}}",
+            item: "row",
+            steps: [
+              {
+                type: "action",
+                tool: CAMEL.name,
+                arguments: { spreadsheetId: "<id:s3>", range: "A:B", values: [["{{row}}"]] },
+                intent: "write",
+              },
+            ],
+          },
+        ],
+      },
+      why: "append each",
+    });
+    expect(out.problems ?? []).toEqual([]);
+    expect(findStep(s.draft, "get")).toMatchObject({ channel: "mcp", action: "call" });
+  });
+});
+
+describe("an app step's rows, fitted to the tool (28 Oct YC → Sheet: values nested three deep)", () => {
+  const append: AppTool = {
+    name: "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+    description: "append rows",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string" },
+        range: { type: "string" },
+        values: { type: "array", items: { type: "array", items: { type: "string" } } },
+      },
+    },
+  } as unknown as AppTool;
+  it("fills what the app's row says its tool takes when left out (the sixth re-design forgot valueInputOption 3 times)", () => {
+    const schema = append.inputSchema as { properties: Record<string, unknown> };
+    const sheets = {
+      ...append,
+      toolkit: "googlesheets",
+      inputSchema: { ...schema, properties: { ...schema.properties, valueInputOption: { type: "string" } } },
+    } as AppTool;
+    const fit = fitArguments(sheets, { spreadsheetId: "S", range: "A:C", values: [["a"]] });
+    expect(fit.args.valueInputOption).toBe("USER_ENTERED");
+    // Given, it stays as given.
+    expect(fitArguments(sheets, { values: [["a"]], valueInputOption: "RAW" }).args.valueInputOption).toBe("RAW");
+  });
+
+  it("takes one row, rows, and rows wrapped once too often, always as rows of cells", () => {
+    const row = ["{{today|DD/MM/YYYY}}", "{{pair.company}}", "{{pair.role}}"];
+    expect(fitArguments(append, { values: row }).args.values).toEqual([row]);
+    expect(fitArguments(append, { values: [row] }).args.values).toEqual([row]);
+    const deep = fitArguments(append, { values: [[row]] });
+    expect(deep.args.values).toEqual([row]);
+    expect(deep.notes.join()).toMatch(/values/);
+  });
+});
+
+describe("what the agent is told about an app (28 Oct YC → Sheet: two steps to learn the first tab's name)", () => {
+  it("shows an app's notes under it: how its ranges and rows are written", () => {
+    const sheets = {
+      toolkit: "googlesheets",
+      name: "Google Sheets",
+      why: "w",
+      steps: ["s4"],
+      ids: { s4: "DOC" },
+      tools: [],
+    } as unknown as UsableApp;
+    expect(appsSection([sheets]).join("\n")).toMatch(/a range with no tab name \("A:C"\) is the first tab/);
   });
 });

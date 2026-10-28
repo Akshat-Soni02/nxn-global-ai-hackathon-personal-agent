@@ -23,9 +23,23 @@ export function pick(args: Record<string, unknown>): StepResult {
     const key = Object.keys(row).find((k) => k.trim().toLowerCase() === column.trim().toLowerCase());
     return key === undefined ? undefined : String(row[key] ?? "");
   };
-  const found = rows.filter((row) =>
-    Object.entries(where).every(([column, wanted]) => same(cell(row, column), String(wanted))),
-  );
+  // The order each date column is written in (a day over 12 settles it); with none, 10/3/2026 has two readings.
+  const orders = new Map(Object.keys(where).map((column) => [column, orderOf(rows, (r) => cell(r, column))]));
+  const search = (force?: Order) =>
+    rows.filter((row) =>
+      Object.entries(where).every(([column, wanted]) =>
+        same(cell(row, column), String(wanted), orders.get(column) ?? force),
+      ),
+    );
+  const found = search();
+  // Both readings find rows, but not the same rows: the first would be a guess, so say so instead of picking a day.
+  if ([...orders.values()].includes(undefined)) {
+    const [asMonthFirst, asDayFirst] = [search("md"), search("dm")];
+    if (asMonthFirst.length > 0 && asDayFirst.length > 0 && asMonthFirst.some((r) => !asDayFirst.includes(r)))
+      return fail(
+        `the dates in ${Object.keys(where).join(", ")} could be written day first or month first, and each reading finds different rows: nothing in the sheet says which`,
+      );
+  }
   const row = args.pick === "last" ? found.at(-1) : found[0];
   const conditions = Object.entries(where)
     .map(([c, v]) => `${c} = ${v}`)
@@ -36,16 +50,30 @@ export function pick(args: Record<string, unknown>): StepResult {
   return value === undefined ? fail(`no column ${args.column}`) : { ok: true, value };
 }
 
-function same(actual: string | undefined, wanted: string): boolean {
+type Order = "md" | "dm";
+
+function same(actual: string | undefined, wanted: string, order?: Order): boolean {
   if (actual === undefined) return false;
   if (actual.trim().toLowerCase() === wanted.trim().toLowerCase()) return true;
-  const a = asDates(actual);
-  const w = asDates(wanted);
+  const a = asDates(actual, order);
+  const w = asDates(wanted, order);
   return a.some((d) => w.includes(d));
 }
 
-// The ISO dates a cell could mean. 10/3/2026 is October 3 in the US and 10 March elsewhere: both are kept.
-function asDates(text: string): string[] {
+// How a column writes 3/10/2026: day first when some cell has a day over 12 first (25/10/2026), month first when over
+// 12 second (10/25/2026); undefined when no cell says.
+function orderOf(rows: Record<string, unknown>[], cell: (row: Record<string, unknown>) => string | undefined) {
+  for (const row of rows) {
+    const m = /^(\d{1,2})[/.](\d{1,2})[/.]\d{4}$/.exec((cell(row) ?? "").trim());
+    if (m && Number(m[1]) > 12) return "dm" as const;
+    if (m && Number(m[2]) > 12) return "md" as const;
+  }
+  return undefined;
+}
+
+// The ISO dates a cell could mean. 10/3/2026 is October 3 in the US and 10 March elsewhere: both are kept unless
+// the column's order is known.
+function asDates(text: string, order?: Order): string[] {
   const t = text.trim();
   const pad = (n: string | number) => String(n).padStart(2, "0");
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
@@ -53,7 +81,9 @@ function asDates(text: string): string[] {
   const slash = /^(\d{1,2})[/.](\d{1,2})[/.](\d{4})$/.exec(t);
   if (slash) {
     const [a = "", b = "", y = ""] = slash.slice(1);
-    return [`${y}-${pad(a)}-${pad(b)}`, `${y}-${pad(b)}-${pad(a)}`];
+    const monthFirst = `${y}-${pad(a)}-${pad(b)}`;
+    const dayFirst = `${y}-${pad(b)}-${pad(a)}`;
+    return order === "md" ? [monthFirst] : order === "dm" ? [dayFirst] : [monthFirst, dayFirst];
   }
   const parsed = /[a-z]/i.test(t) ? new Date(t) : undefined;
   return parsed && !Number.isNaN(parsed.getTime())

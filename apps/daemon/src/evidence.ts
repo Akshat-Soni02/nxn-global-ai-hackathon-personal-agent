@@ -58,6 +58,8 @@ export interface EvidenceOptions {
   describer?: Pick<ScreenDescriber, "allowed" | "describeMasked" | "tempPath">;
   meter?: UsageMeter;
   log: (...args: unknown[]) => void;
+  // Stop was pressed while the recording becomes a workflow: no new picture is described.
+  signal?: AbortSignal;
 }
 
 export async function writeEvidence(o: EvidenceOptions): Promise<Evidence | undefined> {
@@ -86,6 +88,7 @@ export async function writeEvidence(o: EvidenceOptions): Promise<Evidence | unde
           ),
         o.log,
         terms,
+        { signal: o.signal },
       );
     }
     const evidence = buildEvidence({

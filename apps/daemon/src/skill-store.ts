@@ -5,7 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Skill } from "@shadow/core";
+import { applyEdits, type EditInput, repairViolations, Skill } from "@shadow/core";
 
 const VERSION_FILE = /^v(\d+)\.json$/;
 
@@ -41,6 +41,24 @@ export function saveSkill(dataDir: string, skill: Skill): { path: string; skill:
   const path = join(dir, `v${saved.version}.json`);
   writeFileSync(path, `${JSON.stringify(saved, null, 2)}\n`, { flag: "wx" });
   return { path, skill: saved };
+}
+
+// Saves a repair made during a run. A run keeps the version it started on, so the fix can be built on a version older
+// than the latest (you edited the workflow while the run waited). Saved as latest + 1 as it is, it would put the old
+// content on top of your edit. So the fix (its edits) is applied again to the latest; if it no longer fits there, no
+// version is saved and the run goes on with its own fixed copy (the next run meets the failure again, and you know why).
+export function saveRepair(dataDir: string, repaired: Skill, edits: EditInput[] = []): Skill {
+  const latest = loadSkill(dataDir, repaired.id);
+  if (!latest || repaired.version === latest.version + 1) return saveSkill(dataDir, repaired).skill;
+  const applied = applyEdits(latest, edits);
+  const note = repaired.history.at(-1);
+  if (!applied.ok || !note || repairViolations(latest, applied.skill).length > 0) return repaired;
+  const version = latest.version + 1;
+  return saveSkill(dataDir, {
+    ...applied.skill,
+    version,
+    history: [...latest.history, { ...note, version }],
+  }).skill;
 }
 
 export function listSkills(dataDir: string): { id: string; versions: number[]; name: string }[] {

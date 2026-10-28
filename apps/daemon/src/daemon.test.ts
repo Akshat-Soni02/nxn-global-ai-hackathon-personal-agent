@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createDecoder, encode } from "@shadow/ipc";
 import { afterEach, describe, expect, it } from "vitest";
 import { type Daemon, startDaemon } from "./daemon.ts";
+import { readTrace } from "./trace-store.ts";
 
 let daemon: Daemon | undefined;
 afterEach(() => daemon?.close());
@@ -52,6 +53,27 @@ describe("daemon socket", () => {
 
     daemon.stopRecording();
     expect(await ext.next("record.stop")).toMatchObject({ sessionId });
+    ext.end();
+  });
+
+  it("leaves Shadow's own window out of the recording: its tab, and the Stop clicked in it (28 Oct, the YC recording)", async () => {
+    const socketPath = path();
+    const dataDir = mkdtempSync(join(tmpdir(), "tp-data-"));
+    daemon = await startDaemon({ socketPath, dataDir, drainMs: 0, ownPort: () => 8123 });
+    const sessionId = daemon.startRecording();
+    const ext = client(socketPath);
+    ext.send({ id: "1", type: "hello", from: "extension", version: "test" });
+    await ext.next("record.start");
+    const event = (id: string, kind: string, url: string, at: number) =>
+      ext.send({ id, type: "record.event", sessionId, at, event: kind, tabId: 7, url });
+    event("a", "tab_open", "https://news.ycombinator.com/", 1);
+    event("b", "tab_open", "http://127.0.0.1:8123/#/record", 2);
+    event("c", "click", "http://127.0.0.1:8123/#/record", 3);
+    // Another local page on another port is the user's own work, not Shadow.
+    event("d", "click", "http://127.0.0.1:3000/", 4);
+    await new Promise((r) => setTimeout(r, 100));
+    await daemon.stopRecording();
+    expect(readTrace(dataDir, sessionId).map((e) => e.id)).toEqual(["a", "d"]);
     ext.end();
   });
 

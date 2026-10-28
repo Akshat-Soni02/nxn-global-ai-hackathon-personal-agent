@@ -1,5 +1,5 @@
 // shadow-api's settings, all from the environment. On Cloud Run the secrets (NEBIUS_API_KEY, COMPOSIO_API_KEY,
-// TOKEN_SECRET) come from Secret Manager as env vars; locally from apps/api/.env or the shell.
+// TOKEN_SECRET) come from Secret Manager as env vars; locally from the shell, or the repo's .env with `pnpm api`.
 // See docs/cloud-architecture.md and apps/api/README.md.
 import { TOKEN_FACTORY_URL } from "@shadow/llm";
 

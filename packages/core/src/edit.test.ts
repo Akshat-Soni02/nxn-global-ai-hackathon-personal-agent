@@ -176,7 +176,7 @@ describe("edits", () => {
       [{ op: "move", step: "s9", to: { after: "s1" } }, /no step s9/],
       [
         { op: "insert", at: { into: "s1" }, step: { type: "action", intent: "x", channel: "web", action: "click" } },
-        /not a loop or branch/,
+        /not a loop, branch or block/,
       ],
       [{ op: "set", step: "s2", field: "timeout_ms", value: -1 }, /^s2 \(timeout_ms\): /],
       [
@@ -237,6 +237,18 @@ describe("what a repair may never change", () => {
     const trigger = check([{ op: "set", step: "start", field: "intent", value: "another" }]);
     expect(trigger.never.join(" ")).toMatch(/the trigger/);
     expect(trigger.ask).toEqual([]);
+  });
+
+  it("asks before a repair adds a plain Enter or text with a new line: in a chat or a form that sends (C12)", () => {
+    const check = (step: Record<string, unknown>) =>
+      repairCheck(skill, ok(applyEdits(skill, [{ op: "insert", at: { after: "s4" }, step } as Edit]))).ask.join(" ");
+    const enter = { type: "action", intent: "Press Enter", channel: "web", action: "press", args: { key: "Enter" } };
+    expect(check(enter)).toMatch(/can't act outward/);
+    expect(check({ ...enter, args: { key: "Enter", modifiers: ["shift"] } })).toBe(""); // a new line, not a send
+    expect(check({ ...enter, args: { key: "Tab" } })).toBe("");
+    const typed = { type: "action", intent: "Type", channel: "web", action: "type", target: { name: "Note" } };
+    expect(check({ ...typed, args: { text: "hello\n" } })).toMatch(/can't act outward/);
+    expect(check({ ...typed, args: { text: "hello" } })).toBe("");
   });
 
   it("refuses outward steps, the user's decisions, safety switches and new reach", () => {
@@ -337,6 +349,46 @@ describe("what a repair may never change", () => {
     ).toMatch(/can't act outward/);
   });
 
+  it("lets a confirmation at the top of the next block complete the send in the block before (B1)", () => {
+    // Blocks arrived after this rule: "directly follows" stopped at a block's edge, so the very confirmation the rule
+    // allows was refused when the design put it in the block that comes next.
+    const j = structuredClone(JSON.parse(JSON.stringify(skill))) as { steps: Record<string, unknown>[] };
+    const s5 = j.steps.find((s) => s.id === "s5");
+    j.steps = j.steps.filter((s) => s.id !== "s5");
+    j.steps.push({ id: "b1", type: "control", kind: "group", intent: "Send it", steps: [s5] });
+    const before = Skill.parse(j);
+    const confirm = (extra: Record<string, unknown>) => ({
+      id: "s9",
+      type: "action",
+      intent: "Confirm sending",
+      channel: "web",
+      action: "click",
+      target: { role: "button", name: "Confirm" },
+      ...extra,
+    });
+    const withNext = (step: Record<string, unknown>) =>
+      Skill.parse({
+        ...j,
+        steps: [...j.steps, { id: "b2", type: "control", kind: "group", intent: "Confirm it", steps: [step] }],
+      });
+    expect(repairCheck(before, withNext(confirm({ requires_approval: true }))).ask.join()).not.toMatch(
+      /can't act outward/,
+    );
+    expect(repairCheck(before, withNext(confirm({}))).ask.join()).toMatch(/can't act outward/);
+  });
+
+  it("says a block can hold steps too when a step can't go into a plain step (B1)", () => {
+    const result = applyEdits(skill, [
+      {
+        op: "insert",
+        at: { into: "s1" },
+        step: { type: "action", intent: "x", channel: "web", action: "click", target: { name: "Y" } },
+      },
+    ]);
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.problems.join()).toContain("is not a loop, branch or block");
+  });
+
   it("knows outward steps by their control's words", () => {
     expect(isOutward(findStep(skill, "s5") as never)).toBe(true);
     expect(isOutward(findStep(skill, "s4") as never)).toBe(false);
@@ -354,6 +406,7 @@ describe("the briefing", () => {
     expect(text).toContain("- fs.find { dir, glob");
     expect(text).toContain("{ op: retarget, step, target: Locator }");
     expect(text).toContain("- action: intent, requires_approval");
+    expect(text).toContain("- group (type: control, kind: group)"); // blocks are described to the repair agent (B1)
     expect(text).toContain("Shadow.app running: no (ax steps can't run or be tried)");
     expect(briefing()).not.toContain("Edit operations");
   });

@@ -23,7 +23,7 @@ import { z } from "zod";
 import { requireApprovals } from "../../approvals.ts";
 import { producedType } from "../../compile.ts";
 import { MASK, maskText } from "../../mask.ts";
-import { missingArguments, readOnlyTools, withIds } from "./connectors.ts";
+import { describeArgument, fitArguments, missingArguments, readOnlyTools, rowProblems, withIds } from "./connectors.ts";
 import { DoneReport } from "./contracts.ts";
 import { emptyIn, guessed, isCron, joined, roleAlone, sameReads, stepProblems, tabsFixed, unfoundIn } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
@@ -37,7 +37,13 @@ export function unstring(value: unknown): unknown {
     try {
       return JSON.parse(v);
     } catch {
-      return v;
+      // Its quotes escaped once too often (the sixth YC re-design, 28 Oct: nine refusals for \" in the text): read once
+      // unescaped, and only when that is valid JSON.
+      try {
+        return JSON.parse(v.replace(/\\"/g, '"'));
+      } catch {
+        return v;
+      }
     }
   };
   const top = parse(value);
@@ -133,7 +139,7 @@ const Body = z
 export function vaguePick(instruction: string): string | undefined {
   const top = /\btop\s+(\d+|two|three|four|five|ten)\b/i.test(instruction);
   return top && !/\b(order|first|position|most|highest|largest|by)\b/i.test(instruction)
-    ? `say how to pick: "the first 3 in the list's order" (or "the 3 with the most points"); a model reads "top 3" as the most points`
+    ? `say how to pick: the ones in the list's order, with the count as the loop's first: 3 (or "the 3 with the most points"); a model reads "top 3" as the most points`
     : undefined;
 }
 
@@ -142,21 +148,82 @@ const typeFrom = (t: unknown): unknown => {
   if (typeof t === "string") {
     const list = /^list(?: of (.+?)s?)?$/.exec(t.trim());
     const name = t.trim();
-    return list ? { type: "list", items: typeFrom(list[1] ?? "object") } : { type: name === "string" ? "text" : name };
+    // JSON Schema's names too (the third YC design wrote string, integer and array).
+    const alias: Record<string, string> = { string: "text", integer: "number", float: "number", bool: "boolean" };
+    if (name === "array") return { type: "list", items: { type: "object" } };
+    return list ? { type: "list", items: typeFrom(list[1] ?? "object") } : { type: alias[name] ?? name };
   }
   if (Array.isArray(t)) return { type: "list", items: typeFrom(t[0] ?? "object") };
   if (!t || typeof t !== "object") return { type: "text" };
-  const { type, items, fields } = t as { type?: unknown; items?: unknown; fields?: Record<string, unknown> };
-  if (type === "list") return { type, items: typeFrom(items ?? "object") };
-  const named = type === undefined ? (t as Record<string, unknown>) : type === "object" ? fields : undefined;
+  const { type, items, fields, properties } = t as {
+    type?: unknown;
+    items?: unknown;
+    fields?: Record<string, unknown>;
+    properties?: Record<string, unknown>;
+  };
+  if (type === "list" || type === "array") return { type: "list", items: typeFrom(items ?? "object") };
+  // A scalar written as an object ({ "type": "string" }) is that scalar.
+  if (typeof type === "string" && type !== "object") return typeFrom(type);
+  // An object's fields, also as JSON Schema writes them (properties).
+  const named =
+    type === undefined ? (t as Record<string, unknown>) : type === "object" ? (fields ?? properties) : undefined;
   return named
     ? { type: "object", fields: Object.fromEntries(Object.entries(named).map(([k, v]) => [k, typeFrom(v)])) }
     : t;
 };
 
+// The one place `old` appears when whitespace is left out of the comparison, or undefined (none, or more than one).
+export function looseMatch(text: string, old: string): { start: number; end: number } | undefined {
+  const chars = [...old.replace(/\s+/g, "")];
+  if (chars.length === 0) return undefined;
+  const pattern = new RegExp(chars.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*"), "g");
+  const found = [...text.matchAll(pattern)];
+  if (found.length !== 1 || found[0]?.index === undefined) return undefined;
+  return { start: found[0].index, end: found[0].index + found[0][0].length };
+}
+
+// Names written in camelCase (rowsToAdd) are the names a workflow may hold (rows_to_add), with every reference to them
+// (the fourth YC re-design, 28 Oct: refused twice for save_as "getExisting" and output "rowsToAdd").
+export function snakeNames(steps: unknown[]): unknown[] {
+  const renames = new Map<string, string>();
+  const note = (name: unknown) => {
+    if (typeof name === "string" && /^[A-Za-z][A-Za-z0-9_]*$/.test(name) && !/^[a-z][a-z0-9_]*$/.test(name))
+      renames.set(name, name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase());
+  };
+  const find = (x: unknown): void => {
+    if (Array.isArray(x)) {
+      for (const v of x) find(v);
+      return;
+    }
+    if (!x || typeof x !== "object") return;
+    const s = x as Record<string, unknown>;
+    note(s.save_as);
+    note(typeof s.output === "string" ? s.output : (s.output as { name?: unknown } | undefined)?.name);
+    if ("over" in s) note(typeof s.item === "string" ? s.item : (s.item as { name?: unknown } | undefined)?.name);
+    for (const v of Object.values(s)) find(v);
+  };
+  find(steps);
+  if (renames.size === 0) return steps;
+  const swap = (x: unknown, key?: string): unknown => {
+    if (typeof x === "string") {
+      if (key && ["save_as", "output", "name", "item"].includes(key) && renames.has(x)) return renames.get(x);
+      return x.replace(/\{\{\s*([A-Za-z][A-Za-z0-9_]*)/g, (all, name: string) =>
+        renames.has(name) ? all.replace(name, renames.get(name) as string) : all,
+      );
+    }
+    if (Array.isArray(x)) return x.map((v) => swap(v));
+    if (!x || typeof x !== "object") return x;
+    return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, swap(v, k)]));
+  };
+  return swap(steps) as unknown[];
+}
+
 // A question about the time of day it runs: never asked, 9:00 is the default (Checkpoint 5: A, B and D2 asked it; D2
 // made it an input), and the review shows the time so it can be changed.
 export const isTimeOfDay = (question: string) => /\b(what|which) time\b|\btime of day\b|\bwhat hour\b/i.test(question);
+// A question about how often it runs: its Frequency in the review is where that is set, and the form already held the
+// user's choice (28 Oct: the YC design asked "How often should the collection run?" twice, the form said by hand).
+export const isFrequency = (question: string) => /\bhow (often|frequently)\b|\bfrequency\b/i.test(question);
 // A question about how to build it, not what they want (checkpoint 6: D asked which PDF method, Puppeteer, wkhtmltopdf or
 // pandoc, and whether "the script" should overwrite): never the user's to answer.
 export const isHowTo = (question: string) =>
@@ -296,7 +363,11 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     return commit(result.skill, why, touched, unverified);
   };
   // A new workflow, from edits or written whole (write_workflow, edit_workflow): checked like every change, then kept.
+  // What code set right in the arguments of the app steps it just compiled (fitArguments), said to the agent with the
+  // change that took it, so it learns the tool's own spelling instead of guessing again.
+  const argumentNotes: string[] = [];
   const commit = (next: Skill, why: string, touched: string[], unverified: string[] = []) => {
+    const fixedArguments = argumentNotes.splice(0);
     const result = { skill: next };
     // Said, so a change that didn't take isn't read as done (Checkpoint 5: C sent eight that changed nothing).
     const unchanged = JSON.stringify(result.skill) === JSON.stringify(session.draft);
@@ -354,6 +425,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         ok: true,
         ...(added.length > 0 ? { approval_added: added } : {}),
         ...(tidy.fixed.size > 0 ? { tabs_fixed: [...tidy.fixed].map(([id, note]) => `${id}: ${note}`) } : {}),
+        ...(fixedArguments.length > 0 ? { arguments_fixed: fixedArguments } : {}),
         ...(made.length > 0 ? { new_steps: made } : {}),
         ...(() => {
           const on = pagesOfSteps(session.draft, new Set([...touched, ...made]));
@@ -430,12 +502,21 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       const given = (values.arguments ?? {}) as Record<string, unknown>;
       if (typeof given !== "object" || Array.isArray(given))
         return { error: `arguments is an object of the tool's arguments (look { app_tool: "${name}" })` };
-      const missing = missingArguments(tool, given);
-      if (missing.length > 0)
+      const fit = fitArguments(tool, given);
+      const missing = missingArguments(tool, fit.args);
+      if (fit.problems.length > 0 || missing.length > 0)
         return {
-          error: `${name} needs ${missing.join(", ")} in arguments (look { app_tool: "${name}" } for each one)`,
+          error: [
+            ...fit.problems,
+            ...(missing.length > 0
+              ? [
+                  `${name} needs ${missing.map((m) => describeArgument(tool, m)).join(", ")} in arguments (look { app_tool: "${name}" } for each one)`,
+                ]
+              : []),
+          ].join("; "),
         };
-      const filled = withIds(given, session.apps);
+      argumentNotes.push(...fit.notes);
+      const filled = withIds(fit.args, session.apps);
       if (!filled.ok) return { error: filled.error };
       const step: Record<string, unknown> = {
         id,
@@ -684,7 +765,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     name: "ask",
     kind: "look",
     description:
-      'Queue a question for the user: only what the recording, the goal and what they said can\'t answer. step: the step its answer changes ("start" for how often it runs and its inputs). Asked after you build, with the others, in one batch',
+      'Ask the user a question: only what the recording, the goal and what they said can\'t answer. step: the step its answer changes ("start" for its inputs). Answered at once when the user is watching (then build with the answer), else asked after you build, with the others, in one batch',
     input: z.object({
       question: z.string().min(1),
       why: z.string().min(1),
@@ -695,7 +776,7 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     }),
     prepare: unstring,
     // `confirm` is still accepted from older prompts, and means nothing now.
-    run: ({ question, why, step: named, options, default: fallback }) => {
+    run: async ({ question, why, step: named, options, default: fallback }) => {
       // A step written as words ("after opening the jobs page"; the YC design sent one six times, refused each time):
       // asked about the workflow's start, and said so.
       const step = named === "start" || known(named) ? named : "start";
@@ -707,6 +788,15 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
             ok: false,
             problems: [
               'a time they didn\'t say is 9:00: set it in the trigger (the cron "0 9 * * *" is every day at 9:00), never ask it',
+            ],
+          },
+        };
+      if (isFrequency(question))
+        return {
+          output: {
+            ok: false,
+            problems: [
+              "how often it runs is its Frequency in the review, set by the user there: set the trigger only if they said how often (a cron), never ask it",
             ],
           },
         };
@@ -730,15 +820,31 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       if (session.questions.some((q) => key(q.step, q.text) === key(step, question))) {
         return { output: { ok: true, note: "already queued" } };
       }
-      const id = `q${session.questions.length + 1}`;
-      session.questions.push({
+      // Already answered while it built: the same answer, the user isn't asked twice.
+      const earlier = session.answeredNow?.find((a) => key(a.question.step, a.question.text) === key(step, question));
+      if (earlier) return { output: { answered: earlier.answer, note: "already answered: build with it" } };
+      const id = `q${session.questions.length + (session.answeredNow?.length ?? 0) + 1}`;
+      const queued = {
         id,
         text: question,
         why,
         step,
         options: options ?? [],
         ...(fallback ? { default: fallback } : {}),
-      });
+      };
+      // Asked now (N9): the user answers while it builds, and the agent builds with the answer, instead of a guess it
+      // must undo after the batch at the end.
+      if (session.askNow) {
+        const given = (await session.askNow(queued)).trim() || fallback || "";
+        session.answeredNow = [...(session.answeredNow ?? []), { question: queued, answer: given }];
+        return {
+          output: {
+            answered: given,
+            note: given ? "the user answered: build with it" : "no answer: decide it yourself, and say so in a why",
+          },
+        };
+      }
+      session.questions.push(queued);
       return {
         output: {
           queued: id,
@@ -750,12 +856,13 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     },
   });
 
-  // The safe test run, inside the episode (the agent loop has no step between turns): at most MAX_TESTS per design.
-  const test = async (): Promise<unknown> => {
+  // The safe test run, inside the episode (the agent loop has no step between turns): at most MAX_TESTS per design
+  // asked by the agent; done's own test of what is about to be saved is never refused.
+  const test = async (atDone = false): Promise<unknown> => {
     if (!session.runTest) {
       return "the test run can't run here (Chrome isn't connected to Shadow): finish, and the review will say it wasn't tested";
     }
-    if (session.tests >= MAX_TESTS)
+    if (session.tests >= MAX_TESTS && !atDone)
       return `tested ${MAX_TESTS} times already: finish, explaining in done what still fails`;
     session.tests++;
     const report = await session.runTest();
@@ -808,9 +915,11 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         : input;
     },
     run: async (report) => {
-      // A workflow changed since its last test is tested once more first: the gate reads the report.
-      if (session.runTest && session.testedDraft !== JSON.stringify(session.draft.steps) && session.tests < MAX_TESTS) {
-        await test();
+      // A workflow changed since its last test is tested once more first, past MAX_TESTS: the gate reads the report, and
+      // what is saved is what was tested (28 Oct YC → Sheet: three tests on earlier drafts, the saved one never ran,
+      // and its first real run stopped at the run's AI limit).
+      if (session.runTest && session.testedDraft !== JSON.stringify(session.draft.steps)) {
+        await test(true);
       }
       const left = session.finish?.(report) ?? [];
       if (left.length > 0 && session.refusedDone < MAX_DONE_REFUSALS) {
@@ -898,6 +1007,17 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     if (s.type === "loop") Object.assign(s, { type: "control", kind: "loop" });
     if (typeof s.type === "string" && /^(branch|condition|if)$/.test(s.type))
       Object.assign(s, { type: "control", kind: "branch" });
+    // A connected app's step written without `do` ({ id, tool, arguments }, with or without type "action"): what it is
+    // (28 Oct: the YC design wrote it so nine times and was refused each time for "type: Invalid discriminator").
+    if (
+      typeof s.tool === "string" &&
+      !("do" in s) &&
+      !("channel" in s) &&
+      (s.type === undefined || s.type === "action")
+    ) {
+      s.do = "app";
+      delete s.type;
+    }
     const short = typeof s.action === "string" ? DO[s.action] : undefined;
     if (s.type === "action" && !("do" in s) && short && short[1] !== s.action) {
       s.do = s.action;
@@ -915,6 +1035,17 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     };
     if (s.type === "trigger") {
       if ("when" in s) s.when = whenOf(s.when);
+      // An input's type as a word ({ type: "number" }) or the input as one ("text"): what they mean (28 Oct, the YC
+      // design wrote both and was refused four times, told "a step, type: Invalid input").
+      if (s.inputs && typeof s.inputs === "object" && !Array.isArray(s.inputs))
+        s.inputs = Object.fromEntries(
+          Object.entries(s.inputs as Record<string, unknown>).map(([name, input]) => {
+            const spec: Record<string, unknown> =
+              typeof input === "string" ? { type: input } : { ...(input as Record<string, unknown>) };
+            if ("type" in spec) spec.type = typeFrom(spec.type);
+            return [name, spec];
+          }),
+        );
       // The runner doesn't fill templates in defaults (Checkpoint 4), as the input tool says.
       for (const [name, input] of Object.entries((s.inputs ?? {}) as Record<string, { default?: unknown }>))
         if (JSON.stringify(input?.default ?? "").includes("{{"))
@@ -959,6 +1090,12 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     if (s.type === "llm" || "instruction" in s) {
       const step: Record<string, unknown> = { ...s, type: "llm" };
       step.id ??= newId("ai");
+      // A name written bare is the value it names, as the ai_step tool takes it (the second YC design, 28 Oct: inputs
+      // ["yc_page"] would have given the model the word "yc_page"); words with spaces stay words.
+      if (Array.isArray(s.inputs))
+        step.inputs = s.inputs.map((i) =>
+          typeof i === "string" && /^[A-Za-z_][\w.]*$/.test(i.trim()) ? `{{${i.trim()}}}` : i,
+        );
       step.intent ??= String(s.instruction ?? "").slice(0, 80);
       const output = typeof s.output === "string" ? { name: s.output } : ((s.output ?? {}) as Record<string, unknown>);
       step.output = { ...output, type: output.type === undefined ? { type: "text" } : typeFrom(output.type) };
@@ -997,6 +1134,10 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         out.problems.push(`${id}: ${built.error}`);
         return s;
       }
+      const called = built.step.args as { tool?: string; arguments?: Record<string, unknown> } | undefined;
+      const calledTool = session.apps.flatMap((a) => a.tools).find((t) => t.name === called?.tool);
+      if (calledTool && called?.arguments)
+        out.problems.push(...rowProblems(calledTool, called.arguments, out.lists).map((p) => `${id}: ${p}`));
       if (built.unverified) out.unverified.push(id);
       const keep = Object.fromEntries(
         KEPT.filter((k) => k !== "id" && k !== "type" && k !== "output" && k in s).map((k) => [k, s[k]]),
@@ -1094,7 +1235,9 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       node = (node as Record<string, unknown> | undefined)?.[key as string];
       rest.push(String(key));
       const s = node as { id?: unknown; type?: unknown; channel?: unknown; action?: unknown } | undefined;
-      if (s && typeof s === "object" && !Array.isArray(s) && (typeof s.id === "string" || "type" in s)) {
+      // A step is a node with an id or a step's type; a value's own `type` (an input's, a when's) is a place in one.
+      const isStep = typeof s?.id === "string" || ["trigger", "action", "llm", "control"].includes(String(s?.type));
+      if (s && typeof s === "object" && !Array.isArray(s) && isStep) {
         const kind = s.channel ? ` (${s.channel}.${s.action})` : "";
         step = `${typeof s.id === "string" ? s.id : "a step"}${kind}`;
         rest = [];
@@ -1134,7 +1277,21 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       whys: new Map<string, string>(),
       lists: new Map<string, unknown>(),
     };
-    const plain = unmasked(body.steps, out.problems) as unknown[];
+    // "success" is the workflow's own field (its final checks), never a step (the third YC design wrote it as a step,
+    // then as a word in the list, and was refused for it until it stopped).
+    // Markers that do nothing (an "end" or "done" with no steps, list or condition: the fourth wrote one) go too.
+    const marker = (id: unknown) =>
+      typeof id === "string" && /^(success|done|end|finish)$/i.test(id.trim()) && !anyStep(id.trim());
+    const isSuccess = (x: unknown) =>
+      marker(x) || (Boolean(x) && typeof x === "object" && marker((x as { id?: unknown }).id));
+    const isMarker = (x: unknown) => {
+      if (!x || typeof x !== "object" || Array.isArray(x)) return false;
+      const m = x as Record<string, unknown>;
+      return Array.isArray(m.steps) && m.steps.length === 0 && !("over" in m) && !("if" in m) && !("else" in m);
+    };
+    const plain = snakeNames(
+      (unmasked(body.steps, out.problems) as unknown[]).filter((x) => !isSuccess(x) && !isMarker(x)),
+    );
     let steps = plain.map((s) => expandStep(s, out)) as Record<string, unknown>[];
     // The trigger stays first: a workflow written without it keeps the one it had.
     if (steps[0]?.type !== "trigger") steps = [session.draft.steps[0] as unknown as Record<string, unknown>, ...steps];
@@ -1257,6 +1414,13 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         let text = list.every((e) => short.includes(e.old)) ? short : mask(canonical(session.draft, { full: true }));
         for (const [i, e] of (Array.isArray(edits) ? edits : [edits]).entries()) {
           const count = text.split(e.old).length - 1;
+          // Not there as written, but there once when spaces and line breaks are left out of the comparison (the sixth YC
+          // re-design's edits were refused three times for their spaces): that place.
+          const loose = count === 0 ? looseMatch(text, e.old) : undefined;
+          if (loose) {
+            text = text.slice(0, loose.start) + e.new + text.slice(loose.end);
+            continue;
+          }
           if (count !== 1) {
             return {
               output: {
@@ -1306,8 +1470,9 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
               problems: [`no proposal ${proposal}. Proposals: ${[...session.proposals.keys()].join(", ") || "none"}`],
             },
           };
+        // Decided before: nothing to do, and no refusal (the sixth YC re-design was refused twice for accepting again).
         if (session.decisions.has(proposal))
-          return { output: { ok: false, problems: [`${proposal} is decided already`] } };
+          return { output: { ok: true, note: `${proposal} is decided already: nothing changed` } };
         if (!p.runnable || p.edits.length === 0) {
           session.decisions.set(proposal, { decision: "accept", why });
           // Checkpoint 4: "nothing to change" was read as done, and the steps still found today's items by their text.

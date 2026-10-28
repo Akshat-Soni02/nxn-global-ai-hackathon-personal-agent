@@ -3,9 +3,12 @@
 // an accessible name of its own, the element's own text, stored attributes, fallback selectors. `near` breaks a tie:
 // of two candidates that score alike, the one closest on the page to the words it was recorded near wins (two "Save"
 // buttons, one under "Billing"). Positions are never stored; they are looked up after matching. See "Per-step loop"
-// step 3 in the design doc. Not yet used: frames and shadow roots (TODO).
+// step 3 in the design doc.
+// Frames and shadow roots (N3): the page is searched first; only when nothing there matches, frames of the same site
+// and shadow roots are searched too (querySelector and XPath from the page never reach inside them, and Chrome's
+// accessibility tree reaches shadow roots but not frames). A frame from another site is a page of its own: not searched.
 import type { Locator } from "@shadow/core";
-import type { Cdp } from "./cdp.ts";
+import { type Cdp, CdpTimeout } from "./cdp.ts";
 
 // Roles a recorder or Chrome may report for the same kind of control.
 const ROLE_GROUPS = [
@@ -69,7 +72,128 @@ async function backendIds(cdp: Cdp, nodeIds: number[]): Promise<number[]> {
   return ids;
 }
 
-export async function selectAll(cdp: Cdp, selector: string): Promise<number[]> {
+// Where a match looks: documents for the accessibility tree (backend ids), scopes for selectors and text (node ids,
+// all from one DOM.getDocument, which re-numbers nodes each time it is called). `nested`: frames and shadow roots
+// only, never the page's own document, which the first pass has scored already.
+interface Roots {
+  documents: number[];
+  scopes: number[];
+  nested: boolean;
+}
+
+async function pageRoots(cdp: Cdp): Promise<Roots> {
+  const { root } = await cdp.send<{ root: { nodeId: number; backendNodeId: number } }>("DOM.getDocument", {
+    depth: 0,
+  });
+  return { documents: [root.backendNodeId], scopes: [root.nodeId], nested: false };
+}
+
+interface DomNode {
+  nodeId: number;
+  backendNodeId: number;
+  shadowRootType?: string;
+  children?: DomNode[];
+  shadowRoots?: DomNode[];
+  contentDocument?: DomNode;
+}
+
+// The page's frames of the same site and its shadow roots (not the browser's own, inside an <input>), or undefined when
+// it has none. Measured on a 12,000-element page (28 Oct): reading the pierced tree takes ~80 ms, while each query over
+// the page's own document takes seconds; so the second pass never repeats those.
+async function nestedRoots(cdp: Cdp): Promise<Roots | undefined> {
+  const has = await cdp
+    .send<{ result: { value?: boolean } }>("Runtime.evaluate", {
+      expression: `!!document.querySelector("iframe,frame") || Array.prototype.some.call(document.querySelectorAll("*"), (e) => e.shadowRoot)`,
+      returnByValue: true,
+    })
+    .then((r) => r.result.value === true)
+    .catch((error) => {
+      if (error instanceof CdpTimeout) throw error;
+      return false;
+    });
+  if (!has) return undefined;
+  const { root } = await cdp.send<{ root: DomNode }>("DOM.getDocument", { depth: -1, pierce: true });
+  const roots: Roots = { documents: [], scopes: [], nested: true };
+  const walk = (node: DomNode) => {
+    if (node.contentDocument) {
+      roots.documents.push(node.contentDocument.backendNodeId);
+      roots.scopes.push(node.contentDocument.nodeId);
+      walk(node.contentDocument);
+    }
+    for (const shadow of node.shadowRoots ?? []) {
+      if (shadow.shadowRootType === "user-agent") continue;
+      roots.scopes.push(shadow.nodeId);
+      walk(shadow);
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(root);
+  return roots.scopes.length > 0 ? roots : undefined;
+}
+
+// An XPath inside a frame or a shadow root, run there by the page: DOM.performSearch searches the page's own tree only.
+// A frame's document takes it as written. Chrome's XPath refuses a shadow root as its starting point (NotSupportedError,
+// checked 28 Oct) but not an element inside one: "//x" runs from each of the root's elements as descendant-or-self::x,
+// and an XPath from the top of a page ("/html/…") means nothing there.
+const FN_XPATH_IN = `function (xpath) {
+  const doc = this.nodeType === 9 ? this : this.ownerDocument;
+  const out = [];
+  const run = (expr, from) => {
+    const found = doc.evaluate(expr, from, null, 7, null);
+    for (let i = 0; i < found.snapshotLength && out.length < 200; i++) out.push(found.snapshotItem(i));
+  };
+  if (this.nodeType === 9) run(xpath, this);
+  else if (xpath.startsWith("//")) for (const child of this.children) run("descendant-or-self::" + xpath.slice(2), child);
+  return out;
+}`;
+
+async function xpathIn(cdp: Cdp, scope: number, xpath: string): Promise<number[]> {
+  const { object } = await cdp.send<{ object: { objectId?: string } }>("DOM.resolveNode", {
+    nodeId: scope,
+    objectGroup: "match",
+  });
+  try {
+    const { result } = await cdp.send<{ result: { objectId?: string } }>("Runtime.callFunctionOn", {
+      objectId: object.objectId,
+      functionDeclaration: FN_XPATH_IN,
+      arguments: [{ value: xpath }],
+      objectGroup: "match",
+    });
+    if (!result.objectId) return [];
+    const { result: items } = await cdp.send<{ result: { name: string; value?: { objectId?: string } }[] }>(
+      "Runtime.getProperties",
+      { objectId: result.objectId, ownProperties: true },
+    );
+    const ids: number[] = [];
+    for (const item of items) {
+      if (!/^\d+$/.test(item.name) || !item.value?.objectId) continue;
+      const { node } = await cdp.send<{ node: { backendNodeId: number } }>("DOM.describeNode", {
+        objectId: item.value.objectId,
+      });
+      ids.push(node.backendNodeId);
+    }
+    return ids;
+  } finally {
+    await cdp.send("Runtime.releaseObjectGroup", { objectGroup: "match" }).catch(() => {});
+  }
+}
+
+// A selector in every scope: the page's own through selectAll, the nested ones each in turn.
+async function selectIn(cdp: Cdp, roots: Roots, selector: string): Promise<number[]> {
+  const xpath = selector.startsWith("/") || selector.startsWith("(");
+  const ids = new Set<number>();
+  for (const scope of roots.scopes) {
+    const found = !xpath
+      ? await selectAll(cdp, selector, scope)
+      : roots.nested
+        ? await xpathIn(cdp, scope, selector)
+        : await selectAll(cdp, selector);
+    for (const id of found) ids.add(id);
+  }
+  return [...ids];
+}
+
+export async function selectAll(cdp: Cdp, selector: string, scope?: number): Promise<number[]> {
   if (selector.startsWith("/") || selector.startsWith("(")) {
     const { searchId, resultCount } = await cdp.send<{ searchId: string; resultCount: number }>("DOM.performSearch", {
       query: selector,
@@ -87,7 +211,7 @@ export async function selectAll(cdp: Cdp, selector: string): Promise<number[]> {
     }
   }
   const { nodeIds } = await cdp.send<{ nodeIds: number[] }>("DOM.querySelectorAll", {
-    nodeId: await rootNodeId(cdp),
+    nodeId: scope ?? (await rootNodeId(cdp)),
     selector,
   });
   return backendIds(cdp, nodeIds);
@@ -112,9 +236,20 @@ export async function axNodeOf(cdp: Cdp, backendNodeId: number): Promise<AXNode 
 const cssEscape = (s: string) => s.replace(/["\\]/g, "\\$&");
 
 export async function match(cdp: Cdp, target: Locator): Promise<MatchOutcome> {
+  // One set of scores: the second pass adds what frames and shadow roots show to what the page showed (a shadow-root
+  // button is found by its role on the page, and by its selector inside its root).
   const scores = new Map<number, Candidate>();
+  const onPage = await matchIn(cdp, target, await pageRoots(cdp), scores);
+  if (onPage.status !== "none") return onPage;
+  const nested = await nestedRoots(cdp);
+  return nested ? matchIn(cdp, target, nested, scores) : onPage;
+}
+
+async function matchIn(cdp: Cdp, target: Locator, roots: Roots, scores: Map<number, Candidate>): Promise<MatchOutcome> {
   const bump = (id: number, points: number, why: string) => {
     const c = scores.get(id) ?? { backendNodeId: id, score: 0, matchedBy: [] };
+    // Counted once per signal, though both passes may see it (a search of the page may reach a frame).
+    if (c.matchedBy.includes(why)) return;
     c.score += points;
     c.matchedBy.push(why);
     scores.set(id, c);
@@ -124,12 +259,25 @@ export async function match(cdp: Cdp, target: Locator): Promise<MatchOutcome> {
 
   // 1. Role and accessible name, as Chrome computes them. A field recorded by its label has that label as its name.
   const wantedName = target.name ?? target.label;
+  // Each document's accessibility tree: a frame's is its own.
+  const axQuery = async (query: Record<string, unknown>) => {
+    const nodes = new Map<number, AXNode>();
+    for (const backendNodeId of roots.documents) {
+      // A frame's tree may be gone mid-query (no nodes); a Chrome that doesn't answer is said, never "not found".
+      const found = await cdp
+        .send<{ nodes: AXNode[] }>("Accessibility.queryAXTree", { backendNodeId, ...query })
+        .catch((error) => {
+          if (error instanceof CdpTimeout) throw error;
+          return { nodes: [] as AXNode[] };
+        });
+      for (const n of found.nodes) if (n.backendDOMNodeId) nodes.set(n.backendDOMNodeId, n);
+    }
+    return [...nodes.values()];
+  };
   if (target.role) {
     possible += WEIGHTS.roleName;
-    const root = await rootNodeId(cdp);
     for (const role of equivalentRoles(target.role)) {
-      const { nodes } = await cdp.send<{ nodes: AXNode[] }>("Accessibility.queryAXTree", { nodeId: root, role });
-      for (const n of nodes) {
+      for (const n of await axQuery({ role })) {
         if (n.ignored || !n.backendDOMNodeId) continue;
         const sim = wantedName ? nameSimilarity(wantedName, n.name?.value ?? "") : 1;
         if (sim > 0) bump(n.backendDOMNodeId, WEIGHTS.roleName * sim, `role+name(${sim})`);
@@ -140,11 +288,7 @@ export async function match(cdp: Cdp, target: Locator): Promise<MatchOutcome> {
   // 1b. The label as an accessible name, whatever the role (a field whose role was recorded differently).
   if (target.label) {
     possible += WEIGHTS.label;
-    const root = await rootNodeId(cdp);
-    const { nodes } = await cdp
-      .send<{ nodes: AXNode[] }>("Accessibility.queryAXTree", { nodeId: root, accessibleName: target.label })
-      .catch(() => ({ nodes: [] as AXNode[] }));
-    for (const n of nodes) {
+    for (const n of await axQuery({ accessibleName: target.label })) {
       // The label's own text node is named after it too: only controls count.
       if (
         n.ignored ||
@@ -160,15 +304,19 @@ export async function match(cdp: Cdp, target: Locator): Promise<MatchOutcome> {
   if (target.text) {
     possible += WEIGHTS.text;
     const literal = xpathLiteral(normalize(target.text));
-    const exact = await selectAll(
+    // Never a script's or a style's source: words in a page's code are not on the page.
+    const shown = "not(self::script or self::style or self::noscript or self::template)";
+    const exact = await selectIn(
       cdp,
-      `//*[text()[translate(normalize-space(.), ${UPPER}, ${LOWER}) = ${literal}]]`,
+      roots,
+      `//*[${shown}][text()[translate(normalize-space(.), ${UPPER}, ${LOWER}) = ${literal}]]`,
     ).catch(() => [] as number[]);
     for (const id of exact) bump(id, WEIGHTS.text, "text(1)");
     if (exact.length === 0) {
-      const partial = await selectAll(
+      const partial = await selectIn(
         cdp,
-        `//*[text()[contains(translate(normalize-space(.), ${UPPER}, ${LOWER}), ${literal})]]`,
+        roots,
+        `//*[${shown}][text()[contains(translate(normalize-space(.), ${UPPER}, ${LOWER}), ${literal})]]`,
       ).catch(() => [] as number[]);
       for (const id of partial.slice(0, 50)) bump(id, WEIGHTS.text * 0.6, "text(0.6)");
     }
@@ -180,7 +328,7 @@ export async function match(cdp: Cdp, target: Locator): Promise<MatchOutcome> {
     possible += WEIGHTS.attrs;
     const selector = attrs.map(([k, v]) => `[${k}="${cssEscape(v)}"]`).join("");
     const partial = attrs.some(([k]) => k === "id") ? `[id="${cssEscape(target.attrs?.id ?? "")}"]` : selector;
-    const ids = new Set([...(await selectAll(cdp, selector)), ...(await selectAll(cdp, partial))]);
+    const ids = new Set([...(await selectIn(cdp, roots, selector)), ...(await selectIn(cdp, roots, partial))]);
     for (const id of ids) {
       const actual = await attributesOf(cdp, id);
       const hits = attrs.filter(([k, v]) => actual[k] === v).length;
@@ -193,7 +341,7 @@ export async function match(cdp: Cdp, target: Locator): Promise<MatchOutcome> {
     possible += WEIGHTS.fallback;
     const seen = new Set<number>();
     for (const [i, selector] of target.fallbacks.entries()) {
-      const ids = await selectAll(cdp, selector).catch(() => [] as number[]);
+      const ids = await selectIn(cdp, roots, selector).catch(() => [] as number[]);
       for (const id of ids) {
         if (seen.has(id)) continue;
         seen.add(id);

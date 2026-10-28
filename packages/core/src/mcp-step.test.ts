@@ -69,4 +69,8 @@ describe("mcp steps", () => {
     expect(text).toContain("- mcp.call { tool, arguments? }");
     expect(text).toContain("GOOGLESHEETS_GET_VALUES (read-only): Reads rows");
   });
+
+  it("shows how an output is written, since the type is itself an object (a real repair got it wrong ten times)", () => {
+    expect(briefing({})).toContain('output: { name: "rate", type: { type: "number" } }');
+  });
 });

@@ -1,6 +1,11 @@
 // A toy connected app for tests and for running shadow-api locally without Composio (TOOLS=fake): one Google Sheet
 // per user, kept in memory, with a read tool and an append tool shaped like Composio's. Connecting finishes at once.
-import type { Connection, ToolInfo, ToolProvider } from "./provider.ts";
+// "Weather" is connected with the user's own key (N13), and has no tools.
+import { type Connection, type KeyField, ToolError, type ToolInfo, type ToolProvider } from "./provider.ts";
+
+const WEATHER_KEY: KeyField[] = [
+  { name: "api_key", label: "API Key", description: "Your Weather key (fake)", secret: true, required: true },
+];
 
 const TOOLS: ToolInfo[] = [
   {
@@ -52,15 +57,25 @@ export function fakeTools(): ToolProvider & { sheet(uid: string): unknown[][] } 
   return {
     sheet,
     async toolkits() {
-      return [{ slug: "googlesheets", name: "Google Sheets (fake)" }];
+      return [
+        { slug: "googlesheets", name: "Google Sheets (fake)" },
+        { slug: "weather", name: "Weather (fake)", key: true },
+      ];
+    },
+    async keyFields(toolkit) {
+      return toolkit === "weather" ? WEATHER_KEY : [];
     },
     async connections(uid) {
       return connections.get(uid) ?? [];
     },
-    async connect(uid, toolkit) {
+    async connect(uid, toolkit, _callback, fields) {
+      if (toolkit === "weather" && !fields?.api_key?.trim())
+        throw new ToolError("connecting Weather (fake) needs your API Key", 400);
       const id = `fake_conn_${next++}`;
       connections.set(uid, [...(connections.get(uid) ?? []), { id, toolkit, status: "ACTIVE" }]);
-      return { id, redirectUrl: `https://example.invalid/connected?toolkit=${toolkit}` };
+      return toolkit === "weather"
+        ? { id }
+        : { id, redirectUrl: `https://example.invalid/connected?toolkit=${toolkit}` };
     },
     async disconnect(uid, connectionId) {
       const list = connections.get(uid) ?? [];

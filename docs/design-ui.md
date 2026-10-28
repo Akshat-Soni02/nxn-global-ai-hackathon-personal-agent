@@ -35,7 +35,12 @@ only (decided 13 Oct: no rename in code).
 
 A crisp white dot and the soft blue shadow it casts, on a night-blue rounded square. The dot is the record button;
 the shadow is what follows it and does the work. It is drawn by the app itself (`Shadow --icon`, `Icon.swift`), so
-the repo ships no image files; the website carries the same mark as an SVG (`apps/website/public/mark.svg`).
+the app ships no image files; the website carries the same mark as an SVG (`apps/website/public/mark.svg`) and, for
+browser tabs and installs, a small icon set drawn from the same geometry by `apps/website/scripts/icons.py`
+(`favicon.ico` 16/32/48, `apple-touch-icon.png`, `icon-192/512.png`, a maskable 512, and `icon.svg`, wired in
+`app/layout.tsx` and `manifest.webmanifest`). Each has a 1 px light rim (#7F86B8): the night square is only ~1.2:1
+against a dark tab strip or a night bar, and the rim lifts it to ~5.4:1. On the page the rim is a token
+(`--mark-rim`), transparent over light bands and set only on the bar and its sheet when they are over night.
 
 - Icon: 1024 pt rounded square, corner radius 22.37% (Apple's template), gradient #242642 → #0D0D17, dot at
   (47%, 53%) radius 19%, blue shadow offset (+9%, −9%) with a 12% blur, red record dot inside at 34% of the dot.
@@ -139,4 +144,11 @@ product is drawn in HTML so it stays sharp and can move.
   Overview pins a story the scroll plays: the pill records, the workflow builds, an approval is approved, a repair
   lands as v2. Phones get the finished story without pinning; Reduce Motion shows everything at once; without
   scripts nothing is hidden (`html.js`, set before first paint, gates the hidden start).
+- **The window's glow** (28 Oct; `AiRim.tsx`): an iridescent rim (cyan, magenta, amber, violet) turns round the
+  Overview's hero window with a blurred bloom behind it, after Apple Intelligence. It fades in when the page loads,
+  breathes in opacity only (one cycle per 4 s, nothing scales), and at the first scroll, wheel, touch or key it
+  dissolves into the page on a critically damped spring (`spring.ts`: Apple's damping and response as a GSAP ease).
+  Still with Reduce Motion or a slow display; no bloom with Reduce Transparency; paused off screen. **This is the
+  one place colour leaves the single accent.** There is no first-visit intro: a cinematic opening was built on 28 Oct
+  and removed the same day as not needed.
 - TypeScript 6 for this app only: Next 16.3 needs TypeScript's JS API, which TypeScript 7 (the repo's) no longer has.
