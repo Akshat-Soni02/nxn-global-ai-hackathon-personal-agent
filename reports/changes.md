@@ -290,10 +290,10 @@ fixed in this audit.
 | 9 | **shadow-api down** or unreachable | "Shadow's service could not list your connected apps: …", failed before step 1 | listed |
 | 10 | A **local** shadow-api restarted (`STORE=memory` forgets sign-ins) | App steps fail until you sign in again | documented (§10) |
 | 11 | A missing or invalid `COMPOSIO_API_KEY` | Missing: the app routes answer 503 (`apps/api/src/app.ts:252`). Invalid: shadow-api logs `composio ok:false` once at start (`apps/api/src/main.ts:40-45`), then the app calls fail. Either way app steps fail | listed |
-| 12 | A **hung app call**: the MCP channel has no timeout (C7) | The run sits until you press Stop | **C7** |
-| 13 | **Another run ends** and closes the named tabs (C9) | A second run in progress loses its tab | **C9** |
-| 14 | DevTools `attach` and `*.enable` have no time limit (C10) | A stuck tab hangs the step | **C10** |
-| 15 | An **empty `text_visible` check** always passes (C6) | A check that can't fail, so a wrong page looks fine | **C6** |
+| 12 | A **hung app call**: the MCP channel has no timeout (C7) | The run sits until you press Stop | **✔ fixed (C7)**: Stop cancels it |
+| 13 | **Another run ends** and closes the named tabs (C9) | A second run in progress loses its tab | **✔ fixed (C9)**: a run closes only its own tabs |
+| 14 | DevTools `attach` and `*.enable` have no time limit (C10) | A stuck tab hangs the step | **✔ fixed (C10)**: each has a time limit |
+| 15 | An **empty `text_visible` check** always passes (C6) | A check that can't fail, so a wrong page looks fine | **✔ fixed (C6)**: an empty check fails |
 | 16 | A target inside an **iframe** or a shadow root: the matcher didn't look inside frames (`player/src/web/match.ts:6`) | "Not found" for something you can see | **✔ fixed (N3, 28 Oct)** for frames of the same site and shadow roots; a frame from another site is still not searched. Cost, measured on a 12,000-element page with a frame: the second pass adds ~0.1–0.3 s to a miss (the pierced page tree reads in ~80 ms; the page's own document isn't searched again). The page's own matching is slow there already (**C35**) |
 | 17 | A **secret input** (a password field): no way to supply it (`player/src/node/inputs.ts:80`) | "input … has no value" | **✔ fixed (N2, 28 Oct):** typed once on the workflow's page (Secrets), kept in the Keychain; a run whose secret isn't set yet still stops with that message |
 | 18 | The **free tier used up** | AI steps and app steps wait; page and Mac-app steps still run | by design |
