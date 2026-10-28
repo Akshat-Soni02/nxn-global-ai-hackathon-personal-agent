@@ -96,7 +96,7 @@ Sheet", s5 type "19 Oct" into A4, s6 paste into B4. Code proposed p1 list_item (
 - loop s2–s6 over "new_emails", item { name: "email" }, why "every new KPI email, not this one"
 - change s4 { page: "KPI Sheet", tab: "KPI Sheet" }, why "paste where they copied to, without reloading the sheet"
 - change s5 { tab: "KPI Sheet" } and s6 { tab: "KPI Sheet" }, why "they type and paste in that sheet"
-- trigger { schedule: "0 9 * * 1-5" }, why "every day: a weekday morning"
+- trigger { schedule: "0 9 * * *" }, why "every day, as they said: 9:00"
 - ask "Which row should each day's numbers go in?", why "the recording wrote A4; the next empty row isn't
   supported yet", step "s5", options ["A4", "the next empty row"]
 - test, then done { summary, rules: [{ rule: 0, steps: ["s2", "l1"] }, { rule: 1, steps: ["ai1"] }] }
@@ -160,7 +160,8 @@ export const FILE = `The workflow is a file
     "output": { "name": "new_emails", "type": "list" } }   an AI step
   { "over": "{{new_emails}}", "item": "email", "steps": [ … ] }   a loop: {{email}} inside it
   { "if": { "left": "{{is_new}}", "op": "equals", "right": true }, "steps": [ … ], "else": [ … ] }   a branch
-  The trigger stays first: "when": "manual", a cron ("0 9 * * 1-5"), or { "folder": "~/Downloads", "glob": "*.pdf" }.
+  The trigger stays first: "when": "manual", a cron ("0 9 * * *" every day, "0 9 * * 1-5" weekdays only: the days
+  they said), or { "folder": "~/Downloads", "glob": "*.pdf" }.
   Recorded steps you keep stay as they are (copy them), with your changes.
 - Values without AI: {{name.field}} a field, {{name.0}} a list's first item, {{row.1}} a row's second cell (rows an
   app reads are lists of cells: [["Acme (S21)", "Engineer"]]), {{today|DD/MM/YYYY}} the date, a loop's first: N for
@@ -171,6 +172,8 @@ export const FILE = `The workflow is a file
 - Connected apps: when the message lists one, do the work inside it with app steps instead of the clicks into its
   page: one app step for each write or read, and leave out the recorded steps it replaces (why "done directly in
   <app>"). A document's id is written <id:s4>: code puts the real id in. Keep page steps for what no listed tool does.
+  The cells the recording typed into give each value's column (the date typed in A3, the company in B3: a row is
+  [date, company, …] from column A); never ask which columns the recording already shows.
   A step marked "drawn": true typed into a drawn area (a sheet's cells): replay can't reach it, and the clicks that
   chose the cell are gone, so on the page it lands in whichever cell is selected. With the app listed, do it with the
   app's tool and remove the step; with none listed, leave it: the review says it can't run yet, and what to connect.
@@ -194,7 +197,7 @@ They said "every day I get KPI emails from my team; always the newest one, never
 s1 open the inbox, s2 open the email "Daily KPIs - w/c 19 Oct" (item 1 of 50), s3 copy its subject, s4 open "KPI
 Sheet", s5 type "19 Oct" into A4, s6 paste into B4. Code proposed p1 list_item (s2) and p2 date (s5).
 - reject p1, why "the loop picks each new email"; accept p2, why "the date typed is the day it runs"
-- write_workflow, why "every new KPI email, each weekday morning": the trigger with "when": "0 9 * * 1-5"; s1;
+- write_workflow, why "every new KPI email, every morning": the trigger with "when": "0 9 * * *"; s1;
   { "do": "read_all", "intent": "read the inbox's subjects", "target": { "like": "s2" }, "save_as": "subjects" }; a
   read of the sheet's rows (save_as done_rows); the one AI step above, given both; then { "over": "{{new_emails}}",
   "item": "email", "steps": [s2…s6], "why": "every new email, not only this one" }, with s2 clicking the email named

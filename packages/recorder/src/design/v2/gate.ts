@@ -269,15 +269,22 @@ export function chainedAi(skill: Skill): string[] {
 
 // A schedule on other days than they said (the third YC design, 28 Oct: "Every day" built as "0 9 * * 1-5", the prompt's
 // weekday example copied). The time may differ (9:00 when they didn't say one); the days are theirs.
-export function otherDays(skill: Skill, task: TaskModel): string[] {
-  const said = task.cadence.kind === "schedule" ? task.cadence.cron : undefined;
-  if (!said || !isCron(said)) return [];
+export function otherDays(skill: Skill, task: TaskModel, words: string[] = []): string[] {
   const days = (cron: string) => cron.trim().split(/\s+/).slice(2).join(" ");
+  const cron = task.cadence.kind === "schedule" && isCron(task.cadence.cron) ? task.cadence.cron : undefined;
+  // No cron in the task model (the third re-design's was empty): their own words, when they name the days.
+  const text = words.join(" ");
+  const spoken = /\b(?:weekdays?|monday to friday|mon-fri)\b/i.test(text)
+    ? { days: "* * 1-5", quote: "weekdays" }
+    : /\b(?:every day|daily|each day)\b/i.test(text)
+      ? { days: "* * *", quote: "every day" }
+      : undefined;
+  const wanted = cron ? { days: days(cron), quote: `${task.cadence.quote || cron}" (${cron})` } : spoken;
+  if (!wanted) return [];
+  const quoted = cron ? `"${wanted.quote}` : `"${wanted.quote}"`;
   return triggerOf(skill).when.flatMap((w) =>
-    w.type === "schedule" && isCron(w.cron) && days(w.cron) !== days(said)
-      ? [
-          `they said "${task.cadence.quote ?? said}" (${said}), but its schedule "${w.cron}" runs on other days: keep their days`,
-        ]
+    w.type === "schedule" && isCron(w.cron) && days(w.cron) !== wanted.days
+      ? [`they said ${quoted}, but its schedule "${w.cron}" runs on other days: keep their days`]
       : [],
   );
 }
@@ -758,7 +765,7 @@ export function gate(input: GateInput): string[] {
   problems.push(...runProblems(workflow, { aiCallsPerRun: input.aiCallsPerRun }));
   problems.push(...chainedAi(workflow));
   problems.push(...unsaidMidnight(workflow, input.said ?? []));
-  problems.push(...otherDays(workflow, task));
+  problems.push(...otherDays(workflow, task, input.said ?? []));
   problems.push(...(input.unattended?.(workflow) ?? []));
 
   // As often as they said: the task model's cadence, or frequency words in the goal and what was said (F1: the model

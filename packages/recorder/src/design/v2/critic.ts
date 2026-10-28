@@ -15,7 +15,7 @@ Name only what is really missing or wrong, each in one sentence a designer can a
 - a value that changes each time (a date, the newest item, a list) kept as the recorded text;
 - steps that only get to a page that a later step works in, when that page could be opened directly by its address;
 - page steps doing work a connected app listed in the message could do directly (a sheet written by typing into
-  cells);
+  cells), or an app write whose columns differ from the cells the recording typed each value into;
 - something the test couldn't find or got wrong that the agent didn't fix or explain;
 - an AI step doing what a reference does ({{x.0}} a list's first item, {{row.1}} a row's cell, {{x.field}}) or what
   a loop's first: N does, or AI steps chained so one only reshapes another's answer: each is a model call on every

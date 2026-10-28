@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUILD_FILE, PLAN_FILE, withAiLimit } from "./prompt.ts";
+import { BUILD, BUILD_FILE, PLAN_FILE, withAiLimit } from "./prompt.ts";
 
 describe("the file-mode prompt (B5)", () => {
   it("shows a page read in one block and written in another, the read after its own page's open", () => {
@@ -35,5 +35,17 @@ describe("what an AI step is for (28 Oct YC → Sheet: five AI steps, four resha
     expect(withAiLimit(BUILD_FILE, 3)).toMatch(/a run may ask the AI 3 times/);
     expect(withAiLimit(BUILD_FILE, 7)).toMatch(/a run may ask the AI 7 times/);
     expect(withAiLimit(BUILD_FILE, undefined)).toMatch(/a run may ask the AI 3 times/);
+  });
+});
+
+describe('how often it runs (the third YC re-design built "Every day" as weekdays, as the worked example did)', () => {
+  it("never shows 'every day' turned into weekdays, and says which cron is which", () => {
+    expect(BUILD).not.toMatch(/"0 9 \* \* 1-5" \}, why "every day/);
+    expect(BUILD_FILE).not.toMatch(/every new KPI email[^\n]*1-5/);
+    expect(BUILD_FILE).toMatch(/"0 9 \* \* \*" every day, "0 9 \* \* 1-5" weekdays only/);
+  });
+
+  it("says the cells the recording typed into are the columns an app writes", () => {
+    expect(BUILD_FILE).toMatch(/the cells the recording typed into give each value's column/i);
   });
 });

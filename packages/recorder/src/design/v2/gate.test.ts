@@ -693,6 +693,12 @@ describe("AI steps that only reshape another AI step's answer (28 Oct YC → She
     expect(otherDays(at("0 9 * * 1-5"), daily).join()).toMatch(/Every day.*0 9 \* \* \*.*0 9 \* \* 1-5/);
     expect(otherDays(at("30 8 * * *"), daily)).toEqual([]); // another time, the same days
     expect(otherDays(at("0 9 1 * *"), task)).toEqual([]); // monthly asked, monthly built
+    // No cron in the task model (the third re-design's was empty): their own words say the days.
+    const unsaid = TaskModel.parse({ ...task, cadence: { kind: "schedule", cron: "", quote: "" } });
+    const goal = ["Every day, fetch the latest top job listings from Y Combinator's job board"];
+    expect(otherDays(at("0 9 * * 1-5"), unsaid, goal).join()).toMatch(/every day.*0 9 \* \* 1-5/i);
+    expect(otherDays(at("0 9 * * *"), unsaid, goal)).toEqual([]);
+    expect(otherDays(at("0 9 * * *"), unsaid, ["on weekdays, the report"]).join()).toMatch(/weekdays/);
   });
 
   it("says a midnight schedule they never said is 9:00 (the second YC design ran at 0 0 * * *)", () => {

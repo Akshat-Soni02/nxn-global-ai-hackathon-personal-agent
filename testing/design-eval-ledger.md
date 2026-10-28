@@ -94,3 +94,4 @@
 | 2026-10-28 | N21 measurement: the file-mode design prompt sent 3 times, 5 tokens out each: the host cached 2,784 of 2,806 prompt tokens on the 2nd and 3rd call (cached_tokens in usage) | nvidia/nemotron-3-super-120b-a12b | $0.0026 | n/a |
 | 2026-10-28T05:55:33.631Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.0448 | 1/1 |
 | 2026-10-28T06:53:48.983Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.1128 | 1/1 |
+| 2026-10-28T06:59:59.651Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.1070 | 1/1 |
