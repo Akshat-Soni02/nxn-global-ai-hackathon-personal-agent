@@ -19,7 +19,7 @@ import {
   unbuiltProposals,
   unfoundIn,
   unmadeProblems,
-  unsaidMidnight,
+  unsaidTime,
   withoutUnusedInputs,
 } from "./gate.ts";
 
@@ -638,7 +638,9 @@ describe("AI steps that only reshape another AI step's answer (28 Oct YC → She
       ai("ai6", ["{{page_text}}"], "listings"),
       ai("ai8", ["{{listings}}"], "pairs"),
     ]);
-    expect(chainedAi(chained).join()).toMatch(/ai8 only reshapes what ai6 answered/);
+    expect(chainedAi(chained).join()).toMatch(
+      /ai8 reads what ai6 answered.*give ai8 what they read \(\{\{page_text\}\}\)/,
+    );
     const one = skill([
       act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
       ai("ai6", ["{{page_text}}"], "listings"),
@@ -651,7 +653,35 @@ describe("AI steps that only reshape another AI step's answer (28 Oct YC → She
       ai("ai6", ["{{page_text}}"], "listings"),
       ai("ai9", ["{{listings}}", "{{today}}"], "rows"),
     ]);
-    expect(chainedAi(dated).join()).toMatch(/ai9 only reshapes what ai6 answered/);
+    expect(chainedAi(dated).join()).toMatch(/ai9 reads what ai6 answered/);
+    // The seventh re-design: one AI step tidies the sheet's rows, one reads the page, a third compares them. The two
+    // first are read by the third only: folded into it, one model call a run.
+    const three = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      act("s2", "web", "extract", {}, { output: { name: "rows_raw", type: { type: "text" } } }),
+      ai("tidy", ["{{rows_raw}}"], "rows"),
+      ai("jobs", ["{{page_text}}"], "all_jobs"),
+      ai("new", ["{{all_jobs}}", "{{rows}}"], "new_jobs"),
+    ]);
+    expect(chainedAi(three).join()).toMatch(
+      /new reads what jobs and tidy answered.*\{\{page_text\}\}.*\{\{rows_raw\}\}/,
+    );
+    // An AI answer a loop also reads is not only another AI step's: not folded.
+    const looped = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      ai("jobs", ["{{page_text}}"], "all_jobs"),
+      ai("sum", ["{{all_jobs}}"], "summary"),
+      {
+        id: "l1",
+        type: "control",
+        kind: "loop",
+        intent: "each",
+        over: "{{all_jobs}}",
+        item: { name: "job", type: { type: "text" } },
+        steps: [act("s9", "web", "navigate", { url: CHAT })],
+      },
+    ]);
+    expect(chainedAi(looped)).toEqual([]);
   });
 
   it("refuses a count on an AI step that returns a list, wherever the count is in the sentence", () => {
@@ -705,11 +735,17 @@ describe("AI steps that only reshape another AI step's answer (28 Oct YC → She
     expect(otherDays(at("0 9 * * *"), unsaid, ["on weekdays, the report"]).join()).toMatch(/weekdays/);
   });
 
-  it("says a midnight schedule they never said is 9:00 (the second YC design ran at 0 0 * * *)", () => {
+  it("says a time they never said is 9:00 (the second YC design ran at 0 0, the seventh at 0 8)", () => {
     const at = (cron: string) => skill([act("s1", "web", "navigate", { url: CHAT })], [{ type: "schedule", cron }]);
-    expect(unsaidMidnight(at("0 0 * * *"), ["every day"]).join()).toMatch(/9:00/);
-    expect(unsaidMidnight(at("0 0 * * *"), ["every night at midnight"])).toEqual([]);
-    expect(unsaidMidnight(at("0 9 * * *"), ["every day"])).toEqual([]);
+    expect(unsaidTime(at("0 0 * * *"), ["every day"]).join()).toMatch(/9:00/);
+    expect(unsaidTime(at("0 8 * * *"), ["Every day, fetch the latest jobs"]).join()).toMatch(/8:00.*9:00/);
+    expect(unsaidTime(at("0 0 * * *"), ["every night at midnight"])).toEqual([]);
+    expect(unsaidTime(at("30 8 * * *"), ["every day at 8:30"])).toEqual([]);
+    expect(unsaidTime(at("0 9 * * *"), ["every day"])).toEqual([]);
+    expect(unsaidTime(at("0 * * * *"), ["every hour"])).toEqual([]);
+    // The form's Frequency said Friday 17:00: that time is theirs (the daemon's timesheet test).
+    const friday = TaskModel.parse({ ...task, cadence: { kind: "schedule", cron: "0 17 * * 5" } });
+    expect(unsaidTime(at("0 17 * * 5"), ["This week's hours are logged"], friday)).toEqual([]);
   });
 });
 

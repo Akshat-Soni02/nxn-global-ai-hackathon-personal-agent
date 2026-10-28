@@ -98,3 +98,4 @@
 | 2026-10-28T07:04:30.440Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.0679 | 1/1 |
 | 2026-10-28T07:09:19.203Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.0901 | 1/1 |
 | 2026-10-28T07:17:42.579Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.2014 | 1/1 |
+| 2026-10-28T07:23:04.811Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.0806 | 1/1 |

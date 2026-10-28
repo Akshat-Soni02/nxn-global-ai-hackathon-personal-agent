@@ -244,8 +244,9 @@ function overAiLimit(skill: Skill, limit: number | undefined): string[] {
   ];
 }
 
-// An AI step whose every input is another AI step's answer only reshapes it (28 Oct YC → Sheet: pairs made from the
-// listings, then the pairs compared, each a model call on every run): the first step can return that shape itself.
+// AI steps whose answers only another AI step reads are work done before the judgement, by a model (28 Oct YC → Sheet:
+// pairs made from the listings, then compared; the seventh re-design tidied the sheet's rows with one, read the page
+// with another, compared with a third): the judging step is given what they read, and they go.
 export function chainedAi(skill: Skill): string[] {
   const steps = [...walkSteps(skill.steps)].map(({ step }) => step);
   const madeBy = new Map<string, Step>();
@@ -253,17 +254,28 @@ export function chainedAi(skill: Skill): string[] {
     const name = (step as { output?: { name?: string } }).output?.name;
     if (name) madeBy.set(name, step);
   }
+  // A step's own references: a loop's or an if's, not those of the steps inside it.
+  const own = (step: Step) => {
+    const { steps: _inner, else: _other, ...rest } = step as Step & { steps?: unknown; else?: unknown };
+    return [...JSON.stringify(rest).matchAll(/\{\{\s*([A-Za-z_]\w*)/g)].map((m) => m[1] as string);
+  };
+  const readers = (name: string) => steps.filter((s) => own(s).includes(name));
+  // Today's date beside another AI step's answer is still only a reshape: built-ins are no source of their own.
+  const refs = (step: Step) =>
+    (isLlm(step) ? step.inputs : []).flatMap((ref) =>
+      [...ref.matchAll(/\{\{\s*([A-Za-z_]\w*)/g)].map((m) => m[1] as string).filter((n) => !(n in BUILT_INS)),
+    );
   return steps.flatMap((step) => {
-    if (step.type !== "llm") return [];
-    // Today's date beside another AI step's answer is still only a reshape: built-ins are no source of their own.
-    const names = step.inputs
-      .flatMap((ref) => [...ref.matchAll(/\{\{\s*([A-Za-z_]\w*)/g)].map((m) => m[1] as string))
-      .filter((n) => !(n in BUILT_INS));
-    const from = [...new Set(names.map((n) => madeBy.get(n)))];
-    if (names.length === 0 || from.some((s) => s?.type !== "llm")) return [];
-    const ids = from.map((s) => (s as Step).id);
+    if (!isLlm(step)) return [];
+    // The AI steps whose answers only this step (or other AI steps) reads: work done before the judgement, by a model.
+    const before = [...new Set(refs(step).map((n) => madeBy.get(n)))].filter(
+      (p): p is Step =>
+        Boolean(p) && isLlm(p as Step) && readers((p as { output: { name: string } }).output.name).every(isLlm),
+    );
+    if (before.length === 0) return [];
+    const theirs = [...new Set(before.flatMap((p) => (isLlm(p) ? p.inputs : [])))];
     return [
-      `${step.id} only reshapes what ${ids.join(" and ")} answered: ask ${ids[0]} for that shape, and give it what ${step.id} needs too; one AI step per judgement (each is a model call on every run)`,
+      `${step.id} reads what ${before.map((p) => p.id).join(" and ")} answered, and nothing else reads it: give ${step.id} what they read (${theirs.join(", ")}) and drop them, so one AI step does the whole judgement (each AI step is a model call on every run)`,
     ];
   });
 }
@@ -290,16 +302,24 @@ export function otherDays(skill: Skill, task: TaskModel, words: string[] = []): 
   );
 }
 
-// A schedule at midnight they never said (the second YC design, 28 Oct: "0 0 * * *" for "every day"): a time they
-// didn't say is 9:00 in the morning, as the prompt says.
-export function unsaidMidnight(skill: Skill, said: string[]): string[] {
-  const midnight = triggerOf(skill).when.filter(
-    (w) => w.type === "schedule" && /^0\s+0\s/.test((w as { cron: string }).cron.trim()),
-  );
-  if (midnight.length === 0 || said.some((t) => /midnight|12\s*am|00:00|\b0:00\b/i.test(t))) return [];
-  return [
-    `its schedule runs at midnight ("0 0 …"), a time they didn't say: a time they didn't say is 9:00 in the morning ("0 9 …")`,
-  ];
+// A time of day they never said (the second YC design, 28 Oct: "0 0 * * *" for "every day"; the seventh "0 8"): a time
+// they didn't say is 9:00 in the morning, as the prompt says.
+export function unsaidTime(skill: Skill, said: string[], task?: TaskModel): string[] {
+  // The form's Frequency or their words, as the task model holds it: that time is theirs.
+  const theirs = task?.cadence.kind === "schedule" && isCron(task.cadence.cron) ? task.cadence.cron : undefined;
+  const at = (cron: string) => cron.trim().split(/\s+/).slice(0, 2).join(" ");
+  const TIME =
+    /\b\d{1,2}(:\d{2})?\s*(am|pm)\b|\b\d{1,2}:\d{2}\b|\bat\s+\d{1,2}\b|o'?clock|\bnoon\b|midnight|\bmorning|\bafternoon|\bevening|\bnight/i;
+  if (said.some((t) => TIME.test(t))) return [];
+  return triggerOf(skill).when.flatMap((w) => {
+    if (w.type !== "schedule") return [];
+    const [minute = "", hour = ""] = w.cron.trim().split(/\s+/);
+    if (!/^\d+$/.test(minute) || !/^\d+$/.test(hour) || (minute === "0" && hour === "9")) return [];
+    if (theirs && at(theirs) === at(w.cron)) return [];
+    return [
+      `its schedule runs at ${hour}:${minute.padStart(2, "0")} ("${w.cron}"), a time they didn't say: a time they didn't say is 9:00 in the morning ("0 9 …")`,
+    ];
+  });
 }
 
 export function runProblems(skill: Skill, limits: { aiCallsPerRun?: number } = {}): string[] {
@@ -765,7 +785,7 @@ export function gate(input: GateInput): string[] {
   }
   problems.push(...runProblems(workflow, { aiCallsPerRun: input.aiCallsPerRun }));
   problems.push(...chainedAi(workflow));
-  problems.push(...unsaidMidnight(workflow, input.said ?? []));
+  problems.push(...unsaidTime(workflow, input.said ?? [], task));
   problems.push(...otherDays(workflow, task, input.said ?? []));
   problems.push(...(input.unattended?.(workflow) ?? []));
 
