@@ -16,7 +16,10 @@ Name only what is really missing or wrong, each in one sentence a designer can a
 - steps that only get to a page that a later step works in, when that page could be opened directly by its address;
 - page steps doing work a connected app listed in the message could do directly (a sheet written by typing into
   cells);
-- something the test couldn't find or got wrong that the agent didn't fix or explain.
+- something the test couldn't find or got wrong that the agent didn't fix or explain;
+- an AI step doing what a reference does ({{x.0}} a list's first item, {{row.1}} a row's cell, {{x.field}}) or what
+  a loop's first: N does, or AI steps chained so one only reshapes another's answer: each is a model call on every
+  run, so the judgement belongs in one AI step given everything it needs.
 A value the evidence puts in a cell of a sheet (A2, A3) shows where one row of a table landed that day: an app step
 that writes the same columns to the table's next free row builds it. Never ask for the literal cell (it would write
 over the sheet's earlier rows), nor for the recorded selector of one item (s4, s8): a list is read whole and an AI step

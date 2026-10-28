@@ -1,9 +1,10 @@
-// pnpm design:eval <recording folder> [--real --yes] [--model <id>]
+// pnpm design:eval <recording folder> [--real --yes] [--model <id>] [--apps <tools.json>]
 // Turns one recording into a workflow exactly as Stop does (finishRecording), in a scratch data folder, and checks the
 // result against the folder's expect.json: what a correct workflow does next time, in the user's words, as checks.
 // Fake model by default: free, and it finishes at once, so it shows what code alone builds. --real uses the key (.env,
 // else the Keychain) and is capped by the ledger, testing/design-eval-ledger.md: $10 in all for Record v2. Without
-// --yes, --real only says what it would spend.
+// --yes, --real only says what it would spend. --apps gives the design connected apps: their tools as the daemon lists
+// them (appTools), each app connected; nothing is ever run in them (the eval has no test run).
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -12,6 +13,7 @@ import { recordingDir } from "../apps/daemon/src/recording-store.ts";
 import { llmFromKeychain } from "../apps/daemon/src/settings.ts";
 import { tracePath } from "../apps/daemon/src/trace-store.ts";
 import { configFromEnv, createLlm, fakeLlm, type Llm, UsageMeter } from "../packages/llm/src/index.ts";
+import type { AppTool } from "../packages/recorder/src/design/v2/connectors.ts";
 import { checkExpectations, Expectations, scriptedDesigner } from "../packages/recorder/src/index.ts";
 
 const LEDGER = resolve(import.meta.dirname, "../testing/design-eval-ledger.md");
@@ -25,7 +27,7 @@ const option = (name: string) => {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
 };
-const folder = argv.find((a, i) => !a.startsWith("--") && argv[i - 1] !== "--model");
+const folder = argv.find((a, i) => !a.startsWith("--") && argv[i - 1] !== "--model" && argv[i - 1] !== "--apps");
 if (!folder || !existsSync(join(folder, "trace.jsonl"))) {
   console.error("usage: pnpm design:eval <recording folder with trace.jsonl> [--real --yes] [--model <id>]");
   process.exit(2);
@@ -86,6 +88,18 @@ for (const file of ["description.json", "screen.jsonl", "transcript.jsonl", "voi
 }
 if (existsSync(join(folder, "shots"))) console.log("note: pictures are not copied; the eval reads words only");
 
+const appsFile = option("--apps");
+const appTools = appsFile ? (JSON.parse(readFileSync(appsFile, "utf8")) as AppTool[]) : undefined;
+const connectors = appTools && {
+  status: async () => ({
+    connected: [...new Set(appTools.flatMap((t) => (t.toolkit ? [t.toolkit] : [])))],
+    declined: [],
+  }),
+  offer: async () => "connected" as const,
+  decline: () => {},
+  tools: async (toolkit: string) => appTools.filter((t) => t.toolkit === toolkit),
+};
+
 const asked: string[] = [];
 const meter = new UsageMeter();
 const saved = await finishRecording(sessionId, {
@@ -95,6 +109,7 @@ const saved = await finishRecording(sessionId, {
   // The scripted designer answers with native tool calls; a real model's protocol is the client's choice.
   ...(flag("--real") ? {} : { design: { protocol: "tools" as const } }),
   log: (...a) => console.log("  ", ...a),
+  ...(connectors ? { connectors } : {}),
   prompter: {
     ask: async (q) => {
       asked.push(q.text);

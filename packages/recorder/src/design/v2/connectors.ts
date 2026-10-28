@@ -12,6 +12,9 @@ export interface App {
   name: string;
   // Why using it directly is better than clicking: said in the question.
   why: string;
+  // How the app's tools want things written, told to the design agent with its tools (28 Oct: the YC design looked up
+  // the sheet's tab names and asked an AI step for the first, where a range with no tab name is the first tab).
+  notes?: string;
   pages: (url: URL) => boolean;
 }
 
@@ -20,6 +23,8 @@ export const APPS: App[] = [
     toolkit: "googlesheets",
     name: "Google Sheets",
     why: "it writes and reads cells directly, so it keeps working when the sheet's layout or size changes",
+    notes:
+      'a range with no tab name ("A:C") is the first tab, so no step is needed to learn tab names; rows read come back as lists of cells ([["Acme (S21)", "Engineer"]]) and are written the same way, one list per row',
     pages: (u) => u.hostname === "docs.google.com" && u.pathname.startsWith("/spreadsheets"),
   },
   {
@@ -214,6 +219,9 @@ export function appsSection(apps: UsableApp[]): string[] {
   const lines = ["# Connected apps: use them directly (an app step) instead of clicking through their pages"];
   for (const app of apps) {
     lines.push(`## ${app.name} (the recording worked in it at ${app.steps.join(", ")})`);
+    // What the app's own rules are (its row in APPS): how its ranges and rows are written.
+    const notes = APPS.find((a) => a.toolkit === app.toolkit)?.notes;
+    if (notes) lines.push(`How it works: ${notes}`);
     // One line per document, by the first step that worked in it (s9…s33 all in one sheet are one document).
     const docs = new Map<string, string>();
     for (const [step, doc] of Object.entries(app.ids)) if (!docs.has(doc)) docs.set(doc, step);

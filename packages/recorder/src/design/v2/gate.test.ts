@@ -2,6 +2,7 @@ import { Skill } from "@shadow/core";
 import { describe, expect, it } from "vitest";
 import { DoneReport, TaskModel } from "./contracts.ts";
 import {
+  chainedAi,
   drawnProblems,
   emptyIn,
   gate,
@@ -617,6 +618,30 @@ describe("a run's AI calls (28 Oct YC → Sheet: the 4th AI step hit the run's l
       },
     ]);
     expect(runProblems(looped, { aiCallsPerRun: 3 }).join()).toMatch(/up to 6 times a run \(ai1, ai2 ×5\)/);
+  });
+});
+
+describe("AI steps that only reshape another AI step's answer (28 Oct YC → Sheet)", () => {
+  const ai = (id: string, inputs: string[], out: string) => ({
+    id,
+    type: "llm",
+    intent: id,
+    instruction: "x",
+    inputs,
+    output: { name: out, type: { type: "list", items: { type: "text" } } },
+  });
+  it("names an AI step whose every input is another AI step's answer, and not one that reads a page or an app", () => {
+    const chained = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      ai("ai6", ["{{page_text}}"], "listings"),
+      ai("ai8", ["{{listings}}"], "pairs"),
+    ]);
+    expect(chainedAi(chained).join()).toMatch(/ai8 only reshapes what ai6 answered/);
+    const one = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      ai("ai6", ["{{page_text}}"], "listings"),
+    ]);
+    expect(chainedAi(one)).toEqual([]);
   });
 });
 

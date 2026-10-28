@@ -501,3 +501,17 @@ describe("an app step's rows, fitted to the tool (28 Oct YC → Sheet: values ne
     expect(deep.notes.join()).toMatch(/values/);
   });
 });
+
+describe("what the agent is told about an app (28 Oct YC → Sheet: two steps to learn the first tab's name)", () => {
+  it("shows an app's notes under it: how its ranges and rows are written", () => {
+    const sheets = {
+      toolkit: "googlesheets",
+      name: "Google Sheets",
+      why: "w",
+      steps: ["s4"],
+      ids: { s4: "DOC" },
+      tools: [],
+    } as unknown as UsableApp;
+    expect(appsSection([sheets]).join("\n")).toMatch(/a range with no tab name \("A:C"\) is the first tab/);
+  });
+});

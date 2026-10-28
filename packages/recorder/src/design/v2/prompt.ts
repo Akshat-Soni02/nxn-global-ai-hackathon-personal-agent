@@ -156,12 +156,18 @@ export const FILE = `The workflow is a file
   { "do": "save_pdf", "intent": "…", "dir": "~/Documents", "name": "report {{today}}.pdf" }
   { "do": "app", "intent": "…", "tool": "GOOGLESHEETS_BATCH_UPDATE", "arguments": { "spreadsheet_id": "<id:s5>" },
     "save_as": "rows" }   only with a connected app: look { app_tool } shows a tool's arguments
-  { "instruction": "the subjects of KPI emails not already in the sheet", "inputs": ["{{subjects}}"],
+  { "instruction": "the KPI emails in {{subjects}} that are not in {{done_rows}}", "inputs": ["{{subjects}}", "{{done_rows}}"],
     "output": { "name": "new_emails", "type": "list" } }   an AI step
   { "over": "{{new_emails}}", "item": "email", "steps": [ … ] }   a loop: {{email}} inside it
   { "if": { "left": "{{is_new}}", "op": "equals", "right": true }, "steps": [ … ], "else": [ … ] }   a branch
   The trigger stays first: "when": "manual", a cron ("0 9 * * 1-5"), or { "folder": "~/Downloads", "glob": "*.pdf" }.
   Recorded steps you keep stay as they are (copy them), with your changes.
+- Values without AI: {{name.field}} a field, {{name.0}} a list's first item, {{row.1}} a row's second cell (rows an
+  app reads are lists of cells: [["Acme (S21)", "Engineer"]]), {{today|DD/MM/YYYY}} the date, a loop's first: N for
+  "the top N". The shape a read gives is the shape to use: never an AI step to reshape, flatten, pair or take the first.
+- An AI step is a model call on every run, and a run may ask the AI AI_CALLS_PER_RUN times (a step inside a loop asks
+  once per item): one AI step per judgement, given everything it needs at once (the page's text and the rows already
+  in the sheet, returning only the new jobs), never a chain of AI steps each reshaping the last one's answer.
 - Connected apps: when the message lists one, do the work inside it with app steps instead of the clicks into its
   page: one app step for each write or read, and leave out the recorded steps it replaces (why "done directly in
   <app>"). A document's id is written <id:s4>: code puts the real id in. Keep page steps for what no listed tool does.
@@ -189,13 +195,20 @@ s1 open the inbox, s2 open the email "Daily KPIs - w/c 19 Oct" (item 1 of 50), s
 Sheet", s5 type "19 Oct" into A4, s6 paste into B4. Code proposed p1 list_item (s2) and p2 date (s5).
 - reject p1, why "the loop picks each new email"; accept p2, why "the date typed is the day it runs"
 - write_workflow, why "every new KPI email, each weekday morning": the trigger with "when": "0 9 * * 1-5"; s1;
-  { "do": "read_all", "intent": "read the inbox's subjects", "target": { "like": "s2" }, "save_as": "subjects" }; the
-  AI step above; then { "over": "{{new_emails}}", "item": "email", "steps": [s2…s6], "why": "every new email, not
-  only this one" }, with s2 clicking the email named {{email}}
+  { "do": "read_all", "intent": "read the inbox's subjects", "target": { "like": "s2" }, "save_as": "subjects" }; a
+  read of the sheet's rows (save_as done_rows); the one AI step above, given both; then { "over": "{{new_emails}}",
+  "item": "email", "steps": [s2…s6], "why": "every new email, not only this one" }, with s2 clicking the email named
+  {{email}}
 - ask "Which row should each day's numbers go in?" with options ["A4", "the next empty row"], step "s5"
 - test, then done { summary, rules: [{ rule: 0, steps: ["s2", "l1"] }, { rule: 1, steps: ["ai1"] }] }
-With Google Sheets connected: inside the loop, one app step writing [["{{today|D MMM}}", "{{email.subject}}"]] to
-"<id:s5>" in place of s4–s6, and no question about the row.`;
+With Google Sheets connected: one app step reads the sheet's rows (save_as done_rows), and inside the loop one app step
+writes [["{{today|D MMM}}", "{{email.subject}}"]] (one list per row) to "<id:s5>" in place of s4–s6, with no question
+about the row: two AI-free app steps around one AI step.`;
+
+// The run's own AI limit in the prompt (the runner's SHADOW_AI_MAX_CALLS_PER_RUN; 3 is its default, DEFAULT_AI_LIMITS
+// in the player): the agent plans its AI steps against the number a run really allows.
+export const withAiLimit = (prompt: string, limit: number | undefined): string =>
+  prompt.replaceAll("AI_CALLS_PER_RUN", String(limit ?? 3));
 
 // Plan, then apply: in file mode one call writes the workflow whole; the build episode starts from what it did.
 export const PLAN_FILE = `You are Shadow's design agent, planning. ${principles}

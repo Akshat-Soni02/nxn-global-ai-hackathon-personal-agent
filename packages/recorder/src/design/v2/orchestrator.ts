@@ -27,7 +27,7 @@ import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
 import { critique } from "./critic.ts";
 import { drawnProblems, gate, inBlocks, lostWork, runProblems, unmadeProblems, withoutUnusedInputs } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
-import { BUILD, BUILD_FILE, PLAN, PLAN_FILE } from "./prompt.ts";
+import { BUILD, BUILD_FILE, PLAN, PLAN_FILE, withAiLimit } from "./prompt.ts";
 import { askBatch, batchOf, MAX_QUESTIONS, openCodeQuestions } from "./questions.ts";
 import { type ChangeNote, changeNotes, type RecordingFacts } from "./rules.ts";
 import { newSession, type QueuedQuestion, type SessionV2 } from "./session.ts";
@@ -278,7 +278,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   const budget = options.budget ?? DESIGN_V2_BUDGET;
   const say = options.onProgress ?? (() => {});
   const mode = options.mode ?? "verbs";
-  const system = mode === "file" ? BUILD_FILE : BUILD;
+  const system = withAiLimit(mode === "file" ? BUILD_FILE : BUILD, options.aiCallsPerRun);
   const transcript: AgentEvent[] = [];
   // Built from the plain list first, so even evidence that can't be read keeps the recording (below, in the try).
   const session = newSession(options.skill, options.facts, {
@@ -447,7 +447,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     try {
       const reply = await options.llm.generate({
         profile: "smart",
-        system: mode === "file" ? PLAN_FILE : PLAN,
+        system: withAiLimit(mode === "file" ? PLAN_FILE : PLAN, options.aiCallsPerRun),
         // A whole workflow, after reasoning over the whole recording: the largest reply the design asks for.
         maxTokens: 32_768,
         user: [message, "", "# The tools a plan can use", ...catalogue].join("\n"),

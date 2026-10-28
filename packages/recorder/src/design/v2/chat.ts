@@ -10,7 +10,7 @@ import { requireApprovals } from "../../approvals.ts";
 import { appsSection, readOnlyTools, type UsableApp } from "./connectors.ts";
 import type { DoneReport } from "./contracts.ts";
 import { inBlocks, runProblems } from "./gate.ts";
-import { FILE } from "./prompt.ts";
+import { FILE, withAiLimit } from "./prompt.ts";
 import { newSession } from "./session.ts";
 import { designToolsV2, workflowFile } from "./tools.ts";
 
@@ -56,7 +56,7 @@ export async function changeByChat(options: {
   const run = await runAgent<DoneReport>({
     llm: options.llm,
     profile: "smart",
-    system: [CHAT, ...appsSection(apps)].join("\n"),
+    system: [withAiLimit(CHAT, options.aiCallsPerRun), ...appsSection(apps)].join("\n"),
     task: `They ask: "${options.message}"\n\nThe workflow now (read_workflow shows the same):\n${workflowFile(options.skill)}`,
     tools: designToolsV2(session, { mode: "file" }).filter((t) => TOOLS.has(t.name)),
     callsPerTurn: 8,

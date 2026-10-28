@@ -229,6 +229,27 @@ function overAiLimit(skill: Skill, limit: number | undefined): string[] {
   ];
 }
 
+// An AI step whose every input is another AI step's answer only reshapes it (28 Oct YC → Sheet: pairs made from the
+// listings, then the pairs compared, each a model call on every run): the first step can return that shape itself.
+export function chainedAi(skill: Skill): string[] {
+  const steps = [...walkSteps(skill.steps)].map(({ step }) => step);
+  const madeBy = new Map<string, Step>();
+  for (const step of steps) {
+    const name = (step as { output?: { name?: string } }).output?.name;
+    if (name) madeBy.set(name, step);
+  }
+  return steps.flatMap((step) => {
+    if (step.type !== "llm") return [];
+    const names = step.inputs.flatMap((ref) => [...ref.matchAll(/\{\{\s*([A-Za-z_]\w*)/g)].map((m) => m[1] as string));
+    const from = [...new Set(names.map((n) => madeBy.get(n)))];
+    if (names.length === 0 || from.some((s) => s?.type !== "llm")) return [];
+    const ids = from.map((s) => (s as Step).id);
+    return [
+      `${step.id} only reshapes what ${ids.join(" and ")} answered: ask ${ids[0]} for that shape, and give it what ${step.id} needs too; one AI step per judgement (each is a model call on every run)`,
+    ];
+  });
+}
+
 export function runProblems(skill: Skill, limits: { aiCallsPerRun?: number } = {}): string[] {
   const inputs = Object.entries(triggerOf(skill).inputs)
     .filter(([, i]) => typeof i.default === "string" && i.default.includes("{{"))
@@ -691,6 +712,7 @@ export function gate(input: GateInput): string[] {
     problems.push(`the test run couldn't start (${notRun}): fix that, so it can run`);
   }
   problems.push(...runProblems(workflow, { aiCallsPerRun: input.aiCallsPerRun }));
+  problems.push(...chainedAi(workflow));
   problems.push(...(input.unattended?.(workflow) ?? []));
 
   // As often as they said: the task model's cadence, or frequency words in the goal and what was said (F1: the model
