@@ -792,12 +792,13 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     },
   });
 
-  // The safe test run, inside the episode (the agent loop has no step between turns): at most MAX_TESTS per design.
-  const test = async (): Promise<unknown> => {
+  // The safe test run, inside the episode (the agent loop has no step between turns): at most MAX_TESTS per design
+  // asked by the agent; done's own test of what is about to be saved is never refused.
+  const test = async (atDone = false): Promise<unknown> => {
     if (!session.runTest) {
       return "the test run can't run here (Chrome isn't connected to Shadow): finish, and the review will say it wasn't tested";
     }
-    if (session.tests >= MAX_TESTS)
+    if (session.tests >= MAX_TESTS && !atDone)
       return `tested ${MAX_TESTS} times already: finish, explaining in done what still fails`;
     session.tests++;
     const report = await session.runTest();
@@ -850,9 +851,11 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         : input;
     },
     run: async (report) => {
-      // A workflow changed since its last test is tested once more first: the gate reads the report.
-      if (session.runTest && session.testedDraft !== JSON.stringify(session.draft.steps) && session.tests < MAX_TESTS) {
-        await test();
+      // A workflow changed since its last test is tested once more first, past MAX_TESTS: the gate reads the report, and
+      // what is saved is what was tested (28 Oct YC → Sheet: three tests on earlier drafts, the saved one never ran,
+      // and its first real run stopped at the run's AI limit).
+      if (session.runTest && session.testedDraft !== JSON.stringify(session.draft.steps)) {
+        await test(true);
       }
       const left = session.finish?.(report) ?? [];
       if (left.length > 0 && session.refusedDone < MAX_DONE_REFUSALS) {

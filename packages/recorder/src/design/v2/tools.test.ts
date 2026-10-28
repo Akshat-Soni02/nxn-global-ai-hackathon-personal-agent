@@ -298,6 +298,22 @@ describe("the tools", () => {
     expect(String((await run(session(), "test", {})).output)).toMatch(/can't run here/);
   });
 
+  it("tests a workflow changed after its last test once more at done, past the three (28 Oct YC → Sheet: saved untested)", async () => {
+    let runs = 0;
+    const report = { outcome: "succeeded", steps: [{ id: "s1", path: "s1", status: "done" as const }] };
+    const s = session({
+      runTest: async () => {
+        runs++;
+        return report;
+      },
+    });
+    for (let i = 0; i < 3; i++) await run(s, "test", {});
+    (s.draft.steps[1] as { intent: string }).intent = "changed after the last test";
+    await run(s, "done", { summary: "x", rules: [] });
+    expect(runs).toBe(4);
+    expect(s.testedDraft).toBe(JSON.stringify(s.draft.steps));
+  });
+
   it("tests once on its own before done when the workflow changed since the last test", async () => {
     let runs = 0;
     const s = session({

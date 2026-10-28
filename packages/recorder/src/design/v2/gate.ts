@@ -68,6 +68,8 @@ export interface GateInput {
   unmade?: string[];
   // How often a run may ask the AI (the runner's SHADOW_AI_MAX_CALLS_PER_RUN): a workflow that asks more stops midway.
   aiCallsPerRun?: number;
+  // What the user answered while it was designed: a rule left unbuilt because of their own answer is their choice.
+  answers?: string[];
   // The connected apps' tools that only read (lostWork: an app step that only reads replaces no write).
   readOnlyTools?: ReadonlySet<string>;
   // What code prepared from the recording, and what the agent decided about each (unbuiltProposals).
@@ -623,7 +625,13 @@ export function gate(input: GateInput): string[] {
     }
     // Picking what changes each time is what reading the page and an ai_step do (Checkpoint 5: B left "the newest
     // video" unbuilt, saying the recording had no selectors for it).
-    if (said.not_built && PICK.test(rule.quote)) {
+    // Unless the reason is the user's own answer (28 Oct YC → Sheet: "exactly 5 each day", and they answered "Add as many
+    // as available" for days with fewer: refused twice, the design was marked as not having built their rule).
+    const words = (text: string) => norm(text.replace(/[^\p{L}\p{N}]+/gu, " "));
+    const theirs = (input.answers ?? []).some(
+      (a) => words(a).length >= 4 && words(said.not_built ?? "").includes(words(a)),
+    );
+    if (said.not_built && PICK.test(rule.quote) && !theirs) {
       problems.push(
         `rule ${i} "${rule.quote}" isn't built: what changes each time (the newest, the top 3, ones not already done) is built by reading the page (read with no target) and an ai_step that picks it, then a loop over what it returns. Build it, or say in not_built why that can't work`,
       );

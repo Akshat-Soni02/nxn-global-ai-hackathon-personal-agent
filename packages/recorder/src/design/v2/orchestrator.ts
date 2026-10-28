@@ -598,6 +598,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         said: [options.evidence.goal, ...options.evidence.said.map((s) => s.text)],
         unattended: options.unattended,
         aiCallsPerRun: options.aiCallsPerRun,
+        answers: [...asked.map((a) => a.answer), ...(session.answeredNow ?? []).map((a) => a.answer)],
         unmade,
         readOnlyTools: readOnlyTools(session.apps),
         proposals: session.proposals,

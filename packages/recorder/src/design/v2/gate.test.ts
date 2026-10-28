@@ -501,6 +501,21 @@ describe("what the re-designs after the fixes showed (round 2)", () => {
     expect(problems.join("\n")).toMatch(/rule 0 "note the newest video" isn't built: .*reading the page.*ai_step/);
   });
 
+  it("takes the user's own answer as the reason (28 Oct YC → Sheet: 'exactly 5', answered 'Add as many as available')", () => {
+    const five = TaskModel.parse({
+      ...task,
+      rules: [{ quote: "exactly 5 new unique roles are appended each day", where: "goal" }],
+    });
+    const theirs = "User chose to add as many as available when fewer than five new jobs are present";
+    const answered = gate(
+      input(ok, { task: five, done: done([{ rule: 0, not_built: theirs }]), answers: ["Add as many as available"] }),
+    );
+    expect(answered.join("\n")).not.toMatch(/rule 0/);
+    // An answer it doesn't quote is no reason.
+    const other = gate(input(ok, { task: five, done: done([{ rule: 0, not_built: theirs }]), answers: ["Column C"] }));
+    expect(other.join("\n")).toMatch(/rule 0 .* isn't built/);
+  });
+
   it("counts a new step doing what a recorded write did, on the same control, as that work kept", () => {
     const same = skill(
       [
