@@ -47,5 +47,9 @@ describe('how often it runs (the third YC re-design built "Every day" as weekday
 
   it("says the cells the recording typed into are the columns an app writes", () => {
     expect(BUILD_FILE).toMatch(/the cells the recording typed into give each value's column/i);
+    // Only for the values it shows: a value the goal names that the recording never wrote (the YC recording's role)
+    // is asked, never guessed (advisor, 28 Oct: the question that put ROLE in column C).
+    expect(BUILD_FILE).toMatch(/a value the goal names whose column the recording doesn't\s+show: ask/i);
+    expect(BUILD_FILE).not.toMatch(/never ask which columns the recording already shows/);
   });
 });

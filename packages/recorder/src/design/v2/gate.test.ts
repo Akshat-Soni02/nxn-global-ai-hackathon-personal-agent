@@ -685,6 +685,10 @@ describe("AI steps that only reshape another AI step's answer (28 Oct YC → She
     expect(pick("the 5 newest jobs not in the sheet")).toMatch(/counting is code's/);
     expect(pick("the top 3 stories by points")).not.toMatch(/counting/);
     expect(pick("the 3 stories with the most points")).not.toMatch(/counting/);
+    // A time window is not a count (advisor, 28 Oct): "the last 7 days" stays the AI step's; "the last 5 jobs" doesn't.
+    expect(pick("the emails from the last 7 days that mention the invoice")).not.toMatch(/counting/);
+    expect(pick("jobs posted in the last 24 hours")).not.toMatch(/counting/);
+    expect(pick("the last 5 jobs on the page")).toMatch(/counting is code's/);
   });
 
   it("says a schedule on other days than they said ('every day', built for weekdays: the third YC design)", () => {

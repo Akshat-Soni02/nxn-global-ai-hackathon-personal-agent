@@ -154,8 +154,9 @@ const COUNT = /^\s*(take|keep|return|select|pick|get|give)\b[^.]{0,20}\b(first|t
 // "the top 5 job listings" anywhere in an AI step that returns a list (the second YC design, 28 Oct: "From the job board
 // page, extract the top 5 job listings", then the ones already in the sheet dropped, so a day added fewer than 5).
 // "up to 5", "the 5 newest" too (the third: "Return up to 5 newest job listings that are not already recorded").
+// Never a time window: "the last 7 days" is which items, not how many (advisor, 28 Oct).
 const COUNTED_LIST =
-  /\b(?:first|top|last|up to|at most|no more than)\s+(?:\d+|\{\{\s*\w+\s*\}\})\b|\b\d+\s+(?:newest|latest|most recent|recent|new)\b/i;
+  /\b(?:first|top|last|up to|at most|no more than)\s+(?:\d+|\{\{\s*\w+\s*\}\})\b(?!\s+(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?)\b)|\b\d+\s+(?:newest|latest|most recent|recent|new)\b/i;
 // A ranking right after the count ranks it ("the top 3 by points"), and stays the AI step's; "compare by title"
 // further on doesn't (the third YC design's count went through on that "by"). "Most recent" is the list's order.
 const RANKS_COUNT =

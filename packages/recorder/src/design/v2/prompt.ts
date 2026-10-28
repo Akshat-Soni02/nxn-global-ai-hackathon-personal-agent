@@ -173,7 +173,8 @@ export const FILE = `The workflow is a file
   page: one app step for each write or read, and leave out the recorded steps it replaces (why "done directly in
   <app>"). A document's id is written <id:s4>: code puts the real id in. Keep page steps for what no listed tool does.
   The cells the recording typed into give each value's column (the date typed in A3, the company in B3: a row is
-  [date, company, …] from column A); never ask which columns the recording already shows.
+  [date, company, …] from column A), so don't ask those; a value the goal names whose column the recording doesn't
+  show: ask where it goes (the role, copied but never typed in).
   A step marked "drawn": true typed into a drawn area (a sheet's cells): replay can't reach it, and the clicks that
   chose the cell are gone, so on the page it lands in whichever cell is selected. With the app listed, do it with the
   app's tool and remove the step; with none listed, leave it: the review says it can't run yet, and what to connect.
