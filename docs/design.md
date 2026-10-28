@@ -842,7 +842,7 @@ The skill format is migrated to the workflow tree (Oct 8–9), and the player ru
 | Packaging: the `.dmg`, Node and the daemon inside the app, Keychain key, first run, `pnpm package` / `pnpm release` | ✅ (Oct 13): `scripts/package.ts` (`pnpm package`: the extension, the Swift app, the daemon and the shim bundled with esbuild, Node copied in, the window's pages, the LaunchAgent, the icon, `hdiutil`) made `dist/Shadow-0.1.0.dmg` (44 MB) and `shadow-extension.zip`; `scripts/release.ts` (`pnpm release`, `gh release`); `LoginItems.swift` (`SMAppService`), `FirstRun.swift`, `keychain.ts`, `settings.ts`, `SHADOW_BUNDLE` paths | Left: the dmg on a clean Mac, by a person; `pnpm release` not run; no CI build |
 | Record again | ✅ (Oct 13): **Record again** on a workflow's page; the recording is saved as that workflow's next version (`by: record`), keeping its id, name, Frequency and state (`record.ts`) | Decided Oct 13 |
 | Discarding a recording; sleep and wake | ✅ (Oct 13): the pill's trash (`record.command` `discard`, API `recordDiscard`); `system.sleep` / `system.wake` from Shadow.app to the daemon | |
-| Look and feel; the website | ✅ (Oct 13): tokens in `apps/ui/src/styles.css`, the mark, the SwiftUI pill (`Pill.swift`), the icon (`Icon.swift`); one page at `apps/website` (Vite, GSAP) | [design-ui.md](design-ui.md) |
+| Look and feel; the website | ✅ (Oct 13): tokens in `apps/ui/src/styles.css`, the mark, the SwiftUI pill (`Pill.swift`), the icon (`Icon.swift`); five pages at `apps/website` (Next, GSAP). **28 Oct:** a favicon set and manifest (the tab icon was SVG-only, blank in Safari and lost on a dark tab strip), a rim on the mark over night bars (1.2:1 → 5.4:1), and the hero window's iridescent glow | [design-ui.md](design-ui.md) |
 
 </details>
 

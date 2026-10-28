@@ -17,6 +17,18 @@ export function Mark({ id }: { id: string }) {
       <circle cx="36" cy="36" r="12" fill="#3a5bd9" opacity="0.9" filter={`url(#${id}-s)`} />
       <circle cx="30" cy="30" r="12" fill="#fafaff" />
       <circle cx="30" cy="30" r="4.1" fill="#ef4444" />
+      {/* The night square is ~1.2:1 against a night bar, so over night the bar gives it a rim (--mark-rim, 5.4:1);
+          over light it is transparent. A 1 px non-scaling line, inset so the svg edge doesn't clip half of it. */}
+      <rect
+        className="mark-rim"
+        x="1.5"
+        y="1.5"
+        width="61"
+        height="61"
+        rx="12.8"
+        fill="none"
+        vectorEffect="non-scaling-stroke"
+      />
     </svg>
   );
 }
