@@ -2,7 +2,7 @@
 
 Shadow learns a work task from watching you do it once, runs it for you, and repairs it when a site changes. A TypeScript
 pnpm monorepo plus a Swift app (macOS). Product overview: `readme.md`; first-time use: `docs/product.md`; every design
-decision with its date: `docs/design.md`.
+decision with its date: `docs/design.md`. Running it and the Nemotron / Token Factory notes: the readme's Quick start.
 
 ## The pipeline (where to look)
 
@@ -32,7 +32,8 @@ pnpm typecheck            # every package
 pnpm daemon               # the daemon (reads the root .env); does NOT start shadow-api
 pnpm api                  # shadow-api on :8080 (memory store, dev sign-in, no quotas), keys from the root .env
 pnpm ui | pnpm extension  # rebuild the window / the extension on change
-pnpm design:eval <recording folder> [--real --yes]   # design a recording; fake model unless --real
+pnpm design:eval <recording folder> [--real --yes]   # design a recording; fake model unless --real (try fixtures/recordings/yc-top-job)
+                          # --apps <tools.json> gives it connected apps' tools; --answers <design.json> reuses the user's answers
 ```
 
 `pnpm build` builds the extension, native host, window and website (CI runs it). While developing, prefer the filtered
@@ -56,7 +57,9 @@ store a restart of `pnpm api` forgets the sign-in. Details: `apps/api/README.md`
 - Fix in the stage that owns the problem, with the fewest lines. No per-app hard-coding: apps are rows of data
   (`APPS` in `connectors.ts`), not code paths.
 - Code decides what code can decide; a model call is for judgement. Replay is deterministic and makes no model call
-  unless an LLM step needs one or a step fails.
+  unless an LLM step needs one or a step fails. A run allows `SHADOW_AI_MAX_CALLS_PER_RUN` AI steps (default 3), and the
+  design gate counts a workflow's AI calls against it: a value a reference (`{{x.0}}`, `{{row.1}}`) or a loop's `first: N`
+  reaches is never an AI step.
 - Every bug fix starts with a test that fails first. A scripted model (`fakeLlm`, `packages/llm/src/fake.ts`) and
   scratch data directories keep tests free and offline. A fix is proven by a real run, not only by the test.
 - Verify before asserting: open the file, run the command, then say it. Cite `file:line`.
@@ -79,8 +82,8 @@ description, listing those files.
 ## Money and privacy
 
 - Real model calls cost money and the key must last through judging. Tests never call it. A real run is announced with
-  its estimated cost first and written in `testing/design-eval-ledger.md` (the cap is enforced in
-  `scripts/design-eval.ts`). A Run now of a failing workflow starts the paid repair agent: count it.
+  its estimated cost first and written in `testing/design-eval-ledger.md` (the cap, $10, is enforced in
+  `scripts/design-eval.ts` by adding up the ledger). A Run now of a failing workflow starts the paid repair agent: count it.
 - Never read or print `.env` values; talk about key names. Never commit a real recording, document id, email or key:
   tests use made-up ones. Passwords are never recorded; secrets never go into prompts or logs.
 - Connected apps: only what a step writes or reads goes to the app; writes in tests go to a test sheet or test doc the
