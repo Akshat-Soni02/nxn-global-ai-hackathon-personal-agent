@@ -1,5 +1,10 @@
 # Deploying Shadow
 
+**Live now (Oct 28):** project `shadow-hackathon-2610`, region `europe-west1`. Service:
+`https://shadow-api-7ayqclmp6q-ew.a.run.app` (`/health` answers `{"ok":true}`), scaled to zero when idle. Trigger
+`shadow-api-deploy`: every push to `main` touching `apps/api/`, `packages/` or the lockfile rebuilds and redeploys it
+([builds](https://console.cloud.google.com/cloud-build/builds;region=europe-west1?project=shadow-hackathon-2610)).
+
 Three things ship, in this order. Each is one command, run from the repository root on a Mac.
 
 | # | What | Where | Command |
