@@ -153,7 +153,13 @@ const RANKED = /\b(by|most|least|highest|lowest|best|worst|largest|smallest|chea
 const COUNT = /^\s*(take|keep|return|select|pick|get|give)\b[^.]{0,20}\b(first|top|last)\s+(\d+\b|\{\{\s*\w+\s*\}\})/i;
 // "the top 5 job listings" anywhere in an AI step that returns a list (the second YC design, 28 Oct: "From the job board
 // page, extract the top 5 job listings", then the ones already in the sheet dropped, so a day added fewer than 5).
-const COUNTED_LIST = /\b(first|top|last)\s+(\d+|\{\{\s*\w+\s*\}\})\b/i;
+// "up to 5", "the 5 newest" too (the third: "Return up to 5 newest job listings that are not already recorded").
+const COUNTED_LIST =
+  /\b(?:first|top|last|up to|at most|no more than)\s+(?:\d+|\{\{\s*\w+\s*\}\})\b|\b\d+\s+(?:newest|latest|most recent|recent|new)\b/i;
+// A ranking right after the count ranks it ("the top 3 by points"), and stays the AI step's; "compare by title"
+// further on doesn't (the third YC design's count went through on that "by"). "Most recent" is the list's order.
+const RANKS_COUNT =
+  /\b(?:\d+|\{\{\s*\w+\s*\}\})\b[^.]{0,30}?\b(?:by|most(?!\s+recent)|least|highest|lowest|best|worst|largest|smallest|cheapest|biggest)\b/i;
 
 export function stepProblems(step: Step): string[] {
   // An AI step sees only its inputs, never the page (28 Oct, the YC design: "extract the job listings visible on the
@@ -162,10 +168,10 @@ export function stepProblems(step: Step): string[] {
     // The first N of a list is a count, which code does: a loop's `first` (live run, 28 Oct: "take the first 5" came back
     // as items 1, 2, 3, 2, 5, and the run stopped on its own pick check).
     const list = step.output.type.type === "list";
-    if (
-      (COUNT.test(step.instruction) || (list && COUNTED_LIST.test(step.instruction))) &&
-      !RANKED.test(step.instruction)
-    )
+    const counted =
+      (COUNT.test(step.instruction) && !RANKED.test(step.instruction)) ||
+      (list && COUNTED_LIST.test(step.instruction) && !RANKS_COUNT.test(step.instruction));
+    if (counted)
       return [
         `${step.id}: counting is code's, not an AI step's: loop over the whole list with first: N (it goes through only the first N), and put the steps that use each item in the loop`,
       ];
@@ -259,6 +265,21 @@ export function chainedAi(skill: Skill): string[] {
       `${step.id} only reshapes what ${ids.join(" and ")} answered: ask ${ids[0]} for that shape, and give it what ${step.id} needs too; one AI step per judgement (each is a model call on every run)`,
     ];
   });
+}
+
+// A schedule on other days than they said (the third YC design, 28 Oct: "Every day" built as "0 9 * * 1-5", the prompt's
+// weekday example copied). The time may differ (9:00 when they didn't say one); the days are theirs.
+export function otherDays(skill: Skill, task: TaskModel): string[] {
+  const said = task.cadence.kind === "schedule" ? task.cadence.cron : undefined;
+  if (!said || !isCron(said)) return [];
+  const days = (cron: string) => cron.trim().split(/\s+/).slice(2).join(" ");
+  return triggerOf(skill).when.flatMap((w) =>
+    w.type === "schedule" && isCron(w.cron) && days(w.cron) !== days(said)
+      ? [
+          `they said "${task.cadence.quote ?? said}" (${said}), but its schedule "${w.cron}" runs on other days: keep their days`,
+        ]
+      : [],
+  );
 }
 
 // A schedule at midnight they never said (the second YC design, 28 Oct: "0 0 * * *" for "every day"): a time they
@@ -737,6 +758,7 @@ export function gate(input: GateInput): string[] {
   problems.push(...runProblems(workflow, { aiCallsPerRun: input.aiCallsPerRun }));
   problems.push(...chainedAi(workflow));
   problems.push(...unsaidMidnight(workflow, input.said ?? []));
+  problems.push(...otherDays(workflow, task));
   problems.push(...(input.unattended?.(workflow) ?? []));
 
   // As often as they said: the task model's cadence, or frequency words in the goal and what was said (F1: the model

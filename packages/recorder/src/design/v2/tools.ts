@@ -142,13 +142,25 @@ const typeFrom = (t: unknown): unknown => {
   if (typeof t === "string") {
     const list = /^list(?: of (.+?)s?)?$/.exec(t.trim());
     const name = t.trim();
-    return list ? { type: "list", items: typeFrom(list[1] ?? "object") } : { type: name === "string" ? "text" : name };
+    // JSON Schema's names too (the third YC design wrote string, integer and array).
+    const alias: Record<string, string> = { string: "text", integer: "number", float: "number", bool: "boolean" };
+    if (name === "array") return { type: "list", items: { type: "object" } };
+    return list ? { type: "list", items: typeFrom(list[1] ?? "object") } : { type: alias[name] ?? name };
   }
   if (Array.isArray(t)) return { type: "list", items: typeFrom(t[0] ?? "object") };
   if (!t || typeof t !== "object") return { type: "text" };
-  const { type, items, fields } = t as { type?: unknown; items?: unknown; fields?: Record<string, unknown> };
-  if (type === "list") return { type, items: typeFrom(items ?? "object") };
-  const named = type === undefined ? (t as Record<string, unknown>) : type === "object" ? fields : undefined;
+  const { type, items, fields, properties } = t as {
+    type?: unknown;
+    items?: unknown;
+    fields?: Record<string, unknown>;
+    properties?: Record<string, unknown>;
+  };
+  if (type === "list" || type === "array") return { type: "list", items: typeFrom(items ?? "object") };
+  // A scalar written as an object ({ "type": "string" }) is that scalar.
+  if (typeof type === "string" && type !== "object") return typeFrom(type);
+  // An object's fields, also as JSON Schema writes them (properties).
+  const named =
+    type === undefined ? (t as Record<string, unknown>) : type === "object" ? (fields ?? properties) : undefined;
   return named
     ? { type: "object", fields: Object.fromEntries(Object.entries(named).map(([k, v]) => [k, typeFrom(v)])) }
     : t;
@@ -1213,7 +1225,11 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
       whys: new Map<string, string>(),
       lists: new Map<string, unknown>(),
     };
-    const plain = unmasked(body.steps, out.problems) as unknown[];
+    // "success" is the workflow's own field (its final checks), never a step (the third YC design wrote it as a step,
+    // then as a word in the list, and was refused for it until it stopped).
+    const isSuccess = (x: unknown) =>
+      x === "success" || (Boolean(x) && typeof x === "object" && (x as { id?: unknown }).id === "success");
+    const plain = (unmasked(body.steps, out.problems) as unknown[]).filter((x) => !isSuccess(x));
     let steps = plain.map((s) => expandStep(s, out)) as Record<string, unknown>[];
     // The trigger stays first: a workflow written without it keeps the one it had.
     if (steps[0]?.type !== "trigger") steps = [session.draft.steps[0] as unknown as Record<string, unknown>, ...steps];

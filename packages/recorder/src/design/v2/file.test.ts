@@ -152,6 +152,35 @@ describe("the workflow as a file", () => {
     expect(step.inputs).toEqual(["{{inbox}}", "only Acme's"]);
   });
 
+  it("settles how the second YC re-design wrote things: success as a step, JSON-Schema types (28 Oct)", async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const written = await run(s, "write_workflow", {
+      workflow: {
+        steps: [
+          trigger,
+          s1,
+          { do: "read", intent: "read the inbox", save_as: "inbox" },
+          {
+            instruction: "the Acme reports in the inbox",
+            inputs: ["{{inbox}}"],
+            output: {
+              name: "acme",
+              type: { type: "array", items: { type: "object", properties: { title: { type: "string" } } } },
+            },
+          },
+          { id: "success", type: "control", intent: "Success", requires_approval: false, steps: [] },
+          "success",
+        ],
+      },
+      why: "x",
+    });
+    expect(written.problems).toBeUndefined();
+    expect(s.draft.steps.some((x) => x.id === "success")).toBe(false);
+    const ai = s.draft.steps.find((x) => x.type === "llm") as { output: { type: unknown } };
+    expect(ai.output.type).toEqual({ type: "list", items: { type: "object", fields: { title: { type: "text" } } } });
+  });
+
   it("takes what the YC design wrote (Oct 25): steps named by id in a loop, a cron as expr, a bad JSON string said so", async () => {
     const s = session();
     const [trigger, s1] = steps(s) as Record<string, unknown>[];

@@ -92,3 +92,5 @@
 | 2026-10-28 | Run now of the designed YC workflow on Rushil's daemon, real page, real Sheets read, 3 runs (take-first-5 AI step failed its pick check twice; nothing written) | nvidia/nemotron-3-super-120b-a12b | $0.0010 | 0/3 |
 | 2026-10-28 | chat box (R6.1), two real changes on a scratch workflow ("only print, don't press Send"; rename a block): both made the asked change in the draft; cost not metered (the cost return came after), estimated at ≈ $0.02 from the turn budget | nvidia/nemotron-3-super-120b-a12b | $0.0200 | 2/2 |
 | 2026-10-28 | N21 measurement: the file-mode design prompt sent 3 times, 5 tokens out each: the host cached 2,784 of 2,806 prompt tokens on the 2nd and 3rd call (cached_tokens in usage) | nvidia/nemotron-3-super-120b-a12b | $0.0026 | n/a |
+| 2026-10-28T05:55:33.631Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.0448 | 1/1 |
+| 2026-10-28T06:53:48.983Z | e570e8f5-c0dd-419a-bef1-60603f260fcf | nvidia/nemotron-3-super-120b-a12b | $0.1128 | 1/1 |

@@ -10,6 +10,7 @@ import {
   inBlocks,
   joined,
   madeUpAddresses,
+  otherDays,
   roleAlone,
   runProblems,
   sameReads,
@@ -672,6 +673,26 @@ describe("AI steps that only reshape another AI step's answer (28 Oct YC → She
       },
     ]);
     expect(runProblems(text).join()).not.toMatch(/counting/);
+  });
+
+  it("refuses 'up to 5 newest' too, and a ranking only exempts the count it ranks (the third YC design, 28 Oct)", () => {
+    const page = act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } });
+    const pick = (instruction: string) =>
+      runProblems(skill([page, { ...ai("ai6", ["{{page_text}}"], "jobs"), instruction }])).join();
+    expect(
+      pick("Return up to 5 newest job listings that are not already recorded (compare by title and link)"),
+    ).toMatch(/counting is code's/);
+    expect(pick("the 5 newest jobs not in the sheet")).toMatch(/counting is code's/);
+    expect(pick("the top 3 stories by points")).not.toMatch(/counting/);
+    expect(pick("the 3 stories with the most points")).not.toMatch(/counting/);
+  });
+
+  it("says a schedule on other days than they said ('every day', built for weekdays: the third YC design)", () => {
+    const at = (cron: string) => skill([act("s1", "web", "navigate", { url: CHAT })], [{ type: "schedule", cron }]);
+    const daily = TaskModel.parse({ ...task, cadence: { kind: "schedule", cron: "0 9 * * *", quote: "Every day" } });
+    expect(otherDays(at("0 9 * * 1-5"), daily).join()).toMatch(/Every day.*0 9 \* \* \*.*0 9 \* \* 1-5/);
+    expect(otherDays(at("30 8 * * *"), daily)).toEqual([]); // another time, the same days
+    expect(otherDays(at("0 9 1 * *"), task)).toEqual([]); // monthly asked, monthly built
   });
 
   it("says a midnight schedule they never said is 9:00 (the second YC design ran at 0 0 * * *)", () => {
