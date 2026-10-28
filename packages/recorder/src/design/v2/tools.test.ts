@@ -806,6 +806,25 @@ describe("before round 3 spends: what the model resends, and what the run's mode
     });
   });
 
+  it("asks the run's model for text items when the loop uses each item whole (the fifth YC re-design wrote {{job}})", async () => {
+    const s = await withPage();
+    await run(s, "ai_step", {
+      after: "s4",
+      intent: "p",
+      instruction: "the job titles not in the sheet",
+      inputs: ["{{page}}"],
+      output: { name: "new_jobs", type: "list" },
+    });
+    await run(s, "loop", { steps: ["s2", "s3"], over: "new_jobs", item: { name: "job" }, intent: "each" });
+    expect((await run(s, "change", { step: "s3", args: { text: "{{job}}" } })).output.ok).toBe(true);
+    const saved = withFields(s.draft);
+    expect((findStep(saved, "ai1") as { output: { type: unknown } }).output.type).toEqual({
+      type: "list",
+      items: { type: "text" },
+    });
+    expect((findStep(saved, "l1") as { item: { type: unknown } }).item.type).toEqual({ type: "text" });
+  });
+
   it("says a call sent again exactly as before fails the same way (A sent one add 20 times)", async () => {
     const s = session();
     const tools = designToolsV2(s);

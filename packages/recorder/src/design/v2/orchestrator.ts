@@ -177,6 +177,16 @@ export function withFields(skill: Skill): Skill {
     if (!ai || items?.type !== "object" || items.fields) return [];
     const read = JSON.stringify(loop.steps).matchAll(new RegExp(`\\{\\{${loop.item.name}\\.(\\w+)`, "g"));
     const names = [...new Set([...read].map((m) => m[1] as string))];
+    // Each item used whole ({{job}} in a cell): the model returns text items, never objects written as JSON into the
+    // cell (the fifth YC re-design, 28 Oct).
+    const whole = new RegExp(`\\{\\{\\s*${loop.item.name}\\s*(\\}\\}|\\|)`).test(JSON.stringify(loop.steps));
+    if (names.length === 0 && whole) {
+      const text = { type: "text" };
+      return [
+        { op: "set", step: ai.id, field: "output", value: { ...ai.output, type: { type: "list", items: text } } },
+        { op: "set", step: loop.id, field: "item", value: { ...loop.item, type: text } },
+      ];
+    }
     if (names.length === 0) return [];
     const type = { type: "object", fields: Object.fromEntries(names.map((n) => [n, { type: "text" }])) };
     return [
