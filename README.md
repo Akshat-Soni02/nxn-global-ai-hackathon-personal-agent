@@ -11,7 +11,7 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 | Page | For |
 | --- | --- |
 | [`docs/product.md`](docs/product.md) | Opening Shadow for the first time: install, record a task, look at it, run it, what stays on your Mac |
-| [`DEPLOY.md`](DEPLOY.md) | Shipping it: `shadow-api` to Cloud Run, the `.dmg` to GitHub Releases, the site to Vercel (three commands) |
+| [`DEPLOY.md`](DEPLOY.md) | Shipping it: `shadow-api` to Cloud Run, the `.dmg` to GitHub Releases, the site to GitHub Pages |
 | [`docs/design.md`](docs/design.md) | The design, every decision with its date, and the [status table](docs/design.md#status-design-vs-code) of what is built |
 | [`docs/cloud-architecture.md`](docs/cloud-architecture.md) | Shadow, managed: sign-in, `shadow-api` on Google Cloud, model calls with Shadow's key, connected apps through Composio, quotas |
 | [`docs/questions.md`](docs/questions.md) | The questions people ask, answered by mechanism: what runs when, which file does it, and why not the other way |
@@ -240,12 +240,12 @@ TypeScript monorepo (pnpm workspaces), plus the Swift app. One language for the 
 │   ├── mac/           # Shadow.app (Swift): menu bar, window, notifications, the record pill, first run, login items, Mac-app capture and replay
 │   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
 │   ├── native-host/   # the shim Chrome starts: pipes native messaging <-> the daemon's Unix socket
-│   └── website/       # the landing site (Next.js static export, GSAP), deployed to Vercel
+│   └── website/       # the landing site (Next.js static export, GSAP), on GitHub Pages
 ├── skills/real/       # replay test workflows against real sites (see skills/real/README.md)
 ├── fixtures/
 │   ├── pages/         # local test pages, including drifted redesigns for repair
 │   └── snapshots/     # saved copies of the real pages; tests check every locator against them
-├── scripts/           # deploy/ (api, app, website), fixture server, installers (native host, daemon at login), Mac app build, package (.dmg) and release, sandbox seeder, page snapshots, llm check
+├── scripts/           # deploy/ (api, app, ci), fixture server, installers (native host, daemon at login), Mac app build, package (.dmg) and release, sandbox seeder, page snapshots, llm check
 ├── docs/              # design.md, product.md, questions.md, design-ui.md, examples.md (15 real workflows), guide/ (explainers and diagrams)
 └── .github/           # CI (lint, typecheck, test, build) and CODEOWNERS template
 ```
@@ -262,7 +262,7 @@ Workspace packages are used as TypeScript source (no build step); the extension,
 
 ## Deployed Link
 
-- **Site**: the landing page on Vercel (`pnpm deploy:site` prints its URL).
+- **Site**: [https://akshat-soni02.github.io/nxn-global-ai-hackathon-personal-agent/](https://akshat-soni02.github.io/nxn-global-ai-hackathon-personal-agent/), on GitHub Pages, rebuilt on every push to `main`.
 - **Download**: [the latest release](https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent/releases/latest): `Shadow.dmg` (the app, with the daemon and the Chrome extension inside) and `shadow-extension.zip`.
 - **Service**: `shadow-api` on Google Cloud Run; its URL is built into the app.
 
@@ -274,7 +274,7 @@ clicks the console needs:
 ```sh
 PROJECT_ID=<your gcp project> pnpm deploy:api   # shadow-api to Cloud Run, keys in Secret Manager; saves its URL
 pnpm deploy:app                                 # the .dmg with that URL inside, published as a GitHub Release
-pnpm deploy:site                                # the landing site to Vercel; its button downloads that .dmg
+# the landing site deploys itself to GitHub Pages on push to main; its button downloads that .dmg
 ```
 
 The app is signed ad hoc (no Apple developer account), so the first open is right-click → Open, and macOS ties the

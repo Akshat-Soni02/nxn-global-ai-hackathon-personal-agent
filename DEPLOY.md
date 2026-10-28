@@ -5,17 +5,18 @@
 `shadow-api-deploy`: every push to `main` touching `apps/api/`, `packages/` or the lockfile rebuilds and redeploys it
 ([builds](https://console.cloud.google.com/cloud-build/builds;region=europe-west1?project=shadow-hackathon-2610)).
 
-Three things ship, in this order. Each is one command, run from the repository root on a Mac.
+Three things ship, in this order: two commands, run from the repository root on a Mac, and the site, which deploys
+itself.
 
 | # | What | Where | Command |
 | --- | --- | --- | --- |
 | 1 | `shadow-api`: sign-in, the model relay (Nebius Token Factory), connected apps (Composio), quotas | Google Cloud Run, secrets in Secret Manager | `PROJECT_ID=<your project> pnpm deploy:api` |
 | 2 | The Mac app (`.dmg`, with the Chrome extension inside) built with the API's URL | GitHub Releases | `pnpm deploy:app` |
-| 3 | The landing site, whose Download button gets the `.dmg` from step 2 | Vercel | `pnpm deploy:site` |
+| 3 | The landing site, whose Download button gets the `.dmg` from step 2 | GitHub Pages | automatic on push to `main` (`.github/workflows/website.yml`) |
 
 Run again after a change: each step is safe to repeat. `deploy:api` rebuilds and redeploys the service; `deploy:app`
-replaces the release's files for the same version (bump `version` in `package.json` for a new one); `deploy:site`
-redeploys the pages.
+replaces the release's files for the same version (bump `version` in `package.json` for a new one); the site
+redeploys itself on every push to `main` that touches it.
 
 ## Before the first run
 
@@ -28,7 +29,7 @@ redeploys the pages.
     your own.
 - **GitHub**: the repository must be **public** for people to download the `.dmg` from its releases. Pushing works as
   usual (`git push`); the release step uses the GitHub CLI if installed, else the token git already uses.
-- **Vercel**: an account. The first `deploy:site` asks you to sign in (in the browser) and to name the project.
+- **GitHub Pages**: once, in the repository's Settings → Pages → Source: **GitHub Actions**.
 - **macOS with Xcode's command line tools** (`xcode-select --install`) for step 2.
 
 ## 1. The service: `pnpm deploy:api`
@@ -67,14 +68,11 @@ Open once. The site's download page says so in its first step. The Chrome extens
 window walks people through loading it (Developer mode → Load unpacked), so there is no Chrome Web Store listing to
 wait for.
 
-## 3. The site: `pnpm deploy:site`
+## 3. The site: GitHub Pages
 
-```sh
-pnpm deploy:site             # or: pnpm deploy:site --preview   for a preview URL
-```
-
-It builds `apps/website` to static pages (`apps/website/out`) and deploys that folder to Vercel. Nothing to configure
-on Vercel. A custom domain: Vercel → the project → Settings → Domains.
+Nothing to run. `.github/workflows/website.yml` builds `apps/website` to static pages under the repository's folder
+and publishes them to **https://akshat-soni02.github.io/nxn-global-ai-hackathon-personal-agent/** on every push to `main` that touches `apps/website/`, or by hand: Actions →
+Website → Run workflow. Once, before the first run: Settings → Pages → Source: **GitHub Actions**.
 
 ## Continuous deploy: `pnpm deploy:ci`
 
@@ -93,8 +91,7 @@ environment and sizes stay as `deploy:api` set them. It runs on Cloud Build's **
 One step is yours: the script prints a link to authorize **Cloud Build's GitHub app** on the repository, and waits.
 
 What it doesn't cover, and how to keep them current:
-- **The site**: in Vercel, import the repository with Root Directory `apps/website` (framework Next.js, which
-  Vercel detects): then every push to `main` redeploys it. Or run `pnpm deploy:site`.
+- **The site** deploys itself to GitHub Pages on every push to `main` that touches it (step 3).
 - **The Mac app** needs macOS to build: `pnpm deploy:app` from a Mac when a new version should go out.
 
 ## Afterwards

@@ -32,7 +32,6 @@
     "release": "tsx scripts/release.ts",
     "deploy:api": "bash scripts/deploy/api.sh",
     "deploy:app": "bash scripts/deploy/app.sh",
-    "deploy:site": "bash scripts/deploy/website.sh",
     "deploy:ci": "bash scripts/deploy/ci.sh"
   },
   "devDependencies": {
