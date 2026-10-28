@@ -15,6 +15,9 @@ export interface App {
   // How the app's tools want things written, told to the design agent with its tools (28 Oct: the YC design looked up
   // the sheet's tab names and asked an AI step for the first, where a range with no tab name is the first tab).
   notes?: string;
+  // Arguments a tool takes that the agent may leave out, by tool: filled in when it does (28 Oct: valueInputOption was
+  // left out three times in one design, each a refused write).
+  defaults?: Record<string, Record<string, unknown>>;
   pages: (url: URL) => boolean;
 }
 
@@ -25,6 +28,10 @@ export const APPS: App[] = [
     why: "it writes and reads cells directly, so it keeps working when the sheet's layout or size changes",
     notes:
       'a range with no tab name ("A:C") is the first tab, so no step is needed to learn tab names; rows read come back as lists of cells ([["Acme (S21)", "Engineer"]]) and are written the same way, one list per row; an append takes valueInputOption "USER_ENTERED"',
+    defaults: {
+      GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND: { valueInputOption: "USER_ENTERED" },
+      GOOGLESHEETS_VALUES_UPDATE: { valueInputOption: "USER_ENTERED" },
+    },
     pages: (u) => u.hostname === "docs.google.com" && u.pathname.startsWith("/spreadsheets"),
   },
   {
@@ -284,6 +291,13 @@ export function fitArguments(
       args[name] = value.flat(1);
       notes.push(`${name}: rows inside one list too many, made the list of rows ${tool.name} takes`);
     } else args[name] = value;
+  }
+  // What the app's row says this tool takes when it is left out.
+  const defaults = APPS.find((a) => a.toolkit === tool.toolkit)?.defaults?.[tool.name] ?? {};
+  for (const [name, value] of Object.entries(defaults)) {
+    if (name in args) continue;
+    args[name] = value;
+    notes.push(`${name}: ${JSON.stringify(value)}, as ${tool.name} takes it`);
   }
   return { args, notes, problems };
 }

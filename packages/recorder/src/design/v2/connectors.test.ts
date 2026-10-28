@@ -496,6 +496,19 @@ describe("an app step's rows, fitted to the tool (28 Oct YC → Sheet: values ne
       },
     },
   } as unknown as AppTool;
+  it("fills what the app's row says its tool takes when left out (the sixth re-design forgot valueInputOption 3 times)", () => {
+    const schema = append.inputSchema as { properties: Record<string, unknown> };
+    const sheets = {
+      ...append,
+      toolkit: "googlesheets",
+      inputSchema: { ...schema, properties: { ...schema.properties, valueInputOption: { type: "string" } } },
+    } as AppTool;
+    const fit = fitArguments(sheets, { spreadsheetId: "S", range: "A:C", values: [["a"]] });
+    expect(fit.args.valueInputOption).toBe("USER_ENTERED");
+    // Given, it stays as given.
+    expect(fitArguments(sheets, { values: [["a"]], valueInputOption: "RAW" }).args.valueInputOption).toBe("RAW");
+  });
+
   it("takes one row, rows, and rows wrapped once too often, always as rows of cells", () => {
     const row = ["{{today|DD/MM/YYYY}}", "{{pair.company}}", "{{pair.role}}"];
     expect(fitArguments(append, { values: row }).args.values).toEqual([row]);

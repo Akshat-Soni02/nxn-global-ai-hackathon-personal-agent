@@ -208,6 +208,27 @@ describe("the workflow as a file", () => {
     expect(text).not.toMatch(/inboxText|newReports|"id":"end"/);
   });
 
+  it("settles what the sixth YC re-design was refused for (28 Oct): escaped twice, whitespace, an end trigger", async () => {
+    const s = session();
+    const [trigger, s1, s2, s3] = steps(s) as Record<string, unknown>[];
+    // The whole workflow as text with every quote escaped once too often.
+    const twice = JSON.stringify({ steps: [trigger, s1, s2, s3] }).replace(/"/g, '\\"');
+    expect((await run(s, "write_workflow", { workflow: twice, why: "x" })).problems).toBeUndefined();
+    // An edit whose old text differs from the file only in its spaces.
+    const loose = await run(s, "edit_workflow", {
+      edits: [{ old: '"text":"19 Oct"', new: '"text": "{{today|D MMM}}"' }],
+      why: "the day it runs",
+    });
+    expect(loose.problems).toBeUndefined();
+    expect(findStep(s.draft, "s3")).toMatchObject({ args: { text: "{{today|D MMM}}" } });
+    // A marker called "end" written as a second trigger.
+    const end = await run(s, "write_workflow", {
+      workflow: { steps: [trigger, s1, s2, s3, { id: "end", type: "trigger", intent: "End", when: [] }] },
+      why: "x",
+    });
+    expect(end.problems).toBeUndefined();
+  });
+
   it("takes what the YC design wrote (Oct 25): steps named by id in a loop, a cron as expr, a bad JSON string said so", async () => {
     const s = session();
     const [trigger, s1] = steps(s) as Record<string, unknown>[];

@@ -37,7 +37,13 @@ export function unstring(value: unknown): unknown {
     try {
       return JSON.parse(v);
     } catch {
-      return v;
+      // Its quotes escaped once too often (the sixth YC re-design, 28 Oct: nine refusals for \" in the text): read once
+      // unescaped, and only when that is valid JSON.
+      try {
+        return JSON.parse(v.replace(/\\"/g, '"'));
+      } catch {
+        return v;
+      }
     }
   };
   const top = parse(value);
@@ -165,6 +171,16 @@ const typeFrom = (t: unknown): unknown => {
     ? { type: "object", fields: Object.fromEntries(Object.entries(named).map(([k, v]) => [k, typeFrom(v)])) }
     : t;
 };
+
+// The one place `old` appears when whitespace is left out of the comparison, or undefined (none, or more than one).
+export function looseMatch(text: string, old: string): { start: number; end: number } | undefined {
+  const chars = [...old.replace(/\s+/g, "")];
+  if (chars.length === 0) return undefined;
+  const pattern = new RegExp(chars.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*"), "g");
+  const found = [...text.matchAll(pattern)];
+  if (found.length !== 1 || found[0]?.index === undefined) return undefined;
+  return { start: found[0].index, end: found[0].index + found[0][0].length };
+}
 
 // Names written in camelCase (rowsToAdd) are the names a workflow may hold (rows_to_add), with every reference to them
 // (the fourth YC re-design, 28 Oct: refused twice for save_as "getExisting" and output "rowsToAdd").
@@ -1264,9 +1280,10 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     // "success" is the workflow's own field (its final checks), never a step (the third YC design wrote it as a step,
     // then as a word in the list, and was refused for it until it stopped).
     // Markers that do nothing (an "end" or "done" with no steps, list or condition: the fourth wrote one) go too.
+    const marker = (id: unknown) =>
+      typeof id === "string" && /^(success|done|end|finish)$/i.test(id.trim()) && !anyStep(id.trim());
     const isSuccess = (x: unknown) =>
-      (typeof x === "string" && /^(success|done|end|finish)$/i.test(x.trim()) && !anyStep(x.trim())) ||
-      (Boolean(x) && typeof x === "object" && (x as { id?: unknown }).id === "success");
+      marker(x) || (Boolean(x) && typeof x === "object" && marker((x as { id?: unknown }).id));
     const isMarker = (x: unknown) => {
       if (!x || typeof x !== "object" || Array.isArray(x)) return false;
       const m = x as Record<string, unknown>;
@@ -1397,6 +1414,13 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
         let text = list.every((e) => short.includes(e.old)) ? short : mask(canonical(session.draft, { full: true }));
         for (const [i, e] of (Array.isArray(edits) ? edits : [edits]).entries()) {
           const count = text.split(e.old).length - 1;
+          // Not there as written, but there once when spaces and line breaks are left out of the comparison (the sixth YC
+          // re-design's edits were refused three times for their spaces): that place.
+          const loose = count === 0 ? looseMatch(text, e.old) : undefined;
+          if (loose) {
+            text = text.slice(0, loose.start) + e.new + text.slice(loose.end);
+            continue;
+          }
           if (count !== 1) {
             return {
               output: {
@@ -1446,8 +1470,9 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
               problems: [`no proposal ${proposal}. Proposals: ${[...session.proposals.keys()].join(", ") || "none"}`],
             },
           };
+        // Decided before: nothing to do, and no refusal (the sixth YC re-design was refused twice for accepting again).
         if (session.decisions.has(proposal))
-          return { output: { ok: false, problems: [`${proposal} is decided already`] } };
+          return { output: { ok: true, note: `${proposal} is decided already: nothing changed` } };
         if (!p.runnable || p.edits.length === 0) {
           session.decisions.set(proposal, { decision: "accept", why });
           // Checkpoint 4: "nothing to change" was read as done, and the steps still found today's items by their text.
