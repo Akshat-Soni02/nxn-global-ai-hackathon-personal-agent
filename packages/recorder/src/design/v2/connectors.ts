@@ -266,9 +266,15 @@ export function fitArguments(
       notes.push(`${key} is ${same} in ${tool.name}`);
     }
     const rows = props[name]?.type === "array" && props[name]?.items?.type === "array";
+    // Rows are a list of rows of cells: one row is wrapped, and rows wrapped once too often are unwrapped (28 Oct, YC →
+    // Sheet: [[[date, company, role]]] would have put a list into one cell).
+    const tooDeep = (v: unknown[]) => v.every((r) => Array.isArray(r) && r.length > 0 && r.every(Array.isArray));
     if (rows && Array.isArray(value) && value.length > 0 && !value.some(Array.isArray)) {
       args[name] = [value];
       notes.push(`${name}: one row made the list of rows ${tool.name} takes`);
+    } else if (rows && Array.isArray(value) && value.length > 0 && tooDeep(value)) {
+      args[name] = value.flat(1);
+      notes.push(`${name}: rows inside one list too many, made the list of rows ${tool.name} takes`);
     } else args[name] = value;
   }
   return { args, notes, problems };

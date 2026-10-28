@@ -53,6 +53,8 @@ export interface DesignV2Options {
   maskTerms?: string[];
   // What an unattended run still needs (the daemon's go-live checks).
   unattended?: (skill: Skill) => string[];
+  // How often a run may ask the AI (the runner's limit): a design that asks more is refused at done.
+  aiCallsPerRun?: number;
   // The safe test run (the daemon's rehearse). Without it the workflow is saved untested, and the review says so.
   test?: (skill: Skill) => Promise<TestReport>;
   // The final check: the same run, with the files the workflow makes made for real, then put in the Trash (twice: it
@@ -355,8 +357,11 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   // recording didn't (the gate never saw it; Checkpoint 4: C kept reads with no control): then the plain list.
   // What makes a draft worse than the recording: your work lost, or steps that can't run (the recording's own aside).
   const worse = () => {
-    const recorded = new Set(runProblems(finalOf(options.skill)));
-    const broken = runProblems(finalOf(session.draft, session.apps, options.skill)).filter((p) => !recorded.has(p));
+    const limits = { aiCallsPerRun: options.aiCallsPerRun };
+    const recorded = new Set(runProblems(finalOf(options.skill), limits));
+    const broken = runProblems(finalOf(session.draft, session.apps, options.skill), limits).filter(
+      (p) => !recorded.has(p),
+    );
     if (lostWork(options.skill, session.draft, session.whys, readOnlyTools(session.apps)).length > 0)
       return "had lost work you showed";
     return broken.length > 0 ? `has steps that can't run (${broken[0]})` : undefined;
@@ -592,6 +597,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         sinceTest: session.sinceTest,
         said: [options.evidence.goal, ...options.evidence.said.map((s) => s.text)],
         unattended: options.unattended,
+        aiCallsPerRun: options.aiCallsPerRun,
         unmade,
         readOnlyTools: readOnlyTools(session.apps),
         proposals: session.proposals,

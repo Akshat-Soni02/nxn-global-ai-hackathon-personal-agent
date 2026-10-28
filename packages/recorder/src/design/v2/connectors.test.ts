@@ -10,6 +10,7 @@ import {
   type Connectors,
   connectorChances,
   documentIdOf,
+  fitArguments,
   LISTED_TOOLS,
   readOnlyTools,
   shortlist,
@@ -475,5 +476,28 @@ describe("app steps written the way a model writes them (28 Oct)", () => {
     });
     expect(out.problems ?? []).toEqual([]);
     expect(findStep(s.draft, "get")).toMatchObject({ channel: "mcp", action: "call" });
+  });
+});
+
+describe("an app step's rows, fitted to the tool (28 Oct YC → Sheet: values nested three deep)", () => {
+  const append: AppTool = {
+    name: "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+    description: "append rows",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string" },
+        range: { type: "string" },
+        values: { type: "array", items: { type: "array", items: { type: "string" } } },
+      },
+    },
+  } as unknown as AppTool;
+  it("takes one row, rows, and rows wrapped once too often, always as rows of cells", () => {
+    const row = ["{{today|DD/MM/YYYY}}", "{{pair.company}}", "{{pair.role}}"];
+    expect(fitArguments(append, { values: row }).args.values).toEqual([row]);
+    expect(fitArguments(append, { values: [row] }).args.values).toEqual([row]);
+    const deep = fitArguments(append, { values: [[row]] });
+    expect(deep.args.values).toEqual([row]);
+    expect(deep.notes.join()).toMatch(/values/);
   });
 });

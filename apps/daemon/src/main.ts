@@ -237,6 +237,7 @@ const service = createService({
       llm: model,
       meter: usage,
       apps: appsOfWorkflow(skill, tools ? await listedToolsOf(tools) : []),
+      aiCallsPerRun: aiLimitsFromEnv().maxCallsPerRun,
     });
     // What the change cost, shown beside it.
     return { ...made, costUsd: usage.usage.costUsd - before };

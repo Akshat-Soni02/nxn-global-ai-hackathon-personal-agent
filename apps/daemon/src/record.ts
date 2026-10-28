@@ -20,6 +20,7 @@ import {
 } from "@shadow/core";
 import { type Llm, UsageMeter } from "@shadow/llm";
 import type { MemoryStore } from "@shadow/memory";
+import { aiLimitsFromEnv } from "@shadow/player/node";
 import {
   answerFromEvidence,
   applyAnswer,
@@ -329,6 +330,8 @@ export async function finishRecording(
       // The Never and private words: every tool result the agent reads is masked with them.
       maskTerms: maskTermsOf(recorded),
       unattended: unattendedGaps,
+      // The runner's own limit, so a design that would stop midway at it is refused (28 Oct YC → Sheet).
+      aiCallsPerRun: aiLimitsFromEnv().maxCallsPerRun,
       test: rehearse
         ? (draft) => rehearse(draft, effects, (line) => log(line), unchangedControls(plain, draft, places))
         : undefined,

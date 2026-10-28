@@ -572,6 +572,39 @@ describe("what live C showed", () => {
   });
 });
 
+describe("a run's AI calls (28 Oct YC → Sheet: the 4th AI step hit the run's limit of 3)", () => {
+  const ai = (id: string, inputs = ["{{today}}"]) => ({
+    id,
+    type: "llm",
+    intent: id,
+    instruction: "pick",
+    inputs,
+    output: { name: `${id}_out`, type: { type: "text" } },
+  });
+  it("says a workflow asks the AI more often than a run may, naming the AI steps and a loop's count", () => {
+    const four = skill([ai("ai6"), ai("ai7"), ai("ai8"), ai("ai9")]);
+    expect(runProblems(four, { aiCallsPerRun: 3 }).join()).toMatch(
+      /asks the AI up to 4 times a run \(ai6, ai7, ai8, ai9\)/,
+    );
+    expect(runProblems(four, { aiCallsPerRun: 4 })).toEqual([]);
+    expect(runProblems(four)).toEqual([]); // no limit given: not judged
+    const looped = skill([
+      { ...ai("ai1"), output: { name: "ai1_out", type: { type: "list", items: { type: "text" } } } },
+      {
+        id: "l1",
+        type: "control",
+        kind: "loop",
+        intent: "each job",
+        over: "{{ai1_out}}",
+        item: { name: "job", type: { type: "text" } },
+        first: 5,
+        steps: [ai("ai2", ["{{job}}"])],
+      },
+    ]);
+    expect(runProblems(looped, { aiCallsPerRun: 3 }).join()).toMatch(/up to 6 times a run \(ai1, ai2 ×5\)/);
+  });
+});
+
 describe("what live D showed", () => {
   const nav = (id: string, url: string, tab?: string) => ({
     ...act(id, "web", "navigate", { url }),

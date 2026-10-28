@@ -36,6 +36,8 @@ export async function changeByChat(options: {
   meter?: UsageMeter;
   signal?: AbortSignal;
   protocol?: Protocol;
+  // How often a run may ask the AI (the runner's limit): a change that makes it ask more is refused.
+  aiCallsPerRun?: number;
 }): Promise<{ skill: Skill; summary: string; changed: boolean; transcript: AgentEvent[] }> {
   const apps = options.apps ?? [];
   const pages = [...walkSteps(options.skill.steps)].flatMap(({ step }) =>
@@ -43,10 +45,11 @@ export async function changeByChat(options: {
   );
   const session = newSession(options.skill, { pages, folders: [] }, { apps });
   // What it may not leave behind: a step the runner can't run that the workflow didn't already have.
-  const before = new Set(runProblems(options.skill));
+  const limits = { aiCallsPerRun: options.aiCallsPerRun };
+  const before = new Set(runProblems(options.skill, limits));
   session.finish = () =>
     inBlocks(
-      runProblems(session.draft).filter((p) => !before.has(p)),
+      runProblems(session.draft, limits).filter((p) => !before.has(p)),
       session.draft,
     );
   const transcript: AgentEvent[] = [];

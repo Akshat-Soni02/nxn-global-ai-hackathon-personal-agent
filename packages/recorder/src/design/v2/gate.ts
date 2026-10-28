@@ -66,6 +66,8 @@ export interface GateInput {
   unattended?: (skill: Skill) => string[];
   // Files the recording shows appearing with nothing recorded making them (evidence.unmade).
   unmade?: string[];
+  // How often a run may ask the AI (the runner's SHADOW_AI_MAX_CALLS_PER_RUN): a workflow that asks more stops midway.
+  aiCallsPerRun?: number;
   // The connected apps' tools that only read (lostWork: an app step that only reads replaces no write).
   readOnlyTools?: ReadonlySet<string>;
   // What code prepared from the recording, and what the agent decided about each (unbuiltProposals).
@@ -186,7 +188,46 @@ export const isCron = (cron?: string) =>
   Boolean(cron && !cron.includes("{{") && /^\S+(\s+\S+){4,5}$/.test(cron.trim()));
 
 // Every step the runner can't run, and inputs it can't fill: a default is a value, never a {{…}} template.
-export function runProblems(skill: Skill): string[] {
+// How often a run asks the AI at most: each AI step once, once per item inside a loop (its first N, else its max_items),
+// the larger arm of an if. Cached answers (the same question the same day) don't count, but can't be counted on.
+function aiCalls(steps: Step[]): { calls: number; steps: string[] } {
+  let calls = 0;
+  const named: string[] = [];
+  for (const step of steps) {
+    if (step.type === "llm") {
+      calls += 1;
+      named.push(step.id);
+    } else if (step.type === "control" && step.kind === "loop") {
+      const each = step.first ?? step.max_items;
+      const inner = aiCalls(step.steps);
+      calls += inner.calls * each;
+      named.push(...inner.steps.map((id) => `${id} ×${each}`));
+    } else if (step.type === "control" && step.kind === "branch") {
+      const [then, other] = [aiCalls(step.steps), aiCalls(step.else)];
+      const larger = then.calls >= other.calls ? then : other;
+      calls += larger.calls;
+      named.push(...larger.steps);
+    } else if (step.type === "control") {
+      const inner = aiCalls(step.steps);
+      calls += inner.calls;
+      named.push(...inner.steps);
+    }
+  }
+  return { calls, steps: named };
+}
+
+// A run stops at its AI limit (SHADOW_AI_MAX_CALLS_PER_RUN, 3 unless set; 28 Oct YC → Sheet: five AI steps, the fourth
+// refused, and four of them did what a template or one AI step does). Judged only when the limit is given.
+function overAiLimit(skill: Skill, limit: number | undefined): string[] {
+  if (limit === undefined) return [];
+  const used = aiCalls(skill.steps);
+  if (used.calls <= limit) return [];
+  return [
+    `it asks the AI up to ${used.calls} times a run (${used.steps.join(", ")}), and a run may ask ${limit}: the run stops at the next one. Keep AI steps for judgement and give one step all it needs at once (one step can read two lists and return the new items); what code can do stays code ({{list.0}} is a list's first item, a loop's first: N takes N)`,
+  ];
+}
+
+export function runProblems(skill: Skill, limits: { aiCallsPerRun?: number } = {}): string[] {
   const inputs = Object.entries(triggerOf(skill).inputs)
     .filter(([, i]) => typeof i.default === "string" && i.default.includes("{{"))
     .map(
@@ -197,7 +238,14 @@ export function runProblems(skill: Skill): string[] {
     .when.filter((w) => w.type === "schedule" && !isCron(w.cron))
     .map((w) => `its schedule "${(w as { cron: string }).cron}" isn't a fixed cron: e.g. "0 9 * * 5"`);
   const steps = [...walkSteps(skill.steps)].map(({ step }) => step);
-  return [...inputs, ...schedules, ...steps.flatMap(stepProblems), ...steps.flatMap(stale), ...tabless(steps)];
+  return [
+    ...inputs,
+    ...schedules,
+    ...steps.flatMap(stepProblems),
+    ...steps.flatMap(stale),
+    ...tabless(steps),
+    ...overAiLimit(skill, limits.aiCallsPerRun),
+  ];
 }
 
 // A check that still holds the recorded page or file on a step that now uses a {{value}} fails next time. A run problem,
@@ -634,7 +682,7 @@ export function gate(input: GateInput): string[] {
   if (notRun && !/Chrome is not connected|Shadow\.app is not running|sign in to Shadow/.test(notRun)) {
     problems.push(`the test run couldn't start (${notRun}): fix that, so it can run`);
   }
-  problems.push(...runProblems(workflow));
+  problems.push(...runProblems(workflow, { aiCallsPerRun: input.aiCallsPerRun }));
   problems.push(...(input.unattended?.(workflow) ?? []));
 
   // As often as they said: the task model's cadence, or frequency words in the goal and what was said (F1: the model
