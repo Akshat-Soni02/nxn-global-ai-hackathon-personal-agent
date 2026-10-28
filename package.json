@@ -29,7 +29,10 @@
     "evidence": "tsx scripts/evidence.ts",
     "daemon:dev": "pnpm --filter @shadow/daemon dev",
     "package": "tsx scripts/package.ts",
-    "release": "tsx scripts/release.ts"
+    "release": "tsx scripts/release.ts",
+    "deploy:api": "bash scripts/deploy/api.sh",
+    "deploy:app": "bash scripts/deploy/app.sh",
+    "deploy:site": "bash scripts/deploy/website.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

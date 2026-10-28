@@ -11,6 +11,7 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 | Page | For |
 | --- | --- |
 | [`docs/product.md`](docs/product.md) | Opening Shadow for the first time: install, record a task, look at it, run it, what stays on your Mac |
+| [`DEPLOY.md`](DEPLOY.md) | Shipping it: `shadow-api` to Cloud Run, the `.dmg` to GitHub Releases, the site to Vercel (three commands) |
 | [`docs/design.md`](docs/design.md) | The design, every decision with its date, and the [status table](docs/design.md#status-design-vs-code) of what is built |
 | [`docs/cloud-architecture.md`](docs/cloud-architecture.md) | Shadow, managed: sign-in, `shadow-api` on Google Cloud, model calls with Shadow's key, connected apps through Composio, quotas |
 | [`docs/questions.md`](docs/questions.md) | The questions people ask, answered by mechanism: what runs when, which file does it, and why not the other way |
@@ -20,19 +21,18 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 
 ## What works today
 
-Status on **Oct 13, 2026**, evening. Everything below was checked by tests and by hand on this Mac, with a scripted model; [doc 14](docs/guide/14-shadow-end-to-end.md#8-what-is-left-and-the-sign-off-list) lists what a person still has to try.
+Status on **Oct 28, 2026**. Checked by 794 tests and by hand on this Mac; the agents also on the real models.
 
 | Built | Not yet |
 | --- | --- |
-| **Recording** web pages, Mac apps (Accessibility) and file moves, after a short form (goal, how often, what changes, never), with optional **screenshots** (only the words read on the Mac, masked, leave it) and **narration** (turned into text on the Mac), turned into a workflow by the **design agent** (inputs, loops, branches, LLM steps), with questions on what is unclear. **Record again** on a workflow records it anew as its next version | Screenshots and narration tried by a person with macOS's permissions; the design agent tried on the real model |
-| **Editing** any step in the window: what it is for, its values, approval on or off, remove, move; every change checked and saved at once, undo and redo, saved as the next version | Adding a step from the editor |
-| **Walk through**: the workflow runs one step at a time with each target outlined, and you say Next, Do it, Skip or Stop | |
-| **Running** the workflow tree: loops, branches, LLM steps, questions and approvals, in your own Chrome and in Mac apps | |
-| **Recovering** from failures: classify, repair with cheap fixes or the repair agent (Nemotron 3 Super), which may ask to see a masked picture if you allow it, keep the fix as a new version, roll back | The fix shown by you recorded as the repair; Mac-app repair beyond the first cheap fix |
-| **The inbox**: a run that needs you waits there, even across a restart, and goes on when you answer | |
-| **Triggers**: live, paused and draft workflows; schedules; "when a file appears in a folder"; auto-pause after 3 failures | "When an email arrives" |
-| **Shadow.app**: menu bar, window (inbox, workflows, editor, runs, versions, Frequency, Settings with memory), notifications, the floating Record button, first-run setup, starts at login | Tried by a person on a clean Mac |
-| **The daemon** as a service: local API (socket and HTTP), log files, starting at login; **packaged** inside the app with its own Node, the API key in the Keychain (`pnpm package` → one `.dmg`) | The GitHub Release (`pnpm release` not yet run); CI building the `.dmg` |
+| **Recording** web pages, Mac apps (Accessibility) and file moves after a short form (goal, how often, what changes, never), with optional **screenshots** (only the words read on the Mac leave it) and **narration** (turned into text on the Mac) | |
+| **The design agent** (Nemotron 3 Super) turns a recording into a workflow it edits like a file: loops, branches, AI steps, app steps; a **critic** takes a second look; it asks what only you can decide; a design that didn't build what you said is kept as recorded and says so | Reliable on the hardest task we tried (YC jobs → a Google Sheet): it plans it right, but doesn't always finish the sheet write |
+| **Readable workflows**: steps grouped into named **blocks** (one per thing you did on a page), plain titles, a details panel with the raw steps for debugging, problems shown on the step they're about | |
+| **Editing**: change any step, approval on or off, move, remove; **"+" adds a step** (open, click, type, read, AI step, files, app action); group steps in a block, a loop or an if; undo, redo, saved as the next version; **Tidy up** groups a workflow saved before blocks | Edit and Test as modes of the workflow page; changing a workflow by chat |
+| **Walk through** one step at a time; **running** in your own Chrome and Mac apps, by hand or live on a schedule or a folder | "When an email arrives" |
+| **Recovering**: failures are classified, cheap fixes first, then the repair agent, which asks you before anything it may not change alone; fixes saved as versions you can roll back | Offering to connect an app from inside a repair |
+| **Connected apps** (Google Sheets, Gmail, Slack… through Composio) used directly by workflows; **sign in with Google**, no API key | |
+| **Shadow.app** (menu bar, window, inbox, first run) with the daemon inside, packaged as one `.dmg`; `shadow-api` on Cloud Run | Notarized by Apple (first open is right-click → Open) |
 
 ## How it works
 
@@ -115,7 +115,7 @@ These values were **estimated by reading the code** on Oct 6, before the workflo
 
 The packaged app needs no Node, no pnpm and no repository on your Mac. The same steps, with pictures of what you see, are in [`docs/product.md`](docs/product.md).
 
-1. Download `Shadow-<version>.dmg` from the latest GitHub Release ([Deployed Link](#deployed-link)) and open it. Drag **Shadow** to Applications and open it; the first time, right-click → Open (it is signed by us, not by Apple).
+1. Download `Shadow.dmg` from the latest GitHub Release ([Deployed Link](#deployed-link)) and open it. Drag **Shadow** to Applications and open it; the first time, right-click → Open (it is signed by us, not by Apple).
 2. The setup window has three steps. **Sign in:** press Sign in; your browser opens Shadow's sign-in page (Google or email), and back in the app you should see "Connected to Nemotron". No API key is needed. **Chrome:** press Connect Chrome, then in `chrome://extensions` turn on Developer mode, Load unpacked, pick the folder the Finder window shows, and in the extension's Details turn on "Allow access to file URLs". **Permissions:** Accessibility if you want Mac apps recorded; Screen Recording and Microphone only if you want screenshots and narration.
 3. Press Open Shadow. From now on Shadow and its daemon start when you log in. Record from the window or the menu bar; while you record, a red button with a clock floats on your screen.
 4. Optional: **Apps** (in the sidebar) to connect Google Sheets, Gmail and others, so workflows can write to them directly instead of clicking through their pages.
@@ -240,12 +240,12 @@ TypeScript monorepo (pnpm workspaces), plus the Swift app. One language for the 
 │   ├── mac/           # Shadow.app (Swift): menu bar, window, notifications, the record pill, first run, login items, Mac-app capture and replay
 │   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
 │   ├── native-host/   # the shim Chrome starts: pipes native messaging <-> the daemon's Unix socket
-│   └── website/       # the product site (Next.js static export, GSAP)
+│   └── website/       # the landing site (Next.js static export, GSAP), deployed to Vercel
 ├── skills/real/       # replay test workflows against real sites (see skills/real/README.md)
 ├── fixtures/
 │   ├── pages/         # local test pages, including drifted redesigns for repair
 │   └── snapshots/     # saved copies of the real pages; tests check every locator against them
-├── scripts/           # fixture server, installers (native host, daemon at login), Mac app build, package (.dmg) and release, sandbox seeder, page snapshots, llm check
+├── scripts/           # deploy/ (api, app, website), fixture server, installers (native host, daemon at login), Mac app build, package (.dmg) and release, sandbox seeder, page snapshots, llm check
 ├── docs/              # design.md, product.md, questions.md, design-ui.md, examples.md (15 real workflows), guide/ (explainers and diagrams)
 └── .github/           # CI (lint, typecheck, test, build) and CODEOWNERS template
 ```
@@ -262,19 +262,23 @@ Workspace packages are used as TypeScript source (no build step); the extension,
 
 ## Deployed Link
 
-Test build: a GitHub Release with `Shadow-<version>.dmg` (Shadow.app with the daemon inside) and `shadow-extension.zip`. The link is added here when the first release is published with `pnpm release`. The website is `apps/website`, not hosted yet: `pnpm --filter @shadow/website build` writes static pages to `apps/website/out` for any file host (set `SITE_BASE_PATH=/<folder>` to serve it from a folder, such as a GitHub project page).
+- **Site**: the landing page on Vercel (`pnpm deploy:site` prints its URL).
+- **Download**: [the latest release](https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent/releases/latest): `Shadow.dmg` (the app, with the daemon and the Chrome extension inside) and `shadow-extension.zip`.
+- **Service**: `shadow-api` on Google Cloud Run; its URL is built into the app.
 
 ## Deployment Guide
 
-Two things ship: **`shadow-api`** to Google Cloud Run, once, and the **`.dmg`** for users.
+Everything ships with three commands, in this order; [`DEPLOY.md`](DEPLOY.md) has what to set up first and the two
+clicks the console needs:
 
-0. **The service** (`apps/api`): a Google Cloud project with Firestore, Identity Platform and Secret Manager (the Nebius key, the Composio key, a token-signing key), then `gcloud run deploy`. Every command is in [`apps/api/README.md`](apps/api/README.md). The app finds it at the URL baked in at `pnpm package` time (`SHADOW_API_URL`).
+```sh
+PROJECT_ID=<your gcp project> pnpm deploy:api   # shadow-api to Cloud Run, keys in Secret Manager; saves its URL
+pnpm deploy:app                                 # the .dmg with that URL inside, published as a GitHub Release
+pnpm deploy:site                                # the landing site to Vercel; its button downloads that .dmg
+```
 
-1. `pnpm package` builds the extension, compiles Shadow.app, bundles the daemon and the native host with esbuild, copies the Node binary this script ran with, adds the window's pages, the extension folder, the icon and the daemon's LaunchAgent file, signs the app ad hoc and makes `dist/Shadow-<version>.dmg` plus `dist/shadow-extension.zip`. Needs macOS with the command line tools (`swiftc`, `iconutil`, `hdiutil`). `--skip-build` reuses the last build.
-2. `pnpm release [--draft] [--notes <file>]` publishes both files as a GitHub Release tagged with the version in `package.json` (needs `gh auth login`).
-3. The user follows [Install the app](#install-the-app): on first launch the app registers itself and the daemon as login items, signs the user in (the refresh token goes to the Keychain), checks the model, connects Chrome, and asks for the macOS permissions.
-
-The app is signed ad hoc (no Apple developer account), so the first open is right-click → Open, and macOS ties the Accessibility permission to each build.
+The app is signed ad hoc (no Apple developer account), so the first open is right-click → Open, and macOS ties the
+Accessibility permission to each build.
 
 ## License
 

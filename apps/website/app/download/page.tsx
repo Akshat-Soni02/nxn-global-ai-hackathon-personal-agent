@@ -1,4 +1,4 @@
-// Download: the .dmg, what you need, the three setup steps, what to do if something is off, the questions people
+// Download: the .dmg, what you need, the four setup steps, what to do if something is off, the questions people
 // ask, and how to build it from the source.
 import type { Metadata } from "next";
 import { FAQ } from "../../components/FAQ";
@@ -7,14 +7,17 @@ import { LINKS, FAQ as QUESTIONS, REQUIREMENTS, TROUBLE } from "../../lib/conten
 
 export const metadata: Metadata = {
   title: "Download",
-  description:
-    "Download Shadow for Mac: one app. Paste your Nebius Token Factory key, connect Chrome, and record your first task.",
+  description: "Download Shadow for Mac: one app. Sign in with Google, connect Chrome, and record your first task.",
 };
 
 const SETUP = [
   {
-    title: "Your key",
-    text: "Paste your Nebius Token Factory key and press Save and check. It goes into your Keychain, and you see “Connected to Nemotron”.",
+    title: "Open it",
+    text: "Drag Shadow to Applications. The first time, right-click it and choose Open, then Open again: it is signed by its makers, not yet by Apple. After that it opens like any app.",
+  },
+  {
+    title: "Sign in",
+    text: "Press Sign in. Your browser opens Shadow's sign-in page: choose your Google account. No API key, nothing to paste.",
   },
   {
     title: "Chrome",
@@ -39,7 +42,7 @@ export default function Download() {
             Get Shadow.
           </h1>
           <p className="lead" data-reveal>
-            One app for your Mac. Open it, paste your key, connect Chrome, and record your first task.
+            One app for your Mac. Open it, sign in with Google, connect Chrome, and record your first task.
           </p>
           <div className="actions" data-reveal>
             <DownloadButton label="Download the .dmg" />
@@ -72,7 +75,7 @@ export default function Download() {
         <div className="wrap-wide">
           <div className="section-head" data-reveal>
             <p className="eyebrow">Set up</p>
-            <h2 className="headline">Ready in three steps.</h2>
+            <h2 className="headline">Ready in four steps.</h2>
             <p className="lead">
               Drag Shadow to Applications and open it. A setup window walks you through these; then press Open Shadow
               and record your first task from its window.

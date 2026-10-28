@@ -102,7 +102,7 @@ export function ClosingCTA({ title = "Show it once.", lead }: { title?: string; 
           <More href={LINKS.repo}>Source on GitHub</More>
         </div>
         <p className="fine" style={{ marginTop: 22 }}>
-          macOS 14 or later · Free and open source · Your own Nebius Token Factory key
+          macOS 14 or later · Free to try · Sign in with Google
         </p>
       </div>
     </Band>

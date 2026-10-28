@@ -11,7 +11,7 @@ Mac apps, with your files. When a website changes, it fixes the task itself and 
 
 ## Install
 
-1. Download `Shadow-<version>.dmg` from the latest GitHub Release and open it.
+1. Download `Shadow.dmg` from the latest GitHub Release (the Download button on the site) and open it.
 2. Drag **Shadow** to Applications and open it. The first time, right-click → Open (it is signed by us, not by Apple).
 3. A setup window appears with three steps:
    - **Sign in.** Press Sign in. Your browser opens Shadow's sign-in page: use Google or your email. Back in the

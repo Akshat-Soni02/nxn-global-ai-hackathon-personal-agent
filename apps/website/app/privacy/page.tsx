@@ -1,5 +1,5 @@
 // Privacy: the four promises, how the words on screen are read and masked on the Mac, what stays there and for how
-// long, what leaves it (text only, with your own key) and what never does, and the switches that control it.
+// long, what leaves it (text only, through Shadow's service, kept by no one) and what never does, and the switches that control it.
 import type { Metadata } from "next";
 import { Icon } from "../../components/Icons";
 import { Band, ClosingCTA, PageHero } from "../../components/ui";
@@ -8,7 +8,7 @@ import { STAYS } from "../../lib/content";
 export const metadata: Metadata = {
   title: "Privacy",
   description:
-    "There is no Shadow cloud. Your workflows, inbox and memory stay on your Mac; screen text is masked before it leaves; nothing outward happens without your approval.",
+    "Your recordings, workflows, inbox and memory stay on your Mac; screen text is masked before it leaves; nothing outward happens without your approval.",
 };
 
 const LEAVES = [
@@ -36,7 +36,7 @@ export default function Privacy() {
       <PageHero
         eyebrow="Privacy"
         title="Private by design."
-        lead="Shadow watches you work, so it was built to keep what it sees. There is no Shadow cloud: your Mac is the server, and the model is called with your own key."
+        lead="Shadow watches you work, so it was built to keep what it sees. Your Mac is the server: what you record and run stays on it. Model calls go through Shadow's service, which stores none of what you send."
       />
 
       <Band tone="white" label="Four promises">
@@ -46,8 +46,8 @@ export default function Privacy() {
               <Icon name="mac" className="icon" />
               <h2 className="card-title">Your Mac is the server</h2>
               <p className="body">
-                The app on your Mac holds your workflows, your inbox and what Shadow remembers. It calls the model on
-                Nebius Token Factory directly, with your key from your Keychain. Nothing passes through us.
+                The app on your Mac holds your workflows, your inbox and what Shadow remembers. Model calls pass through
+                Shadow's service to Nebius Token Factory; it keeps your account and usage, never what you send.
               </p>
             </article>
             <article className="tile big" data-reveal>
@@ -135,10 +135,11 @@ export default function Privacy() {
         <div className="wrap">
           <div className="section-head" data-reveal>
             <p className="eyebrow">Off your Mac</p>
-            <h2 className="headline">Text only. With your key.</h2>
+            <h2 className="headline">Text only. Kept by no one.</h2>
             <p className="lead">
-              What Shadow sends goes to Nebius Token Factory, to the NVIDIA Nemotron models. Turn on Zero Data Retention
-              for your account and it isn't kept there.
+              What Shadow sends goes through Shadow's service to Nebius Token Factory and the NVIDIA Nemotron models,
+              with Zero Data Retention: not stored, not trained on. Apps you connect are reached through Composio, which
+              holds those connections.
             </p>
           </div>
           <div className="leaves">

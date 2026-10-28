@@ -45,7 +45,7 @@ export function Footer() {
         <div className="footer-note">
           <p>
             Shadow was built for the Nebius × NVIDIA Global AI Hackathon, Personal AI track. It runs NVIDIA Nemotron
-            models on Nebius Token Factory, with your own key.
+            models on Nebius Token Factory, and connects your apps through Composio.
           </p>
           <p>Shadow is signed by its makers, not by Apple: the first time, right-click the app and choose Open.</p>
         </div>
