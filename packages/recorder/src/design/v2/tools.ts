@@ -175,7 +175,10 @@ export function snakeNames(steps: unknown[]): unknown[] {
       renames.set(name, name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase());
   };
   const find = (x: unknown): void => {
-    if (Array.isArray(x)) return x.forEach(find);
+    if (Array.isArray(x)) {
+      for (const v of x) find(v);
+      return;
+    }
     if (!x || typeof x !== "object") return;
     const s = x as Record<string, unknown>;
     note(s.save_as);
