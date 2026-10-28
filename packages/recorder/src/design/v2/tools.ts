@@ -1026,6 +1026,12 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
     if (s.type === "llm" || "instruction" in s) {
       const step: Record<string, unknown> = { ...s, type: "llm" };
       step.id ??= newId("ai");
+      // A name written bare is the value it names, as the ai_step tool takes it (the second YC design, 28 Oct: inputs
+      // ["yc_page"] would have given the model the word "yc_page"); words with spaces stay words.
+      if (Array.isArray(s.inputs))
+        step.inputs = s.inputs.map((i) =>
+          typeof i === "string" && /^[A-Za-z_][\w.]*$/.test(i.trim()) ? `{{${i.trim()}}}` : i,
+        );
       step.intent ??= String(s.instruction ?? "").slice(0, 80);
       const output = typeof s.output === "string" ? { name: s.output } : ((s.output ?? {}) as Record<string, unknown>);
       step.output = { ...output, type: output.type === undefined ? { type: "text" } : typeFrom(output.type) };

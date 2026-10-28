@@ -8,6 +8,7 @@
 import { dirname } from "node:path";
 import {
   applyEdits,
+  BUILT_INS,
   type Check,
   type EditInput,
   findStep,
@@ -150,6 +151,9 @@ const READS_OUTSIDE =
 // A ranking the list doesn't hold ("the 3 with the most points") is judgement, so it stays the AI step's.
 const RANKED = /\b(by|most|least|highest|lowest|best|worst|largest|smallest|cheapest|biggest)\b/i;
 const COUNT = /^\s*(take|keep|return|select|pick|get|give)\b[^.]{0,20}\b(first|top|last)\s+(\d+\b|\{\{\s*\w+\s*\}\})/i;
+// "the top 5 job listings" anywhere in an AI step that returns a list (the second YC design, 28 Oct: "From the job board
+// page, extract the top 5 job listings", then the ones already in the sheet dropped, so a day added fewer than 5).
+const COUNTED_LIST = /\b(first|top|last)\s+(\d+|\{\{\s*\w+\s*\}\})\b/i;
 
 export function stepProblems(step: Step): string[] {
   // An AI step sees only its inputs, never the page (28 Oct, the YC design: "extract the job listings visible on the
@@ -157,7 +161,11 @@ export function stepProblems(step: Step): string[] {
   if (isLlm(step)) {
     // The first N of a list is a count, which code does: a loop's `first` (live run, 28 Oct: "take the first 5" came back
     // as items 1, 2, 3, 2, 5, and the run stopped on its own pick check).
-    if (COUNT.test(step.instruction) && !RANKED.test(step.instruction))
+    const list = step.output.type.type === "list";
+    if (
+      (COUNT.test(step.instruction) || (list && COUNTED_LIST.test(step.instruction))) &&
+      !RANKED.test(step.instruction)
+    )
       return [
         `${step.id}: counting is code's, not an AI step's: loop over the whole list with first: N (it goes through only the first N), and put the steps that use each item in the loop`,
       ];
@@ -240,7 +248,10 @@ export function chainedAi(skill: Skill): string[] {
   }
   return steps.flatMap((step) => {
     if (step.type !== "llm") return [];
-    const names = step.inputs.flatMap((ref) => [...ref.matchAll(/\{\{\s*([A-Za-z_]\w*)/g)].map((m) => m[1] as string));
+    // Today's date beside another AI step's answer is still only a reshape: built-ins are no source of their own.
+    const names = step.inputs
+      .flatMap((ref) => [...ref.matchAll(/\{\{\s*([A-Za-z_]\w*)/g)].map((m) => m[1] as string))
+      .filter((n) => !(n in BUILT_INS));
     const from = [...new Set(names.map((n) => madeBy.get(n)))];
     if (names.length === 0 || from.some((s) => s?.type !== "llm")) return [];
     const ids = from.map((s) => (s as Step).id);
@@ -248,6 +259,18 @@ export function chainedAi(skill: Skill): string[] {
       `${step.id} only reshapes what ${ids.join(" and ")} answered: ask ${ids[0]} for that shape, and give it what ${step.id} needs too; one AI step per judgement (each is a model call on every run)`,
     ];
   });
+}
+
+// A schedule at midnight they never said (the second YC design, 28 Oct: "0 0 * * *" for "every day"): a time they
+// didn't say is 9:00 in the morning, as the prompt says.
+export function unsaidMidnight(skill: Skill, said: string[]): string[] {
+  const midnight = triggerOf(skill).when.filter(
+    (w) => w.type === "schedule" && /^0\s+0\s/.test((w as { cron: string }).cron.trim()),
+  );
+  if (midnight.length === 0 || said.some((t) => /midnight|12\s*am|00:00|\b0:00\b/i.test(t))) return [];
+  return [
+    `its schedule runs at midnight ("0 0 …"), a time they didn't say: a time they didn't say is 9:00 in the morning ("0 9 …")`,
+  ];
 }
 
 export function runProblems(skill: Skill, limits: { aiCallsPerRun?: number } = {}): string[] {
@@ -713,6 +736,7 @@ export function gate(input: GateInput): string[] {
   }
   problems.push(...runProblems(workflow, { aiCallsPerRun: input.aiCallsPerRun }));
   problems.push(...chainedAi(workflow));
+  problems.push(...unsaidMidnight(workflow, input.said ?? []));
   problems.push(...(input.unattended?.(workflow) ?? []));
 
   // As often as they said: the task model's cadence, or frequency words in the goal and what was said (F1: the model

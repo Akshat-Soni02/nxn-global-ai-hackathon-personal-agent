@@ -18,6 +18,7 @@ import {
   unbuiltProposals,
   unfoundIn,
   unmadeProblems,
+  unsaidMidnight,
   withoutUnusedInputs,
 } from "./gate.ts";
 
@@ -642,6 +643,42 @@ describe("AI steps that only reshape another AI step's answer (28 Oct YC → She
       ai("ai6", ["{{page_text}}"], "listings"),
     ]);
     expect(chainedAi(one)).toEqual([]);
+    // A built-in value ({{today}}) beside another AI step's answer is still only a reshape (the second YC design:
+    // rows made from the new jobs and today's date by a model call).
+    const dated = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      ai("ai6", ["{{page_text}}"], "listings"),
+      ai("ai9", ["{{listings}}", "{{today}}"], "rows"),
+    ]);
+    expect(chainedAi(dated).join()).toMatch(/ai9 only reshapes what ai6 answered/);
+  });
+
+  it("refuses a count on an AI step that returns a list, wherever the count is in the sentence", () => {
+    const top = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      {
+        ...ai("ai6", ["{{page_text}}"], "top5"),
+        instruction: "From the job board page, extract the top 5 job listings in order as they appear",
+      },
+    ]);
+    expect(runProblems(top).join()).toMatch(/ai6: counting is code's/);
+    // A count inside one text (its first paragraphs) is reading, and stays the AI step's.
+    const text = skill([
+      act("s1", "web", "extract", {}, { output: { name: "page_text", type: { type: "text" } } }),
+      {
+        ...ai("ai6", ["{{page_text}}"], "gist"),
+        instruction: "summarise the first 2 paragraphs",
+        output: { name: "gist", type: { type: "text" } },
+      },
+    ]);
+    expect(runProblems(text).join()).not.toMatch(/counting/);
+  });
+
+  it("says a midnight schedule they never said is 9:00 (the second YC design ran at 0 0 * * *)", () => {
+    const at = (cron: string) => skill([act("s1", "web", "navigate", { url: CHAT })], [{ type: "schedule", cron }]);
+    expect(unsaidMidnight(at("0 0 * * *"), ["every day"]).join()).toMatch(/9:00/);
+    expect(unsaidMidnight(at("0 0 * * *"), ["every night at midnight"])).toEqual([]);
+    expect(unsaidMidnight(at("0 9 * * *"), ["every day"])).toEqual([]);
   });
 });
 

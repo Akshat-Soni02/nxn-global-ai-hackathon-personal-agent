@@ -569,12 +569,12 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
     });
     const out = await run(s, "change", {
       step: "ai1",
-      instruction: "the first 3 in the list's order",
+      instruction: "the stories in the list's order",
       inputs: ["{{page}}"],
       why: "order",
     });
     expect(JSON.stringify(out.output)).toContain('"ok":true');
-    expect(findStep(s.draft, "ai1")).toMatchObject({ instruction: "the first 3 in the list's order" });
+    expect(findStep(s.draft, "ai1")).toMatchObject({ instruction: "the stories in the list's order" });
     const target = await run(s, "change", { step: "ai1", target: { like: "s3" }, why: "x" });
     expect(JSON.stringify(target.output)).toMatch(/an AI step changes its instruction or inputs/);
   });
@@ -686,7 +686,7 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
       step: {
         do: "ai_step",
         intent: "pick",
-        instruction: "the first 3 in the list's order",
+        instruction: "the stories in the list's order",
         inputs: ["{{page}}"],
         output: { name: "top", type: "list" },
       },
@@ -765,7 +765,7 @@ describe("before round 3 spends: what the model resends, and what the run's mode
     await run(s, "ai_step", {
       after: "s4",
       intent: "p",
-      instruction: "the first 3 in the list's order",
+      instruction: "the stories in the list's order",
       inputs: ["{{page}}"],
       output: { name: "stories", type: "list" },
     });

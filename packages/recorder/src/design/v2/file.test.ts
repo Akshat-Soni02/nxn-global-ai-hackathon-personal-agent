@@ -100,7 +100,7 @@ describe("the workflow as a file", () => {
             why: "the subjects to pick from",
           },
           {
-            instruction: "the subjects of KPI emails, the first 3 in the list's order",
+            instruction: "the subjects of KPI emails, in the list's order",
             inputs: ["{{subjects}}"],
             output: { name: "reports", type: "list" },
           },
@@ -126,6 +126,30 @@ describe("the workflow as a file", () => {
     // s1 was rewritten as a new step: the recorded one is gone with the change's why, so no work is lost.
     expect(lostWork(recorded, s.draft, s.whys)).toEqual([]);
     void s1;
+  });
+
+  it('makes an AI step\'s bare input names references (the second YC design wrote inputs: ["yc_page"])', async () => {
+    const s = session();
+    const [trigger, s1] = steps(s) as Record<string, unknown>[];
+    const written = await run(s, "write_workflow", {
+      workflow: {
+        steps: [
+          trigger,
+          s1,
+          { do: "read", intent: "read the inbox", save_as: "inbox" },
+          {
+            instruction: "the Acme reports in the inbox",
+            inputs: ["inbox", "only Acme's"],
+            output: { name: "acme", type: "list" },
+          },
+        ],
+      },
+      why: "x",
+    });
+    expect(written.problems).toBeUndefined();
+    const step = s.draft.steps.find((x) => x.type === "llm") as { inputs: string[] };
+    // A name becomes a reference; words stay words.
+    expect(step.inputs).toEqual(["{{inbox}}", "only Acme's"]);
   });
 
   it("takes what the YC design wrote (Oct 25): steps named by id in a loop, a cron as expr, a bad JSON string said so", async () => {
@@ -176,7 +200,7 @@ describe("the workflow as a file", () => {
             id: "pick",
             type: "ai_step",
             intent: "pick",
-            instruction: "the first 5 in the list's order",
+            instruction: "the new ones, in the list's order",
             inputs: ["{{jobs}}"],
             output: { name: "top", type: "list" },
           },
