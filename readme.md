@@ -176,7 +176,7 @@ What we found while building Shadow. Each point comes from a run or a measuremen
 ### NVIDIA Nemotron
 
 **What worked well**
-- Nemotron 3 Super with tools turns a messy recording into a working workflow, with loops, branches, AI steps and connected-app steps, and asks sensible questions.
+- Nemotron 3 Super with tools reads a messy recording and builds a workflow with loops, branches, AI steps and connected-app steps. On a real YC → Google Sheets recording, its 7th re-design finished right: the right columns, the first 5 jobs, 3 AI calls. Most of the earlier stalls were slips of form (below), which code now settles.
 - Nemotron 3.5 Lightning is fast and cheap enough to sit inside every scheduled run.
 
 **What was hard**
