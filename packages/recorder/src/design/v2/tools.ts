@@ -1306,8 +1306,11 @@ export function designToolsV2(session: SessionV2, options: { mode?: DesignMode }
               problems: [`no proposal ${proposal}. Proposals: ${[...session.proposals.keys()].join(", ") || "none"}`],
             },
           };
-        if (session.decisions.has(proposal))
-          return { output: { ok: false, problems: [`${proposal} is decided already`] } };
+        // Accepted again: a yes, not a refusal (Oct 27: four of these counted as changes that went nowhere, and the
+        // design was stopped after 14 calls). Accepting one it rejected is still refused.
+        const decided = session.decisions.get(proposal);
+        if (decided?.decision === "accept") return { output: { ok: true, note: `${proposal} is accepted already` } };
+        if (decided) return { output: { ok: false, problems: [`${proposal} was rejected: ${decided.why}`] } };
         if (!p.runnable || p.edits.length === 0) {
           session.decisions.set(proposal, { decision: "accept", why });
           // Checkpoint 4: "nothing to change" was read as done, and the steps still found today's items by their text.

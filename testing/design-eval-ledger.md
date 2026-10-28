@@ -81,3 +81,5 @@
 | 2026-10-26T05:23:49.229Z | yc-recording | nvidia/nemotron-3-super-120b-a12b | $0.2540 | 1/1 |
 | 2026-10-26T05:28:15.813Z | yc-recording | nvidia/nemotron-3-super-120b-a12b | $0.0975 | 1/1 |
 | 2026-10-27T06:06:55.901Z | yc-recording | nvidia/nemotron-3-super-120b-a12b | $0.1306 | 1/1 |
+| 2026-10-27T06:39:35.004Z | yc-recording | nvidia/nemotron-3-super-120b-a12b | $0.0817 | 1/1 |
+| 2026-10-27T06:58:07.313Z | yc-recording | nvidia/nemotron-3-super-120b-a12b | $0.0670 | 1/1 |
