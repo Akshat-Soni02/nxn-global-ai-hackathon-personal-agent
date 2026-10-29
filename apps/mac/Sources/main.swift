@@ -89,6 +89,14 @@ final class AppMain: NSObject, NSApplicationDelegate {
   // The daemon's API over the socket (api.call): replies by request id.
   private var calls: [String: (JSON) -> Void] = [:]
 
+  // Clicking the Dock icon, or opening Shadow again from Applications or Spotlight while it runs: show the window
+  // (before, nothing happened). During first run, its setup window is brought back instead.
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+    guard !hasVisibleWindows, !arguments.contains("--fixture") else { return true }
+    if UserDefaults.standard.bool(forKey: "firstRunDone") { window.show() } else { showFirstRun() }
+    return true
+  }
+
   func applicationDidFinishLaunching(_ notification: Notification) {
     // The menu bar item, the window and notifications: not in the fixture's test mode.
     if !arguments.contains("--fixture") {
@@ -566,5 +574,7 @@ if let dir = argument("--snapshot") {
 let app = NSApplication.shared
 let delegate = AppMain()
 app.delegate = delegate
-app.setActivationPolicy(.accessory)  // no Dock icon, no menu bar of its own: just the floating button
+// A Dock icon, so a first-time user who closed the window can find Shadow again (the menu bar item alone was missed).
+// The test fixture stays without one; Info.plist's LSUIElement keeps the command-line modes above from flashing it.
+app.setActivationPolicy(arguments.contains("--fixture") ? .accessory : .regular)
 app.run()

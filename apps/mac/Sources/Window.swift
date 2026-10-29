@@ -70,8 +70,7 @@ final class AppWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
   }
 
   func windowWillClose(_ notification: Notification) {
-    // Back to a menu bar app: no Dock icon while the window is closed.
-    NSApp.setActivationPolicy(.accessory)
+    // The Dock icon stays: it was gone when the window closed, and people new to Shadow found no way back to it.
   }
 
   // Only the daemon's own pages load in the window; any other link opens in the user's browser.
