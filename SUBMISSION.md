@@ -251,7 +251,7 @@ We did not run on it, and want to say why, since that is feedback too. Shadow's 
 | Day-2 results of A–D; B unconfirmed | `testing/checkpoint-7.md` |
 | 33 steps → 10 blocks | `reports/changes.md` §1 (R2.1, R2.4) |
 | 423 commits; about 63,000 lines; 130 test files | `git rev-list --count HEAD`; line count of `*.ts`, `*.tsx`, `*.swift` under `apps/` and `packages/` (includes tests) |
-| Contributors | `git shortlog`: Rushil Jariwala (as `ruseellkj`, `rushil-searce`) and Akshat Soni |
+| Contributors | `git shortlog`: Rushil Jariwala (`ruseellkj`) and Akshat Soni |
 
 ---
 
