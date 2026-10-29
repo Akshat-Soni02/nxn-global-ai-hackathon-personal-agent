@@ -24,8 +24,8 @@ What we found while building Shadow. Each point comes from a run or a measuremen
 
 **What was hard**
 - **One tool call per turn.** In 17 of 18 saved designs, every model call carried a single tool action, so long designs ran out of calls. We redesigned around it: one call now plans every change, and code applies them.
-- **Slips in tool arguments.** In one design, the workflow arrived as a JSON string with its quotes escaped twice (9 times). Other slips: camelCase names where the schema used snake_case, and extra "end" markers. Shadow now settles these in code instead of refusing ([`reports/changes.md`](reports/changes.md), C47).
-- **It reaches for an AI step for list work that code can do**, such as "the first 5" or "flatten this list". Once, this made a real run hit its limit of AI calls. Code now counts a design's AI calls and refuses list counting inside AI steps (C36–C48).
+- **Slips in tool arguments.** In one design, the workflow arrived as a JSON string with its quotes escaped twice (9 times). Other slips: camelCase names where the schema used snake_case, and extra "end" markers. Shadow now settles these in code instead of refusing.
+- **It reaches for an AI step for list work that code can do**, such as "the first 5" or "flatten this list". Once, this made a real run hit its limit of AI calls. Code now counts a design's AI calls and refuses list counting inside AI steps.
 
 ## Nebius AI Cloud
 
