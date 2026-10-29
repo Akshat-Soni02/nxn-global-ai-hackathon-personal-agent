@@ -2,7 +2,7 @@
 
 Shadow learns a work task from watching you do it once, runs it for you, and repairs it when a site changes. A TypeScript
 pnpm monorepo plus a Swift app (macOS). Product overview: `README.md`; first-time use: `docs/product.md`; every design
-decision with its date: `docs/design.md`. Running it and the Nemotron / Token Factory notes: the readme's Quick start.
+decision with its date: `docs/design.md`. Running it: `DEVELOPMENT.md`; the Nemotron / Token Factory notes: the README; feedback on them: `FEEDBACK.md`.
 
 ## The pipeline (where to look)
 

@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 const SETUP = [
   {
     title: "Open it",
-    text: "Drag Shadow to Applications. The first time, right-click it and choose Open, then Open again: it is signed by its makers, not yet by Apple. After that it opens like any app.",
+    text: "Drag Shadow to Applications and open it. Apple hasn't checked it yet, so the first time macOS stops it: let it through once with Open Anyway, as shown above. After that it opens like any app.",
   },
   {
     title: "Sign in",
@@ -26,6 +26,23 @@ const SETUP = [
   {
     title: "Permissions",
     text: "Allow Accessibility if you want Mac apps recorded. Screen Recording and the microphone only if you want screenshots and narration.",
+  },
+];
+
+// Shadow is signed ad hoc, not notarised (no paid Apple Developer account). Since macOS 15, right-click → Open no
+// longer lets such an app through: Privacy & Security's Open Anyway does, on every version.
+const FIRST_OPEN = [
+  {
+    title: "Open it once",
+    text: "Open Shadow from Applications. macOS says Apple could not verify it is free of malware. Press Done, not Move to Trash.",
+  },
+  {
+    title: "Open Anyway",
+    text: "Open System Settings → Privacy & Security and scroll down to Security. Next to “Shadow” was blocked, press Open Anyway.",
+  },
+  {
+    title: "Confirm",
+    text: "Press Open Anyway again and enter your Mac's password. From then on Shadow opens like any app. A new version asks once more.",
   },
 ];
 
@@ -49,7 +66,33 @@ export default function Download() {
             <More href={LINKS.repo}>Source on GitHub</More>
           </div>
           <p className="fine" data-reveal>
-            macOS 14 or later. Signed by its makers, not by Apple: the first time, right-click the app and choose Open.
+            For Macs with Apple silicon, macOS 14 or later. Not yet verified by Apple:{" "}
+            <a href="#first-open">how to open it the first time</a>.
+          </p>
+        </div>
+      </Band>
+
+      <Band tone="light" id="first-open" label="Opening it the first time">
+        <div className="wrap-wide">
+          <div className="section-head" data-reveal>
+            <p className="eyebrow">The first time</p>
+            <h2 className="headline">Not verified by Apple, yet.</h2>
+            <p className="lead">
+              Shadow is open source and signed by its makers, but not notarised by Apple: that takes a paid Apple
+              Developer account. So macOS stops it the first time. Let it through once, in three steps.
+            </p>
+          </div>
+          <ol className="setup">
+            {FIRST_OPEN.map((item) => (
+              <li key={item.title} data-reveal>
+                <h3 className="card-title">{item.title}</h3>
+                <p className="body">{item.text}</p>
+              </li>
+            ))}
+          </ol>
+          <p className="fine" style={{ marginTop: 24 }} data-reveal>
+            On macOS 14 you can instead right-click Shadow, choose Open, then Open again. If macOS still refuses, run
+            xattr -dr com.apple.quarantine /Applications/Shadow.app in Terminal.
           </p>
         </div>
       </Band>
@@ -135,7 +178,7 @@ export default function Download() {
             </p>
           </div>
           <div data-reveal>
-            <More href={`${LINKS.repo}#running-from-the-repository`}>Read the guide on GitHub</More>
+            <More href={`${LINKS.repo}/blob/main/DEVELOPMENT.md`}>Read the guide on GitHub</More>
           </div>
         </div>
       </Band>

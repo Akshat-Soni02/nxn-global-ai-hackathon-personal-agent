@@ -63,8 +63,9 @@ It builds `Shadow.app` with the service's URL in it (`SHADOW_API_URL`), packs `d
 `dist/shadow-extension.zip`, and publishes them as the GitHub Release `v<version>`, with `Shadow.dmg`: the stable name
 the site's button downloads (`…/releases/latest/download/Shadow.dmg`).
 
-The app is signed ad hoc (no Apple Developer ID), so macOS refuses the first double-click: people right-click →
-Open once. The site's download page says so in its first step. The Chrome extension is inside the app; its setup
+The app is signed ad hoc (no Apple Developer ID), so macOS refuses the first open: people press Open Anyway in
+System Settings → Privacy & Security once (right-click → Open no longer works since macOS 15). The site's download page
+and the README's "Opening an app Apple hasn't verified" walk through it. The Chrome extension is inside the app; its setup
 window walks people through loading it (Developer mode → Load unpacked), so there is no Chrome Web Store listing to
 wait for.
 

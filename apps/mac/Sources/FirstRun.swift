@@ -168,7 +168,6 @@ final class FirstRunWindow {
 
   func close() {
     window?.orderOut(nil)
-    NSApp.setActivationPolicy(.accessory)
   }
 
   private func makeWindow() -> NSWindow {

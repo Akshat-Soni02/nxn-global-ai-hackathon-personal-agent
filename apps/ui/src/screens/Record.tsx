@@ -8,7 +8,7 @@ import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
-import { chromeWarning, progressOf, questionsFor, waitingNote } from "../questions.ts";
+import { chromeWarning, progressOf, questionsFor, signInFirst, waitingNote } from "../questions.ts";
 import { savedSince } from "../review.ts";
 
 // `again`: a workflow's id, to record that task again: the box starts filled in from it, and the recording becomes
@@ -252,10 +252,32 @@ function GoalBox({
       ...(again ? { again } : {}),
     });
 
+  // Signed in or not, and the code while the browser page is open: looked at every two seconds, as the Inbox does.
+  const settings = useQuery<{
+    account: { signedIn: boolean; apiUrl?: string; pending?: { userCode: string } };
+    key: { present: boolean };
+  }>("settings", {}, { everyMs: 2000 });
+  const mustSignIn = signInFirst(settings.data);
+  const pending = settings.data?.account.pending;
   const noChrome = chromeWarning(chrome);
   return (
     <>
-      {noChrome ? <p className="notice warn">{noChrome}</p> : null}
+      {mustSignIn ? (
+        <div className="notice sign-in">
+          <p>
+            <b>Sign in to Shadow first.</b> Shadow turns what you record into a workflow with NVIDIA Nemotron, through
+            your Shadow account: no API key needed.
+          </p>
+          <Action kind="primary" run={() => session.call("signIn").then(() => settings.reload())}>
+            {pending ? `Finish signing in (code ${pending.userCode})` : "Sign in with Google"}
+          </Action>
+        </div>
+      ) : null}
+      {noChrome ? (
+        <p className="notice warn">
+          {noChrome} <a href="#/settings">Open Settings</a>
+        </p>
+      ) : null}
       {last ? (
         <p className={last.outcome === "failed" ? "error" : "muted"}>
           Last recording: {last.text}
@@ -299,9 +321,15 @@ function GoalBox({
             label="Let the model see masked pictures"
             icon="picture"
           />
-          <Action kind="primary" run={start}>
-            <span className="dot rec" /> {again ? "Record again" : "Record"}
-          </Action>
+          {mustSignIn ? (
+            <button type="button" className="button primary" disabled title="Sign in to Shadow first">
+              <span className="dot rec" /> {again ? "Record again" : "Record"}
+            </button>
+          ) : (
+            <Action kind="primary" run={start}>
+              <span className="dot rec" /> {again ? "Record again" : "Record"}
+            </Action>
+          )}
         </div>
         <details className="goalbox-private">
           <summary>Private words (optional)</summary>
@@ -318,8 +346,8 @@ function GoalBox({
       <p className="muted small goalbox-note">{consentNote(screen, microphone, screen && pictures)}</p>
       {screen && screenReady === false ? (
         <p className="error small">
-          Pictures can't be read right now: Shadow.app needs updating (pnpm setup:mac). The words on your screen won't
-          be recorded until it is.
+          Pictures can't be read right now: Shadow.app needs updating (download the latest version, or pnpm setup:mac
+          from the repository). The words on your screen won't be recorded until it is.
         </p>
       ) : null}
     </>

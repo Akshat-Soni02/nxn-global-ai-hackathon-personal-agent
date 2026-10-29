@@ -609,6 +609,17 @@ nav a.active .badge {
   background: var(--wait-bg);
   color: var(--text);
 }
+/* Above the goal box when recording waits for a sign-in: the reason, then the button. */
+.notice.sign-in {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.notice.sign-in p {
+  margin: 0;
+  flex: 1;
+}
 /* The feed kept under "Last recording" (folded). */
 .last-feed {
   margin: 4px 0 16px;

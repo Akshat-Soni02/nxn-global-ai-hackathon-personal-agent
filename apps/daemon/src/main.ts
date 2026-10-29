@@ -252,6 +252,7 @@ const service = createService({
     extensionStale: daemon.staleExtension(),
     macApp: daemon.mac(),
     model: model ? "configured" : "none",
+    service: Boolean(apiUrl),
     keySource,
     api: httpPort,
     bundle,

@@ -21,7 +21,10 @@ export const NAV = [
 ] as const;
 
 export const REQUIREMENTS = [
-  { title: "macOS 14 Sonoma or later", text: "Shadow lives on the Mac you work on." },
+  {
+    title: "A Mac with Apple silicon",
+    text: "M1 or later, on macOS 14 Sonoma or later: Shadow lives on the Mac you work on.",
+  },
   { title: "Google Chrome", text: "For the web pages Shadow records and runs." },
   {
     title: "A Google account",
@@ -158,7 +161,7 @@ export const FAQ = [
   },
   {
     q: "Why does macOS warn me the first time I open it?",
-    a: "Shadow is signed by its makers, not by Apple, for the hackathon. Right-click the app and choose Open the first time.",
+    a: "Shadow is signed by its makers but not notarised by Apple, which needs a paid Apple Developer account. Open it once, press Done, then in System Settings → Privacy & Security press Open Anyway.",
   },
   {
     q: "Is it open source?",
@@ -174,7 +177,7 @@ export const TROUBLE = [
   { q: "“Not signed in”", a: "Settings → Account → Sign in, and finish in the browser page it opens." },
   {
     q: "“Shadow can't be opened”",
-    a: "The first time only: right-click Shadow in Applications, choose Open, then Open again.",
+    a: "The first time only: System Settings → Privacy & Security, scroll to Security, press Open Anyway next to Shadow, then Open Anyway again.",
   },
   {
     q: "Chrome says “not connected”",

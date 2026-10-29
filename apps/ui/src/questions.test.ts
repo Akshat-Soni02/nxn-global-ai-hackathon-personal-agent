@@ -1,6 +1,15 @@
 import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { describe, expect, it } from "vitest";
-import { approvalWhat, chromeWarning, progressOf, proposalOf, questionsFor, waitingNote } from "./questions.ts";
+import {
+  approvalWhat,
+  chromeWarning,
+  modelStatus,
+  progressOf,
+  proposalOf,
+  questionsFor,
+  signInFirst,
+  waitingNote,
+} from "./questions.ts";
 
 const item = (id: string, kind: string, sessionId?: string) =>
   ({ id, kind, title: id, detail: sessionId ? { sessionId } : {}, createdAt: 0 }) as unknown as InboxItem;
@@ -30,9 +39,32 @@ describe("the Record screen's Chrome warning", () => {
     expect(chromeWarning(false)).toMatch(
       /Chrome isn't connected.*nothing you do in Chrome will be recorded.*chrome:\/\/extensions/,
     );
+    // The same words for the downloaded app and the repository: no terminal command (Oct 29, a first-time user was
+    // told to run pnpm setup:native-host).
+    expect(chromeWarning(false)).toMatch(/Settings → Chrome.*Connect Chrome/);
+    expect(chromeWarning(false)).not.toMatch(/pnpm/);
     expect(chromeWarning(true)).toBeUndefined();
     // A daemon older than the window sends no such field: no warning, and the screen still works.
     expect(chromeWarning(undefined)).toBeUndefined();
+  });
+});
+
+describe("signing in before recording", () => {
+  const account = (signedIn: boolean, apiUrl?: string) => ({ signedIn, ...(apiUrl ? { apiUrl } : {}) });
+  it("is asked for when this build has Shadow's service, nobody is signed in and there is no key of their own", () => {
+    expect(signInFirst({ account: account(false, "https://api.example"), key: { present: false } })).toBe(true);
+    expect(signInFirst({ account: account(true, "https://api.example"), key: { present: true } })).toBe(false);
+    // A key from .env is enough, and a build without the service has nothing to sign in to.
+    expect(signInFirst({ account: account(false, "https://api.example"), key: { present: true } })).toBe(false);
+    expect(signInFirst({ account: account(false), key: { present: false } })).toBe(false);
+    expect(signInFirst(undefined)).toBe(false);
+  });
+
+  it("names what is missing in the sidebar: a sign-in with the service, a key without it", () => {
+    expect(modelStatus({ model: "configured", service: true })).toBe("Nemotron");
+    expect(modelStatus({ model: "none", service: true })).toBe("not signed in");
+    expect(modelStatus({ model: "none", service: false })).toBe("no API key");
+    expect(modelStatus({ model: "none" })).toBe("no API key");
   });
 });
 

@@ -799,7 +799,7 @@ Built Oct 13: `FirstRun.swift` (the setup window: key, Chrome, permissions), `ke
 
 ### Signing
 
-The app is signed ad hoc (no Apple developer account). macOS ties the Accessibility permission to a build's signature, so each new build is asked for again; a release is built once, and the README says so. The build is not notarised, so the first open is right-click → Open.
+The app is signed ad hoc (no Apple developer account). macOS ties the Accessibility permission to a build's signature, so each new build is asked for again; a release is built once, and the README says so. The build is not notarised, so the first open goes through System Settings → Privacy & Security → Open Anyway (right-click → Open stopped working for such apps in macOS 15).
 
 ### Test build for judges
 
