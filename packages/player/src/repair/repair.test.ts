@@ -18,7 +18,7 @@ import {
   type PageOpResult,
 } from "../web/inspect.ts";
 import type { RepairEnv } from "./env.ts";
-import { createRepairer, type RepairOutcome } from "./repair.ts";
+import { createRepairer, newRepairBudget, type RepairOutcome } from "./repair.ts";
 
 const DRIFT = join(import.meta.dirname, "../../../../fixtures/pages/drift");
 const skill = Skill.parse(JSON.parse(readFileSync(join(DRIFT, "drift-skill.json"), "utf8")));
@@ -375,6 +375,32 @@ describe("the repair agent", () => {
       kind: "escalate",
       reason: expect.stringMatching(/no model/),
     });
+  });
+
+  it("tells the agent to try a connected app's tool first, and shows the step's shape (a real run lost 13 turns on the page)", async () => {
+    const { failure, env } = await failOn("renamed.html");
+    const llm = agent([() => call("escalate", { reason: "stop here" })]);
+    await createRepairer({ llm }).repair(skill, failure, env);
+    const sent = llm.requests[0]?.messages as { role: string; content: string }[] | undefined;
+    const system = sent?.find((m) => m.role === "system");
+    expect(system?.content).toMatch(/before you look at the page/);
+    expect(system?.content).toContain("app_tool");
+    expect(system?.content).toContain('args: { tool: "NAME", arguments: { … } }');
+  });
+
+  it("keeps one allowance across the legs of a run: a wait doesn't give it back (C4)", async () => {
+    const { failure, env } = await failOn("renamed.html");
+    const looper = fakeLlm(() => call("page_outline", {}));
+    const budget = newRepairBudget();
+    const leg = () => createRepairer({ llm: looper, budget, limits: { episode: { turns: 2 } } });
+    // Each leg is a new repairer (a wait ended the one before), but they draw on the same two repairs.
+    await leg().repair(skill, failure, env);
+    await leg().repair(skill, failure, env);
+    expect(await leg().repair(skill, failure, env)).toMatchObject({
+      kind: "escalate",
+      reason: "this run already used its 2 repairs",
+    });
+    expect(budget.episodes).toBe(2);
   });
 
   it("is refused an edit that breaks the user's decisions", async () => {

@@ -55,7 +55,11 @@ export function reviewOf(design: DesignV2Outcome, skill: Skill, made: string[] =
   const untested = (s: NonNullable<DesignV2Outcome["test"]>["steps"][number]) =>
     `${s.id}: ${s.status === "not_reached" ? "not reached" : (s.error ?? s.status.replace("_", " "))}`;
   const notTested = !test
-    ? ["the test run didn't run (no automation window)"]
+    ? [
+        design.kind === "kept"
+          ? "the test run didn't run: the design stopped before it got there"
+          : "the test run didn't run (no automation window)",
+      ]
     : test.outcome.startsWith("not run")
       ? [`the test run didn't run: ${test.outcome.replace(/^not run:\s*/, "")}`]
       : test.steps.filter((s) => s.status !== "done" && s.status !== "found").map(untested);

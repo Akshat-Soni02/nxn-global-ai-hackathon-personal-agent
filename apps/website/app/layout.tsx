@@ -16,7 +16,16 @@ export const metadata: Metadata = {
   title: { default: "Shadow · Show it once", template: "%s · Shadow" },
   description:
     "Shadow learns a task from watching you do it once, then does it for you on your Mac, and fixes itself when a site changes. Private: what you record and run stays on your Mac.",
-  icons: { icon: `${base}/mark.svg` },
+  // Safari draws no SVG tab icon and old browsers ask for /favicon.ico, so the set is: the .ico (32 px listed first
+  // so Chrome still prefers the SVG), the SVG with its rim, the touch icon for iOS, and the manifest for installs.
+  icons: {
+    icon: [
+      { url: `${base}/favicon.ico`, sizes: "32x32" },
+      { url: `${base}/icon.svg`, type: "image/svg+xml" },
+    ],
+    apple: `${base}/apple-touch-icon.png`,
+  },
+  manifest: `${base}/manifest.webmanifest`,
   openGraph: {
     title: "Shadow · Show it once",
     description: "Show a task once. Shadow does it from then on, on your Mac.",

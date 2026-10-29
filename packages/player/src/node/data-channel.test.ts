@@ -14,6 +14,32 @@ describe("data.pick: a rule, no model", () => {
     expect(pick({ from: rows, where: { Client: "acme" }, column: "Date" }).value).toBe("10/2/2026");
   });
 
+  it("fails rather than pick the wrong day when a sheet's dates can be read two ways (C33)", () => {
+    // 3/10/2026 is 3 October or 10 March; 10/3/2026 the other way round. Nothing says which the sheet means.
+    const unclear = [
+      { Date: "3/10/2026", Client: "A" },
+      { Date: "10/3/2026", Client: "B" },
+    ];
+    const r = pick({ from: unclear, where: { Date: "2026-10-03" }, column: "Client" });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/day first or month first/);
+  });
+
+  it("reads the sheet's own order from a date that can only be one way (C33)", () => {
+    const dayFirst = [
+      { Date: "3/10/2026", Client: "A" },
+      { Date: "10/3/2026", Client: "B" },
+      { Date: "25/10/2026", Client: "C" }, // 25 is a day: the sheet writes day/month
+    ];
+    expect(pick({ from: dayFirst, where: { Date: "2026-10-03" }, column: "Client" }).value).toBe("A");
+    const monthFirst = [
+      { Date: "3/10/2026", Client: "A" },
+      { Date: "10/3/2026", Client: "B" },
+      { Date: "10/25/2026", Client: "C" }, // 25 is a day: the sheet writes month/day
+    ];
+    expect(pick({ from: monthFirst, where: { Date: "2026-10-03" }, column: "Client" }).value).toBe("B");
+  });
+
   it("says which rule found nothing", () => {
     expect(pick({ from: rows, where: { Date: "2026-12-25" }, column: "Amount" })).toEqual({
       ok: false,

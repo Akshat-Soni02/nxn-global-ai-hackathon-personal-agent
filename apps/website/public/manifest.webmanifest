@@ -1,0 +1,15 @@
+{
+  "name": "Shadow",
+  "short_name": "Shadow",
+  "description": "Shadow learns a task from watching you do it once, then does it for you on your Mac, and fixes itself when a site changes.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#0b0c1a",
+  "background_color": "#0b0c1a",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

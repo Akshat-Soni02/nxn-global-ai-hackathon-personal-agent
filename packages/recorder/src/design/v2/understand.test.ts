@@ -45,7 +45,8 @@ describe("stage 1: understand", () => {
     // What steps can't do, and the order to get what changes each time: the same place before an AI pick.
     expect(BUILD).toMatch(/can't\s+use the browser's own menus, print dialog/);
     expect(BUILD).toMatch(/target: \{ place:\s+"s2" \}/);
-    expect(BUILD).toMatch(/"the first 3 in the list's\s+order", never "the top 3"/);
+    expect(BUILD).toMatch(/How many is a count, which code does: the loop's first: N/);
+    expect(BUILD).toMatch(/never write "the top 3"/);
     expect(BUILD).toMatch(/change s5 \{ tab: "KPI Sheet" \} and s6 \{ tab: "KPI Sheet" \}/);
     expect(BUILD.split("\n").length).toBeLessThanOrEqual(80);
   });

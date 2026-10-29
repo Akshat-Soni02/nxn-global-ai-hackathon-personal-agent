@@ -1,5 +1,7 @@
 # Record and replay, section by section: how each part is built, and what broke in it
 
+> **Status as of 27 Oct 2026:** a dated study. Which of its items are now fixed, partly done or still open is in [`changes.md` §7](changes.md#7-the-older-reports-reconciled); where they differ, `changes.md` is right.
+
 **Why this file.** Three rounds of real recordings showed that the failures aren't a few loose ends. They come from how some parts are designed. This file goes through record and replay one self-contained section at a time. For each one:
 - **What it does:** its flow, from input to output.
 - **Logic and rules:** the decisions in the code.
@@ -809,26 +811,26 @@ The run page now lists the repair's steps in plain words (PR #13), and a Stop bu
 
 ## Appendix: problems by section, open only
 
-| Section | Open problems |
-|---|---|
-| R1 web capture | selection clicks → containers; nameless links; canvas cells; stale page address in single-page apps |
-| R3 Mac-app capture | nameless AX elements; macOS prompts recorded |
-| R9 normalise | selection clicks kept; reading clicks kept; no "go to cell"; repetition not recognised |
-| R10 first draft | text-only targets; Google ids kept; list position lost; typed dates literal; Enter-to-send not outward |
-| D1 given | 40-step cut; tokens re-sent |
-| D2 `label_steps` | invented checks; literal values |
-| D3 tools | `id` misuse; edits as a string; wrap ops in `edit`; missing `type`; empty loop; `save_as`; screenshots unused |
-| D4 rules | the work can be removed |
-| D5 questions | no timeout |
-| D6 finish | accepts a workflow that doesn't do the task |
-| D7 record-keeping | no reasoning; invalid inputs not kept |
-| P3 matcher | text and near unused; ties unbreakable; generated ids |
-| P4 actions | no "append row" |
-| P7 checks | false success; canvas text |
-| P8 approvals | chat send not outward; outward repairs unprovable |
-| P9 DevTools | no per-call timeout; window not in front |
-| X1 classify | meaningless steps classed as drift; the hang classed unknown |
-| X2 ladder | fuzzy match onto a prefix of container text |
-| X3 evidence | "next target visible" proves too little |
-| X4 repair agent | doesn't say "the workflow is wrong" |
-| X6 outcome | commits without review |
+| Section | Open problems (18 Oct) | Status on 27 Oct (row by row in [`changes.md` §7.1](changes.md#7-the-older-reports-reconciled)) |
+|---|---|---|
+| R1 web capture | selection clicks → containers; nameless links; canvas cells; stale page address in single-page apps | Fixed, except canvas cells: the answer is a connected app (A1–A3). A nameless link is found by role, css and href |
+| R3 Mac-app capture | nameless AX elements; macOS prompts recorded | Prompts fixed. Numbers cells still open (N15) |
+| R9 normalise | selection clicks kept; reading clicks kept; no "go to cell"; repetition not recognised | Selection clicks fixed. Reading clicks kept on purpose; repeats only proposed; "go to cell" → connected app (A1–A3) |
+| R10 first draft | text-only targets; Google ids kept; list position lost; typed dates literal; Enter-to-send not outward | Fixed, except list position (recorded, not used by replay: N4, C15) and dates (proposed, the model decides) |
+| D1 given | 40-step cut; tokens re-sent | Cut fixed. Tokens still re-sent (N21) |
+| D2 `label_steps` | invented checks; literal values | Invented checks fixed (the player still treats an empty `text_visible` as true: C6). Values: proposals only |
+| D3 tools | `id` misuse; edits as a string; wrap ops in `edit`; missing `type`; empty loop; `save_as`; screenshots unused | All fixed |
+| D4 rules | the work can be removed | Fixed (`gate.ts:363-396`); one gap with read-only app steps (C3) |
+| D5 questions | no timeout | Still no timeout, by design (N20) |
+| D6 finish | accepts a workflow that doesn't do the task | Fixed |
+| D7 record-keeping | no reasoning; invalid inputs not kept | Fixed |
+| P3 matcher | text and near unused; ties unbreakable; generated ids | Fixed. Frames and shadow roots still not searched (N3) |
+| P4 actions | no "append row" | Only with a connected Sheets app (A1–A3) |
+| P7 checks | false success; canvas text | Fixed in the gate; the player side of an empty check is open (C6) |
+| P8 approvals | chat send not outward; outward repairs unprovable | Chat send fixed. Outward repairs still unprovable (A3) |
+| P9 DevTools | no per-call timeout; window not in front | Fixed for calls after setup; `attach` and `enable` still unlimited (C10) |
+| X1 classify | meaningless steps classed as drift; the hang classed unknown | Hang fixed. Meaningless steps mitigated at the source (N22) |
+| X2 ladder | fuzzy match onto a prefix of container text | Open (C11) |
+| X3 evidence | "next target visible" proves too little | Open (C18) |
+| X4 repair agent | doesn't say "the workflow is wrong" | Open (N22) |
+| X6 outcome | commits without review | Open; by decision, with Roll back. The per-run budget reset is open (C4) |

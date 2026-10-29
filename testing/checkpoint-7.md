@@ -1,0 +1,54 @@
+# Checkpoint 7: the audit's Phase 2 fixes, checked for real (27 Oct)
+
+**What this is.** The fixes of `reports/changes.md` §5 were each written test-first. This file is the other half: what
+happened when they met the real model, real Composio, real Google apps and a real Chrome. Spend: $0.25 (ledger, the rows of 27 Oct). Nothing here is in git except this record; the test sheet, test doc and daemon data are Rushil's.
+
+**Where:** Rushil's own daemon (`pnpm daemon` on `main` + the Phase 2 commits, signed in to a local `pnpm api`) for the
+app checks; the isolated test daemon and Chrome for Testing (`~/shadow-tests/checkpoint-6/kit/`) for the page checks.
+
+## Results
+
+| # | Check | How | Result |
+|---|---|---|---|
+| 1 | App steps write and read back (Sheets, Docs) | A workflow of four `mcp.call` steps, Run now: write a cell and a doc line (each asks first), read both back | ✔ The sheet read back `["shadow-check","<today>"]` from `Sheet1!A1:B1`; the doc read back `shadow-check <today>`. Both writes waited for an OK. $0 |
+| 2 | A drawn-grid step is stopped before it runs (A1, A2) | A workflow that navigates to the test sheet and types into its grid (`drawn: true`), Run now with Sheets connected | ✔ The run stopped before step 1 (no events, no browser, no model, $0) with "needs an app: step s2 works in a drawn area of Google Sheets, which replay can't reach: this workflow should use the app's own tool, not the page (Edit it, or record it again)" |
+| 3 | JS dialogs (A5) | A page that raises `alert`, `confirm` and `prompt` (`fixtures/pages/dialogs.html`), three workflows, real Chrome, extension reloaded | ✔ alert: accepted, run succeeded. confirm in a step nobody approved: stopped with `the page asked "Delete 3 items?" (confirm) and nothing says what to answer…`. confirm in an approved step: asked for the OK, then accepted, the page showed `confirm: true`. $0 |
+| 4 | Day 2 of A, B, C, D (Phase 5) | Run now of each saved workflow from the kit, real model for their AI steps | ✔ all four did their task; see below. $0.0003 |
+| 5 | Repair switches a failing page step to the connected app's tool (A3) | A workflow that opens the test doc in Rushil's Chrome and clicks a control that isn't there; Run now, real repair agent, Docs connected. Four runs, three after a fix | ◐ Partly: the agent can do it, but does not reliably choose to. Run 1 ($0.071): probed the page 13 turns, put the app step's fields outside `args`, ran out of turns. Run 2 ($0.074): went to the app at once, guessed the tool's arguments, wrote an output type as a string ten times. Run 3 ($0.037): read the tool's arguments and wrote exactly the right step (`GOOGLEDOCS_INSERT_TEXT_ACTION`, the doc id, `append_to_end: true`), then tried it, was refused, and escalated instead of committing. Run 4 ($0.068, after the try-refusal fix): never used the app, looked at the page 9 times and escalated. Nothing was written to the doc in any run. The commit-for-the-user's-yes step was never reached live |
+
+**Day 2, each result against its live source:**
+- **D** (Wikipedia's featured article as a PDF): saved `27 Oct - 1986 New York Mets season.pdf`; Wikipedia's featured
+  article for the day was the same. No AI step.
+- **A** (top 3 Hacker News stories): the three titles and points equal the front page read directly (718, 501, 28).
+- **C** (USD to INR): 95.0157 saved; x-rates showed 94.9754 when checked ten minutes later (0.04% apart).
+- **B** (newest video of the Google for Developers channel): it saved the first video the test browser's page listed
+  ("Introducing Genie 4", 1.5K). A plain `curl` of the same page listed another video first, so this one could not be
+  confirmed independently.
+
+## What the checks taught (not bugs in the product)
+
+- **Chrome keeps an extension's service worker script until the extension is reloaded.** The test Chrome ran the
+  24 Oct worker for hours after `apps/extension/dist` was rebuilt, because the version in `manifest.json` did not change:
+  every dialog run behaved as if the fix did not exist. Reload from `chrome://extensions` (or
+  `chrome.runtime.reload()`), then confirm `chrome.debugger.onEvent.hasListeners()`. A fix to the extension is not
+  checked until that is true.
+- **Playwright answers dialogs itself.** Under it, an alert is dismissed before the extension can answer, so the
+  Playwright-driven test browser proves nothing about dialogs. Use a plainly launched Chrome for Testing.
+- **Stale tabs from earlier runs** (a `dialogs.html` left open) made a click hang until closed. Start such a check with
+  one tab.
+
+## Not checked, and why
+
+- **Repair reliably choosing the app (A3), live.** Four real runs ($0.25) found four faults in how the repair agent was
+  told to do this; each was fixed test-first (`41ac2f2`, `7dab324`, `7dc57eb`). Run 3 showed the whole path up to the
+  commit; run 4, with the same instructions, never used the app. So the plumbing works and the model's choice varies
+  run to run: this is a model-reliability limit, not a missing tool. The proposed fix is code-driven: when a step fails
+  on a page an app covers and a connected tool matches its intent, code puts one narrow question to the model ("which
+  tool, with which arguments?") before any page probing, and builds the step itself. That is a design decision for
+  Rushil and Akshat, not built here. The paid-run limit (three, then this fourth) is spent.
+- **Designing a Sheets task with Sheets connected (R5.5), 28 Oct.** Rushil recorded it. His daemon's design stopped after
+  five refused writes and showed a false "no connected app covers this site" (changes.md §5.5, Y1–Y9, fixed test-first).
+  Two re-designs on the real model and the real Sheets tools ($0.10 each) built app steps; the real run read the page,
+  read the sheet and extracted 20 jobs. **Not yet proven:** the append into the test sheet (needs his daemon restarted for
+  the loop's `first`, then Run now and approving the writes).
+- **Popup windows, Save-as, permission asks, print preview and Mac-app sheets (A5 remainder).** Not built.

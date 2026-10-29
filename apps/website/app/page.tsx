@@ -2,6 +2,7 @@
 // privacy promise, what people hand to it, the models underneath, and the download.
 import Link from "next/link";
 import { Icon } from "../components/Icons";
+import { AiRim } from "../components/motion/AiRim";
 import { HeroMotion } from "../components/motion/HeroMotion";
 import { StoryScroll } from "../components/motion/StoryScroll";
 import { InboxCard, Pill, Window } from "../components/product/Mocks";
@@ -42,36 +43,38 @@ export default function Overview() {
             <div data-hero-window>
               <Scaled width={1080}>
                 <div className="hero-drawing">
-                  <Window id="hero" badge={3}>
-                    <p className="w-title">Waiting for you</p>
-                    <p className="w-sub">3 to look at</p>
-                    <div className="w-cols">
-                      <div>
-                        <InboxCard
-                          kind="Approval"
-                          title="Approve: write this week's numbers in the KPI sheet"
-                          buttons={["Approve", "Deny"]}
-                        />
-                        <InboxCard
-                          kind="Repaired"
-                          tone="ok"
-                          title={'The portal renamed "Submit" to "Submit invoice". Saved as v2.'}
-                          buttons={["Looks right", "Roll back"]}
-                        />
-                        <InboxCard
-                          kind="Question"
-                          tone="ask"
-                          title="For a new-grad job, what goes in the Kind column?"
-                          buttons={["Mark it New grad", "Skip it"]}
-                          free
-                        />
+                  <AiRim>
+                    <Window id="hero" badge={3}>
+                      <p className="w-title">Waiting for you</p>
+                      <p className="w-sub">3 to look at</p>
+                      <div className="w-cols">
+                        <div>
+                          <InboxCard
+                            kind="Approval"
+                            title="Approve: write this week's numbers in the KPI sheet"
+                            buttons={["Approve", "Deny"]}
+                          />
+                          <InboxCard
+                            kind="Repaired"
+                            tone="ok"
+                            title={'The portal renamed "Submit" to "Submit invoice". Saved as v2.'}
+                            buttons={["Looks right", "Roll back"]}
+                          />
+                          <InboxCard
+                            kind="Question"
+                            tone="ask"
+                            title="For a new-grad job, what goes in the Kind column?"
+                            buttons={["Mark it New grad", "Skip it"]}
+                            free
+                          />
+                        </div>
+                        <div className="w-tree-card">
+                          <p>This week's numbers → KPI sheet</p>
+                          <KpiTree />
+                        </div>
                       </div>
-                      <div className="w-tree-card">
-                        <p>This week's numbers → KPI sheet</p>
-                        <KpiTree />
-                      </div>
-                    </div>
-                  </Window>
+                    </Window>
+                  </AiRim>
                   <Pill state="rec" label="Stop · 0:42" />
                 </div>
               </Scaled>

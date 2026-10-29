@@ -224,4 +224,41 @@ describe("change notes: everything else, with the agent's reason", () => {
     );
     expect(notes.some((n) => n.step === "s3")).toBe(false);
   });
+
+  it("treats a block as one step: grouping steps is one note, not a 'moved' for each step in it (B1)", () => {
+    const flat = base([open("s1", SHEET), click("s2", "Print all"), click("s3", "Next")]);
+    const grouped = base([
+      open("s1", SHEET),
+      {
+        id: "b1",
+        type: "control",
+        kind: "group",
+        intent: "Print it",
+        steps: [click("s2", "Print all"), click("s3", "Next")],
+      },
+    ]);
+    const notes = changeNotes(flat, grouped, new Map(), new Set());
+    expect(notes.map((n) => [n.step, n.change])).toEqual([["b1", "added"]]);
+    // Taking them out again: the block is removed, its steps are not "moved".
+    expect(changeNotes(grouped, flat, new Map(), new Set()).map((n) => [n.step, n.change])).toEqual([
+      ["b1", "removed"],
+    ]);
+    // A step really moved from one block to another still says so.
+    const two = base([
+      { id: "b1", type: "control", kind: "group", intent: "A", steps: [click("s2", "Print all")] },
+      { id: "b2", type: "control", kind: "group", intent: "B", steps: [click("s3", "Next")] },
+    ]);
+    const swapped = base([
+      { id: "b1", type: "control", kind: "group", intent: "A", steps: [click("s3", "Next")] },
+      { id: "b2", type: "control", kind: "group", intent: "B", steps: [click("s2", "Print all")] },
+    ]);
+    expect(
+      changeNotes(two, swapped, new Map(), new Set())
+        .map((n) => [n.step, n.change])
+        .sort(),
+    ).toEqual([
+      ["s2", "moved"],
+      ["s3", "moved"],
+    ]);
+  });
 });

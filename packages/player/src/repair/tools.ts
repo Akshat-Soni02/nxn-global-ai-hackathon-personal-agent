@@ -6,6 +6,7 @@ import {
   applyEdits,
   Edit,
   type EditInput,
+  findStep,
   isOutward,
   neverMatch,
   repairCheck,
@@ -25,6 +26,9 @@ import { type TryResult, tryDraft } from "./verify.ts";
 export type RepairFinish =
   | { kind: "resolve"; class: Exclude<FailureClass, "drift">; reason: string }
   | { kind: "commit"; summary: string }
+  // Needs the user's OK and nobody can answer now: the fix waits for them as a proposal (recover.ts). skip: the fix
+  // removes the failing step, so this run goes on after it (N22).
+  | { kind: "propose"; summary: string; skip?: boolean }
   | { kind: "escalate"; reason: string; whatToShow?: string };
 
 export interface RepairSession {
@@ -169,8 +173,20 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
         "Run the draft on the live page from a step (default: the failed one) for `count` steps, as the real player does. Outward steps ask the user first. Says whether the result is evidence",
       input: z.object({ from: z.string().optional(), count: z.number().int().min(1).max(5).default(2) }),
       run: async ({ from, count }) => {
+        // An app step would write for real and nobody can approve a try: say what stands in for it, so the agent
+        // commits instead of giving up (a real run escalated here).
+        if (onlyAppSteps(session)) {
+          return {
+            output: {
+              ok: false,
+              ran: [],
+              error:
+                "a connected-app step is not tried: it would write for real. Commit it: the user is asked first, and that yes is its check",
+            },
+          };
+        }
         const start: Resume = { at: from ?? session.failure.path, vars: session.failure.vars };
-        const result = await tryDraft(session.draft, env, start, count);
+        const result = await tryDraft(session.draft, env, start, count, session.original);
         session.tried = { draft: key(session.draft), result, from: start.at };
         // A try moves the live page on: the next try starts where this one stopped.
         if (result.resume) session.failure = { ...session.failure, path: result.resume.at, vars: result.resume.vars };
@@ -202,7 +218,7 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
       name: "commit",
       kind: "finish",
       description:
-        "Save the draft as the next version. Allowed only after try_steps ran the current draft through the failed step and showed evidence",
+        "Save the draft as the next version. Allowed only after try_steps ran the current draft through the failed step and showed evidence; a draft of only connected-app steps is not tried: commit it and the user's yes is its check",
       input: z.object({ summary: z.string().min(1).max(300) }),
       run: async ({ summary }) => {
         const problem = commitProblem(session);
@@ -211,9 +227,11 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
         const asks = repairCheck(session.original, session.draft).ask;
         if (asks.length > 0 && session.okd !== key(session.draft)) {
           const answer = await askOk(session, summary, asks);
+          // Nobody can answer while the run goes on (the daemon): the fix waits for them, shown with what it does.
           if (answer === "waiting")
             return {
-              output: `Not committed: it needs the user's OK (${asks.join("; ")}) and nobody can answer now. Escalate, saying in plain words what you would change and why`,
+              output: "put to the user: it waits for their OK",
+              finish: { kind: "propose", summary } as RepairFinish,
             };
           if (answer === "no")
             return {
@@ -221,7 +239,33 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
             };
           session.okd = key(session.draft);
         }
-        return { output: "committed", finish: { kind: "commit", summary } };
+        return { output: "committed", finish: { kind: "commit", summary } as RepairFinish };
+      },
+    }),
+    // N22: a step that shouldn't be in the workflow (a recorded mis-click on a banner, a step a site no longer needs).
+    // Before, repair kept trying to fix it, and escalating was its only way out. Now it says so, and the user decides.
+    tool({
+      name: "remove_step",
+      kind: "finish",
+      description:
+        "The failing step shouldn't be in the workflow at all (a mis-click that was recorded, a step the site no longer needs): put its removal to the user, with why. The run goes on after it if they say yes",
+      input: z.object({ why: z.string().min(1).max(300) }),
+      run: ({ why }) => {
+        const id = session.failure.stepId;
+        const removed = applyEdits(session.draft, [{ op: "remove", step: id }]);
+        const check = removed.ok ? repairCheck(session.original, removed.skill) : undefined;
+        const step = findStep(session.original, id);
+        const kept = step && (("requires_approval" in step && step.requires_approval) || ("ask" in step && step.ask));
+        if (!removed.ok || kept || (check?.never.length ?? 0) > 0)
+          return {
+            output: `Not removed: ${removed.ok ? (kept ? "it asks for approval or a question, so it is the user's: can't remove it" : (check?.never.join("; ") ?? "")) : removed.problems.join("; ")}`,
+          };
+        session.draft = removed.skill;
+        session.edits.push({ op: "remove", step: id });
+        return {
+          output: "put to the user: remove it",
+          finish: { kind: "propose", summary: `${id} isn't needed: ${why}`, skip: true } as RepairFinish,
+        };
       },
     }),
     tool({
@@ -251,6 +295,19 @@ export function repairTools(session: RepairSession): AnyTool<RepairFinish>[] {
             return { output: `Couldn't describe the screen: ${(error as Error).message}` };
           }
         },
+      }),
+    );
+  }
+  if (env.appTool) {
+    const appTool = env.appTool;
+    tools.push(
+      tool({
+        name: "app_tool",
+        kind: "look",
+        description:
+          "A connected app tool's arguments (a name from the briefing's list): read it before writing an mcp.call step, don't guess them",
+        input: z.object({ name: z.string().min(1) }),
+        run: ({ name }) => ({ output: appTool(name) }),
       }),
     );
   }
@@ -334,8 +391,21 @@ async function askOk(session: RepairSession, summary: string, asks: string[]): P
   }
 }
 
+// Every step the draft changes or adds calls a connected app. Such a step can't be tried: it writes for real, and nobody
+// can approve a try, so a try came back "needs the user's approval" and the fix could never commit (X4). What stands in
+// for the try is the user's OK at commit, which is always asked for a connected-app call (repairCheck), shown exactly
+// what the step does.
+function onlyAppSteps(session: RepairSession): boolean {
+  const was = new Map([...walkSteps(session.original.steps)].map(({ step }) => [step.id, JSON.stringify(step)]));
+  const changed = [...walkSteps(session.draft.steps)]
+    .map(({ step }) => step)
+    .filter((step) => was.get(step.id) !== JSON.stringify(step));
+  return changed.length > 0 && changed.every((s) => s.type === "action" && s.channel === "mcp");
+}
+
 function commitProblem(session: RepairSession): string | undefined {
   if (session.edits.length === 0) return "the draft has no changes: if nothing needs changing, resolve instead";
+  if (onlyAppSteps(session)) return undefined;
   const tried = session.tried;
   if (!tried || tried.draft !== key(session.draft)) return "the current draft hasn't been tried: call try_steps first";
   if (!tried.result.ok) return `the last try failed (${tried.result.error})`;

@@ -87,6 +87,9 @@ export const ListPosition = z.object({
   index: z.number().int().min(0),
   count: z.number().int().min(1),
   itemText: z.string().optional(),
+  // The element by its place (N4): the list's selector, the item's place in it, the path inside the item. It finds
+  // whatever item is there next time ("the top job"), where the element's own selector may name this one item.
+  place: z.string().optional(),
 });
 export type ListPosition = z.infer<typeof ListPosition>;
 

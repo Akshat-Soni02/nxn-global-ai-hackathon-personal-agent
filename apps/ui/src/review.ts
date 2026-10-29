@@ -58,6 +58,19 @@ export function plainProblem(text: string): string {
     return "It reads the same page as the step before it: one of them is on the wrong page";
   if (/was work the user showed, and it is gone/i.test(t))
     return "Something you did in the recording isn't done any more";
+  // The gate's other wording (design/v2/gate.ts), each as a sentence for a person (R3.6).
+  if (/replay can't find its control/i.test(t)) return "A step has no way to find its control on the page yet";
+  if (/never appeared on screen/i.test(t)) return "A check looks for text that never showed up on screen";
+  if (/a text check can't be empty/i.test(t)) return "A check has no text to look for, so it would always pass";
+  if (/holds a hidden value/i.test(t)) return "A check looks for text that includes a hidden value";
+  if (/a text check can't see a sheet/i.test(t))
+    return "A text check can't read a sheet's cells or a document's drawing";
+  if (/but it only runs when started by hand/i.test(t))
+    return "You said how often it should run, but it only runs when you start it: set its Frequency";
+  const notStarted = /the test run couldn't start \(([^)]*)\)/i.exec(t)?.[1];
+  if (notStarted) return `The test run couldn't start (${notStarted})`;
+  if (/runs start on a blank window/i.test(t)) return "It has to open a page before it clicks or reads";
+  if (/was accepted, but .* still as recorded/i.test(t)) return "A change the design accepted isn't made yet";
   // A rule they said that no step builds: 'rule 0 "I pick top 5 jobs.": no step open_yc_jobs in the workflow'.
   const rule = /^rule \d+ "([^"]*)"/i.exec(t)?.[1];
   if (rule) return `What you said, “${rule}”, isn't built by any step yet`;

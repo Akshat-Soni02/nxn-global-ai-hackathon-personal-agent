@@ -25,13 +25,13 @@ import { DESIGN_V2_BUDGET, remaining } from "./budget.ts";
 import { appsSection, type ConnectorChance, type Connectors, readOnlyTools, type UsableApp } from "./connectors.ts";
 import type { DoneReport, TaskModel, TestReport } from "./contracts.ts";
 import { critique } from "./critic.ts";
-import { gate, lostWork, runProblems, unmadeProblems } from "./gate.ts";
+import { drawnProblems, gate, inBlocks, lostWork, runProblems, unmadeProblems, withoutUnusedInputs } from "./gate.ts";
 import { outlineOf } from "./outline.ts";
-import { BUILD, BUILD_FILE, PLAN, PLAN_FILE } from "./prompt.ts";
-import { askBatch, batchOf, openCodeQuestions } from "./questions.ts";
+import { BUILD, BUILD_FILE, PLAN, PLAN_FILE, withAiLimit } from "./prompt.ts";
+import { askBatch, batchOf, MAX_QUESTIONS, openCodeQuestions } from "./questions.ts";
 import { type ChangeNote, changeNotes, type RecordingFacts } from "./rules.ts";
 import { newSession, type QueuedQuestion, type SessionV2 } from "./session.ts";
-import { type DesignMode, designToolsV2, isHowTo, isTimeOfDay, workflowFile } from "./tools.ts";
+import { type DesignMode, designToolsV2, isFrequency, isHowTo, isTimeOfDay, workflowFile } from "./tools.ts";
 import { understand } from "./understand.ts";
 
 export interface DesignV2Options {
@@ -46,10 +46,15 @@ export interface DesignV2Options {
   pages: Map<string, string>;
   memory?: Pick<MemoryStore, "search">;
   prompter: Prompter;
+  // The user is watching while it builds (the daemon's Record screen): the agent's question is put to them at once and
+  // it builds with the answer (N9), instead of guessing and changing its work after the batch at the end.
+  askWhileBuilding?: boolean;
   // The recording's Never and private words: every tool result is masked with them (the evidence already is).
   maskTerms?: string[];
   // What an unattended run still needs (the daemon's go-live checks).
   unattended?: (skill: Skill) => string[];
+  // How often a run may ask the AI (the runner's limit): a design that asks more is refused at done.
+  aiCallsPerRun?: number;
   // The safe test run (the daemon's rehearse). Without it the workflow is saved untested, and the review says so.
   test?: (skill: Skill) => Promise<TestReport>;
   // The final check: the same run, with the files the workflow makes made for real, then put in the Trash (twice: it
@@ -88,6 +93,9 @@ export interface DesignV2Outcome {
   gaps: string[];
   // What the critic still found missing when done could no longer be refused (critic.ts): for the review, never a block.
   critique?: string[];
+  // The connected apps' tools that only read: a step calling one runs without asking, and the daemon's save (which
+  // asks for approval on every other app call) must be told, or it switches the approval back on.
+  readOnlyTools?: string[];
   test?: TestReport;
   asked: { question: string; answer: string; by: "code" | "agent" }[];
   // Code's questions and their answers, for memory (a lasting answer is remembered).
@@ -125,8 +133,10 @@ export function droppedOf(evidence: Evidence): SessionV2["dropped"] {
 
 // The workflow as saved: url checks as the player reads them, and approval wherever a step acts outward (a connected
 // app's tool that only reads doesn't ask).
-const finalOf = (draft: Skill, apps: UsableApp[] = []) =>
-  requireApprovals(plainChecks(withFields(draft)), { readOnlyTools: readOnlyTools(apps) }).skill;
+const finalOf = (draft: Skill, apps: UsableApp[] = [], recorded?: Skill) =>
+  requireApprovals(plainChecks(withFields(recorded ? withoutUnusedInputs(draft, recorded) : draft)), {
+    readOnlyTools: readOnlyTools(apps),
+  }).skill;
 
 // Before planning: the apps the user wants used directly. Already connected: used. Said no before: not asked. Else
 // asked once, with the button to connect; "classic" is remembered so it isn't asked again.
@@ -167,6 +177,16 @@ export function withFields(skill: Skill): Skill {
     if (!ai || items?.type !== "object" || items.fields) return [];
     const read = JSON.stringify(loop.steps).matchAll(new RegExp(`\\{\\{${loop.item.name}\\.(\\w+)`, "g"));
     const names = [...new Set([...read].map((m) => m[1] as string))];
+    // Each item used whole ({{job}} in a cell): the model returns text items, never objects written as JSON into the
+    // cell (the fifth YC re-design, 28 Oct).
+    const whole = new RegExp(`\\{\\{\\s*${loop.item.name}\\s*(\\}\\}|\\|)`).test(JSON.stringify(loop.steps));
+    if (names.length === 0 && whole) {
+      const text = { type: "text" };
+      return [
+        { op: "set", step: ai.id, field: "output", value: { ...ai.output, type: { type: "list", items: text } } },
+        { op: "set", step: loop.id, field: "item", value: { ...loop.item, type: text } },
+      ];
+    }
     if (names.length === 0) return [];
     const type = { type: "object", fields: Object.fromEntries(names.map((n) => [n, { type: "text" }])) };
     return [
@@ -268,7 +288,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   const budget = options.budget ?? DESIGN_V2_BUDGET;
   const say = options.onProgress ?? (() => {});
   const mode = options.mode ?? "verbs";
-  const system = mode === "file" ? BUILD_FILE : BUILD;
+  const system = withAiLimit(mode === "file" ? BUILD_FILE : BUILD, options.aiCallsPerRun);
   const transcript: AgentEvent[] = [];
   // Built from the plain list first, so even evidence that can't be read keeps the recording (below, in the try).
   const session = newSession(options.skill, options.facts, {
@@ -276,6 +296,21 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     pages: new Map([...options.pages].map(([name, url]) => [maskText(name, options.maskTerms ?? []).text, url])),
     maskTerms: options.maskTerms ?? [],
   });
+  if (options.askWhileBuilding)
+    session.askNow = async (q) => {
+      const answer = await options.prompter.ask(
+        {
+          id: q.id,
+          text: q.text,
+          options: q.options.map((o) => ({ label: o, value: o })),
+          ...(q.default ? { default: q.default } : {}),
+        },
+        { step: q.step, draft: session.draft },
+      );
+      // As many as the batch would ask; past that they wait for the batch, which takes their defaults.
+      if ((session.answeredNow?.length ?? 0) + 1 >= MAX_QUESTIONS) session.askNow = undefined;
+      return answer;
+    };
   let task: TaskModel | undefined;
   let done: DoneReport | undefined;
   const asked: DesignV2Outcome["asked"] = [];
@@ -286,12 +321,20 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   let firstMessage: string | undefined;
 
   const unmade = (options.evidence as { unmade?: string[] } | undefined)?.unmade ?? [];
+  const connectedToolkits = () => new Set(session.apps.map((a) => a.toolkit));
+  // Why the workflow can't do the task yet: a file nothing makes, and steps in a drawn area (a sheet's cells) that replay
+  // can't reach while the app that could do them isn't connected. Go live is refused until then (A1).
+  const cantRunNow = () => [
+    ...unmadeProblems(session.draft, unmade),
+    ...drawnProblems(session.draft, options.pages, connectedToolkits()).cantRun,
+  ];
   const outcome = (
     extra: { kind: "designed"; summary?: string } | { kind: "kept"; reason: string },
   ): DesignV2Outcome => ({
     ...extra,
-    ...(unmadeProblems(session.draft, unmade).length > 0 ? { cantRun: unmadeProblems(session.draft, unmade) } : {}),
-    skill: finalOf(session.draft, session.apps),
+    ...(cantRunNow().length > 0 ? { cantRun: cantRunNow() } : {}),
+    skill: finalOf(session.draft, session.apps, options.skill),
+    ...(session.apps.length > 0 ? { readOnlyTools: [...readOnlyTools(session.apps)] } : {}),
     ...(checked ? { checked } : {}),
     task,
     done,
@@ -300,10 +343,20 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     gaps: session.gaps,
     ...(session.critique.length > 0 ? { critique: session.critique } : {}),
     test: session.lastTest,
-    asked,
+    asked: [
+      ...asked,
+      ...(session.answeredNow ?? []).map(({ question, answer }) => ({
+        question: question.text,
+        answer,
+        by: "agent" as const,
+      })),
+    ],
     answered,
-    pending: reachedQuestions ? [] : openCodeQuestions(options.questions, options.skill, session.draft),
-    skipped,
+    pending: reachedQuestions
+      ? []
+      : openCodeQuestions(options.questions, options.skill, withoutUnusedInputs(session.draft, options.skill)),
+    // Each once: a design that started afresh after a stop listed its questions again (28 Oct: six, three of them twice).
+    skipped: [...new Set(skipped)],
     system,
     ...(firstMessage ? { firstMessage } : {}),
     plain: options.skill,
@@ -314,9 +367,13 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
   // recording didn't (the gate never saw it; Checkpoint 4: C kept reads with no control): then the plain list.
   // What makes a draft worse than the recording: your work lost, or steps that can't run (the recording's own aside).
   const worse = () => {
-    const recorded = new Set(runProblems(finalOf(options.skill)));
-    const broken = runProblems(finalOf(session.draft, session.apps)).filter((p) => !recorded.has(p));
-    if (lostWork(options.skill, session.draft, session.whys).length > 0) return "had lost work you showed";
+    const limits = { aiCallsPerRun: options.aiCallsPerRun };
+    const recorded = new Set(runProblems(finalOf(options.skill), limits));
+    const broken = runProblems(finalOf(session.draft, session.apps, options.skill), limits).filter(
+      (p) => !recorded.has(p),
+    );
+    if (lostWork(options.skill, session.draft, session.whys, readOnlyTools(session.apps)).length > 0)
+      return "had lost work you showed";
     return broken.length > 0 ? `has steps that can't run (${broken[0]})` : undefined;
   };
   const kept = (reason: string) => {
@@ -400,7 +457,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     try {
       const reply = await options.llm.generate({
         profile: "smart",
-        system: mode === "file" ? PLAN_FILE : PLAN,
+        system: withAiLimit(mode === "file" ? PLAN_FILE : PLAN, options.aiCallsPerRun),
         // A whole workflow, after reasoning over the whole recording: the largest reply the design asks for.
         maxTokens: 32_768,
         user: [message, "", "# The tools a plan can use", ...catalogue].join("\n"),
@@ -409,7 +466,8 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         signal: options.signal,
       });
       // Kept in design.json, so a plan that made nothing can be read (the transcript's first reply).
-      transcript.push({ type: "reply", turn: 0, thought: reply.text.slice(0, 4_000), costUsd: reply.costUsd, ms: 0 });
+      // Whole (a plan in file mode is the workflow written out: cut at 4,000 characters it couldn't be read).
+      transcript.push({ type: "reply", turn: 0, thought: reply.text.slice(0, 60_000), costUsd: reply.costUsd, ms: 0 });
       const parsed = PlanReply.safeParse(reply.value);
       calls = (parsed.success ? parsed.data.calls : []).slice(0, 60).flatMap((c) => {
         const call = PlanCall.safeParse(c);
@@ -515,7 +573,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     // The task model's unknowns: what the evidence speaks to goes to the agent with the evidence; the rest are queued.
     const seen: string[] = [];
     for (const u of theTask.unknowns) {
-      if (isTimeOfDay(u.question) || isHowTo(u.question)) continue;
+      if (isTimeOfDay(u.question) || isFrequency(u.question) || isHowTo(u.question)) continue;
       const about = view.about(u.question);
       if (about.length > 0) {
         seen.push(
@@ -532,9 +590,13 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         ...(u.default ? { default: u.default } : {}),
       });
     }
+    // What the gate says comes back in blocks (R5.4): the agent thinks in them.
     session.finish = (report) => {
       done = report;
-      return gate({
+      return inBlocks(gateProblems(report), session.draft);
+    };
+    const gateProblems = (report: DoneReport) =>
+      gate({
         recorded: options.skill,
         workflow: session.draft,
         task: theTask,
@@ -545,18 +607,25 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
         sinceTest: session.sinceTest,
         said: [options.evidence.goal, ...options.evidence.said.map((s) => s.text)],
         unattended: options.unattended,
+        aiCallsPerRun: options.aiCallsPerRun,
+        answers: [...asked.map((a) => a.answer), ...(session.answeredNow ?? []).map((a) => a.answer)],
         unmade,
+        readOnlyTools: readOnlyTools(session.apps),
+        proposals: session.proposals,
+        decisions: session.decisions,
+        pages: options.pages,
+        connectedToolkits: connectedToolkits(),
       });
-    };
     if (options.critic ?? mode === "file") {
-      session.critic = (report) =>
-        critique(
+      session.critic = async (report) => {
+        const gaps = await critique(
           options.llm,
           {
             task: theTask,
             // Masked like everything the agent reads.
             workflow: maskText(
-              mode === "file" ? workflowFile(session.draft) : outlineOf(session.draft),
+              // Every step in full: a block folded to its ids would hide what builds each rule.
+              mode === "file" ? workflowFile(session.draft, { full: true }) : outlineOf(session.draft),
               session.maskTerms ?? [],
             ).text,
             done: report,
@@ -565,6 +634,16 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
           },
           { meter, signal: options.signal },
         );
+        // What it said is kept, so why done was refused (or not) can be read in design.json.
+        transcript.push({
+          type: "reply",
+          turn: 0,
+          thought: `the critic: ${gaps.length > 0 ? gaps.join(" | ") : "no gaps"}`,
+          costUsd: 0,
+          ms: 0,
+        });
+        return inBlocks(gaps, session.draft);
+      };
     }
     const test = options.test;
     if (test) {
@@ -614,7 +693,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
     if (stopped) return kept(stopped);
 
     // 5: the questions left, in one batch.
-    const code = openCodeQuestions(options.questions, options.skill, session.draft);
+    const code = openCodeQuestions(options.questions, options.skill, withoutUnusedInputs(session.draft, options.skill));
     const batch = batchOf(code, session.questions);
     reachedQuestions = true;
     // Code's answer goes straight in: an empty one ("You decide") is the question's default, never an empty value.
@@ -675,7 +754,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
             : undefined;
         return other ? { ...check, outcome: `failed: ${other}` } : check;
       };
-      checked = judged(await options.verify(finalOf(session.draft, session.apps), twice));
+      checked = judged(await options.verify(finalOf(session.draft, session.apps, options.skill), twice));
       if (checked.outcome.startsWith("failed")) {
         const failed = checked.steps.filter((s) => s.status === "failed").map((s) => `${s.id}: ${s.error}`);
         session.refusedDone = 0;
@@ -690,7 +769,7 @@ export async function designV2(options: DesignV2Options): Promise<DesignV2Outcom
           ),
         );
         if (after) return kept(`it stopped while fixing what the final check found: ${after}`);
-        checked = judged(await options.verify(finalOf(session.draft, session.apps), twice));
+        checked = judged(await options.verify(finalOf(session.draft, session.apps, options.skill), twice));
       }
       if (checked.outcome.startsWith("failed")) session.gaps.push(`the final check failed: ${checked.outcome}`);
       if (twice && checked.again?.length) {

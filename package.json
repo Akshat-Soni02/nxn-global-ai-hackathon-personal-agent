@@ -14,6 +14,7 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "daemon": "pnpm --filter @shadow/daemon start",
+    "api": "STORE=memory AUTH=dev QUOTAS=off tsx --env-file-if-exists=.env apps/api/src/main.ts",
     "extension": "pnpm --filter @shadow/extension dev",
     "ui": "pnpm --filter @shadow/ui dev",
     "fixtures": "node scripts/serve-fixtures.mjs",

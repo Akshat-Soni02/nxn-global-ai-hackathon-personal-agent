@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type DevChrome, launchChrome, MAC_CHROME } from "../node/chrome.ts";
+import { CdpTimeout, evaluate } from "./cdp.ts";
+import { executeWebStep } from "./executor.ts";
 import { attributesOf, match, xpathLiteral } from "./match.ts";
 
 const PAGE = `<!doctype html><html><body style="font:16px sans-serif">
@@ -58,6 +60,85 @@ describe.skipIf(!existsSync(MAC_CHROME))("the matcher on a real page", () => {
       fallbacks: [],
     });
     expect(found.status).toBe("found");
+  });
+});
+
+// N3: controls inside an open shadow root (a web component's) and inside a frame of the same site.
+const NESTED = `<!doctype html><html><body style="font:16px sans-serif">
+<h1>Studio</h1><p id="log"></p><x-panel></x-panel>
+<iframe id="f" style="width:600px;height:300px;border:4px solid #ccc;margin-left:40px" srcdoc="<button id='fb'>Approve</button><p id='ft'>Frame total</p><input id='fi' aria-label='Frame note'>"></iframe>
+<script>
+const log = (w) => { document.getElementById("log").textContent += w + ";"; };
+customElements.define("x-panel", class extends HTMLElement { connectedCallback() {
+  const root = this.attachShadow({ mode: "open" });
+  root.innerHTML = '<button id="sb">Publish</button><p id="st">Shadow total</p>';
+  root.getElementById("sb").addEventListener("click", () => log("published"));
+} });
+document.getElementById("f").addEventListener("load", (e) => {
+  e.target.contentDocument.getElementById("fb").addEventListener("click", () => log("approved"));
+});
+</script>
+</body></html>`;
+
+describe.skipIf(!existsSync(MAC_CHROME))("the matcher inside shadow roots and frames (N3)", () => {
+  let chrome: DevChrome;
+  beforeAll(async () => {
+    chrome = await launchChrome({ profileDir: mkdtempSync(join(tmpdir(), "match-n3-")), headless: true });
+    await chrome.cdp.send("Page.navigate", { url: `data:text/html,${encodeURIComponent(NESTED)}` });
+    await new Promise((r) => setTimeout(r, 1000));
+  }, 30_000);
+  afterAll(async () => chrome?.close());
+
+  const idOf = async (backendNodeId: number) => (await attributesOf(chrome.cdp, backendNodeId)).id;
+  const found = async (target: Parameters<typeof match>[1]) => {
+    const out = await match(chrome.cdp, target);
+    return out.status === "found" ? idOf(out.best.backendNodeId) : out.status;
+  };
+
+  it("by role and name", async () => {
+    expect(await found({ role: "button", name: "Publish", fallbacks: [] })).toBe("sb");
+    expect(await found({ role: "button", name: "Approve", fallbacks: [] })).toBe("fb");
+  });
+
+  it("by its own text", async () => {
+    expect(await found({ text: "Shadow total", fallbacks: [] })).toBe("st");
+    expect(await found({ text: "Frame total", fallbacks: [] })).toBe("ft");
+  });
+
+  it("a click and typing reach them, through the executor as a run does", async () => {
+    const step = (id: string, action: string, target: object, args: object = {}) =>
+      ({ id, type: "action", intent: id, channel: "web", action, target: { fallbacks: [], ...target }, args }) as never;
+    expect((await executeWebStep(chrome.cdp, step("p", "click", { role: "button", name: "Publish" }))).ok).toBe(true);
+    expect((await executeWebStep(chrome.cdp, step("a", "click", { role: "button", name: "Approve" }))).ok).toBe(true);
+    const typed = await executeWebStep(
+      chrome.cdp,
+      step("t", "type", { role: "textbox", name: "Frame note" }, { text: "ok" }),
+    );
+    expect(typed.ok).toBe(true);
+    expect(await evaluate(chrome.cdp, `document.getElementById("log").textContent`)).toBe("published;approved;");
+    expect(await evaluate(chrome.cdp, `document.getElementById("f").contentDocument.getElementById("fi").value`)).toBe(
+      "ok",
+    );
+  });
+
+  it("by a recorded selector or its attributes", async () => {
+    expect(await found({ fallbacks: ["#sb"] })).toBe("sb");
+    expect(await found({ fallbacks: ["#fb"] })).toBe("fb");
+    expect(await found({ attrs: { id: "fi" }, fallbacks: [] })).toBe("fi");
+  });
+});
+
+describe("a Chrome that doesn't answer (N3 review)", () => {
+  it("says so, never 'not found': a hung accessibility query isn't a missing target", async () => {
+    const hung = {
+      send: async (method: string) => {
+        if (method === "DOM.getDocument") return { root: { nodeId: 1, backendNodeId: 1 } };
+        throw new CdpTimeout(`${method} did not answer`);
+      },
+    };
+    await expect(match(hung as never, { role: "button", name: "Save", fallbacks: [] })).rejects.toBeInstanceOf(
+      CdpTimeout,
+    );
   });
 });
 

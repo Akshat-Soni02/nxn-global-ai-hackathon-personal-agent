@@ -13,6 +13,8 @@ import { declinedApps, setDeclined } from "./connectors.ts";
 import { readApiKey, runSecurity, type SecurityRunner, writeApiKey } from "./keychain.ts";
 import type { McpTool, McpTools } from "./mcp-tools.ts";
 import { type Consent, readConsent, saveConsent } from "./recording-store.ts";
+import { loadSkill } from "./skill-store.ts";
+import { secretStatus, setWorkflowSecret } from "./workflow-secrets.ts";
 
 // account: the signed-in Shadow account (calls through shadow-api). env: NEBIUS_API_KEY in .env (development).
 // keychain: a Token Factory key pasted in Settings (before Oct 25, or a developer's own key).
@@ -76,8 +78,15 @@ export interface AppControl {
   accountUsage(): Promise<Usage>;
   // Connected apps: what can be connected, what is, and the tools they offer.
   connectedApps(): Promise<ConnectedApps>;
-  // Opens the app's sign-in page (Composio's) in the browser.
-  connectApp(toolkit: string): Promise<{ redirectUrl: string }>;
+  // Opens the app's sign-in page (Composio's) in the browser. An app that needs your own key (N13) is connected with
+  // `fields` at once: the key goes to Shadow's service and on to Composio, and is kept nowhere on this Mac.
+  connectApp(toolkit: string, fields?: Record<string, string>): Promise<{ redirectUrl?: string; connected?: boolean }>;
+  // What connecting an app with your own key asks for.
+  appKeyFields(
+    toolkit: string,
+  ): Promise<
+    { name: string; label: string; description?: string; secret: boolean; required: boolean; default?: string }[]
+  >;
   disconnectApp(connectionId: string): Promise<ConnectedApps>;
   // A declined app is offered again in new designs.
   offerAppAgain(toolkit: string): Promise<ConnectedApps>;
@@ -85,6 +94,9 @@ export interface AppControl {
   // Whether a connected app works end to end: its sign-in at Composio is active, and its actions reach this Mac the
   // way a run reaches them (through Shadow's service). Nothing is done in the app.
   checkApp(toolkit: string): Promise<AppCheck>;
+  // A workflow's secret inputs (N2): which are set (never their values), and setting one, kept in the Keychain.
+  secrets(id: string): Promise<{ name: string; set: boolean }[]>;
+  setSecret(id: string, name: string, value: string): Promise<{ name: string; set: boolean }[]>;
 }
 
 export interface AppCheck {
@@ -131,8 +143,21 @@ export function createAppControl(deps: SettingsDeps): AppControl {
       chrome: { manifest: manifestPath, installed: existsSync(manifestPath) },
     };
   };
+  const workflow = (id: string) => {
+    const skill = loadSkill(deps.dataDir, id);
+    if (!skill) throw new Error(`no workflow ${id}`);
+    return skill;
+  };
   return {
     settings,
+    secrets: (id) => secretStatus(workflow(id), deps.security ?? runSecurity),
+    async setSecret(id, name, value) {
+      const skill = workflow(id);
+      if (!(await secretStatus(skill, deps.security ?? runSecurity)).some((s) => s.name === name))
+        throw new Error(`${id} has no secret input ${name}`);
+      await setWorkflowSecret(id, name, value, deps.security ?? runSecurity);
+      return secretStatus(skill, deps.security ?? runSecurity);
+    },
     async setApiKey(key) {
       await writeApiKey(key, deps.security ?? runSecurity);
       deps.applyKey(llmConfig({ apiKey: key.trim(), baseUrl: process.env.NEBIUS_BASE_URL }));
@@ -188,11 +213,22 @@ export function createAppControl(deps: SettingsDeps): AppControl {
     },
     accountUsage: () => needAccount().call<Usage>("GET", "/v1/usage"),
     connectedApps,
-    async connectApp(toolkit) {
-      const res = await needAccount().call<{ redirect_url: string }>("POST", "/v1/tools/connect", { toolkit });
-      (deps.openUrl ?? openInBrowser)(res.redirect_url);
+    async connectApp(toolkit, fields) {
+      const res = await needAccount().call<{ redirect_url?: string; connected?: boolean }>(
+        "POST",
+        "/v1/tools/connect",
+        fields ? { toolkit, fields } : { toolkit },
+      );
+      if (res.redirect_url) (deps.openUrl ?? openInBrowser)(res.redirect_url);
       deps.tools?.()?.invalidate();
-      return { redirectUrl: res.redirect_url };
+      return res.redirect_url ? { redirectUrl: res.redirect_url } : { connected: true };
+    },
+    async appKeyFields(toolkit) {
+      const res = await needAccount().call<{ fields: Awaited<ReturnType<AppControl["appKeyFields"]>> }>(
+        "GET",
+        `/v1/tools/key-fields?toolkit=${encodeURIComponent(toolkit)}`,
+      );
+      return res.fields;
     },
     async disconnectApp(connectionId) {
       await needAccount().call("DELETE", `/v1/tools/connections/${encodeURIComponent(connectionId)}`);

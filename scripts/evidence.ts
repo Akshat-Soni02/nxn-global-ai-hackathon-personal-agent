@@ -47,10 +47,11 @@ if (process.argv.includes("--json")) {
   process.exit(0);
 }
 const { text, tokens, level } = evidenceText(evidence);
-const count = (xs: string[]) =>
-  Object.entries(xs.reduce<Record<string, number>>((m, x) => ({ ...m, [x]: (m[x] ?? 0) + 1 }), {}))
-    .map(([k, v]) => `${k} ${v}`)
-    .join(", ");
+const count = (xs: string[]) => {
+  const n = new Map<string, number>();
+  for (const x of xs) n.set(x, (n.get(x) ?? 0) + 1);
+  return [...n].map(([k, v]) => `${k} ${v}`).join(", ");
+};
 console.log(text);
 console.log(
   `\n--- ${evidence.steps.length} steps (${count(evidence.steps.map((s) => s.class))}); ${evidence.noise.length} left out; proposals: ${count(evidence.proposals.map((p) => p.kind)) || "none"}; ~${tokens} tokens, level ${level}`,

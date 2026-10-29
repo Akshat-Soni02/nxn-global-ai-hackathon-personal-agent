@@ -7,8 +7,9 @@
 import { type EditInput, type Step, stepTitle, walkSteps } from "@shadow/core";
 import type { DraftView } from "@shadow/daemon/src/types.ts";
 import { useEffect, useState } from "react";
-import { AddNode } from "../AddNode.tsx";
+import { AddNode, type ToolInfo } from "../AddNode.tsx";
 import { useQuery, useSession } from "../api.ts";
+import { canPutInBlock } from "../blocks.ts";
 import { Action, Loading } from "../components.tsx";
 import { type At, WorkflowTree } from "../WorkflowTree.tsx";
 
@@ -21,7 +22,7 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
   const [picked, setPicked] = useState<string>();
   // Where a step is being added ("+" in the tree), its form in the panel.
   const [adding, setAdding] = useState<At>();
-  const tools = useQuery<{ name: string; description: string }[]>("appTools");
+  const tools = useQuery<ToolInfo[]>("appTools");
   // Escape puts the step down, as it closes a panel anywhere else on the Mac. The field being typed in loses focus
   // first, so what was typed is saved (on blur) before the panel goes.
   useEffect(() => {
@@ -110,9 +111,11 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
               at={adding}
               skill={d.skill}
               tools={tools.data ?? []}
-              add={(step) =>
-                session.call("editDraft", { id, edits: [{ op: "insert", at: adding, step }] }).then(draft.reload)
-              }
+              apply={(edits) => session.call("editDraft", { id, edits }).then(draft.reload)}
+              showMe={async (name, at) => {
+                await session.call("recordStart", { goal: `Show me: ${name}`, into: { skillId: id, at, name } });
+                location.hash = "#/record";
+              }}
               close={() => setAdding(undefined)}
             />
           ) : spot ? (
@@ -121,6 +124,7 @@ export function Editor({ id, onDone }: { id: string; onDone(): void }) {
               key={JSON.stringify(spot.step)}
               {...spot}
               lists={listsIn(d.skill.steps)}
+              canBlock={canPutInBlock(d.skill.steps, spot.step.id)}
               edit={edit}
               close={() => setPicked(undefined)}
             />
@@ -180,16 +184,16 @@ const kindOf = (step: Body): string =>
 // The picked step and the ones after it, put in a block, repeated for each item of a list, or done only if something
 // holds (R4.5): the `wrap` edit, so it is one change in the draft, undone as one.
 function Wrap({
-  step,
   siblings,
   index,
   lists,
+  canBlock,
   edit,
 }: {
-  step: Body;
   siblings: Body[];
   index: number;
   lists: string[];
+  canBlock: boolean;
   edit(edits: EditInput[]): Promise<void>;
 }) {
   const [how, setHow] = useState<"" | "group" | "loop" | "branch">("");
@@ -199,7 +203,6 @@ function Wrap({
   const [item, setItem] = useState("item");
   const [when, setWhen] = useState(lists[0] ?? "");
   const rest = siblings.slice(index, index + count).map((s) => s.id);
-  const inBlock = step.type === "control" && step.kind === "group";
   const wrap = () => {
     if (how === "group") return edit([{ op: "wrap", steps: rest, intent: name || "Steps" }]);
     if (how === "loop")
@@ -229,7 +232,7 @@ function Wrap({
         <span>Group it</span>
         <select value={how} onChange={(e) => setHow(e.target.value as typeof how)}>
           <option value="">…</option>
-          {inBlock ? null : <option value="group">Put in a block</option>}
+          {canBlock ? <option value="group">Put in a block</option> : null}
           <option value="loop" disabled={lists.length === 0}>
             Repeat for each item of a list{lists.length === 0 ? " (no list saved yet)" : ""}
           </option>
@@ -288,6 +291,7 @@ function EditStep({
   siblings,
   index,
   lists,
+  canBlock,
   edit,
   close,
 }: {
@@ -296,6 +300,8 @@ function EditStep({
   index: number;
   // The lists earlier steps save: what a loop can repeat over.
   lists: string[];
+  // Whether "Put in a block" is offered: not for a block, nor a step already inside one (blocks.ts).
+  canBlock: boolean;
   edit(edits: EditInput[]): Promise<void>;
   close(): void;
 }) {
@@ -356,7 +362,7 @@ function EditStep({
           <Fields step={step} set={set} />
         </>
       )}
-      <Wrap step={step} siblings={siblings} index={index} lists={lists} edit={edit} />
+      <Wrap siblings={siblings} index={index} lists={lists} canBlock={canBlock} edit={edit} />
       <footer className="inspector-foot">
         <button
           type="button"

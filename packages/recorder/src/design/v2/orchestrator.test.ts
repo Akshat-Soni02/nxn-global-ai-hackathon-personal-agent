@@ -1,11 +1,13 @@
 import { isAction, Skill, type TraceEvent, walkSteps } from "@shadow/core";
 import { fakeLlm, UsageMeter } from "@shadow/llm";
 import { describe, expect, it } from "vitest";
+import { blocksOf } from "../../blocks.ts";
 import { compile, type Question } from "../../compile.ts";
 import type { Prompter } from "../../drill.ts";
 import { buildEvidence } from "../../evidence/evidence.ts";
 import { normaliseAll } from "../../normalise.ts";
 import type { TestReport } from "./contracts.ts";
+import { CRITIC } from "./critic.ts";
 import { scriptedDesigner } from "./fake.ts";
 import { type DesignV2Options, designV2, makesFiles, otherFile, progressOf } from "./orchestrator.ts";
 import { reviewOf } from "./review.ts";
@@ -114,6 +116,63 @@ describe("design agent v2, stage by stage", () => {
     expect(out.firstMessage).toContain("# The task model you wrote");
     expect(out.plain?.steps.length).toBe(options.skill.steps.length);
     expect(out.transcript.some((e) => e.type === "call" && e.tool === "trigger")).toBe(true);
+  });
+
+  it("keeps the whole plan reply and the critic's reply in the transcript (C16)", async () => {
+    const script = [call("done", { summary: "as recorded", rules: [] })];
+    const longPlan = JSON.stringify({ calls: [], note: "x".repeat(9_000) }); // a whole workflow is long
+    const gap = "s2 clicks the email recorded, not the newest one";
+    const { options } = await setup({
+      llm: fakeLlm(scriptedDesigner(script, undefined, longPlan, [[gap]])),
+      critic: true,
+      mode: "file",
+    });
+    const out = await designV2(options);
+    const replies = out.transcript.flatMap((e) => (e.type === "reply" ? [e.thought ?? ""] : []));
+    expect(replies.some((t) => t.length > 9_000)).toBe(true); // not cut at 4,000
+    expect(replies.some((t) => t.includes(gap))).toBe(true); // what the critic said, and why done was refused
+  });
+
+  it("says which app tools only read, so the save doesn't switch their approval back on (C2)", async () => {
+    const tool = (name: string, readOnly: boolean) => ({
+      name,
+      description: "",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      toolkit: "googlesheets",
+      readOnly,
+      destructive: false,
+    });
+    const { options } = await setup({
+      connectors: {
+        status: async () => ({ connected: ["googlesheets"], declined: [] }),
+        offer: async () => "connected" as const,
+        decline: () => {},
+        tools: async () => [tool("GOOGLESHEETS_GET_VALUES", true), tool("GOOGLESHEETS_BATCH_UPDATE", false)],
+      },
+      chances: [{ toolkit: "googlesheets", name: "Google Sheets", why: "it writes cells", steps: ["s3"], ids: {} }],
+    });
+    const out = await designV2(options);
+    expect(out.kind).toBe("designed");
+    expect(out.readOnlyTools).toEqual(["GOOGLESHEETS_GET_VALUES"]);
+  });
+
+  it("the critic is sent the steps inside each block, not only their ids (C1)", async () => {
+    const script = [call("done", { summary: "as recorded", rules: [] })];
+    const { options } = await setup({ critic: true });
+    const grouped = blocksOf(options.skill);
+    const inner = [...walkSteps(grouped.steps)].find(({ parents }) => parents.length > 0)?.step;
+    expect(inner).toBeDefined(); // the recording was grouped: a step sits inside a block
+    const sent: string[] = [];
+    const designer = scriptedDesigner(script, undefined, [], [[]]); // a quiet task: nothing to build, done at once
+    const llm = fakeLlm((body) => {
+      const messages = body.messages as { content?: unknown }[] | undefined;
+      if (typeof messages?.[0]?.content === "string" && messages[0].content.startsWith(CRITIC.slice(0, 60)))
+        sent.push(String(messages[1]?.content));
+      return designer(body);
+    });
+    await designV2({ ...options, skill: grouped, llm, mode: "file" }); // the critic reads the file in file mode
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain(JSON.stringify(inner?.intent)); // folded to ids, the critic couldn't see it
   });
 
   it("a second look: the critic's gaps go back to the designer, at most twice, then the review lists them", async () => {
@@ -489,6 +548,21 @@ describe("design agent v2, stage by stage", () => {
   });
 });
 
+describe("a question asked while building (N9)", () => {
+  it("puts the agent's question to the user at once when they are watching, and never asks it again in the batch", async () => {
+    const ask = call("ask", { question: "Which sheet tab should it use?", why: "two tabs", step: "start" });
+    const llm = fakeLlm(scriptedDesigner([ask, done("x")], task));
+    const { options, asked } = await setup({ llm });
+    const out = await designV2({ ...options, askWhileBuilding: true });
+    // The answer reached the agent while it built: the call after ask reads it.
+    expect(JSON.stringify(llm.requests.at(-1))).toContain('\\"answered\\"');
+    expect(asked.filter((q) => q.text === "Which sheet tab should it use?")).toHaveLength(1);
+    expect(out.asked).toContainEqual(
+      expect.objectContaining({ question: "Which sheet tab should it use?", by: "agent" }),
+    );
+  });
+});
+
 describe("what Checkpoint 4 kept that it shouldn't have", () => {
   it("keeps the recorded steps when a stopped design reached steps that can't run, and lists the questions it never asked", async () => {
     const look = call("look", {});
@@ -519,6 +593,7 @@ describe("what Checkpoint 4 kept that it shouldn't have", () => {
     expect(out.reason).toMatch(/can't run/);
     expect([...walkSteps(out.skill.steps)].length).toBe([...walkSteps(skill.steps)].length);
     expect(out.skipped).toContain("Which sheet tab should it use?");
+    expect(new Set(out.skipped).size).toBe(out.skipped.length);
   });
 });
 

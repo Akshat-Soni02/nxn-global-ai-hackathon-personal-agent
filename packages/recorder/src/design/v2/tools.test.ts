@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { DoneReport, EvidenceView, Proposal } from "./contracts.ts";
 import { withFields } from "./orchestrator.ts";
 import { newSession, type SessionV2 } from "./session.ts";
-import { designToolsV2, isTimeOfDay, unstring, vaguePick } from "./tools.ts";
+import { designToolsV2, isFrequency, isTimeOfDay, unstring, vaguePick } from "./tools.ts";
 
 const MAIL = "https://mail.google.com/mail/u/0/#inbox";
 const recorded = Skill.parse({
@@ -301,6 +301,22 @@ describe("the tools", () => {
     expect(String((await run(session(), "test", {})).output)).toMatch(/can't run here/);
   });
 
+  it("tests a workflow changed after its last test once more at done, past the three (28 Oct YC → Sheet: saved untested)", async () => {
+    let runs = 0;
+    const report = { outcome: "succeeded", steps: [{ id: "s1", path: "s1", status: "done" as const }] };
+    const s = session({
+      runTest: async () => {
+        runs++;
+        return report;
+      },
+    });
+    for (let i = 0; i < 3; i++) await run(s, "test", {});
+    (s.draft.steps[1] as { intent: string }).intent = "changed after the last test";
+    await run(s, "done", { summary: "x", rules: [] });
+    expect(runs).toBe(4);
+    expect(s.testedDraft).toBe(JSON.stringify(s.draft.steps));
+  });
+
   it("tests once on its own before done when the workflow changed since the last test", async () => {
     let runs = 0;
     const s = session({
@@ -527,7 +543,7 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
         output: { name: "p", type: "list" },
       });
     expect(JSON.stringify((await pick("Extract the top 3 stories")).output)).toMatch(
-      /say how to pick: \\"the first 3 in the list's order\\"/,
+      /say how to pick: the ones in the list's order, with the count as the loop's first: 3/,
     );
     expect(vaguePick("the first 3 stories in the list's order")).toBeUndefined();
     expect(vaguePick("the top 3 stories by points")).toBeUndefined();
@@ -556,12 +572,12 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
     });
     const out = await run(s, "change", {
       step: "ai1",
-      instruction: "the first 3 in the list's order",
+      instruction: "the stories in the list's order",
       inputs: ["{{page}}"],
       why: "order",
     });
     expect(JSON.stringify(out.output)).toContain('"ok":true');
-    expect(findStep(s.draft, "ai1")).toMatchObject({ instruction: "the first 3 in the list's order" });
+    expect(findStep(s.draft, "ai1")).toMatchObject({ instruction: "the stories in the list's order" });
     const target = await run(s, "change", { step: "ai1", target: { like: "s3" }, why: "x" });
     expect(JSON.stringify(target.output)).toMatch(/an AI step changes its instruction or inputs/);
   });
@@ -673,7 +689,7 @@ describe("what round 3 showed: A and B stuck on loops, AI step types and the tri
       step: {
         do: "ai_step",
         intent: "pick",
-        instruction: "the first 3 in the list's order",
+        instruction: "the stories in the list's order",
         inputs: ["{{page}}"],
         output: { name: "top", type: "list" },
       },
@@ -752,7 +768,7 @@ describe("before round 3 spends: what the model resends, and what the run's mode
     await run(s, "ai_step", {
       after: "s4",
       intent: "p",
-      instruction: "the first 3 in the list's order",
+      instruction: "the stories in the list's order",
       inputs: ["{{page}}"],
       output: { name: "stories", type: "list" },
     });
@@ -793,6 +809,25 @@ describe("before round 3 spends: what the model resends, and what the run's mode
     });
   });
 
+  it("asks the run's model for text items when the loop uses each item whole (the fifth YC re-design wrote {{job}})", async () => {
+    const s = await withPage();
+    await run(s, "ai_step", {
+      after: "s4",
+      intent: "p",
+      instruction: "the job titles not in the sheet",
+      inputs: ["{{page}}"],
+      output: { name: "new_jobs", type: "list" },
+    });
+    await run(s, "loop", { steps: ["s2", "s3"], over: "new_jobs", item: { name: "job" }, intent: "each" });
+    expect((await run(s, "change", { step: "s3", args: { text: "{{job}}" } })).output.ok).toBe(true);
+    const saved = withFields(s.draft);
+    expect((findStep(saved, "ai1") as { output: { type: unknown } }).output.type).toEqual({
+      type: "list",
+      items: { type: "text" },
+    });
+    expect((findStep(saved, "l1") as { item: { type: unknown } }).item.type).toEqual({ type: "text" });
+  });
+
   it("says a call sent again exactly as before fails the same way (A sent one add 20 times)", async () => {
     const s = session();
     const tools = designToolsV2(s);
@@ -816,6 +851,68 @@ describe("what round 3's re-design of A showed", () => {
     }
     expect(s.questions).toEqual([]);
     expect(isTimeOfDay("Which row should the numbers go in?")).toBe(false);
+  });
+});
+
+describe("what the YC design of 28 Oct asked twice", () => {
+  it("never asks how often it runs: that is its Frequency in the review, and the form already holds the user's answer", async () => {
+    const s = session();
+    for (const question of [
+      "How often should the collection run?",
+      "What frequency should it run at?",
+      "How frequently should this run?",
+    ]) {
+      const out = await run(s, "ask", { question, why: "w", step: "start" });
+      expect(JSON.stringify(out.output)).toMatch(/Frequency/);
+    }
+    expect(s.questions).toEqual([]);
+    expect(isFrequency("How often should it run?")).toBe(true);
+    expect(isFrequency("How many jobs should it collect each day?")).toBe(false);
+  });
+});
+
+describe("a question asked while building (N9)", () => {
+  it("is answered at once when the design can ask now, and the agent builds with the answer", async () => {
+    const s = session();
+    const asked: string[] = [];
+    s.askNow = async (q) => {
+      asked.push(q.text);
+      return "the next empty row";
+    };
+    const out = await run(s, "ask", {
+      question: "Which row should the numbers go in?",
+      why: "the recording wrote A4",
+      step: "start",
+      options: ["A4", "the next empty row"],
+    });
+    expect(asked).toEqual(["Which row should the numbers go in?"]);
+    expect(out.output).toMatchObject({ answered: "the next empty row" });
+    // Answered: not asked again in the batch at the end.
+    expect(s.questions).toEqual([]);
+    expect(s.answeredNow).toMatchObject([
+      { question: { text: "Which row should the numbers go in?" }, answer: "the next empty row" },
+    ]);
+    // Asked again (models repeat a call; the YC design sent one six times): the user isn't asked twice.
+    const again = await run(s, "ask", { question: "which row should the numbers go in", why: "w", step: "start" });
+    expect(asked).toHaveLength(1);
+    expect(again.output).toMatchObject({ answered: "the next empty row" });
+  });
+
+  it("takes the default when the answer is empty, and queues it as before when it can't ask now", async () => {
+    const now = session();
+    now.askNow = async () => "";
+    const out = await run(now, "ask", {
+      question: "How many?",
+      why: "w",
+      step: "start",
+      options: ["3", "5"],
+      default: "5",
+    });
+    expect(out.output).toMatchObject({ answered: "5" });
+    const later = session();
+    expect((await run(later, "ask", { question: "How many?", why: "w", step: "start" })).output).toMatchObject({
+      queued: "q1",
+    });
   });
 });
 

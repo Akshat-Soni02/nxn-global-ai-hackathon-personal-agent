@@ -69,7 +69,17 @@ export async function failureReport(
   }
 
   lines.push("", "# The workflow", workflowOutline(skill, failure.stepId));
-  return lines.filter((l, i, all) => l !== "" || all[i - 1] !== "").join("\n");
+  const report = lines.filter((l, i, all) => l !== "" || all[i - 1] !== "").join("\n");
+  // A secret input's value (a password the step typed) never goes to the model, whichever line it is in (N2).
+  const trigger = skill.steps[0];
+  const secrets =
+    trigger?.type === "trigger"
+      ? Object.entries(trigger.inputs)
+          .filter(([, input]) => input.type.type === "secret")
+          .map(([name]) => failure.vars[name])
+          .filter((v): v is string => typeof v === "string" && v.length > 0)
+      : [];
+  return secrets.reduce((text, secret) => text.split(secret).join("███"), report);
 }
 
 // One line per step, indented by nesting, the failed one marked.

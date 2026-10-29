@@ -1,5 +1,7 @@
 # What's fixed in record → workflow, in plain words
 
+> **Status as of 27 Oct 2026:** a dated study. Which of its items are now fixed, partly done or still open is in [`changes.md` §7](changes.md#7-the-older-reports-reconciled); where they differ, `changes.md` is right.
+
 **For:** Akshat (and anyone who wasn't in the Record v2 work).
 **What it covers:** the part of Shadow that turns a recording into a saved workflow. Replay and repair appear only where
 record needed them.

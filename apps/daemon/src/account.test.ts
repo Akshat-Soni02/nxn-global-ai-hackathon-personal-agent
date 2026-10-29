@@ -142,6 +142,32 @@ describe("the account, through shadow-api", () => {
   });
 });
 
+describe("Apps → Connect with your own key (N13)", () => {
+  it("asks for the app's fields and connects with them, without opening a sign-in page", async () => {
+    const w = world();
+    const account = await signedIn(w);
+    const opened: string[] = [];
+    const app = createAppControl({
+      dataDir: mkdtempSync(join(tmpdir(), "key-")),
+      logDir: "",
+      nativeHost: "",
+      model: () => undefined,
+      keySource: () => "account",
+      applyKey: () => {},
+      account,
+      tools: () => undefined,
+      memory: {} as never,
+      openUrl: (url) => opened.push(url),
+    });
+    expect(await app.appKeyFields("weather")).toEqual([expect.objectContaining({ name: "api_key", secret: true })]);
+    expect(await app.connectApp("weather", { api_key: "wk-made-up" })).toEqual({ connected: true });
+    expect(opened).toEqual([]);
+    expect((await app.connectedApps()).connections).toContainEqual(
+      expect.objectContaining({ toolkit: "weather", status: "ACTIVE" }),
+    );
+  });
+});
+
 describe("Apps → Check", () => {
   it("says whether a connected app works the way a run reaches it, without doing anything in it", async () => {
     const w = world();

@@ -3,7 +3,7 @@
 //   outward actions   no new step that sends, submits, pays, publishes or deletes (except a confirmation that
 //                     finishes an outward step it follows, needing approval), or matches a Never entry
 //   user's decisions  the trigger, inputs and defaults, the description, args the user set, llm instructions,
-//                     max_items, on_item_fail
+//                     max_items, first, on_item_fail
 //   safety switches   approval never turned off, no ask removed
 //   reach             no script or connected-app (mcp) steps added, no navigating to a site the workflow doesn't
 //                     already use
@@ -42,6 +42,21 @@ export function isOutward(step: Step): boolean {
   if (key === "fs.move" && /\.Trash/.test(String(step.args.to ?? ""))) return true;
   return false;
 }
+
+// Enter (without Shift), or typed text with a new line (typing it presses Enter), sends in a chat and submits a form. A
+// step the user recorded that does so is theirs; one a repair adds or turns an action into is not, so it asks. (Not
+// part of isOutward: a plain Enter in a search box is not outward, and design asks about these by its own rule.)
+function sendsByEnter(step: Step): boolean {
+  if (!isAction(step)) return false;
+  const key = `${step.channel}.${step.action}`;
+  if ((key === "web.press" || key === "ax.key") && /^(enter|return)$/i.test(String(step.args.key ?? ""))) {
+    return !((step.args.modifiers as string[] | undefined) ?? []).includes("shift");
+  }
+  return (
+    (key === "web.type" || key === "ax.set_value") && /[\r\n]/.test(String(step.args.text ?? step.args.value ?? ""))
+  );
+}
+const outwardForRepair = (step: Step) => isOutward(step) || sendsByEnter(step);
 
 // The Never entry a step's control or action matches, if any ("Never click Archive" and a target named "Archive").
 export function neverMatch(step: Step, never: string[]): string | undefined {
@@ -100,8 +115,8 @@ export function repairCheck(original: Skill, draft: Skill): { never: string[]; a
     }
     if (old.type === "control" && old.kind === "loop") {
       if (now.type !== "control" || now.kind !== "loop") problems.push(`${id}: a loop can't be replaced`);
-      else if (now.max_items !== old.max_items || now.on_item_fail !== old.on_item_fail) {
-        problems.push(`${id}: max_items and on_item_fail are the user's: they can't change`);
+      else if (now.max_items !== old.max_items || now.first !== old.first || now.on_item_fail !== old.on_item_fail) {
+        problems.push(`${id}: max_items, first and on_item_fail are the user's: they can't change`);
       }
     }
     if (isAction(old) && isAction(now)) {
@@ -110,7 +125,7 @@ export function repairCheck(original: Skill, draft: Skill): { never: string[]; a
       }
       // An outward step may be retargeted (the same action on a changed control), never turned into another action.
       const sameAction = old.channel === now.channel && old.action === now.action;
-      if (isOutward(now) && !(isOutward(old) && sameAction)) {
+      if (outwardForRepair(now) && !(outwardForRepair(old) && sameAction)) {
         ask.push(`${id}: it would now act outward (${actionText(now)})`);
       }
     }
@@ -128,7 +143,7 @@ export function repairCheck(original: Skill, draft: Skill): { never: string[]; a
       if (isAction(step) && step.channel === "script") problems.push(`${id}: repairs can't add scripts`);
       if (isAction(step) && step.channel === "mcp")
         ask.push(`${id}: a new connected-app call (repairs can't add connected-app calls alone)`);
-      if (isOutward(step) && !completesOutward(draft, step, before)) {
+      if (outwardForRepair(step) && !completesOutward(draft, step, before)) {
         ask.push(
           `${id}: a new step can't act outward (${actionText(step)}) without the user's OK, except to finish an outward step it directly follows, with requires_approval`,
         );
@@ -159,12 +174,18 @@ function completesOutward(draft: Skill, step: Step, before: Map<string, Step>): 
   return !!original && isOutward(original) && isOutward(previous as Step);
 }
 
-function previousSibling(steps: Step[], id: string): Step | undefined {
+// The step just before this one. A block is only a folder of the steps in it, so the first step of a block follows the
+// last step of the block before (the confirmation a send needs may open the next block); a loop or an if still ends it.
+function previousSibling(steps: Step[], id: string, before?: Step): Step | undefined {
+  const lastOf = (s: Step | undefined): Step | undefined =>
+    s?.type === "control" && s.kind === "group" ? lastOf(s.steps.at(-1)) : s;
   for (const [i, step] of steps.entries()) {
-    if (step.id === id) return i > 0 ? steps[i - 1] : undefined;
+    const previous = i > 0 ? lastOf(steps[i - 1]) : before;
+    if (step.id === id) return previous;
     if (step.type === "control") {
       const inner =
-        previousSibling(step.steps, id) ?? (step.kind === "branch" ? previousSibling(step.else, id) : undefined);
+        previousSibling(step.steps, id, step.kind === "group" ? previous : undefined) ??
+        (step.kind === "branch" ? previousSibling(step.else, id) : undefined);
       if (inner) return inner;
     }
   }

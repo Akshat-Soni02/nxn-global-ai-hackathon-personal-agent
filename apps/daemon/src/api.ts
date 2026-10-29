@@ -41,9 +41,20 @@ const methods = {
       id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "a workflow id"),
       inputs: z.record(z.string(), z.unknown()).default({}),
     }),
-    run: (s: Service, p: { id: string; inputs: Record<string, unknown> }) => s.start(p.id, p.inputs, "manual"),
+    // Asks which file to use first (the same way the terminal's `run` does), unless the caller gave the inputs.
+    run: (s: Service, p: { id: string; inputs: Record<string, unknown> }) => s.startAsking(p.id, p.inputs),
   },
   // A walk-through (docs/design.md, "7. Test"): a run that stops before every step with its target outlined.
+  // The chat box (R6.1): a change in a sentence, into the draft.
+  chat: {
+    params: z.object({ id, message: z.string().min(1).max(2000) }),
+    run: (s: Service, p: { id: string; message: string }) => s.chat(p.id, p.message),
+  },
+  // The safe test from the workflow's page (R4.6), or one block of it (N1).
+  test: {
+    params: z.object({ id, block: z.string().optional() }),
+    run: (s: Service, p: { id: string; block?: string }) => s.test(p.id, p.block),
+  },
   walk: {
     params: z.object({
       id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "a workflow id"),
@@ -104,6 +115,12 @@ const recordMethods = {
       return { sessionId };
     },
   },
+  // Stop while the recording is becoming a workflow: the design ends at its next model call, its questions are dismissed,
+  // nothing is saved and the recording is kept. {} when nothing is being turned into a workflow.
+  recordCancel: {
+    params: z.object({ sessionId: z.string().optional() }).default({}),
+    run: (r: RecordControl, p: { sessionId?: string }) => r.cancel(p.sessionId),
+  },
   // Throws the recording away: nothing is compiled, its folder is deleted at once.
   recordDiscard: {
     params: z.object({}).default({}),
@@ -142,14 +159,28 @@ const appMethods = {
   accountUsage: { params: z.object({}).default({}), run: (a: AppControl) => a.accountUsage() },
   connectedApps: { params: z.object({}).default({}), run: (a: AppControl) => a.connectedApps() },
   connectApp: {
+    params: z.object({
+      toolkit: z.string().regex(/^[a-z0-9_]{1,60}$/, "an app's name"),
+      // An app connected with your own key (N13): its fields, as appKeyFields names them.
+      fields: z.record(z.string().max(100), z.string().max(4000)).optional(),
+    }),
+    run: (a: AppControl, p: { toolkit: string; fields?: Record<string, string> }) => a.connectApp(p.toolkit, p.fields),
+  },
+  appKeyFields: {
     params: z.object({ toolkit: z.string().regex(/^[a-z0-9_]{1,60}$/, "an app's name") }),
-    run: (a: AppControl, p: { toolkit: string }) => a.connectApp(p.toolkit),
+    run: (a: AppControl, p: { toolkit: string }) => a.appKeyFields(p.toolkit),
   },
   disconnectApp: {
     params: z.object({ id: z.string().min(1).max(200) }),
     run: (a: AppControl, p: { id: string }) => a.disconnectApp(p.id),
   },
   appTools: { params: z.object({}).default({}), run: (a: AppControl) => a.appTools() },
+  // A workflow's secret inputs (N2): set once, kept in the Keychain; the window only learns whether each is set.
+  secrets: { params: z.object({ id }), run: (a: AppControl, p: { id: string }) => a.secrets(p.id) },
+  setSecret: {
+    params: z.object({ id, name: z.string().regex(/^[a-z_][a-z0-9_]*$/), value: z.string().min(1).max(4000) }),
+    run: (a: AppControl, p: { id: string; name: string; value: string }) => a.setSecret(p.id, p.name, p.value),
+  },
   checkApp: {
     params: z.object({ toolkit: z.string().regex(/^[a-z0-9_]{1,60}$/, "an app's name") }),
     run: (a: AppControl, p: { toolkit: string }) => a.checkApp(p.toolkit),

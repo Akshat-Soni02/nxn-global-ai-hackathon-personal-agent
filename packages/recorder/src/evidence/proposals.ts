@@ -4,6 +4,7 @@ import { type DateRef, dateOf, type EditInput, findStep, formatDate, isAction, t
 import type { Proposal } from "../design/v2/contracts.ts";
 import type { NormalisedStep } from "../normalise.ts";
 import { classOf } from "./classes.ts";
+import { placeOf } from "./timeline.ts";
 
 export interface ProposalInput {
   steps: NormalisedStep[];
@@ -248,9 +249,12 @@ function samePlaces(input: ProposalInput): Found[] {
   const found: Found[] = [];
   input.steps.forEach((s, i) => {
     const id = firstId(input, i);
-    const place = s.target?.selectors?.css;
+    // In a list, the item's place in it (N4); else the element's own selector.
+    const place = placeOf(s);
     const name = (s.target?.name ?? s.target?.text ?? "").trim().toLowerCase();
     if (!id || s.kind !== "click" || !s.navigatesTo || !place || NAMES_ITEM.test(place)) return;
+    // Opening a document picks that document, not what sits there next time (Drive's Recent, Oct 25; open_directly).
+    if (isDocument(s.navigatesTo)) return;
     if (name.length >= 4 && place.toLowerCase().includes(name)) return;
     const near = s.target?.near ? ` near "${s.target.near.slice(0, 60)}"` : "";
     found.push({

@@ -36,6 +36,10 @@ export interface SessionV2 {
   sinceTest: Map<string, string>;
   unverified: Set<string>;
   questions: QueuedQuestion[];
+  // Asking while building (N9): when set, a question is put to the user at once and the agent builds with the answer;
+  // what was answered so is kept here (not asked again at the end).
+  askNow?: (question: QueuedQuestion) => Promise<string>;
+  answeredNow?: { question: QueuedQuestion; answer: string }[];
   evidence?: EvidenceView;
   // The recording's Never and private words: every tool result is masked with them, like the evidence.
   maskTerms?: string[];

@@ -3,10 +3,10 @@
 import type { ElementDescriptor, Locator } from "@shadow/core";
 
 export function toLocator(d: ElementDescriptor): Locator {
-  // Inside a shadow root, selectors and attributes only work from that root, and the player's matcher looks them up
-  // from the document (DOM.querySelectorAll does not enter shadow roots). There they could never match, yet they
-  // would still count against the score, so the locator keeps only role, name and text, which Chrome's
-  // accessibility tree exposes across shadow roots. The trace keeps the full description.
+  // Inside a shadow root, selectors and attributes only mean something from that root: a path recorded there is short
+  // ("div > button") and the matcher tries the page first, where it would find the page's own elements. So the
+  // locator keeps only role, name and text, which Chrome's accessibility tree exposes across shadow roots (since N3
+  // the matcher also searches inside shadow roots on a miss). The trace keeps the full description.
   const inShadow = Boolean(d.shadowPath?.length);
   const locator: Locator = {
     fallbacks: inShadow ? [] : [d.selectors?.css, d.selectors?.xpath].filter((s): s is string => Boolean(s)),

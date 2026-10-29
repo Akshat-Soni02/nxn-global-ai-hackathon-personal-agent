@@ -21,6 +21,12 @@
   --ok: #1f8a4c;
   --wait: #b35c00;
 
+  /* The mark's rim: none by default (the night square is 17:1 on a light bar); over a night bar it is set below. */
+  --mark-rim: transparent;
+  /* The Apple Intelligence glow (cyan, magenta, amber, violet). The only place colour leaves the one accent: the
+     hero window's rim, nowhere else. */
+  --ai: conic-gradient(from 0deg, #22d3ee, #e14bd8, #f5a524, #5b3fd6, #22d3ee);
+
   --line: rgba(0, 0, 0, 0.08);
   --line-night: rgba(255, 255, 255, 0.12);
 
@@ -364,6 +370,17 @@ button {
 .brand svg {
   width: 26px;
   height: 26px;
+}
+/* Over a night bar the mark's night square would merge into it (about 1.2:1); a light rim lifts it to 5.4:1. Set only
+   on the bar and its sheet, not on [data-tone="night"]: that would reach the light window drawing's own mark. */
+.nav.over-night,
+.sheet.over-night {
+  --mark-rim: #7f86b8;
+}
+.mark-rim {
+  stroke: var(--mark-rim);
+  stroke-width: 1;
+  transition: stroke var(--t-hover) var(--ease);
 }
 .nav-links {
   display: none;
@@ -1831,6 +1848,83 @@ button {
   will-change: transform, opacity;
 }
 
+/* A ring of light: a conic gradient turning inside a frame, cut to a band of --w by a mask (the band is the padding
+   box minus the content box). It turns with transform only, so it stays on the compositor. The square is 160% of the
+   frame so its corners never come into view. */
+.glow-ring {
+  position: absolute;
+  inset: 0;
+  padding: var(--w, 2px);
+  overflow: hidden;
+  border-radius: inherit;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+.glow-ring .sweep {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 160%;
+  aspect-ratio: 1;
+  margin: -80% 0 0 -80%;
+  background: var(--ai);
+  animation: glow-spin 9s linear infinite;
+}
+@keyframes glow-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The hero window's rim (AiRim.tsx). Without scripts or with Reduce Motion it is simply there, still; with motion the
+   script fades it in and breathes it (hidden before first paint under html.js, like the reveals). */
+.ai-rim {
+  position: relative;
+  border-radius: 14px;
+  isolation: isolate;
+}
+.ai-ring,
+.ai-bloom {
+  position: absolute;
+  pointer-events: none;
+}
+.ai-ring {
+  inset: -1px;
+  z-index: 2;
+  border-radius: 15px;
+}
+.ai-ring .glow-ring {
+  --w: 2px;
+}
+/* Screen, so the light adds to the dark shadow round the window and does not grey the light window it overlaps. */
+.ai-bloom {
+  inset: -10px;
+  z-index: 1;
+  border-radius: 24px;
+  opacity: 0.4;
+  mix-blend-mode: screen;
+  filter: blur(22px) saturate(1.4);
+}
+.ai-bloom .glow-ring {
+  --w: 30px;
+}
+.ai-rim.settled .sweep,
+.ai-rim.off .sweep {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .js .ai-ring,
+  .js .ai-bloom {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-transparency: reduce) {
   .nav {
     background: #fafafc;
@@ -1846,6 +1940,9 @@ button {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
+  .ai-bloom {
+    display: none;
+  }
 }
 @media (prefers-contrast: more) {
   :root {
@@ -1854,9 +1951,25 @@ button {
     --line: rgba(0, 0, 0, 0.3);
     --line-night: rgba(255, 255, 255, 0.4);
   }
+  .nav.over-night,
+  .sheet.over-night {
+    --mark-rim: #b4b9e0;
+  }
+}
+/* A slow-updating display (e-ink, some low-power modes): the rim is drawn still and the bloom left out. */
+@media (update: slow) {
+  .glow-ring .sweep {
+    animation: none;
+  }
+  .ai-bloom {
+    display: none;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .sheet {
+    animation: none;
+  }
+  .glow-ring .sweep {
     animation: none;
   }
   .faq-a,

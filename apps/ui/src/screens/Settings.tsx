@@ -137,6 +137,17 @@ export function Settings() {
             />{" "}
             Pictures for the AI <span className="muted small">masked, only when the words aren't enough</span>
           </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={s.consent.identifiers ?? false}
+              onChange={(e) => consent({ identifiers: e.target.checked })}
+            />{" "}
+            Hide emails and ids from the AI{" "}
+            <span className="muted small">
+              emails, keys and long ids become ███ in what the models read; a step still uses the real ones
+            </span>
+          </label>
         </fieldset>
       </section>
 

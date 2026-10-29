@@ -7,7 +7,7 @@
 // from the checkpoint. So a run can wait for hours, or across a daemon restart.
 //
 // One leg acts at a time (there is one automation window): legs queue behind each other. Waiting runs hold nothing.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { applyEdits, describeEdit, type EditInput, Skill, triggerOf } from "@shadow/core";
 import {
@@ -20,11 +20,13 @@ import {
   type Waiting,
 } from "@shadow/player";
 import { blockPlan, shortName } from "@shadow/recorder";
+import { editsBetween } from "./draft-edits.ts";
 import { deleteDraft, draftSkill, readDraft, writeDraft } from "./draft-store.ts";
 import { goLiveProblems, nextTime, readState, triggerKey, writeState } from "./lifecycle.ts";
+import { appToConnect, NEEDS_APP } from "./mcp-tools.ts";
 import { markReviewed, readReview } from "./review-store.ts";
 import { newRunId } from "./runner.ts";
-import { listSkills, loadSkill, rollbackSkill, saveSkill, versions } from "./skill-store.ts";
+import { listSkills, loadSkill, rollbackSkill, saveRepair, saveSkill, versions } from "./skill-store.ts";
 import type { Checkpoint, InboxItem, RunRow, RunState, Store } from "./store.ts";
 import type { DraftView, Question, Review, ServiceEvent, StateFile, WorkflowSummary } from "./types.ts";
 
@@ -62,7 +64,24 @@ export interface ServiceOptions {
   release?: (runId: string) => void;
   // What main.ts knows about the outside: connected extension and app, model configured.
   health?: () => Record<string, unknown>;
+  // Settles the inputs of a run you start by hand (which file to use) before the first step, as the terminal's `run`
+  // does: it fills `provided`, or throws when an answer is wrong. Without one, Run now takes the newest match.
+  chooseInputs?: (skill: Skill, provided: Record<string, unknown>) => Promise<void>;
+  // The safe test (rehearse.ts) from the workflow's page (R4.6): reads for real, only outlines what writes. With a
+  // block, only that block's steps are reported (N1). Without one, Test says it can't run here.
+  test?: (skill: Skill, block?: string) => Promise<TestResult>;
+  // The chat box (R6.1): the design agent changes the workflow from a sentence. Without one, chat says it can't here.
+  chat?: (
+    skill: Skill,
+    message: string,
+  ) => Promise<{ skill: Skill; summary: string; changed: boolean; costUsd?: number }>;
   now?: () => number;
+}
+
+// What a test from the workflow's page found, step by step.
+export interface TestResult {
+  outcome: string;
+  steps: { id: string; path: string; status: string; error?: string }[];
 }
 
 export interface Service {
@@ -72,9 +91,19 @@ export interface Service {
   run(id: string): { run: RunRow; events: unknown[]; repairs: unknown[] } | undefined;
   inbox(options?: { open?: boolean }): InboxItem[];
   usage(): { todayUsd: number };
+  // Announces again what has waited a day or more, once a day (Shadow.app notifies on it): the ids (N20).
+  remind(): string[];
+  // Forgets runs that ended more than `days` ago (30: docs/product.md), with their logs and repair transcripts; a run
+  // going or waiting for you is never forgotten. The ids forgotten (N12).
+  pruneRuns(days?: number): string[];
+  // Runs the safe test on the latest version (R4.6), or only one block of it (N1).
+  test(id: string, block?: string): Promise<TestResult>;
   health(): Record<string, unknown>;
   // Starts a run: a workflow id from the store, or the absolute path of a workflow file. Resolves when it is queued.
   start(ref: string, provided?: Record<string, unknown>, trigger?: string): RunRow;
+  // Run now from the window: settles which file to use (chooseInputs) first, then starts it by hand. A wrong answer
+  // starts nothing.
+  startAsking(id: string, provided?: Record<string, unknown>): Promise<RunRow>;
   // Walks through a workflow: a run that stops before every step with its target highlighted, and goes on with
   // "do it" / "next", "skip" or "stop" from the inbox. Reads run on "next"; acting steps only on "do it".
   walk(id: string, provided?: Record<string, unknown>): RunRow;
@@ -85,6 +114,8 @@ export interface Service {
   // Puts a question in the inbox and resolves with the answer.
   // onItem: the inbox item's id, as soon as it exists (a question the daemon may answer itself: connectors.ts).
   ask(question: Question, onItem?: (itemId: string) => void): Promise<string>;
+  // Answers one recording's waiting questions with their defaults (Stop on "turning it into a workflow"); returns how many.
+  dismissQuestions(sessionId: string): number;
   subscribe(listener: (event: ServiceEvent) => void): () => void;
   // Startup: runs the daemon left going are interrupted; questions asked before the restart can't be answered.
   recover(): { interrupted: string[]; expired: string[] };
@@ -110,6 +141,8 @@ export interface Service {
   // The editor (docs/design.md, "6. Edit"): a draft beside the workflow, as a base version plus edit operations,
   // autosaved after every change. editDraft refuses an edit the workflow can't take (check.ts) and says why.
   draft(id: string): DraftView;
+  // A change asked for in a sentence (R6.1), put into the draft as edits: looked at, undone or saved like any other.
+  chat(id: string, message: string): Promise<{ summary: string; changed: boolean; costUsd?: number; draft: DraftView }>;
   editDraft(id: string, edits: EditInput[]): DraftView;
   // Groups a workflow saved before blocks into named blocks, and gives it a short name, on its draft.
   tidyDraft(id: string): DraftView;
@@ -126,6 +159,8 @@ export interface Service {
 export function createService(options: ServiceOptions): Service {
   const { store, dataDir } = options;
   const runsDir = options.runsDir ?? join(dataDir, "runs");
+  // When each waiting item was last announced again (remind, N20): forgotten on a restart, so it is announced once more.
+  const reminded = new Map<string, number>();
   const now = options.now ?? Date.now;
   const spent = options.spent ?? (() => 0);
   const listeners = new Set<(event: ServiceEvent) => void>();
@@ -148,7 +183,7 @@ export function createService(options: ServiceOptions): Service {
     return run;
   };
   const addItem = (item: Parameters<Store["addItem"]>[0]) => {
-    const added = store.addItem(item);
+    const added = store.addItem(item, now());
     emit({ type: "inbox", item: added });
     return added;
   };
@@ -235,7 +270,39 @@ export function createService(options: ServiceOptions): Service {
       error: outcome.error,
       checkpoint: undefined,
     });
+    if (outcome.error?.startsWith(NEEDS_APP)) offerConnect(run.skillId, outcome.error);
     if (run.trigger !== "manual" && run.trigger !== "walk") autoPause(run.skillId);
+  }
+
+  // A run stopped before step 1 for want of an app (A2): one card with that app's Connect button and "Run it again",
+  // not only a failed run to read. One per workflow and app while it waits (a schedule's next tick adds none).
+  const RUN_AGAIN = "Run it again";
+  function offerConnect(skillId: string, error: string) {
+    const connect = appToConnect(error);
+    if (!connect) return;
+    const waiting = store
+      .listItems({ open: true })
+      .some(
+        (i) =>
+          i.skillId === skillId &&
+          (i.detail as { connect?: { toolkit?: string } }).connect?.toolkit === connect.toolkit,
+      );
+    if (waiting) return;
+    const name = loadSkill(dataDir, skillId)?.name ?? skillId;
+    const item = addItem({
+      kind: "question",
+      skillId,
+      title: `${name} needs ${connect.name} connected`,
+      detail: {
+        options: [RUN_AGAIN, "Not now"],
+        freeText: false,
+        why: error.slice(NEEDS_APP.length),
+        connect,
+      },
+    });
+    questions.set(item.id, (answer) => {
+      if (answer === RUN_AGAIN) service.start(skillId);
+    });
   }
 
   // ── The lifecycle (lifecycle.ts): draft, live, paused ──
@@ -272,11 +339,15 @@ export function createService(options: ServiceOptions): Service {
   // Runs started by hand don't count; a run that succeeded, found nothing to do or was denied ends the streak.
   function autoPause(id: string) {
     if (readState(dataDir, id).state !== "live") return;
-    const finished = store
-      .listRuns({ skillId: id, limit: 50 })
-      .filter(
-        (r) => r.trigger !== "manual" && r.trigger !== "walk" && !["running", "waiting", "skipped"].includes(r.status),
-      );
+    const finished = store.listRuns({ skillId: id, limit: 50 }).filter(
+      (r) =>
+        r.trigger !== "manual" &&
+        r.trigger !== "walk" &&
+        !["running", "waiting", "skipped"].includes(r.status) &&
+        // A run that stopped before step 1 for want of a connected app did nothing and is no failure of the
+        // workflow: connecting the app fixes it, so it neither counts nor pauses (A2).
+        !r.error?.startsWith(NEEDS_APP),
+    );
     let streak = 0;
     for (const r of finished) {
       if (r.status !== "failed" && r.status !== "interrupted") break;
@@ -397,10 +468,24 @@ export function createService(options: ServiceOptions): Service {
       return run;
     },
 
+    async startAsking(id, provided = {}) {
+      const skill = loadSkill(dataDir, id);
+      if (skill && options.chooseInputs) await options.chooseInputs(skill, provided);
+      return service.start(id, provided, "manual");
+    },
+
     walk: (id, provided = {}) => service.start(id, provided, "walk"),
 
     // ── The editor's draft (draft-store.ts) ──
     draft: (id) => draftView(id),
+    async chat(id, message) {
+      if (!options.chat) throw new Error("changing a workflow by chat needs a model: add one in Settings");
+      // On the draft, if one is open: a sentence after a hand edit builds on it.
+      const base = draftSkill(dataDir, id)?.skill ?? latest(id);
+      const made = await options.chat(base, message);
+      if (made.changed) service.editDraft(id, editsBetween(base, made.skill));
+      return { summary: made.summary, changed: made.changed, costUsd: made.costUsd, draft: draftView(id) };
+    },
     // A workflow saved before blocks, grouped and named as one saved now would be (reports/plan-oct26-workflow-revamp.md,
     // R2.5): edits on the draft, so the user sees it in the editor and saves it as the next version, or undoes it.
     tidyDraft(id) {
@@ -506,6 +591,27 @@ export function createService(options: ServiceOptions): Service {
       const run = item.runId ? store.getRun(item.runId) : undefined;
       const checkpoint = run?.checkpoint;
       if (run?.status !== "waiting" || !checkpoint) throw new Error("this run isn't waiting any more");
+      // "Use it" on a proposed fix (A3): saved as the next version, and the run goes on with it from the stuck step.
+      // The card showed exactly what the new step does, so its approval is not asked again on this run.
+      const proposal = checkpoint.waiting.kind === "recovery" ? checkpoint.waiting.proposal : undefined;
+      if (raw === "use" && proposal) {
+        if (!store.answerItem(itemId, raw, now())) throw new Error("already answered");
+        emit({ type: "inbox", item: store.getItem(itemId) as InboxItem });
+        const saved = saveRepair(options.dataDir, Skill.parse(proposal.skill), proposal.edits);
+        const going = updateRun(run.id, { status: "running", repaired: true });
+        // A removal (N22): the next version goes without the step; this run goes on after it, on its own version.
+        if (proposal.skip) {
+          const before = loadVersion(run.skillId, checkpoint.version, checkpoint.file);
+          enqueue(() => leg(going, before, checkpoint.inputs, { ...checkpoint.resume, skip: true }, checkpoint.file));
+          return;
+        }
+        const resume: Resume = {
+          ...checkpoint.resume,
+          answers: [...(checkpoint.resume.answers ?? []), { kind: "approval", approved: true }],
+        };
+        enqueue(() => leg(going, saved, checkpoint.inputs, resume, checkpoint.file));
+        return;
+      }
       const resume = resumeWith(checkpoint, raw);
       if (!store.answerItem(itemId, raw, now())) throw new Error("already answered");
       emit({ type: "inbox", item: store.getItem(itemId) as InboxItem });
@@ -610,6 +716,37 @@ export function createService(options: ServiceOptions): Service {
       return service.start(skillId, provided, trigger);
     },
 
+    remind() {
+      const DAY = 24 * 60 * 60 * 1000;
+      const due = store
+        .listItems({ open: true })
+        .filter((item) => item.kind !== "repaired" && now() - item.createdAt >= DAY)
+        .filter((item) => now() - (reminded.get(item.id) ?? item.createdAt) >= DAY);
+      for (const item of due) {
+        reminded.set(item.id, now());
+        emit({ type: "inbox", item });
+      }
+      return due.map((item) => item.id);
+    },
+
+    pruneRuns(days = 30) {
+      const ids = store.deleteRunsEndedBefore(now() - days * 24 * 60 * 60 * 1000);
+      if (ids.length > 0 && existsSync(runsDir)) {
+        for (const file of readdirSync(runsDir))
+          if (ids.some((id) => file.startsWith(`${id}.`))) rmSync(join(runsDir, file), { force: true });
+      }
+      return ids;
+    },
+
+    async test(id, block) {
+      const skill = loadSkill(dataDir, id);
+      if (!skill) throw new Error(`no workflow ${id}`);
+      if (!options.test) throw new Error("the safe test can't run here");
+      const test = options.test;
+      // Queued with the runs' legs: the two never share the automation window.
+      return service.exclusive(() => test(skill, block));
+    },
+
     rollback(skillId) {
       const saved = rollbackSkill(dataDir, skillId);
       return {
@@ -637,6 +774,19 @@ export function createService(options: ServiceOptions): Service {
       const answered = new Promise<string>((resolve) => questions.set(item.id, resolve));
       onItem?.(item.id);
       return answered;
+    },
+
+    dismissQuestions(sessionId) {
+      let n = 0;
+      for (const item of store.listItems({ open: true })) {
+        if (item.kind !== "question" || (item.detail as { sessionId?: unknown }).sessionId !== sessionId) continue;
+        if (!store.answerItem(item.id, { cancelled: "you stopped it" }, now())) continue;
+        emit({ type: "inbox", item: store.getItem(item.id) as InboxItem });
+        questions.get(item.id)?.("");
+        questions.delete(item.id);
+        n++;
+      }
+      return n;
     },
 
     subscribe(listener) {
@@ -682,7 +832,9 @@ function itemFor(waiting: Waiting): Pick<InboxItem, "kind" | "title" | "detail">
       detail: { waiting, options: waiting.acting ? ["do it", "skip", "stop"] : ["next", "skip", "stop"] },
     };
   }
-  return { kind: "recovery", title: waiting.message, detail: { waiting, options: ["retry", "skip", "stop"] } };
+  // A fix repair found that needs their OK (A3): "use" saves it and goes on with it.
+  const options = waiting.proposal ? ["use", "retry", "skip", "stop"] : ["retry", "skip", "stop"];
+  return { kind: "recovery", title: waiting.message, detail: { waiting, options } };
 }
 
 // The checkpoint's resume with the user's answer in it; undefined when the answer stops the run.

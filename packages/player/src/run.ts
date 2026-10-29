@@ -101,6 +101,9 @@ interface Env {
   // Action steps that acted (not only read), counted across the whole run.
   acted: { n: number };
   signal?: AbortSignal;
+  // Inside a loop that skips a failing item: a failing step ends its item, it doesn't pause the run for repair (the
+  // author said a bad item is to be skipped; repair would spend money and may save a version fitted to that one item).
+  skipsFailure?: boolean;
 }
 
 type Vars = Record<string, unknown>;
@@ -297,6 +300,28 @@ async function approval(step: Step, path: string, env: Env): Promise<boolean | W
   return approved;
 }
 
+// What an approval card shows (Y9, 28 Oct: "Approve: Append one job row to sheet" said nothing of the row): the step's
+// tool or action and its values as they will be sent, cut to a readable length. Secret values are masked.
+export function whatItDoes(step: Step, secrets: string[]): string | undefined {
+  if (!isAction(step)) return undefined;
+  const body =
+    step.channel === "mcp"
+      ? `${String(step.args.tool)} ${JSON.stringify(step.args.arguments ?? {})}`
+      : `${step.channel}.${step.action}${step.target?.name ? ` on "${step.target.name}"` : ""} ${JSON.stringify(step.args)}`;
+  const masked = secrets.filter((s) => s.length > 0).reduce((text, s) => text.split(s).join("███"), body);
+  return masked.length > 900 ? `${masked.slice(0, 900)}…` : masked;
+}
+
+// The values of the run's secret inputs, so they are never shown.
+function secretsOf(skill: Skill, vars: Vars): string[] {
+  const first = skill.steps[0];
+  if (first?.type !== "trigger") return [];
+  return Object.entries(first.inputs)
+    .filter(([, input]) => input.type.type === "secret")
+    .map(([name]) => vars[name])
+    .filter((v): v is string => typeof v === "string");
+}
+
 // Ends the run until the user answers. `given`: what they already answered for this step, so it isn't asked again.
 function waitFor(waiting: Waiting, vars: Vars, given: Answer[]): Halt {
   return {
@@ -367,12 +392,17 @@ async function runLeaf(
   if (resolved.requires_approval && !walked) {
     const approved = await approval(resolved, path, env);
     if (approved === WAIT) {
-      return waitFor({ kind: "approval", path, stepId: step.id, intent: resolved.intent }, vars, given);
+      const what = whatItDoes(resolved, secretsOf(env.skill, vars));
+      return waitFor(
+        { kind: "approval", path, stepId: step.id, intent: resolved.intent, ...(what ? { what } : {}) },
+        vars,
+        given,
+      );
     }
     if (!approved) return fail("you denied it", "denied");
   }
 
-  const ctx: RunContext = { ...env.ctx, vars };
+  const ctx: RunContext = { ...env.ctx, vars, signal: env.signal };
   const attempts = 1 + (isAction(resolved) ? (resolved.on_fail?.retries ?? 0) : 0);
   let result: StepResult = { ok: false, error: "not run" };
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -403,7 +433,7 @@ async function runLeaf(
   }
   if (!result.ok) {
     const failure: Failure = { stepId: step.id, path, step: resolved, result, attempts, vars: { ...vars } };
-    if ((await env.deps.onFailure?.(failure)) === "pause") {
+    if (!env.skipsFailure && (await env.deps.onFailure?.(failure)) === "pause") {
       return {
         status: "paused",
         failedStep: path,
@@ -433,6 +463,17 @@ async function runLeaf(
   return undefined;
 }
 
+// The names that live only inside one item of a loop: its item, and what the steps in it save or ask for.
+function scopeNames(loop: LoopStep): Set<string> {
+  const names = new Set([loop.item.name]);
+  for (const { step } of walkSteps(loop.steps)) {
+    if (step.type === "control" && step.kind === "loop") names.add(step.item.name);
+    if ("output" in step && step.output) names.add(step.output.name);
+    if ("ask" in step && step.ask?.output) names.add(step.ask.output.name);
+  }
+  return names;
+}
+
 async function runLoop(
   step: LoopStep,
   vars: Vars,
@@ -450,12 +491,14 @@ async function runLoop(
     return fail((error as Error).message);
   }
   if (!Array.isArray(list)) return fail(`${step.over} is not a list`);
+  // `first`: only the first N, in the list's order; the cap and the rest count those.
+  const items = step.first ? list.slice(0, step.first) : list;
   // A cap, so a list that is far longer than expected (a page of search results) cannot run on and on.
-  if (list.length > step.max_items) {
-    return fail(`${step.over} has ${list.length} items, more than this loop's max_items (${step.max_items})`);
+  if (items.length > step.max_items) {
+    return fail(`${step.over} has ${items.length} items, more than this loop's max_items (${step.max_items})`);
   }
-  if (startAt !== undefined && startAt >= list.length) {
-    return fail(`can't resume at item ${startAt}: ${step.over} has ${list.length} items now`);
+  if (startAt !== undefined && startAt >= items.length) {
+    return fail(`can't resume at item ${startAt}: ${step.over} has ${items.length} items now`);
   }
   if (step.requires_approval && startAt === undefined) {
     const approved = await approval(step, path, env);
@@ -463,9 +506,14 @@ async function runLoop(
       return waitFor({ kind: "approval", path, stepId: step.id, intent: step.intent }, vars, given);
     if (!approved) return fail("you denied it", "denied");
   }
-  if (startAt === undefined) env.log({ type: "loop.start", stepId: step.id, path, items: list.length });
+  if (startAt === undefined) env.log({ type: "loop.start", stepId: step.id, path, items: items.length });
 
-  for (const [index, raw] of list.entries()) {
+  // A run resumed inside an item carries that item's scope (the item, what its steps made). Only the item it resumes in
+  // may see it: later items and the steps after the loop must not, as in a run that never paused.
+  const resumedItem = startAt === undefined ? undefined : { ...vars };
+  if (resumedItem) for (const name of scopeNames(step)) delete vars[name];
+
+  for (const [index, raw] of items.entries()) {
     if (startAt !== undefined && index < startAt) continue;
     const at = `${path}[${index}]`;
     const item = fitValue(step.item.type, raw);
@@ -475,7 +523,11 @@ async function runLoop(
     } else {
       env.log({ type: "loop.item", stepId: step.id, path, index });
       // Each item gets its own scope: the item, plus what its steps produce. Nothing leaks to the next item.
-      halt = await runSteps(step.steps, { ...vars, [step.item.name]: item }, { ...env, at: `${at} > ` });
+      halt = await runSteps(
+        step.steps,
+        { ...(index === startAt && resumedItem ? resumedItem : vars), [step.item.name]: item },
+        { ...env, at: `${at} > `, skipsFailure: env.skipsFailure || step.on_item_fail === "skip" },
+      );
     }
     if (!halt) continue;
     // "skip" goes on with the next item after a failure; a denial or a pause always stops the run.
@@ -603,6 +655,15 @@ async function executeOnce(step: ActionStep, ctx: RunContext, deps: RunDeps): Pr
                 ? deps.mcp
                 : undefined;
   if (!channel) return { ok: false, error: `channel ${step.channel} is not supported yet` };
+  // The recording typed or pressed into a drawn area (a sheet's cells): the clicks that chose the place are gone, so
+  // here it would land in whichever cell is selected and report ok. Fail it, loudly, before it touches the page (A2).
+  if (step.channel === "web" && step.drawn) {
+    return {
+      ok: false,
+      error:
+        "this step types into a drawn area replay can't reach (a sheet's cells): use the connected app that covers this page (connect it in Apps), then run it again",
+    };
+  }
 
   let result: StepResult;
   try {

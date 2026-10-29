@@ -191,6 +191,11 @@ export const ActionStep = z
     // name stays the same tab for the whole run, so going back to it keeps its page as it was (a selected cell, a
     // scrolled list) instead of opening it again. Needs replay's sign-off: the extension keeps a tab per name.
     tab: z.string().min(1).max(60).optional(),
+    // The recording typed or pressed into a drawn area (a sheet's cells, a canvas): the clicks that chose the place
+    // were dropped, as there is no element to aim at again, so on replay this would land in whichever cell is selected
+    // and say ok. Set by the recorder; read by the design gate (a connected app should do this) and by replay (which
+    // fails it loudly rather than guess). Never written by hand.
+    drawn: z.boolean().optional(),
     args: z.record(z.string(), z.unknown()).default({}),
     wait: Check.optional(),
     check: Check.optional(),
@@ -221,7 +226,11 @@ export const ActionStep = z
         MCP_TOOL_NAME.test(s.args.tool) &&
         (s.args.arguments === undefined ||
           (typeof s.args.arguments === "object" && s.args.arguments !== null && !Array.isArray(s.args.arguments)))),
-    { message: "an mcp step needs args.tool (a tool's name) and args.arguments as an object, if any", path: ["args"] },
+    {
+      message:
+        'an mcp step needs args.tool (a tool\'s name) and args.arguments as an object, if any: { channel: "mcp", action: "call", args: { tool: "NAME", arguments: { … } } }',
+      path: ["args"],
+    },
   );
 export type ActionStep = z.infer<typeof ActionStep>;
 
@@ -273,6 +282,9 @@ const LoopFields = z.object({
   // The current item, a variable visible only inside the loop: {{email}}.
   item: Output,
   max_items: z.number().int().positive().max(1000).default(100),
+  // Go through only the first N of the list, in its order ("the top 5 jobs"): counted by code, never by a model (28 Oct: an
+  // AI step asked for "the first 5" picked items 1, 2, 3, 2, 5). max_items then counts those N.
+  first: z.number().int().positive().max(1000).optional(),
   // "stop": the first failing item fails the run. "skip": it is logged and the loop goes on.
   on_item_fail: z.enum(["stop", "skip"]).default("stop"),
 });
@@ -397,6 +409,20 @@ export function* walkSteps(steps: Step[], parents: string[] = []): Generator<{ s
       yield* walkSteps(step.steps, [...parents, step.id]);
       yield* walkSteps(step.else, [...parents, step.id]);
     }
+  }
+}
+
+// Each web step with the page it works on: the address last opened in its own tab before it (undefined before any
+// open). One rule for the design gate and the run's preflight: a drawn step finds its app from this, since only the
+// step that opens a page knows the address, never the typing step (27 Oct: the gate looked up the typing step, found
+// nothing, and said "no connected app covers this site" with Google Sheets connected).
+export function* webPages(steps: Step[]): Generator<{ step: ActionStep; url: string | undefined }> {
+  const open = new Map<string, string>(); // tab -> the address last opened there
+  for (const { step } of walkSteps(steps)) {
+    if (!isAction(step) || step.channel !== "web") continue;
+    const tab = step.tab ?? "main";
+    if (step.action === "navigate") open.set(tab, String(step.args.url ?? ""));
+    yield { step, url: open.get(tab) };
   }
 }
 

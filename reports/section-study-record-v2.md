@@ -1,5 +1,7 @@
 # Record and the design agent, section by section (Record v2): how each part is built now, and what still breaks
 
+> **Status as of 27 Oct 2026:** a dated study. Which of its items are now fixed, partly done or still open is in [`changes.md` §7](changes.md#7-the-older-reports-reconciled); where they differ, `changes.md` is right.
+
 **Why this file.** [`section-study.md`](section-study.md) showed that the failures came from how some parts were
 designed, not from a few loose ends. Branch `feat/record-v2` (PR #14) rebuilt those parts. This file goes through
 the same sections again, as they are built now: the fundamental issues (§0), Record (R1–R10) and the design agent

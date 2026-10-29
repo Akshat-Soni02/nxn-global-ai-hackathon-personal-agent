@@ -13,7 +13,9 @@
 //   POST /v1/tools/mcp              the user's MCP server (Streamable HTTP, stateless)
 //   GET  /v1/tools/toolkits         apps that can be connected
 //   GET  /v1/tools/connections      the user's connected apps;  DELETE /v1/tools/connections/:id disconnects one
-//   POST /v1/tools/connect          starts connecting an app: Composio's sign-in link
+//   POST /v1/tools/connect          starts connecting an app: Composio's sign-in link; an app that needs the user's own
+//                                   key is connected with it at once (`fields`, never logged)
+//   GET  /v1/tools/key-fields       what connecting such an app asks for (?toolkit=)
 //   GET  /v1/usage                  today's and this month's use against the limits
 import { CATALOG, costOf } from "@shadow/llm";
 import { Hono } from "hono";
@@ -269,14 +271,33 @@ export function createApp(deps: AppDeps) {
 
   app.post("/v1/tools/connect", async (c) => {
     if (!deps.tools) return c.json(noTools(), 503);
-    const body = (await c.req.json().catch(() => ({}))) as { toolkit?: string; callback_url?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      toolkit?: string;
+      callback_url?: string;
+      fields?: Record<string, unknown>;
+    };
     const toolkit = String(body.toolkit ?? "").toLowerCase();
     const allowed = await deps.tools.toolkits();
     if (!allowed.some((t) => t.slug === toolkit))
       return c.json({ error: `${toolkit || "that app"} can't be connected` }, 400);
-    const started = await deps.tools.connect(c.get("uid"), toolkit, body.callback_url);
-    log({ event: "tool.connect", uid: c.get("uid"), toolkit });
-    return c.json({ id: started.id, redirect_url: started.redirectUrl });
+    const fields =
+      body.fields && typeof body.fields === "object"
+        ? Object.fromEntries(Object.entries(body.fields).map(([k, v]) => [k, String(v ?? "")]))
+        : undefined;
+    const started = await deps.tools.connect(c.get("uid"), toolkit, body.callback_url, fields);
+    // The key itself is never logged: only that the app was connected with one.
+    log({ event: "tool.connect", uid: c.get("uid"), toolkit, ...(fields ? { byKey: true } : {}) });
+    return c.json(
+      started.redirectUrl ? { id: started.id, redirect_url: started.redirectUrl } : { id: started.id, connected: true },
+    );
+  });
+
+  app.get("/v1/tools/key-fields", async (c) => {
+    if (!deps.tools) return c.json(noTools(), 503);
+    const toolkit = String(c.req.query("toolkit") ?? "").toLowerCase();
+    const kit = (await deps.tools.toolkits()).find((t) => t.slug === toolkit);
+    if (!kit?.key) return c.json({ error: `${toolkit || "that app"} isn't connected with a key` }, 400);
+    return c.json({ fields: await deps.tools.keyFields(toolkit) });
   });
 
   app.delete("/v1/tools/connections/:id", async (c) => {

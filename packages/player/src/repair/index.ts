@@ -6,6 +6,8 @@ export { type Recovery, runWithRecovery } from "./recover.ts";
 export {
   createRepairer,
   DEFAULT_REPAIR_LIMITS,
+  newRepairBudget,
+  type RepairBudget,
   type Repairer,
   type RepairerOptions,
   type RepairLimits,

@@ -44,6 +44,21 @@ export function classify(failure: Failure, signals?: PageSignals): Classificatio
       need: "bring the Shadow automation window to the front, then try the step again",
     };
   }
+  // The page asked a question nobody could answer (extension/src/dialogs.ts dismissed it): not drift, nothing a repair
+  // can change; the user answers it by hand in the automation window.
+  // A step in a drawn area (a sheet's cells) that replay can't reach: only a connected app can do it, so nothing for a
+  // ladder or a model to try. The run waits for the user to connect the app (A2).
+  if (/drawn area replay can't reach/i.test(error)) {
+    return { class: "environment", reason: error, need: error };
+  }
+  // Chrome holds a download behind its Save-as dialog (the user's "Ask where to save" setting; extension replay.ts):
+  // only the user can choose, and no extension may skip it (A5).
+  if (/^Chrome is asking where to save/i.test(error)) {
+    return { class: "environment", reason: error, need: error };
+  }
+  if (/^the page asked /i.test(error)) {
+    return { class: "environment", reason: error, need: error };
+  }
   if (/Shadow\.app is not running/i.test(error)) {
     return { class: "environment", reason: error, need: "start Shadow.app" };
   }
@@ -71,12 +86,14 @@ export function classify(failure: Failure, signals?: PageSignals): Classificatio
   // The data didn't fit: a model answer, a row that isn't there, a value of the wrong type.
   if (step.type === "llm") return { class: "data", reason: error };
   if (step.type === "action" && step.channel === "data") return { class: "data", reason: error };
-  if (/should be|is not (a|an) |no row where|not a list/i.test(error)) return { class: "data", reason: error };
+  // (A control that is no longer the kind it was, "target is not a <select>", is the page that changed: drift, below.)
+  if (/should be|is not (a|an) |no row where|not a list/i.test(error) && !/target is not a </i.test(error))
+    return { class: "data", reason: error };
 
   // The page changed: the control isn't where the workflow expects it.
   if (step.type === "action" && (step.channel === "web" || step.channel === "ax")) {
     if (
-      /target not found|ambiguous target|covered by|not visible|no menu item|precondition did not hold|like the recorded one|two controls look like the target|has no action to press|did not come forward/i.test(
+      /target not found|ambiguous target|covered by|not visible|no menu item|precondition did not hold|like the recorded one|two controls look like the target|has no action to press|did not come forward|target is not a </i.test(
         error,
       )
     ) {

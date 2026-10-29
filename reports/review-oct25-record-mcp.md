@@ -1,5 +1,7 @@
 # Review, Oct 25: is record in sync with connected apps, and what is still broken
 
+> **Status as of 27 Oct 2026:** a dated study. Which of its items are now fixed, partly done or still open is in [`changes.md` §7](changes.md#7-the-older-reports-reconciled); where they differ, `changes.md` is right.
+
 > Written 25 Oct 2026 after PR #18 (Shadow managed: sign-in, shadow-api, `mcp` steps). Branch for the work below:
 > `feat/record-mcp` (from `feat/mcp`). Each item says **what is there now**, **what goes wrong**, and **the change**.
 > Status marks: ☐ planned · ◐ in progress · ☑ done (with the commit). If this session ends mid-way, this page is the

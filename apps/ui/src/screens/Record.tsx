@@ -8,14 +8,15 @@ import type { InboxItem, RecordingView } from "@shadow/daemon/src/types.ts";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useQuery, useSession } from "../api.ts";
 import { Action, Loading } from "../components.tsx";
-import { progressOf, questionsFor } from "../questions.ts";
+import { chromeWarning, progressOf, questionsFor, waitingNote } from "../questions.ts";
 import { savedSince } from "../review.ts";
-import { Question } from "./Inbox.tsx";
 
 // `again`: a workflow's id, to record that task again: the box starts filled in from it, and the recording becomes
 // the workflow's next version (same id, Frequency and state).
 export function Record({ again }: { again?: string }) {
-  const { data, error } = useQuery<RecordingView>("recording");
+  // Looked at again now and then: Chrome connecting (after you reload the extension) announces nothing, so the warning
+  // above the goal box would stay until something else changed.
+  const { data, error } = useQuery<RecordingView>("recording", {}, { everyMs: 4_000 });
   const inbox = useQuery<InboxItem[]>("inbox", { open: true });
   // After Stop, the workflow it saved opens (H24): only one saved since this screen opened. `seen` is the last
   // recording when the screen first had its data (null until then), so an older one never opens.
@@ -27,11 +28,17 @@ export function Record({ again }: { again?: string }) {
       return;
     }
     const saved = savedSince(seen.current, data.last);
-    if (saved) location.hash = `#/workflows/${saved}`;
+    // Not while you are recording the next one (N23): that one's screen stays.
+    if (saved && data.phase === "idle") location.hash = `#/workflows/${saved}`;
   }, [data]);
   if (!data) return <Loading error={error} />;
-  // Questions outside a run: the form's (from the terminal) and the ones about this recording.
-  const questions = questionsFor(inbox.data ?? [], data.sessionId);
+  // Questions outside a run: the form's (from the terminal) and the ones about this recording. They are answered in the
+  // Inbox, not here: this screen shows what is happening, so you aren't left in the dark, and points there (W2).
+  // The questions of every recording being turned into a workflow (N23), and of the one going on.
+  const jobs = data.compiling ?? [];
+  const sessions = [...jobs.map((j) => j.sessionId), ...(data.phase === "idle" ? [] : [data.sessionId])];
+  const asked = new Set(sessions.flatMap((id) => questionsFor(inbox.data ?? [], id).map((q) => q.id)));
+  const waiting = waitingNote(sessions.length === 0 ? 0 : asked.size);
 
   return (
     <>
@@ -45,37 +52,72 @@ export function Record({ again }: { again?: string }) {
       </header>
       {data.phase === "idle" ? (
         again ? (
-          <AgainForm again={again} consent={data.consent} last={data.last} screenReady={data.screenReady} />
+          <AgainForm
+            again={again}
+            consent={data.consent}
+            last={data.last}
+            screenReady={data.screenReady}
+            chrome={data.chromeConnected}
+            feed={progressOf(data)}
+          />
         ) : (
-          <GoalBox consent={data.consent} last={data.last} screenReady={data.screenReady} />
+          <GoalBox
+            consent={data.consent}
+            last={data.last}
+            screenReady={data.screenReady}
+            chrome={data.chromeConnected}
+            feed={progressOf(data)}
+          />
         )
       ) : null}
-      {data.phase === "describing" ? <p>Answer the questions below (or in the terminal) to start recording.</p> : null}
+      {data.phase === "describing" ? <p>Answer in the Inbox (or in the terminal) to start recording.</p> : null}
       {data.phase === "recording" ? <Recording view={data} /> : null}
-      {data.phase === "compiling" ? (
-        <section className="section">
-          <h2>Turning your recording into a workflow…</h2>
-          <p className="muted">{data.form?.goal}</p>
-          {progressOf(data).length > 0 ? (
-            <ol className="progress-feed" aria-live="polite">
-              {progressOf(data).map((p) => (
-                <li key={`${p.at}-${p.line}`}>{p.line}</li>
-              ))}
-            </ol>
-          ) : null}
-        </section>
-      ) : null}
-      {data.phase !== "idle" && questions.length > 0 ? (
-        <section className="section">
-          <h2>Questions</h2>
-          <div className="cards">
-            {questions.map((item) => (
-              <Question key={item.id} item={item} />
-            ))}
-          </div>
-        </section>
+      {data.phase === "compiling" ? <p className="muted">Stopping the recording…</p> : null}
+      {jobs.map((job) => (
+        <Compiling key={job.sessionId} job={job} />
+      ))}
+      {waiting ? (
+        <p className="notice">
+          {waiting} <a href="#/inbox">Open the Inbox</a>
+        </p>
       ) : null}
     </>
+  );
+}
+
+// While a recording becomes a workflow: what is happening, and a Stop (W1). Stop ends the design at its next model call,
+// saves nothing and keeps the recording for a day; a new recording can start at once.
+// One recording being turned into a workflow (N23: there may be several, while you record the next).
+type Job = NonNullable<RecordingView["compiling"]>[number];
+function Compiling({ job }: { job: Job }) {
+  const session = useSession();
+  return (
+    <section className="section">
+      <h2>Turning your recording into a workflow…</h2>
+      <p className="muted">{job.goal}</p>
+      {job.progress.length > 0 ? (
+        <ol className="progress-feed" aria-live="polite">
+          {job.progress.map((p) => (
+            <li key={`${p.at}-${p.line}`}>{p.line}</li>
+          ))}
+        </ol>
+      ) : null}
+      <div className="answers">
+        {job.stopping ? (
+          <button type="button" className="button" disabled>
+            Stopping…
+          </button>
+        ) : (
+          <Action
+            kind="danger"
+            confirm="Stop? Nothing will be saved; the recording is kept for a day."
+            run={() => session.call("recordCancel", { sessionId: job.sessionId })}
+          >
+            Stop
+          </Action>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -121,11 +163,15 @@ function AgainForm({
   consent,
   last,
   screenReady,
+  chrome,
+  feed,
 }: {
   again: string;
   consent: RecordingView["consent"];
   last: RecordingView["last"];
   screenReady?: boolean;
+  chrome?: boolean;
+  feed: RecordingView["progress"];
 }) {
   const workflow = useQuery<{ id: string; versions: number[]; latest: Skill } | null>("workflow", { id: again });
   if (workflow.data === null) return <p className="error">No workflow {again}.</p>;
@@ -143,6 +189,8 @@ function AgainForm({
         consent={consent}
         last={last}
         screenReady={screenReady}
+        chrome={chrome}
+        feed={feed}
         again={again}
         initial={{ ...latest.description, when: when.find((t) => t.type !== "manual") ?? when[0] }}
       />
@@ -162,12 +210,16 @@ function GoalBox({
   consent,
   last,
   screenReady,
+  chrome,
+  feed,
   again,
   initial,
 }: {
   consent: RecordingView["consent"];
   last: RecordingView["last"];
   screenReady?: boolean;
+  chrome?: boolean;
+  feed: RecordingView["progress"];
   again?: string;
   initial?: Initial;
 }) {
@@ -192,7 +244,7 @@ function GoalBox({
             never: initial.never,
           }
         : {}),
-      consent: { screen, microphone, pictures: screen && pictures },
+      consent: { screen, microphone, pictures: screen && pictures, identifiers: consent.identifiers ?? false },
       private: privateWords
         .split(/[,\n]/)
         .map((w) => w.trim())
@@ -200,8 +252,10 @@ function GoalBox({
       ...(again ? { again } : {}),
     });
 
+  const noChrome = chromeWarning(chrome);
   return (
     <>
+      {noChrome ? <p className="notice warn">{noChrome}</p> : null}
       {last ? (
         <p className={last.outcome === "failed" ? "error" : "muted"}>
           Last recording: {last.text}
@@ -212,6 +266,17 @@ function GoalBox({
             </>
           ) : null}
         </p>
+      ) : null}
+      {/* What happened while it was turned into a workflow stays here after it ends: it was gone the moment it was needed. */}
+      {last && feed.length > 0 ? (
+        <details className="last-feed">
+          <summary>What happened</summary>
+          <ol className="progress-feed">
+            {feed.map((p) => (
+              <li key={`${p.at}-${p.line}`}>{p.line}</li>
+            ))}
+          </ol>
+        </details>
       ) : null}
 
       <form className="goalbox" onSubmit={(e) => e.preventDefault()}>

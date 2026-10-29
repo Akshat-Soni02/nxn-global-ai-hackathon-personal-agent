@@ -34,7 +34,16 @@ import { type Recovery as PlayerRecovery, runWithRecovery } from "@shadow/player
 import type { PageOp, PageOpResult } from "@shadow/player/web";
 import type { Daemon } from "./daemon.ts";
 import type { ScreenDescriber } from "./describe.ts";
-import { type McpTools, mcpChannel, prepareMcpSteps } from "./mcp-tools.ts";
+import {
+  connectedToolsOf,
+  coveringApp,
+  describeAppTool,
+  listedToolsOf,
+  type McpTools,
+  mcpChannel,
+  prepareMcpSteps,
+} from "./mcp-tools.ts";
+import { readWorkflowSecret } from "./workflow-secrets.ts";
 
 // Extra time on top of a step's own timeout for the round trip and the extension's work.
 const EXTENSION_MARGIN_MS = 20_000;
@@ -65,7 +74,7 @@ export interface RunHooks {
 // Recovery as the daemon sets it up: the page, site notes, pictures and transcripts are filled in here.
 export type Recovery = Omit<
   PlayerRecovery,
-  "page" | "recall" | "note" | "available" | "onEpisode" | "describeScreen"
+  "page" | "recall" | "note" | "available" | "appTool" | "onEpisode" | "describeScreen"
 > & {
   // Site notes for the repair agent.
   memory?: MemoryStore;
@@ -205,7 +214,8 @@ export async function runSkillOn(
   const highlight = async (step: ActionStep): Promise<void> => {
     if (!step.target) return;
     if (step.channel === "web") {
-      const result = await page({ op: "highlight", target: step.target });
+      // In the step's own tab: the extension's last-used one is the previous step's.
+      const result = await page({ op: "highlight", target: step.target, ...(step.tab ? { tab: step.tab } : {}) });
       if (!result.ok) throw new Error(result.error);
       return;
     }
@@ -253,7 +263,10 @@ export async function runSkillOn(
       log,
     };
     const resume = options.resume;
-    const inputs = resume ? provided : await resolveInputs(skill, provided);
+    // A secret input is read from the Keychain, where it was set on the workflow's page (N2).
+    const inputs = resume
+      ? provided
+      : await resolveInputs(skill, provided, { secret: (name) => readWorkflowSecret(skill.id, name) });
     if (!hooks.recovery) {
       ended = await runSkill(skill, deps, { runId, inputs, resume, signal });
       return ended;
@@ -288,6 +301,10 @@ export async function runSkillOn(
           return `${described.description}\n\nWords on screen (private ones masked):\n${described.words}`;
         }
       : undefined;
+    // The connected apps' tools, for repair's briefing: it was never told any ("none"), so it could not move a step that
+    // clicks into an app's page to the app's own tool (X4). The list is cached, so this is one call at most.
+    const connectedTools = await connectedToolsOf(hooks.tools);
+    const listedTools = await listedToolsOf(hooks.tools);
     ended = await runWithRecovery(skill, deps, {
       runId,
       inputs,
@@ -304,12 +321,17 @@ export async function runSkillOn(
             await memory.add({ kind: "site_note", text, skillId });
           }),
         describeScreen,
+        // A connected tool's arguments, so repair doesn't guess them when it switches a step to the app.
+        appTool: listedTools.length > 0 ? (name: string) => describeAppTool(listedTools, name) : undefined,
+        // The connected app that covers a failing step's page: repair moves the step to its tool (A3, app-first).
+        appFor: listedTools.length > 0 ? (url: string) => coveringApp(listedTools, url) : undefined,
         // What the recording showed at the step, kept beside the workflow's versions (review-store.ts).
         recorded: (stepId) => recordedOf(logDir, skill.id)[stepId],
         available: () => ({
           extension: daemon.extensions.size > 0,
           macApp: daemon.mac().connected,
           screenConsent: describer !== undefined,
+          connectedTools,
         }),
         onEpisode: (n, record) =>
           writeFileSync(

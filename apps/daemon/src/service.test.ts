@@ -1,11 +1,12 @@
 // The service with the real interpreter and fake channels: runs that wait in the inbox, go on after an answer, and
 // survive a daemon restart (a new service on the same database file).
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ActionStep, Skill } from "@shadow/core";
 import { type RunDeps, type RunOutcome, runSkill } from "@shadow/player";
 import { describe, expect, it } from "vitest";
+import { NEEDS_APP } from "./mcp-tools.ts";
 import { writeReview } from "./review-store.ts";
 import { createService, type Execute, type ServiceEvent } from "./service.ts";
 import { saveSkill } from "./skill-store.ts";
@@ -54,13 +55,14 @@ function setup(steps: unknown[]) {
   };
   const db = join(dataDir, "shadow.db");
   const released: string[] = [];
-  const open = (exec: Execute = execute) => {
+  const open = (exec: Execute = execute, more: Partial<Parameters<typeof createService>[0]> = {}) => {
     const events: ServiceEvent[] = [];
     const service = createService({
       dataDir,
       store: openStore(db),
       execute: exec,
       release: (runId) => released.push(runId),
+      ...more,
     });
     service.subscribe((e) => events.push(e));
     return { service, events };
@@ -183,6 +185,171 @@ describe("the daemon as a service", () => {
     expect(released).toEqual([recovery.service.runs().at(-1)?.id, run.id]);
   });
 
+  it("offers a proposed fix as Use it, saves it as the next version and goes on with it (A3)", async () => {
+    const { open, ran } = setup([write("s1"), write("s2")]);
+    const fixed = Skill.parse({
+      id: "report",
+      name: "Weekly report",
+      version: 2,
+      description: { goal: "send the report" },
+      steps: [
+        { id: "start", type: "trigger", intent: "by hand", inputs: {} },
+        write("s1", { intent: "write s1 in the app" }),
+        write("s2"),
+      ],
+      history: [{ version: 2, by: "debug", summary: "s1 done in the app", at: "2026-10-28T00:00:00.000Z" }],
+    });
+    let legs = 0;
+    const proposing: Execute = async (skill, leg) => {
+      legs++;
+      if (legs === 1)
+        return {
+          status: "waiting",
+          vars: {},
+          failedStep: "s1",
+          resume: { at: "s1", vars: {} },
+          waiting: {
+            kind: "recovery",
+            path: "s1",
+            stepId: "s1",
+            message: "s1 failed: target not found. Shadow can fix it: s1 done in the app",
+            proposal: { summary: "s1 done in the app", what: 's1: APP_WRITE {"a":1}', skill: fixed, edits: [] },
+          },
+        };
+      // The leg after "Use it" runs the saved version, from the stuck step.
+      ran.push(`v${skill.version}@${leg.resume?.at}`);
+      return { status: "succeeded", vars: {} };
+    };
+    const { service } = open(proposing);
+    service.start("report");
+    await service.idle();
+    const [item] = service.inbox({ open: true });
+    expect(item).toMatchObject({ kind: "recovery", detail: { options: ["use", "retry", "skip", "stop"] } });
+    service.answer(item?.id as string, "use");
+    await service.idle();
+    expect(service.runs()[0]?.status).toBe("succeeded");
+    expect(ran).toContain("v2@s1");
+    expect(service.workflow("report")?.versions).toEqual([1, 2]);
+  });
+
+  it("puts a run stopped for want of an app to the user as Connect and Run it again, once (A2)", async () => {
+    const { open } = setup([write("s1")]);
+    let runs = 0;
+    const needsSheets: Execute = async () => {
+      runs++;
+      return {
+        status: "failed",
+        vars: {},
+        error: `${NEEDS_APP}step s2 works in a drawn area of Google Sheets, which replay can't reach: connect Google Sheets in Apps, then run it again`,
+      };
+    };
+    const { service } = open(needsSheets);
+    service.start("report");
+    await service.idle();
+    const cards = () => service.inbox({ open: true }).filter((i) => i.kind === "question");
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0]).toMatchObject({
+      skillId: "report",
+      title: "Weekly report needs Google Sheets connected",
+      detail: { connect: { toolkit: "googlesheets", name: "Google Sheets" }, options: ["Run it again", "Not now"] },
+    });
+    // A second stop (a schedule's next tick) doesn't add a second card while one waits.
+    service.start("report");
+    await service.idle();
+    expect(cards()).toHaveLength(1);
+    service.answer(cards()[0]?.id as string, "Run it again");
+    await service.idle();
+    expect(runs).toBe(3);
+  });
+
+  it("tests the workflow, or one block of it, in safe mode from its page (R4.6, N1)", async () => {
+    const { open } = setup([write("s1"), write("s2")]);
+    const asked: { version: number; block?: string }[] = [];
+    const { service } = open(undefined, {
+      test: async (skill, block) => {
+        asked.push({ version: skill.version, ...(block ? { block } : {}) });
+        return { outcome: "succeeded", steps: [{ id: "s1", path: "s1", status: "done" }] };
+      },
+    });
+    expect(await service.test("report")).toMatchObject({ outcome: "succeeded", steps: [{ id: "s1", status: "done" }] });
+    await service.test("report", "b1");
+    expect(asked).toEqual([{ version: 1 }, { version: 1, block: "b1" }]);
+    await expect(service.test("nope")).rejects.toThrow(/no workflow nope/);
+  });
+
+  it("puts a change asked for in a sentence into the draft, to look at and save (R6.1)", async () => {
+    const { open } = setup([write("s1"), write("s2")]);
+    const { service } = open(undefined, {
+      chat: async (skill, message) => {
+        const changed = {
+          ...skill,
+          steps: skill.steps.map((s) => (s.id === "s2" ? { ...s, intent: `write s2 (${message})` } : s)),
+        };
+        return { skill: changed, summary: "s2 now says why", changed: true };
+      },
+    });
+    const out = await service.chat("report", "say why");
+    expect(out).toMatchObject({ summary: "s2 now says why", changed: true });
+    expect(out.draft.changes.length).toBe(1);
+    expect(service.draft("report").skill.steps[2]).toMatchObject({ intent: "write s2 (say why)" });
+    // Nothing runs on it until it is saved.
+    expect(service.workflow("report")?.versions).toEqual([1]);
+  });
+
+  it("forgets runs that ended more than 30 days ago, with their logs; never one that is going or waiting (N12)", async () => {
+    const { open, dataDir } = setup([write("s1"), write("s2", { requires_approval: true })]);
+    let clock = Date.parse("2026-09-01T09:00:00Z");
+    const runsDir = join(dataDir, "runs");
+    const { service } = open(undefined, { now: () => clock, runsDir });
+    const old = service.start("report"); // waits for approval: kept however old it is
+    await service.idle();
+    service.cancel(old.id); // now ended, on 1 Sep
+    const waiting = service.start("report");
+    await service.idle();
+    mkdirSync(runsDir, { recursive: true });
+    writeFileSync(join(runsDir, `${old.id}.jsonl`), "{}\n");
+    writeFileSync(join(runsDir, `${old.id}.repair-1.json`), "{}");
+    clock = Date.parse("2026-10-15T09:00:00Z"); // 44 days later
+    const recent = service.start("report");
+    await service.idle();
+    service.cancel(recent.id);
+    expect(service.pruneRuns()).toEqual([old.id]);
+    expect(
+      service
+        .runs()
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual([recent.id, waiting.id].sort());
+    expect(existsSync(join(runsDir, `${old.id}.jsonl`))).toBe(false);
+    expect(existsSync(join(runsDir, `${old.id}.repair-1.json`))).toBe(false);
+  });
+
+  it("reminds you once a day of what has waited a day or more: Shadow.app notifies again (N20)", async () => {
+    const { open } = setup([write("s1", { requires_approval: true })]);
+    let clock = Date.parse("2026-10-01T09:00:00Z");
+    const { service, events } = open(undefined, { now: () => clock });
+    service.start("report");
+    await service.idle();
+    const [item] = service.inbox({ open: true });
+    const hours = (h: number) => {
+      clock += h * 60 * 60 * 1000;
+    };
+    hours(2);
+    expect(service.remind()).toEqual([]);
+    hours(23); // 25 h
+    const before = events.length;
+    expect(service.remind()).toEqual([item?.id]);
+    expect(events.slice(before)).toMatchObject([{ type: "inbox", item: { id: item?.id, answeredAt: undefined } }]);
+    hours(1);
+    expect(service.remind()).toEqual([]); // once a day
+    hours(24);
+    expect(service.remind()).toEqual([item?.id]);
+    service.answer(item?.id as string, "approve");
+    await service.idle();
+    hours(48);
+    expect(service.remind()).toEqual([]); // answered: nothing waits
+  });
+
   it("marks runs left going by a stopped daemon as interrupted, and expires questions nobody can receive", async () => {
     const { open, dataDir } = setup([write("s1")]);
     const store = openStore(join(dataDir, "shadow.db"));
@@ -207,6 +374,19 @@ describe("the daemon as a service", () => {
     await expect(answer).resolves.toBe("only on Mondays");
     void service.ask({ title: "Keep the AI step?", options: ["keep", "use the rule"], freeText: false });
     expect(service.inbox({ open: true })[0]?.detail).toMatchObject({ freeText: false });
+  });
+
+  it("dismisses the waiting questions of one recording and no other's, resolving them with the default (W1: Stop)", async () => {
+    const { open } = setup([write("s1")]);
+    const { service } = open();
+    const mine = service.ask({ title: "Where to save?", sessionId: "rec-1" });
+    void service.ask({ title: "Another recording's", sessionId: "rec-2" });
+    void service.ask({ title: "From the terminal" });
+    expect(service.dismissQuestions("rec-1")).toBe(1);
+    await expect(mine).resolves.toBe("");
+    const waiting = service.inbox({ open: true }).map((i) => i.title);
+    expect(waiting).toEqual(expect.arrayContaining(["Another recording's", "From the terminal"]));
+    expect(waiting).not.toContain("Where to save?");
   });
 
   it("keeps a drill question's step and draft with it, so the window can show it on the draft", () => {
@@ -365,6 +545,65 @@ describe("the workflow lifecycle", () => {
     expect(item).toMatchObject({ kind: "paused", skillId: "report" });
     service.answer(item?.id as string, "resume");
     expect(service.state("report").state).toBe("live");
+  });
+
+  it("doesn't count runs that stopped for want of a connected app: nothing ran, and the user can fix it by connecting (A2)", async () => {
+    const { open } = setup([write("s1")]);
+    const needsApp = async (): Promise<RunOutcome> => ({
+      status: "failed",
+      vars: {},
+      error: `${NEEDS_APP}step s1 uses GOOGLESHEETS_BATCH_UPDATE: connect googlesheets in Apps first`,
+    });
+    const { service } = open(needsApp);
+    service.setTrigger("report", [{ type: "schedule", cron: "0 9 * * *" }]);
+    service.goLive("report");
+    for (let i = 0; i < 4; i++) {
+      service.fire("report", "schedule");
+      await service.idle();
+    }
+    expect(service.state("report").state).toBe("live"); // it would be paused after 3 real failures
+  });
+
+  describe("Run now asks which file to use, as the terminal does (C22)", () => {
+    const succeed: Execute = async () => ({ status: "succeeded", vars: {} });
+
+    it("settles the inputs first, then starts with the answer", async () => {
+      const { open } = setup([write("s1")]);
+      let given: Record<string, unknown> | undefined;
+      const { service } = open(
+        async (_skill, leg) => {
+          given = leg.provided;
+          return { status: "succeeded", vars: {} };
+        },
+        {
+          chooseInputs: async (skill, provided) => {
+            expect(skill.id).toBe("report");
+            provided.invoice = "/tmp/invoice-1.pdf";
+          },
+        },
+      );
+      const run = await service.startAsking("report");
+      await service.idle();
+      expect(run.trigger).toBe("manual");
+      expect(given).toEqual({ invoice: "/tmp/invoice-1.pdf" });
+    });
+
+    it("starts no run when the answer is wrong: it stops before anything runs", async () => {
+      const { open } = setup([write("s1")]);
+      const { service } = open(succeed, {
+        chooseInputs: async () => {
+          throw new Error("invoice: no file at /tmp/missing.pdf");
+        },
+      });
+      await expect(service.startAsking("report")).rejects.toThrow(/no file at/);
+      expect(service.runs()).toEqual([]);
+    });
+
+    it("is just a start when nothing is to be asked", async () => {
+      const { open } = setup([write("s1")]);
+      const { service } = open(succeed);
+      expect((await service.startAsking("report")).skillId).toBe("report");
+    });
   });
 
   it("skips a triggered run while the previous one waits for you, and says why", async () => {

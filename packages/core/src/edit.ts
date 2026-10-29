@@ -24,7 +24,7 @@ export const STEP_FIELDS = {
   trigger: ["intent", "when", "inputs"],
   action: ["intent", "requires_approval", "ask", "target", "args", "wait", "check", "output", "timeout_ms", "on_fail"],
   llm: ["intent", "requires_approval", "ask", "instruction", "inputs", "output"],
-  loop: ["intent", "requires_approval", "ask", "over", "item", "max_items", "on_item_fail"],
+  loop: ["intent", "requires_approval", "ask", "over", "item", "max_items", "first", "on_item_fail"],
   branch: ["intent", "requires_approval", "ask", "if"],
   // A block's intent is its name.
   group: ["intent"],
@@ -227,7 +227,7 @@ function place(draft: Draft, at: Position, step: Step): string | undefined {
     const found = locate(draft.steps, at.into);
     const parent = found?.list[found.index];
     if (!parent) return `no step ${at.into}`;
-    if (parent.type !== "control") return `${at.into} is not a loop or branch: steps go before or after it`;
+    if (parent.type !== "control") return `${at.into} is not a loop, branch or block: steps go before or after it`;
     if (at.arm === "else" && parent.kind !== "branch") return `${at.into} is a ${parent.kind}: it has no else`;
     const list = at.arm === "else" && parent.kind === "branch" ? parent.else : parent.steps;
     if (at.at === "start") list.unshift(step);

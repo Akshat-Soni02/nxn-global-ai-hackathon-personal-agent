@@ -58,6 +58,32 @@ describe("problems on the nodes they're about (the YC review, Oct 26: nine 's5: 
   });
 
   it("says the agent's other phrasings for a person", () => {
+    // More of the gate's own wording, in plain words (R3.6, B2): none of these should reach the window as written.
+    const plain = (text: string) => plainProblem(text);
+    expect(plain(`replay can't find its control: give it a role and name ({ role: "button", name: "Save" })`)).toBe(
+      "A step has no way to find its control on the page yet",
+    );
+    expect(
+      plain('"Order placed" never appeared on screen: check for text that did, or for the page (url_matches)'),
+    ).toBe("A check looks for text that never showed up on screen");
+    expect(plain(`a text check can't be empty (it would always hold)`)).toBe(
+      "A check has no text to look for, so it would always pass",
+    );
+    expect(plain(`a text check can't see a sheet's or document's drawn content: use url_matches or none`)).toBe(
+      "A text check can't read a sheet's cells or a document's drawing",
+    );
+    expect(plain(`they said "every day", but it only runs when started by hand: set it with trigger`)).toBe(
+      "You said how often it should run, but it only runs when you start it: set its Frequency",
+    );
+    expect(plain("the test run couldn't start (input day has no value): fix that, so it can run")).toBe(
+      "The test run couldn't start (input day has no value)",
+    );
+    expect(plain("s1: runs start on a blank window, so the workflow must open a page first")).toBe(
+      "It has to open a page before it clicks or reads",
+    );
+    expect(
+      plain("p1 (s2 clicked item 3 of 9: next time the newest?) was accepted, but s3 is still as recorded: build it"),
+    ).toBe("A change the design accepted isn't made yet");
     expect(plainProblem("not reached")).toBe("The test stopped before it got here");
     expect(plainProblem("s29 read exactly what s28 read in the test run")).toMatch(/same page/);
   });

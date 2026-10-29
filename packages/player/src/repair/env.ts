@@ -3,6 +3,7 @@
 import type { Availability } from "@shadow/core";
 import type { RunDeps, RunLogEvent } from "../types.ts";
 import type { PageOp, PageOpResult } from "../web/inspect.ts";
+import type { CoveringApp } from "./app-first.ts";
 
 export interface RepairEnv {
   runId: string;
@@ -22,4 +23,9 @@ export interface RepairEnv {
   recorded?(stepId: string): string | undefined;
   // What is connected and allowed right now, for the briefing.
   available?: Availability;
+  // One connected app tool's arguments (app_tool), so a step that uses it isn't written from a guess. Present only when an
+  // app is connected.
+  appTool?(name: string): string;
+  // The connected app that covers a page, with its tools (app-first repair, app-first.ts). Absent: no app is connected.
+  appFor?(url: string): CoveringApp | undefined;
 }

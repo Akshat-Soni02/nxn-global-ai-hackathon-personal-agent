@@ -3,7 +3,9 @@
 // this service.
 //
 // The catalogue is every app Composio can sign a user in to by itself (a Composio-managed auth scheme): one click to
-// connect, nothing to set up. TOOLKITS (config.ts) narrows it to a list.
+// connect, nothing to set up. Then every app connected with the user's own API key (N13; 784 of Composio's first 1000
+// on 28 Oct, against 107 one-click ones): the key goes to Composio, which keeps it for that user like an OAuth token,
+// through an auth config of Shadow's own made on first use. TOOLKITS (config.ts) narrows it to a list.
 //
 // Connecting uses connectedAccounts.link(): initiate() (and toolkits.authorize(), which calls it) was retired for
 // Composio-managed OAuth in 2026. The auth config for a toolkit is the project's first one, or a Composio-managed one
@@ -13,8 +15,8 @@
 // treated as changing things.
 //
 // A failure says why (Composio's own message, and what to do for the usual ones): never a bare "something went wrong".
-import { Composio } from "@composio/core";
-import type { Connection, ToolInfo, Toolkit, ToolProvider, ToolResult } from "./provider.ts";
+import { AuthScheme, Composio } from "@composio/core";
+import type { Connection, KeyField, ToolInfo, Toolkit, ToolProvider, ToolResult } from "./provider.ts";
 import { ToolError } from "./provider.ts";
 
 // Tool lists change rarely; one list per toolkit is kept this long. The catalogue, longer.
@@ -40,6 +42,10 @@ export function composioError(error: unknown, doing: string): ToolError {
   return new ToolError(`Composio couldn't ${doing}: ${message.slice(0, 300)}`, 502);
 }
 
+type Kit = { composioManagedAuthSchemes?: string[]; authSchemes?: string[] };
+const oneClick = (k: Kit) => (k.composioManagedAuthSchemes?.length ?? 0) > 0;
+const byKey = (k: Kit) => !oneClick(k) && (k.authSchemes ?? []).includes("API_KEY");
+
 export function composioTools(apiKey: string, allowed?: string[]): ToolProvider {
   const composio = new Composio({ apiKey });
   const authConfigs = new Map<string, string>();
@@ -59,11 +65,13 @@ export function composioTools(apiKey: string, allowed?: string[]): ToolProvider 
     if (catalogue && Date.now() - catalogue.at < CATALOGUE_TTL_MS) return catalogue.kits;
     const list = await ask("list its apps", () => composio.toolkits.get({ sortBy: "usage", limit: CATALOGUE_LIMIT }));
     const kits = (Array.isArray(list) ? list : [])
-      // One click to connect: Composio signs the user in itself. Apps that need a key of their own aren't listed yet.
-      .filter((k) => (k.composioManagedAuthSchemes?.length ?? 0) > 0 && !k.isLocalToolkit)
+      // One click to connect (Composio signs the user in itself), or the user's own API key. Other kinds of sign-in
+      // (a username and password, a service account) aren't listed.
+      .filter((k) => (oneClick(k) || byKey(k)) && !k.isLocalToolkit)
       .filter((k) => !allowed || allowed.includes(k.slug.toLowerCase()))
       .map(
         (k): Toolkit => ({
+          ...(oneClick(k) ? {} : { key: true }),
           slug: k.slug.toLowerCase(),
           name: k.name,
           ...(k.meta.logo ? { logo: k.meta.logo } : {}),
@@ -76,14 +84,20 @@ export function composioTools(apiKey: string, allowed?: string[]): ToolProvider 
     return kits;
   }
 
-  async function authConfigFor(toolkit: string, name: string): Promise<string> {
+  async function authConfigFor(toolkit: string, name: string, byKey = false): Promise<string> {
     const known = authConfigs.get(toolkit);
     if (known) return known;
     const list = await ask(`find how to sign in to ${name}`, () => composio.authConfigs.list({ toolkit }));
-    let id = list.items[0]?.id;
+    // With a key: the project's API-key config, never a one-click one (its scheme is another).
+    let id = (byKey ? list.items.filter((c) => c.authScheme === "API_KEY") : list.items)[0]?.id;
     if (!id) {
       const created = await ask(`set up signing in to ${name}`, () =>
-        composio.authConfigs.create(toolkit, { type: "use_composio_managed_auth", name: `${name} (Shadow)` }),
+        composio.authConfigs.create(
+          toolkit,
+          byKey
+            ? { type: "use_custom_auth", authScheme: "API_KEY", credentials: {}, name: `${name} (Shadow, your key)` }
+            : { type: "use_composio_managed_auth", name: `${name} (Shadow)` },
+        ),
       );
       id = created.id;
     }
@@ -125,12 +139,46 @@ export function composioTools(apiKey: string, allowed?: string[]): ToolProvider 
 
   const offered = (toolkit: string) => !allowed || allowed.includes(toolkit);
 
+  async function keyFields(toolkit: string): Promise<KeyField[]> {
+    const fields = await ask(`find what connecting ${toolkit} asks for`, () =>
+      composio.toolkits.getConnectedAccountInitiationFields(toolkit, "API_KEY"),
+    );
+    return fields
+      .filter((f) => f.userVisible !== false)
+      .map((f) => ({
+        name: f.name,
+        label: f.displayName || f.name,
+        ...(f.description ? { description: f.description } : {}),
+        secret: f.isSecret ?? false,
+        required: f.required ?? false,
+        ...(f.default ? { default: f.default } : {}),
+      }));
+  }
+
   return {
     toolkits,
     connections,
-    async connect(uid, toolkit, callbackUrl) {
+    keyFields,
+    async connect(uid, toolkit, callbackUrl, given) {
       const kit = (await toolkits()).find((k) => k.slug === toolkit);
       if (!kit) throw new ToolError(`${toolkit} can't be connected from Shadow`, 400);
+      if (kit.key) {
+        // Only the fields the app asks for, a blank one taking its default; a required one left blank is named.
+        const fields = await keyFields(toolkit);
+        const values = Object.fromEntries(
+          fields.flatMap((f) => {
+            const value = given?.[f.name]?.trim() || f.default;
+            return value ? [[f.name, value]] : [];
+          }),
+        );
+        const blank = fields.filter((f) => f.required && !values[f.name]).map((f) => f.label);
+        if (blank.length > 0) throw new ToolError(`connecting ${kit.name} needs your ${blank.join(" and ")}`, 400);
+        const config = await authConfigFor(toolkit, kit.name, true);
+        const made = await ask(`connect ${kit.name} with your key`, () =>
+          composio.connectedAccounts.initiate(uid, config, { config: AuthScheme.APIKey(values) }),
+        );
+        return { id: made.id };
+      }
       const config = await authConfigFor(toolkit, kit.name);
       const request = await ask(`start connecting ${kit.name}`, () =>
         composio.connectedAccounts.link(uid, config, {

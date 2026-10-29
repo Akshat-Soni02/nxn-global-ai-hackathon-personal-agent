@@ -1,7 +1,7 @@
 // Branch conditions: { left, op, right } comparisons, combined with all / any / not. References in left and right are
 // resolved first, keeping their types. Values read from pages and models are often text, so numbers written as text
 // ("1,234") compare as numbers and ISO dates compare as dates.
-import type { Comparison, Condition } from "@shadow/core";
+import { type Comparison, type Condition, numberFrom } from "@shadow/core";
 import { resolveTemplates } from "./template.ts";
 
 export function evaluate(condition: Condition, vars: Record<string, unknown>, now = new Date()): boolean {
@@ -45,10 +45,7 @@ function compare(c: Comparison, vars: Record<string, unknown>, now: Date): boole
 
 const number = (v: unknown): number | undefined => {
   if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
-  if (typeof v !== "string" || !/\d/.test(v)) return undefined;
-  const cleaned = v.replace(/[^\d.-]/g, "");
-  const n = Number(cleaned);
-  return cleaned && Number.isFinite(n) ? n : undefined;
+  return typeof v === "string" ? numberFrom(v) : undefined;
 };
 const isoDate = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v);
 

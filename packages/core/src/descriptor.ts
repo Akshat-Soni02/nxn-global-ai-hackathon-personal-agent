@@ -20,6 +20,3 @@ export interface ElementDescriptor extends Locator {
   href?: string;
   hrefShape?: string;
 }
-
-// TODO(core): implement describeElement(el: Element): ElementDescriptor in apps/extension (it needs the DOM).
-// Both the recorder (on the clicked element) and the player (on each candidate) call it.

@@ -12,8 +12,41 @@ export function questionsFor(items: InboxItem[], sessionId: string | undefined):
     .reverse();
 }
 
+// What the Record screen says instead of showing the questions (W2): they are answered in the Inbox, and the Record
+// screen keeps to the steps of what is happening so you don't feel in the dark.
+export function waitingNote(count: number): string | undefined {
+  if (count <= 0) return undefined;
+  return count === 1
+    ? "1 question is waiting for you in the Inbox."
+    : `${count} questions are waiting for you in the Inbox.`;
+}
+
+// The warning above the goal box when Chrome's extension isn't connected: a recording started then captured nothing and
+// said only "no steps were recorded". `connected` is undefined from a daemon older than the window: no warning.
+export function chromeWarning(connected: boolean | undefined): string | undefined {
+  if (connected !== false) return undefined;
+  return "Chrome isn't connected, so nothing you do in Chrome will be recorded. Reload the Shadow extension in chrome://extensions; if the sidebar still says Chrome: not connected, run pnpm setup:native-host and reload it again.";
+}
+
 // The feed's lines while a recording becomes a workflow. A daemon older than the window sends none (the window's pages
 // are rebuilt before the daemon restarts): then there are none to show, and the screen still works.
 export function progressOf(view: RecordingView): RecordingView["progress"] {
   return view.progress ?? [];
+}
+
+// What an approval will do, as the run filled it in (Y9): the app tool and its arguments, or the action and its values.
+// A daemon older than the window sends none: the card shows only its title, as before.
+export function approvalWhat(item: InboxItem): string | undefined {
+  if (item.kind !== "approval") return undefined;
+  const what = (item.detail.waiting as { what?: unknown } | undefined)?.what;
+  return typeof what === "string" && what.trim() ? what : undefined;
+}
+
+// A fix repair found that waits for the user's OK (A3): what it changes and what its new step will do.
+export function proposalOf(item: InboxItem): { summary: string; what: string } | undefined {
+  if (item.kind !== "recovery") return undefined;
+  const p = (item.detail.waiting as { proposal?: { summary?: unknown; what?: unknown } } | undefined)?.proposal;
+  return typeof p?.summary === "string"
+    ? { summary: p.summary, what: typeof p.what === "string" ? p.what : "" }
+    : undefined;
 }

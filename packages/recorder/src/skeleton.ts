@@ -116,7 +116,11 @@ export function skeletonOf(steps: NormalisedStep[]): Skeleton {
         output: { name, type: FILE },
       });
     }
-    out.push(...built.map((s) => ({ ...s, type: "action" as const })));
+    // Typing or pressing after clicks into a drawn area (a sheet's cells): those clicks are gone, so on replay this
+    // would land in whichever cell is selected. Kept on the step (A1), not only as a note at compile.
+    const intoDrawn = (s: StepDraft) =>
+      !!step.drawnBefore && s.channel === "web" && ["type", "press", "click"].includes(s.action);
+    out.push(...built.map((s) => ({ ...s, type: "action" as const, ...(intoDrawn(s) ? { drawn: true } : {}) })));
     idsByStep.push(out.slice(first).map((s) => s.id));
   }
   return {
@@ -258,7 +262,15 @@ interface Context {
 function toStep(step: NormalisedStep, id: string, { inputs, copies, questions, files }: Context): StepDraft {
   const target = step.target && toLocator(step.target);
   const what = describe(step);
-  const leadsTo = step.navigatesTo ? { url_matches: pagePath(step.navigatesTo) } : undefined;
+  // A click that opened a document (a sheet from Drive's Recent) keeps the document's own path, id included: the id
+  // doesn't change each visit, it is the document; repair then opens it by its address if the list changes (N6).
+  // Not one that makes a document ("Blank spreadsheet", "Make a copy"): that opens a new id every run.
+  const makesOne = /\b(new|blank|create|copy|untitled)\b/i.test(what);
+  const doc =
+    step.navigatesTo && !makesOne
+      ? /\/(?:spreadsheets|document|presentation|file)\/d\/[\w-]{10,}/.exec(pathOf(step.navigatesTo))?.[0]
+      : undefined;
+  const leadsTo = step.navigatesTo ? { url_matches: doc ?? pagePath(step.navigatesTo) } : undefined;
   switch (step.kind) {
     case "navigate":
       return {
@@ -584,6 +596,11 @@ function fileQuestion(
         { label: each, value: askEachTime },
         { label: `the newest ${like} in ${found.dir}`, value: { ...found, glob: like, ask: false } },
         { label: `always ${fileName}`, value: { ...found, glob: fileName, ask: false } },
+        // Every one, one after another (N19): the answer puts the steps that use it in a loop (drill.ts everyFile).
+        {
+          label: `all of them: every ${like} in ${found.dir}, one after another`,
+          value: { ...found, glob: like, ask: false, pick: "all" },
+        },
       ],
       default: each,
     }),

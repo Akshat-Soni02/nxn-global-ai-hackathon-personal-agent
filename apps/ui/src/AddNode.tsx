@@ -2,16 +2,17 @@
 // needs. The form makes the step itself and the daemon inserts it into the draft as any edit (checked like the agent's:
 // a step that can't run, or a value nothing saves yet, is refused with the reason). Loops and ifs hold steps, so they
 // are made by wrapping steps already there (the step's panel), not added empty here.
-import type { Skill } from "@shadow/core";
+import type { EditInput, Skill, Step } from "@shadow/core";
 import { walkSteps } from "@shadow/core";
 import { useState } from "react";
+import { argumentFields, argumentsOf, documentsIn } from "./app-form.ts";
 import type { At } from "./WorkflowTree.tsx";
 
 export type Kind = "open" | "click" | "type" | "read" | "ai" | "files" | "app";
 // A step as an insert edit takes it: the daemon gives it an id and checks it.
 export type NewStep = Record<string, unknown>;
 
-const KINDS: { kind: Kind; title: string; about: string }[] = [
+const KINDS: { kind: Kind | Marker; title: string; about: string }[] = [
   { kind: "open", title: "Open a page", about: "Go to an address in the browser" },
   { kind: "click", title: "Click on a page", about: "A button or link, by its words" },
   { kind: "type", title: "Type on a page", about: "Into a box, by its label" },
@@ -19,6 +20,9 @@ const KINDS: { kind: Kind; title: string; about: string }[] = [
   { kind: "ai", title: "AI step", about: "Work something out from what earlier steps read" },
   { kind: "files", title: "Find files", about: "In a folder on your Mac" },
   { kind: "app", title: "App action", about: "Something a connected app does directly" },
+  { kind: "ask", title: "Ask me", about: "A question before the next step, answered each run" },
+  { kind: "approve", title: "Wait for my OK", about: "The next step waits until you approve it" },
+  { kind: "show", title: "Show me", about: "Do it once in Chrome: it is recorded as a block here" },
 ];
 
 // A variable's name from what a person types: "Top jobs" → "top_jobs".
@@ -40,8 +44,15 @@ function variablesIn(skill: Skill): string[] {
   return [...names];
 }
 
+// A connected app's tool as the daemon lists it (appTools): its schema makes the App action form's fields (R4.4).
+export interface ToolInfo {
+  name: string;
+  description: string;
+  inputSchema?: Record<string, unknown>;
+}
+
 // The step a form makes, or why it can't yet.
-export function stepOf(kind: Kind, f: Record<string, string>): NewStep | string {
+export function stepOf(kind: Kind, f: Record<string, string>, tools: ToolInfo[] = []): NewStep | string {
   const text = (k: string) => (f[k] ?? "").trim();
   switch (kind) {
     case "open": {
@@ -116,11 +127,20 @@ export function stepOf(kind: Kind, f: Record<string, string>): NewStep | string 
       };
     case "app": {
       if (!text("tool")) return "pick the app's action";
+      const schema = tools.find((t) => t.name === text("tool"))?.inputSchema;
       let args: unknown;
-      try {
-        args = JSON.parse(text("arguments") || "{}");
-      } catch {
-        return 'its values are JSON: { "name": "value" }';
+      if (schema?.properties) {
+        // A field per argument (R4.4).
+        const made = argumentsOf(argumentFields(schema), f);
+        if (typeof made === "string") return made;
+        args = made;
+      } else {
+        // A daemon older than the window sends no schema: the values as JSON, as before.
+        try {
+          args = JSON.parse(text("arguments") || "{}");
+        } catch {
+          return 'its values are JSON: { "name": "value" }';
+        }
       }
       return {
         type: "action",
@@ -134,20 +154,81 @@ export function stepOf(kind: Kind, f: Record<string, string>): NewStep | string 
   }
 }
 
+// Two more ways to build, which add no step: they set a field on the step that follows the spot (R4.2, B4). "Ask me"
+// puts a question on it, answered before it runs; "Wait for my OK" makes it wait for your approval.
+export type Marker = "ask" | "approve" | "show";
+
+// The id of the step that follows a spot, if there is one: after a step is its next sibling, before is that step, and
+// into a loop, a branch or a block at its start is its first step.
+function stepAfter(skill: Skill, at: At): string | undefined {
+  const lists = (steps: Step[]): Step[][] => [
+    steps,
+    ...steps.flatMap((s) =>
+      s.type === "control" ? [...lists(s.steps), ...(s.kind === "branch" ? lists(s.else) : [])] : [],
+    ),
+  ];
+  if ("before" in at) return at.before;
+  if ("after" in at) {
+    for (const list of lists(skill.steps)) {
+      const i = list.findIndex((s) => s.id === at.after);
+      if (i >= 0) return list[i + 1]?.id;
+    }
+    return undefined;
+  }
+  const parent = [...walkSteps(skill.steps)].map(({ step }) => step).find((s) => s.id === at.into);
+  if (parent?.type !== "control" || at.at === "end") return undefined;
+  return (at.arm === "else" && parent.kind === "branch" ? parent.else : parent.steps)[0]?.id;
+}
+
+// The edits a form makes at a spot, or why it can't yet: an insert for a step, a `set` for a question or an approval.
+export function editsFor(
+  kind: Kind | Marker,
+  f: Record<string, string>,
+  at: At,
+  skill: Skill,
+  tools: ToolInfo[] = [],
+): EditInput[] | string {
+  // Show me adds nothing here: the recording comes back as an edit of its own (the daemon).
+  if (kind === "show") return "Show me starts a recording";
+  if (kind !== "ask" && kind !== "approve") {
+    const step = stepOf(kind, f, tools);
+    return typeof step === "string" ? step : [{ op: "insert", at, step } as EditInput];
+  }
+  const next = stepAfter(skill, at);
+  if (!next) return "there is no step after this spot to do that for: pick a spot above a step";
+  if (kind === "approve") return [{ op: "set", step: next, field: "requires_approval", value: true }];
+  const question = (f.question ?? "").trim();
+  if (!question) return "say what to ask";
+  const confirm = f.answer === "yes/no";
+  return [
+    {
+      op: "set",
+      step: next,
+      field: "ask",
+      value: confirm
+        ? { question, kind: "confirm" }
+        : { question, kind: "value", output: { name: varName(f.name || question), type: { type: "text" } } },
+    },
+  ];
+}
+
 export function AddNode({
   at,
   skill,
   tools = [],
-  add,
+  apply,
+  showMe,
   close,
 }: {
   at: At;
   skill: Skill;
-  tools?: { name: string; description: string }[];
-  add(step: NewStep): Promise<unknown>;
+  tools?: ToolInfo[];
+  apply(edits: EditInput[]): Promise<unknown>;
+  // Show me (R4.7): start a recording of one part, to come back here as a block at this spot.
+  showMe?(name: string, at: At): Promise<unknown>;
   close(): void;
 }) {
-  const [kind, setKind] = useState<Kind>();
+  const [kind, setKind] = useState<Kind | Marker>();
   const [form, setForm] = useState<Record<string, string>>({ output: "text", pick: "newest" });
   const [problem, setProblem] = useState<string>();
   const field = (name: string, label: string, hint?: string, wide = false) => (
@@ -182,13 +263,69 @@ export function AddNode({
       </select>
     </label>
   );
+  // The App action's arguments, one field each (R4.4); a document argument offers the ones this workflow opens.
+  const appFields = (tool: ToolInfo | undefined) => {
+    if (!tool) return null;
+    if (!tool.inputSchema?.properties)
+      return field("arguments", "Its values (JSON)", '{ "spreadsheet_id": "…" }', true);
+    const docs = documentsIn(skill);
+    return argumentFields(tool.inputSchema).map((f) => {
+      const key = `arg.${f.name}`;
+      const label = `${f.name}${f.required ? "" : " (optional)"}`;
+      if (f.kind === "choice" || f.kind === "yes/no")
+        return (
+          <label className="field" key={key}>
+            <span>{label}</span>
+            <select value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })}>
+              <option value="">{f.required ? "Pick one" : "(the app's default)"}</option>
+              {(f.kind === "yes/no" ? ["yes", "no"] : (f.choices ?? [])).map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </label>
+        );
+      if (f.kind === "document" && docs.length > 0)
+        return (
+          <label className="field" key={key}>
+            <span>{label}</span>
+            <select value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })}>
+              <option value="">Pick a document</option>
+              {docs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        );
+      const hint =
+        f.kind === "rows"
+          ? "one row per line, cells split by | : {{today}} | {{job.title}}"
+          : f.kind === "json"
+            ? "JSON"
+            : f.hint;
+      return <span key={key}>{field(key, label, hint, f.kind === "rows" || f.kind === "json")}</span>;
+    });
+  };
   const submit = async () => {
     if (!kind) return;
-    const step = stepOf(kind, form);
-    if (typeof step === "string") return setProblem(step);
+    if (kind === "show") {
+      const name = (form.name ?? "").trim();
+      if (!name) return setProblem("say what this part does, for its block's name");
+      try {
+        await showMe?.(name, at);
+      } catch (e) {
+        setProblem((e as Error).message);
+      }
+      return;
+    }
+    const edits = editsFor(kind, form, at, skill, tools);
+    if (typeof edits === "string") return setProblem(edits);
     setProblem(undefined);
     try {
-      await add(step);
+      await apply(edits);
       close();
     } catch (e) {
       setProblem((e as Error).message);
@@ -207,7 +344,7 @@ export function AddNode({
         <>
           <p className="muted small">It goes {where}.</p>
           <div className="node-kinds">
-            {KINDS.filter((k) => k.kind !== "app" || tools.length > 0).map((k) => (
+            {KINDS.filter((k) => (k.kind !== "app" || tools.length > 0) && (k.kind !== "show" || showMe)).map((k) => (
               <button key={k.kind} type="button" className="node-kind" onClick={() => setKind(k.kind)}>
                 <strong>{k.title}</strong>
                 <span className="muted small">{k.about}</span>
@@ -224,6 +361,25 @@ export function AddNode({
           }}
         >
           {kind === "open" ? field("url", "Address", "https://…") : null}
+          {kind === "ask" ? (
+            <>
+              {field("question", "What to ask", "for example: Which month is this for?")}
+              {choose("answer", "Answered with", ["a value", "yes/no"])}
+              {form.answer === "yes/no" ? null : field("name", "Save the answer as", "a short name, for later steps")}
+            </>
+          ) : null}
+          {kind === "show" ? (
+            <>
+              {field("name", "What does this part do?", "its block's name: Fill in the order form")}
+              <p className="muted small">
+                Shadow starts recording: do it once in Chrome, then press Stop. It comes back here as a block in the
+                draft, to look at and save.
+              </p>
+            </>
+          ) : null}
+          {kind === "approve" ? (
+            <p className="muted small">The step after this spot will wait for your OK before it runs, every time.</p>
+          ) : null}
           {kind === "click" ? (
             <>
               {field("name", "The words on it", "as they read on the page: Submit, Next, the link's text")}
@@ -275,7 +431,7 @@ export function AddNode({
                   ))}
                 </select>
               </label>
-              {field("arguments", "Its values (JSON)", '{ "spreadsheet_id": "…" }', true)}
+              {appFields(tools.find((t) => t.name === form.tool))}
               {field("save_as", "Save its answer as (optional)")}
             </>
           ) : null}
@@ -285,7 +441,7 @@ export function AddNode({
               Back
             </button>
             <button type="submit" className="button primary">
-              Add
+              {kind === "show" ? "Start recording" : "Add"}
             </button>
           </div>
         </form>

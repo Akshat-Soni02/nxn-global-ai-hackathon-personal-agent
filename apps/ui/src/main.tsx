@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { call, SessionContext, takeToken, useEvents, useQuery } from "./api.ts";
 import { money } from "./format.ts";
+import { backLink } from "./nav.ts";
 import { Apps } from "./screens/Apps.tsx";
 import { Inbox } from "./screens/Inbox.tsx";
 import { Record } from "./screens/Record.tsx";
@@ -79,7 +80,9 @@ function useNarrow(): boolean {
 
 function Shell({ connected }: { connected: boolean }) {
   // "#/record/again/<id>": the Record screen prefilled from a workflow, to record it again.
-  const [screen = "inbox", id, sub] = useRoute();
+  const route = useRoute();
+  const [screen = "inbox", id, sub] = route;
+  const back = backLink(route);
   const inbox = useQuery<unknown[]>("inbox", { open: true });
   const waiting = inbox.data?.length ?? 0;
   useEffect(() => {
@@ -150,6 +153,11 @@ function Shell({ connected }: { connected: boolean }) {
         <Health connected={connected} />
       </aside>
       <main className="content">
+        {back ? (
+          <a className="back-link" href={back.href}>
+            ← {back.label}
+          </a>
+        ) : null}
         {screen === "inbox" && <Inbox />}
         {screen === "workflows" && !id && <Workflows />}
         {screen === "workflows" && id && <Workflow id={id} />}
@@ -247,10 +255,17 @@ function Mark() {
 
 interface HealthInfo {
   extensions?: number;
+  // Chrome runs an older build of the extension than the one built (C25): it needs a reload.
+  extensionStale?: boolean;
   macApp?: { connected: boolean; trusted: boolean };
   model?: string;
   waitingForYou?: number;
   running?: string[];
+}
+
+function chromeText(data: HealthInfo | undefined): string {
+  if ((data?.extensions ?? 0) === 0) return "not connected";
+  return data?.extensionStale ? "an old copy: reload it in chrome://extensions" : "connected";
 }
 
 function Health({ connected }: { connected: boolean }) {
@@ -261,8 +276,8 @@ function Health({ connected }: { connected: boolean }) {
     { label: "Shadow", ok: connected, text: connected ? "running" : "not reachable" },
     {
       label: "Chrome",
-      ok: (data?.extensions ?? 0) > 0,
-      text: (data?.extensions ?? 0) > 0 ? "connected" : "not connected",
+      ok: (data?.extensions ?? 0) > 0 && !data?.extensionStale,
+      text: chromeText(data),
     },
     {
       label: "Mac apps",

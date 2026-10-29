@@ -41,8 +41,10 @@ Principles
      "s2" } }: the timeline shows each control's place), then read what that page shows (read { css: "h1" } for its
      title);
   2. only when nothing holds a fixed place: read the page (read with no target reads it all) and let an ai_step pick
-     it; loop over a list it returns. Its instruction picks the way the recording did: "the first 3 in the list's
-     order", never "the top 3" (a model reads that as the most points).
+     what needs judgement (the new ones, the ones not already done), returned in the list's order; loop over the list
+     it returns. How many is a count, which code does: the loop's first: N ({ over: "{{jobs}}", first: 5, item: "job",
+     steps: [ … ] }), never an AI step that takes the first N (a model counted "1, 2, 3, 2, 5"). A ranking the list
+     doesn't hold ("the 3 with the most points") is the AI step's; never write "the top 3" (it reads as most points).
   Today's date is {{today}} (or {{today|D MMM}}) right in a step's text: never an input.
 - What steps can do: open, click, type, read and save a page as PDF (save_pdf { dir, name }) in web pages; find,
   move, rename and read files in the folders the recording used; press and type in Mac apps' controls. They can't
@@ -57,7 +59,8 @@ Principles
   A document's id is written <id:s4> (the document step s4 worked in: the message lists them; code puts the real id
   in); the sheet's tab and the cells come from what was typed and where, and values from earlier steps as usual
   ({{rows}}). Look at
-  a tool's arguments first (look { app_tool }). Keep page steps for what no listed tool does. No app listed: page
+  a tool's arguments first (look { app_tool }) and use its names as written: tools spell the same one differently
+  (spreadsheetId, spreadsheet_id), and a list of rows is [[a, b], [c, d]]. Keep page steps for what no listed tool does. No app listed: page
   steps only, and never ask about connecting one.
 - Remove what isn't part of the task (a click that changed nothing, a detour), with why. Put back a step code left
   out (restore x2) if it mattered.
@@ -67,8 +70,8 @@ Principles
   should keep a second page open beside the first (tab: "KPI Sheet"), and then to the steps that work in that page.
   A tab name no open put a page in is a blank tab.
 - Steps that send, submit, pay, delete or post wait for the user's OK: code adds that, and it can't be turned off.
-- Ask only what the user must decide and the evidence can't answer (ask): never how to build it. Your questions reach
-  the user in one batch after you build. A time of day they didn't say is 9:00 in the morning: set it in the trigger,
+- Ask only what the user must decide and the evidence can't answer (ask): never how to build it. When ask comes back
+  answered, build with the answer; when it is queued, it reaches the user in one batch after you build. A time of day they didn't say is 9:00 in the morning: set it in the trigger,
   never ask it or make it an input.
 - Work in few calls: send all the changes you can see in one reply (several calls run in order), not one per reply.
   If a change is refused, read why and change your approach; sending it again fails the same way.
@@ -93,7 +96,7 @@ Sheet", s5 type "19 Oct" into A4, s6 paste into B4. Code proposed p1 list_item (
 - loop s2–s6 over "new_emails", item { name: "email" }, why "every new KPI email, not this one"
 - change s4 { page: "KPI Sheet", tab: "KPI Sheet" }, why "paste where they copied to, without reloading the sheet"
 - change s5 { tab: "KPI Sheet" } and s6 { tab: "KPI Sheet" }, why "they type and paste in that sheet"
-- trigger { schedule: "0 9 * * 1-5" }, why "every day: a weekday morning"
+- trigger { schedule: "0 9 * * *" }, why "every day, as they said: 9:00"
 - ask "Which row should each day's numbers go in?", why "the recording wrote A4; the next empty row isn't
   supported yet", step "s5", options ["A4", "the next empty row"]
 - test, then done { summary, rules: [{ rule: 0, steps: ["s2", "l1"] }, { rule: 1, steps: ["ai1"] }] }
@@ -125,7 +128,7 @@ const principles = BUILD.slice(BUILD.indexOf("Principles"), BUILD.indexOf("\nToo
   .filter((part) => !/^- (Connected apps|Work in few calls|Test it|Finish with done)/.test(part))
   .join("\n");
 
-const FILE = `The workflow is a file
+export const FILE = `The workflow is a file
 - The message shows it as read_workflow does: { "steps": [ … ], "success": [ … ] }. Change it with edit_workflow
   (exact old text → new text, for a value, a field, a step) or write_workflow (the whole of it: a plan, a loop around
   several steps, a big restructure). Every write is checked; a refused one changes nothing and says what to fix.
@@ -136,6 +139,9 @@ const FILE = `The workflow is a file
   (steps by id, or new ones). A block holds steps, never a block; a loop or an if may hold blocks.
 - A step reads, clicks or types on the page the last open before it went to: put each right after the open of its
   page (read the jobs on the jobs page, then open the sheet and write). Every write answers works_on: check it.
+  A page read in one block and written in another, as blocks: "Open the jobs page" → "Copy the top 5 jobs" (read_all
+  there, save_as jobs) → "Open the sheet" → "Add a row for each job" (a loop over {{jobs}}, typing in the sheet). The
+  read sits in the block right after its own page's open: a read right after "Open the sheet" would read the sheet.
 - Keep each recorded step's id. A new step needs no id: code gives it one. Put "why" on each step you add or change:
   the user reads it. A recorded step you leave out is removed: the write's why says why, or "whys": { "s11": "…" } on
   any write explains a step by id, also one an earlier write left out.
@@ -150,15 +156,28 @@ const FILE = `The workflow is a file
   { "do": "save_pdf", "intent": "…", "dir": "~/Documents", "name": "report {{today}}.pdf" }
   { "do": "app", "intent": "…", "tool": "GOOGLESHEETS_BATCH_UPDATE", "arguments": { "spreadsheet_id": "<id:s5>" },
     "save_as": "rows" }   only with a connected app: look { app_tool } shows a tool's arguments
-  { "instruction": "the subjects of KPI emails not already in the sheet", "inputs": ["{{subjects}}"],
+  { "instruction": "the KPI emails in {{subjects}} that are not in {{done_rows}}", "inputs": ["{{subjects}}", "{{done_rows}}"],
     "output": { "name": "new_emails", "type": "list" } }   an AI step
   { "over": "{{new_emails}}", "item": "email", "steps": [ … ] }   a loop: {{email}} inside it
   { "if": { "left": "{{is_new}}", "op": "equals", "right": true }, "steps": [ … ], "else": [ … ] }   a branch
-  The trigger stays first: "when": "manual", a cron ("0 9 * * 1-5"), or { "folder": "~/Downloads", "glob": "*.pdf" }.
+  The trigger stays first: "when": "manual", a cron ("0 9 * * *" every day, "0 9 * * 1-5" weekdays only: the days
+  they said), or { "folder": "~/Downloads", "glob": "*.pdf" }.
   Recorded steps you keep stay as they are (copy them), with your changes.
+- Values without AI: {{name.field}} a field, {{name.0}} a list's first item, {{row.1}} a row's second cell (rows an
+  app reads are lists of cells: [["Acme (S21)", "Engineer"]]), {{today|DD/MM/YYYY}} the date, a loop's first: N for
+  "the top N". The shape a read gives is the shape to use: never an AI step to reshape, flatten, pair or take the first.
+- An AI step is a model call on every run, and a run may ask the AI AI_CALLS_PER_RUN times (a step inside a loop asks
+  once per item): one AI step per judgement, given everything it needs at once (the page's text and the rows already
+  in the sheet, returning only the new jobs), never a chain of AI steps each reshaping the last one's answer.
 - Connected apps: when the message lists one, do the work inside it with app steps instead of the clicks into its
   page: one app step for each write or read, and leave out the recorded steps it replaces (why "done directly in
   <app>"). A document's id is written <id:s4>: code puts the real id in. Keep page steps for what no listed tool does.
+  The cells the recording typed into give each value's column (the date typed in A3, the company in B3: a row is
+  [date, company, …] from column A), so don't ask those; a value the goal names whose column the recording doesn't
+  show: ask where it goes (the role, copied but never typed in).
+  A step marked "drawn": true typed into a drawn area (a sheet's cells): replay can't reach it, and the clicks that
+  chose the cell are gone, so on the page it lands in whichever cell is selected. With the app listed, do it with the
+  app's tool and remove the step; with none listed, leave it: the review says it can't run yet, and what to connect.
   No app listed: page steps only, and never ask about connecting one.
 - Also: accept / reject code's proposals, restore what code left out, look (the evidence, a step, an app's tools), ask
   (what only the user can decide), test, done. Several calls in one reply run in order.`;
@@ -179,14 +198,21 @@ They said "every day I get KPI emails from my team; always the newest one, never
 s1 open the inbox, s2 open the email "Daily KPIs - w/c 19 Oct" (item 1 of 50), s3 copy its subject, s4 open "KPI
 Sheet", s5 type "19 Oct" into A4, s6 paste into B4. Code proposed p1 list_item (s2) and p2 date (s5).
 - reject p1, why "the loop picks each new email"; accept p2, why "the date typed is the day it runs"
-- write_workflow, why "every new KPI email, each weekday morning": the trigger with "when": "0 9 * * 1-5"; s1;
-  { "do": "read_all", "intent": "read the inbox's subjects", "target": { "like": "s2" }, "save_as": "subjects" }; the
-  AI step above; then { "over": "{{new_emails}}", "item": "email", "steps": [s2…s6], "why": "every new email, not
-  only this one" }, with s2 clicking the email named {{email}}
+- write_workflow, why "every new KPI email, every morning": the trigger with "when": "0 9 * * *"; s1;
+  { "do": "read_all", "intent": "read the inbox's subjects", "target": { "like": "s2" }, "save_as": "subjects" }; a
+  read of the sheet's rows (save_as done_rows); the one AI step above, given both; then { "over": "{{new_emails}}",
+  "item": "email", "steps": [s2…s6], "why": "every new email, not only this one" }, with s2 clicking the email named
+  {{email}}
 - ask "Which row should each day's numbers go in?" with options ["A4", "the next empty row"], step "s5"
 - test, then done { summary, rules: [{ rule: 0, steps: ["s2", "l1"] }, { rule: 1, steps: ["ai1"] }] }
-With Google Sheets connected: inside the loop, one app step writing [["{{today|D MMM}}", "{{email.subject}}"]] to
-"<id:s5>" in place of s4–s6, and no question about the row.`;
+With Google Sheets connected: one app step reads the sheet's rows (save_as done_rows), and inside the loop one app step
+writes [["{{today|D MMM}}", "{{email.subject}}"]] (one list per row) to "<id:s5>" in place of s4–s6, with no question
+about the row: two AI-free app steps around one AI step.`;
+
+// The run's own AI limit in the prompt (the runner's SHADOW_AI_MAX_CALLS_PER_RUN; 3 is its default, DEFAULT_AI_LIMITS
+// in the player): the agent plans its AI steps against the number a run really allows.
+export const withAiLimit = (prompt: string, limit: number | undefined): string =>
+  prompt.replaceAll("AI_CALLS_PER_RUN", String(limit ?? 3));
 
 // Plan, then apply: in file mode one call writes the workflow whole; the build episode starts from what it did.
 export const PLAN_FILE = `You are Shadow's design agent, planning. ${principles}

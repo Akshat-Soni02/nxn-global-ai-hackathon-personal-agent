@@ -37,14 +37,35 @@ export interface Toolkit {
   categories?: string[];
   // How many actions it offers (Composio's count).
   actions?: number;
+  // Connecting asks for the user's own key for the app (N13), not a sign-in page.
+  key?: boolean;
+}
+
+// What connecting an app with the user's own key asks for (keyFields): its API key, sometimes its address too.
+export interface KeyField {
+  name: string;
+  label: string;
+  description?: string;
+  // Typed hidden, like a password.
+  secret: boolean;
+  required: boolean;
+  default?: string;
 }
 
 export interface ToolProvider {
   // Every app a user may connect.
   toolkits(): Promise<Toolkit[]>;
   connections(uid: string): Promise<Connection[]>;
-  // Starts connecting an app; the user finishes at `redirectUrl` in their browser.
-  connect(uid: string, toolkit: string, callbackUrl?: string): Promise<{ id: string; redirectUrl: string }>;
+  // Starts connecting an app; the user finishes at `redirectUrl` in their browser. An app that needs the user's own
+  // key is connected with `fields` at once, and has no `redirectUrl`.
+  connect(
+    uid: string,
+    toolkit: string,
+    callbackUrl?: string,
+    fields?: Record<string, string>,
+  ): Promise<{ id: string; redirectUrl?: string }>;
+  // What connecting an app that needs the user's own key asks for.
+  keyFields(toolkit: string): Promise<KeyField[]>;
   // Only the user's own connection; false when it isn't theirs or doesn't exist.
   disconnect(uid: string, connectionId: string): Promise<boolean>;
   // The tools of the apps this user connected (ACTIVE only).
