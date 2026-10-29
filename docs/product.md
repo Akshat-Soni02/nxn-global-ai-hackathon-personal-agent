@@ -16,8 +16,10 @@ Mac apps, with your files. When a website changes, it fixes the task itself and 
 3. A setup window appears with three steps:
    - **Sign in.** Press Sign in. Your browser opens Shadow's sign-in page: use Google or your email. Back in the
      app you should see "Connected to Nemotron". You don't need an API key; Shadow's free tier covers everyday use.
-   - **Chrome.** Press Connect Chrome. A Finder window shows the extension folder. In Chrome open
-     `chrome://extensions`, turn on Developer mode, press Load unpacked, pick that folder, then open the extension's
+   - **Chrome.** Press Connect Chrome, then Show the extension folder: a Finder window shows it and its path is
+     copied. In Chrome open `chrome://extensions`, turn on Developer mode and press Load unpacked. The picker can't
+     open Shadow.app by clicking, so press **⌘⇧G**, paste the path
+     (`/Applications/Shadow.app/Contents/Resources/extension`), press Return, then Select. Then open the extension's
      Details and turn on "Allow access to file URLs".
    - **Permissions.** Allow Accessibility if you want Mac apps recorded; Screen Recording and Microphone only if you
      want screenshots and narration.

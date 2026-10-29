@@ -21,7 +21,7 @@ const SETUP = [
   },
   {
     title: "Chrome",
-    text: "Press Connect Chrome. In chrome://extensions turn on Developer mode, press Load unpacked and pick the folder Shadow shows you. In the extension's Details, allow access to file URLs.",
+    text: "Press Connect Chrome, then Show the extension folder: it copies the folder's path. In chrome://extensions turn on Developer mode and press Load unpacked. The picker can't open Shadow.app by clicking, so press ⌘⇧G, paste, press Return, then Select. In the extension's Details, allow access to file URLs.",
   },
   {
     title: "Permissions",

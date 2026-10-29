@@ -443,6 +443,9 @@ final class AppMain: NSObject, NSApplicationDelegate {
     let folder = firstRun?.model.extensionFolder ?? ""
     guard !folder.isEmpty else { return }
     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder)])
+    // Chrome's Load unpacked picker won't open Shadow.app (a package to it): the path is copied for ⌘⇧G and paste.
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(folder, forType: .string)
   }
 
   private func refreshInbox() {
