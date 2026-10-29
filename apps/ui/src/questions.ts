@@ -25,7 +25,24 @@ export function waitingNote(count: number): string | undefined {
 // said only "no steps were recorded". `connected` is undefined from a daemon older than the window: no warning.
 export function chromeWarning(connected: boolean | undefined): string | undefined {
   if (connected !== false) return undefined;
-  return "Chrome isn't connected, so nothing you do in Chrome will be recorded. Reload the Shadow extension in chrome://extensions; if the sidebar still says Chrome: not connected, run pnpm setup:native-host and reload it again.";
+  // Words for the downloaded app and the repository alike: Connect Chrome registers the same bridge pnpm
+  // setup:native-host does, and a person who downloaded the app has no terminal command to run.
+  return "Chrome isn't connected, so nothing you do in Chrome will be recorded. In Settings → Chrome press Connect Chrome, then in chrome://extensions turn on the Shadow extension and press its reload button.";
+}
+
+// Recording waits for a sign-in when this build has Shadow's service and there is no model yet: a recording made
+// first could not be turned into a workflow, and the sidebar's "no API key" told a downloaded app's user to find one.
+export function signInFirst(
+  settings: { account: { signedIn: boolean; apiUrl?: string }; key: { present: boolean } } | undefined,
+): boolean {
+  if (!settings) return false;
+  return Boolean(settings.account.apiUrl) && !settings.account.signedIn && !settings.key.present;
+}
+
+// The sidebar's Model row: what is missing, in the build's own terms.
+export function modelStatus(health: { model?: string; service?: boolean }): string {
+  if (health.model === "configured") return "Nemotron";
+  return health.service ? "not signed in" : "no API key";
 }
 
 // The feed's lines while a recording becomes a workflow. A daemon older than the window sends none (the window's pages

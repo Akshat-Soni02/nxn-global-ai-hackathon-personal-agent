@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { call, SessionContext, takeToken, useEvents, useQuery } from "./api.ts";
 import { money } from "./format.ts";
 import { backLink } from "./nav.ts";
+import { modelStatus } from "./questions.ts";
 import { Apps } from "./screens/Apps.tsx";
 import { Inbox } from "./screens/Inbox.tsx";
 import { Record } from "./screens/Record.tsx";
@@ -259,6 +260,8 @@ interface HealthInfo {
   extensionStale?: boolean;
   macApp?: { connected: boolean; trusted: boolean };
   model?: string;
+  // This build has Shadow's service: a missing model means "sign in", not "add a key".
+  service?: boolean;
   waitingForYou?: number;
   running?: string[];
 }
@@ -287,7 +290,7 @@ function Health({ connected }: { connected: boolean }) {
     {
       label: "Model",
       ok: data?.model === "configured",
-      text: data?.model === "configured" ? "Nemotron" : "no API key",
+      text: modelStatus(data ?? {}),
     },
   ];
   return (
