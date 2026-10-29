@@ -18,12 +18,12 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick start</a> ·
+  <a href="https://akshat-soni02.github.io/nxn-global-ai-hackathon-personal-agent/">Website</a> ·
+  <a href="#get-shadow">Download</a> ·
+  <a href="docs/product.md">User guide</a> ·
   <a href="#nvidia-nemotron-on-nebius-token-factory">Nemotron on Token Factory</a> ·
-  <a href="#feedback-token-factory-ai-cloud-and-nemotron">Feedback</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="#running-from-the-repository">Full setup</a> ·
-  <a href="docs/product.md">User guide</a>
+  <a href="FEEDBACK.md">Feedback</a> ·
+  <a href="DEVELOPMENT.md">Run from source</a>
 </p>
 
 ---
@@ -38,83 +38,48 @@ Anything only you should decide waits in an inbox (send this? which file?). When
 
 Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/). Shadow is an always-on, private assistant with persistent memory and reusable skills. Its models are **NVIDIA Nemotron** on **Nebius Token Factory**. It is open source under the [MIT License](LICENSE).
 
+## Get Shadow
+
+**[Download Shadow.dmg](https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent/releases/latest/download/Shadow.dmg)** · for Macs with Apple silicon (M1 or later), macOS 14 or later, with Google Chrome · [the website](https://akshat-soni02.github.io/nxn-global-ai-hackathon-personal-agent/) · [all releases](https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent/releases)
+
+1. Open `Shadow.dmg` and drag **Shadow** to Applications.
+2. Open Shadow. The first time, macOS stops it because Apple hasn't checked it: see [Opening an app Apple hasn't verified](#opening-an-app-apple-hasnt-verified) just below.
+3. The setup window has three steps:
+   - **Sign in** with Google. No API key is needed; afterwards you should see "Connected to Nemotron".
+   - **Chrome:** load the extension, as the setup window shows.
+   - **Permissions:** Accessibility for Mac apps; Screen Recording and Microphone only for screenshots and narration.
+4. Press **Open Shadow**. From then on Shadow starts when you log in. Press **Record**, do a task, press **Stop**.
+
+Every screen, step by step: [`docs/product.md`](docs/product.md).
+
+### Opening an app Apple hasn't verified
+
+Shadow is open source and signed by us, but not notarised by Apple (that needs a paid Apple Developer account). So
+macOS refuses it the first time, with *"Apple could not verify "Shadow" is free of malware"*. To open it once:
+
+1. Open Shadow from Applications. When macOS refuses it, press **Done** (not Move to Trash).
+2. Open **System Settings → Privacy & Security** and scroll down to **Security**. Next to *"Shadow" was blocked to protect your Mac*, press **Open Anyway**.
+3. Press **Open Anyway** again and enter your Mac's password. From then on Shadow opens like any app.
+
+On macOS 14 you can instead right-click Shadow in Applications, choose **Open**, then **Open** again. If macOS still
+refuses, this removes the download mark macOS checks: `xattr -dr com.apple.quarantine /Applications/Shadow.app`.
+
+Each new version is a new build, so macOS asks once more, and Accessibility (for Mac apps) has to be turned on again for it.
+
+### Deployed link
+
+- **Site**: [akshat-soni02.github.io/nxn-global-ai-hackathon-personal-agent](https://akshat-soni02.github.io/nxn-global-ai-hackathon-personal-agent/), on GitHub Pages, rebuilt on every push to `main`.
+- **Download**: [the latest release](https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent/releases/latest): `Shadow.dmg` (the app, with the daemon and the Chrome extension inside) and `shadow-extension.zip`.
+- **Service**: `shadow-api` on Google Cloud Run, redeployed by Cloud Build on every push to `main` that touches it; its URL is built into the app.
+
 ## Contents
 
-- [Quick start](#quick-start): three ways in, from free and offline to the whole product
+- [Get Shadow](#get-shadow): download, [open an app Apple hasn't verified](#opening-an-app-apple-hasnt-verified), set up
 - [NVIDIA Nemotron on Nebius Token Factory](#nvidia-nemotron-on-nebius-token-factory): which model does what, and where Token Factory sped up our work
-- [Feedback: Token Factory, AI Cloud and Nemotron](#feedback-token-factory-ai-cloud-and-nemotron)
+- [Feedback on Token Factory, AI Cloud and Nemotron](FEEDBACK.md)
 - [What works today](#what-works-today) · [How it works](#how-it-works) · [Privacy](#privacy)
-- [Running from the repository](#running-from-the-repository): full setup, running it, and [troubleshooting](#troubleshooting)
-- [Reference](#reference): terminal commands, the daemon's API, development, repository guide
-- [Success metric](#success-metric-task-coverage) · [Install, deploy, release](#install-the-packaged-app) · [License](#license)
-
-## Quick start
-
-**You need:**
-- macOS 14 or later, Node 22 or later, and Google Chrome.
-- pnpm 10. Node ships it: run `corepack enable pnpm` once.
-- The Xcode command line tools, only for Shadow.app (`xcode-select --install`).
-- A Nebius Token Factory API key, for anything that calls a model. Get one at [tokenfactory.nebius.com](https://tokenfactory.nebius.com): your project → API keys.
-
-```sh
-git clone https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent.git
-cd nxn-global-ai-hackathon-personal-agent
-corepack enable pnpm
-pnpm install
-```
-
-### A · Free and offline: no key, about 2 minutes
-
-```sh
-pnpm test                                         # about 1,000 tests; no network and no model (a scripted fake model)
-pnpm design:eval fixtures/recordings/yc-top-job   # one real recording turned into a workflow by code alone (fake model)
-```
-
-The second command shows each stage of [the pipeline](#how-it-works) on a real recording:
-- the 11 recorded events become 5 steps;
-- the evidence package is built;
-- the workflow is saved in a scratch folder;
-- the checks from the recording's `expect.json` print as ✓ or ✗.
-
-Nothing in the repository changes.
-
-### B · With your key: watch Nemotron design a workflow (cents)
-
-```sh
-cp .env.example .env                                         # put your Token Factory key in NEBIUS_API_KEY
-pnpm llm:check                                               # one small call per model: answers, json_schema, tool calls, images (< $0.01)
-pnpm design:eval fixtures/recordings/yc-top-job --real       # says what it may spend, and stops
-pnpm design:eval fixtures/recordings/yc-top-job --real --yes # Nemotron 3 Super designs it (at most $0.25)
-```
-
-**What the run does.** Nemotron 3 Super reads the recording, writes what the task is, plans the workflow, then writes, tests and corrects it with tools. A critic reviews it before it is saved.
-
-**Recordings to try.** `fixtures/recordings/` has four: `yc-top-job`, `kpi-email-to-sheet`, `timesheet` and `playstore-to-chat`. In our runs a design cost between $0.01 and $0.20. Add `--model <id>` to try another Token Factory model.
-
-**The spending cap.** Each real run adds a row to [`testing/design-eval-ledger.md`](testing/design-eval-ledger.md). The script refuses to run once that file adds up to $10; it already holds about $7 of our own runs.
-
-### C · The whole product: record, run, repair
-
-```sh
-pnpm build                  # the extension, the native host, the window and the website
-pnpm setup:mac              # builds Shadow.app: menu bar, Record button, Mac-app recording
-pnpm setup:native-host      # lets Chrome talk to the daemon
-```
-
-Then add the extension to Chrome:
-1. Open `chrome://extensions` and turn on **Developer mode**.
-2. Press **Load unpacked** and pick `apps/extension/dist`.
-3. In the extension's **Details**, turn on **Allow access to file URLs**.
-
-Then start Shadow:
-
-```sh
-pnpm daemon                 # Shadow starts; open the window from the menu bar
-```
-
-Press **Record**, do a task in Chrome, then press **Stop**. Answer Shadow's questions, then press **Run now** on the workflow's page.
-
-To write to Google Sheets, Gmail and other apps, also run `pnpm api` (it needs `COMPOSIO_API_KEY`). Every step is in [Running from the repository](#running-from-the-repository), and [`docs/product.md`](docs/product.md) shows the window screen by screen.
+- [For developers](#for-developers): [run it from the repository](DEVELOPMENT.md), [deploy it](#deployment-guide)
+- [Read next](#read-next) · [Success metric](#success-metric-task-coverage) · [License](#license)
 
 ## NVIDIA Nemotron on Nebius Token Factory
 
@@ -157,36 +122,9 @@ Shadow's one small server is `shadow-api` ([`apps/api`](apps/api)). It handles s
 
 ## Feedback: Token Factory, AI Cloud and Nemotron
 
-What we found while building Shadow. Each point comes from a run or a measurement in this repository.
-
-### Nebius Token Factory
-
-**What worked well**
-- The OpenAI-compatible API, `json_schema` output, tool calling and the thinking switch all worked the same way across both Nemotron models. Adding a model was a catalog row.
-- Prompt caching happens by itself and saves most of an agent's repeated input (2,784 of 2,806 tokens on a repeated design prompt).
-- Zero Data Retention as one organisation-wide setting made the privacy story simple to explain and to check.
-
-**What was hard**
-- **Reasoning and the answer share one `max_tokens` budget.** With thinking on, Nemotron 3 Super once spent the whole 8,192-token budget on reasoning while writing a workflow, and returned no answer (25 Oct). We doubled the budget to 16,384. A separate reasoning budget, or a clear error when reasoning uses up `max_tokens`, would make this easy to spot.
-- **Cached tokens have no published price.** Usage reports `cached_tokens`, but we can't price them. Shadow's meter therefore charges every input token in full, so the costs we show are an upper bound.
-- **Reliable structured output needed the schema twice**, in `response_format` and in the prompt, as Nebius's docs recommend. We also kept fallbacks: `json_schema`, then `json_object`, then text.
-- **The catalog changes often.** Models were removed in waves in June and August 2026. We keep model ids in config so a swap is one line. Deprecation dates in `/v1/models` would help builders plan.
-- **Onboarding needs a bank card** before the $1 trial credit. That was fine for us, but it is a hurdle for students.
-
-### NVIDIA Nemotron
-
-**What worked well**
-- Nemotron 3 Super with tools reads a messy recording and builds a workflow with loops, branches, AI steps and connected-app steps. On a real YC → Google Sheets recording, its 7th re-design finished right: the right columns, the first 5 jobs, 3 AI calls. Most of the earlier stalls were slips of form (below), which code now settles.
-- Nemotron 3.5 Lightning is fast and cheap enough to sit inside every scheduled run.
-
-**What was hard**
-- **One tool call per turn.** In 17 of 18 saved designs, every model call carried a single tool action, so long designs ran out of calls. We redesigned around it: one call now plans every change, and code applies them.
-- **Slips in tool arguments.** In one design, the workflow arrived as a JSON string with its quotes escaped twice (9 times). Other slips: camelCase names where the schema used snake_case, and extra "end" markers. Shadow now settles these in code instead of refusing ([`reports/changes.md`](reports/changes.md), C47).
-- **It reaches for an AI step for list work that code can do**, such as "the first 5" or "flatten this list". On 28 Oct this made a real run hit its limit of AI calls. Code now counts a design's AI calls and refuses list counting inside AI steps (C36–C48).
-
-### Nebius AI Cloud
-
-We didn't use it, so we have no feedback to give. Our only server is a small stateless container, and AI Cloud's compute is where we would try it next.
+What we found while building Shadow, each point from a run or a measurement in this repository, is in
+**[`FEEDBACK.md`](FEEDBACK.md)**: what worked well and what was hard on Nebius Token Factory and with NVIDIA Nemotron,
+and why we have no feedback on Nebius AI Cloud.
 
 ## What works today
 
@@ -290,238 +228,41 @@ For development, `NEBIUS_API_KEY` in `.env` sends model calls straight to Token 
 
 Details: [docs/design.md#consent-redaction-and-retention](docs/design.md#consent-redaction-and-retention).
 
-## Running from the repository
+## For developers
 
-> These steps run the **current code**. The packaged app is built by `pnpm package` ([Deployment guide](#deployment-guide)).
-
-**Prerequisites:** see [Quick start](#quick-start).
-
-### 1. Install and check
-
-```sh
-pnpm install
-cp .env.example .env        # your own Token Factory key (direct, no caps), or SHADOW_API_URL to use shadow-api
-pnpm llm:check              # checks each model profile with that key: answers, json_schema, tool calls, images (< $0.01)
-pnpm build                  # the extension, the native host, the window and the website
-```
-
-`.env` keys (names only; [`.env.example`](.env.example) explains each one):
-
-| Key | Read by | For |
-| --- | --- | --- |
-| `NEBIUS_API_KEY` | the daemon, `pnpm api` | Token Factory. Set in the daemon, it serves model calls directly, with no caps. |
-| `SHADOW_API_URL` | the daemon | `http://localhost:8080` with `pnpm api`. Needed for connected apps. |
-| `COMPOSIO_API_KEY` | `pnpm api` | Connecting apps (Google Sheets, Gmail…) through Composio |
-| `SHADOW_MODEL_FAST` / `_SMART` / `_VISION` | the daemon | Optional: swap a profile's model |
-| `SHADOW_AI_MAX_CALLS_PER_RUN`, `SHADOW_AI_MAX_INPUT_CHARS` | the daemon | Optional: the AI-step limits per run (default: 3 calls) |
-
-### 2. Set up once
-
-1. **Shadow.app.** `pnpm setup:mac` builds `apps/mac/build/Shadow.app`, and the daemon starts it. The app is rebuilt only when its sources change. Without it, a Record button appears inside Chrome pages instead, and the form's questions come to the Inbox.
-2. **Chrome.**
-   1. Run `pnpm setup:native-host` to register the shim with Chrome (`--uninstall` removes it).
-   2. In `chrome://extensions`, turn on Developer mode, press **Load unpacked** and pick `apps/extension/dist`.
-   3. In the extension's Details, turn on **Allow access to file URLs**.
-
-   The manifest's `key` pins the extension ID to `eloljjdiofhdlhoankjbhfeihjankikk`, the only one the host allows.
-3. **Mac apps** (optional). Turn on Shadow in System Settings → Privacy & Security → Accessibility. While recording, right-click the red button → **Allow Mac apps** takes you there. Without this permission, web pages and files are still recorded, but Mac apps are not.
-4. **Notifications.** Allow them when Shadow asks.
-
-### 3. Run it
+Everything for running the code is in **[`DEVELOPMENT.md`](DEVELOPMENT.md)**:
+- [Quick start](DEVELOPMENT.md#quick-start): free and offline in about 2 minutes, then Nemotron designing a workflow with your key, then the whole product
+- [Running from the repository](DEVELOPMENT.md#running-from-the-repository): full setup, recording, running, and [troubleshooting](DEVELOPMENT.md#troubleshooting)
+- [Reference](DEVELOPMENT.md#reference): terminal commands, the daemon's API, development, the repository guide
 
 ```sh
-pnpm daemon                 # in a terminal you can see
+git clone https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent.git
+cd nxn-global-ai-hackathon-personal-agent
+corepack enable pnpm && pnpm install
+pnpm test
 ```
 
-**With connected apps** (Google Sheets, Gmail…), run `shadow-api` beside the daemon. `pnpm daemon` does not start it:
+### Deployment guide
+
+Everything ships with these commands, in this order; [`DEPLOY.md`](DEPLOY.md) has what to set up first and the clicks the console needs:
 
 ```sh
-pnpm api                    # terminal 1: shadow-api on :8080; memory store, dev sign-in, no quotas
-pnpm daemon                 # terminal 2, with SHADOW_API_URL=http://localhost:8080 in .env
+PROJECT_ID=<your gcp project> pnpm deploy:api   # shadow-api to Cloud Run, keys in Secret Manager; saves its URL
+PROJECT_ID=<your gcp project> pnpm deploy:ci    # optional: redeploy shadow-api from main with Cloud Build
+pnpm deploy:app                                 # the .dmg with that URL inside, published as a GitHub Release
+# the site deploys itself to GitHub Pages on push to main; its button downloads that .dmg
 ```
 
-Then go to **Settings → Sign in** (the local page takes any email), and **Apps → Connect**. With the memory store, you must sign in again after `pnpm api` restarts. Details are in [`apps/api/README.md`](apps/api/README.md).
+`pnpm package` alone builds `dist/Shadow-<version>.dmg` and `dist/shadow-extension.zip` without publishing (`--skip-build` reuses the last build). The app is signed ad hoc (no Apple developer account), so the first open goes through [Open Anyway](#opening-an-app-apple-hasnt-verified), and macOS ties the Accessibility permission to each build.
 
-**Where Shadow shows up:**
-- **The menu bar:** how many things wait for you, Record, health, the next run, and a warning when the daemon is down.
-- **The red Record button**, while a recording is in progress.
-- **The window:** **Open Shadow** in the menu bar opens it, and the terminal prints a link to open it in a browser.
-
-**Keep it running without a terminal** (optional): `pnpm setup:daemon` starts the daemon at login. Only one daemon runs at a time, so run `pnpm setup:daemon --uninstall` before `pnpm daemon`. Logs are in `~/Library/Logs/Shadow`.
-
-### 4. Record a task
-
-1. Press the round **Record** button, **Record a task** in the menu bar, or **Record** in the window.
-2. Fill in the short form (the goal, how often it should run) and press **Start recording**.
-3. Do the task in Chrome, Finder or any Mac app, then press **Stop**.
-4. Shadow turns the recording into a workflow and asks its questions next to the draft, or in the **Inbox**. The saved workflow appears under **Workflows**.
-5. Finder is recorded by what it does to files (moves, renames), not by its clicks.
-
-Every recording becomes its own workflow, with a readable id such as `upload-invoice-k3f9q2`. The one exception is **Record again** on a workflow's page: that recording becomes the workflow's next version.
-
-### 5. Look at it, change it, run it
-
-- **Edit** on a workflow's page opens a draft beside it. **Walk through** runs it one step at a time. **Test** runs the safe test and marks each node.
-- **Run now**, or `run <id>` in the terminal. Web steps run in a separate, unfocused 1280×800 Chrome window. If the task used a file, it first asks which file to use this time.
-- **Go live** with a **Frequency**: every hour, every day at…, weekdays at…, every week, every month, when a file appears in a folder, or a custom schedule. **Pause** and **Resume** are next to it.
-- **What waits for you** (an approval, a question, a failure only you can fix) is in the **Inbox**, with a notification. It waits as long as needed, even across a restart.
-- **Runs** shows every run step by step, with repairs and model cost. **Roll back** undoes the latest version.
-
-### Troubleshooting
-
-| What you see | What to do |
-| --- | --- |
-| The extension doesn't connect, or the window says Chrome runs an old copy of it | Reload it in `chrome://extensions`. Chrome keeps the old worker while the version number is unchanged. |
-| An upload step fails with "Not allowed" | Turn on **Allow access to file URLs** in the extension's Details |
-| Mac apps stop being recorded after a rebuild | Turn Shadow off and on in Accessibility. If that doesn't work, run `tccutil reset Accessibility com.shadow.mac` (the app is signed ad hoc, so the permission belongs to one build). |
-| Apps says you're signed out after restarting `pnpm api` | The memory store forgets sign-ins: sign in again in Settings |
-| A run stops with "this run already made 3 model calls" | Raise `SHADOW_AI_MAX_CALLS_PER_RUN` in `.env` and restart the daemon |
-| `pnpm design:eval --real` refuses to run | The ledger adds up to more than $10. Each real run adds a row to `testing/design-eval-ledger.md`. |
-| The window doesn't open after a restart | The daemon picks a new address at every start: use the link it prints, or **Open Shadow** in the menu bar |
-
-After `git pull`, run `pnpm install && pnpm build` again. Also run `pnpm setup:mac` if `apps/mac` changed, then reload the extension.
-
-The daemon keeps its data in `~/Library/Application Support/Shadow`. Set `SHADOW_HOME` to use another folder.
-
-## Reference
-
-<details>
-<summary><b>Terminal commands</b></summary>
-
-<br>
-
-`pnpm daemon` takes these commands:
-- recording: `record`, `stop`, `compile <session>`;
-- running: `run <skill-id | skill.json> [name=value … | path]`;
-- the inbox: `inbox`, `approve`, `deny`, `resume`, `skip`, `cancel [run-id]`;
-- workflows: `rollback <skill-id>`, `live <skill-id>`, `pause <skill-id>`, `resume-workflow <skill-id>`;
-- lists: `runs`, `skills`, `traces`, `status`.
-
-To answer a question, type the answer.
-
-</details>
-
-<details>
-<summary><b>The daemon's API</b></summary>
-
-<br>
-
-The window, the menu bar and the terminal all use one API. It is available on two channels:
-- the Unix socket, `~/Library/Application Support/Shadow/daemon.sock`, with `api.call` messages;
-- local HTTP, whose port and token are in `~/Library/Application Support/Shadow/api.json` (readable only by you).
-
-```sh
-PORT=$(node -p "require(process.env.HOME+'/Library/Application Support/Shadow/api.json').port")
-TOKEN=$(node -p "require(process.env.HOME+'/Library/Application Support/Shadow/api.json').token")
-curl -s -X POST http://127.0.0.1:$PORT/api/inbox -H "Authorization: Bearer $TOKEN" -d '{"open":true}'
-curl -s -X POST http://127.0.0.1:$PORT/api/answer -H "Authorization: Bearer $TOKEN" -d '{"itemId":"<id>","answer":"approve"}'
-```
-
-The methods are listed in `apps/daemon/src/api.ts`. A few need a note:
-- `start` takes a saved workflow's id, never a file path.
-- `recordCancel` with a `sessionId` cancels one of several recordings being turned into workflows.
-- `connectApp` takes `fields` for an app connected with your own key.
-- `chat` changes a workflow from a sentence.
-- `test` runs the safe test of the whole workflow, or of one `block`.
-- `secrets` and `setSecret` handle a workflow's secret inputs: they say whether each is set, never its value.
-
-The full list, by area:
-
-| Area | Methods |
-| --- | --- |
-| Workflows and runs | `workflows`, `workflow`, `runs`, `run`, `inbox`, `usage`, `health`, `start`, `walk`, `answer`, `cancel`, `rollback`, `state`, `goLive`, `review`, `looksRight`, `pause`, `resume`, `setTrigger` |
-| The draft | `draft`, `editDraft`, `tidyDraft`, `undoDraft`, `redoDraft`, `discardDraft`, `publishDraft` |
-| Recording | `recording`, `recordStart`, `recordStop`, `recordDiscard`, `recordCancel` |
-| Settings and account | `settings`, `setApiKey`, `setConsent`, `checkModel`, `memory`, `forget`, `setupChrome`, `signIn`, `signOut`, `accountUsage` |
-| Connected apps | `connectedApps`, `connectApp`, `appKeyFields`, `disconnectApp`, `appTools`, `checkApp`, `offerAppAgain` |
-| On the workflow's page | `chat`, `test`, `secrets`, `setSecret` |
-
-`GET /api/events?token=…` streams changes.
-
-</details>
-
-<details>
-<summary><b>Development</b></summary>
-
-<br>
-
-```sh
-pnpm test                   # all tests (vitest)
-pnpm typecheck              # every package
-pnpm lint                   # Biome; `pnpm format` to auto-fix
-pnpm ui                     # rebuilds the window on change (reload it)
-pnpm extension              # rebuilds the extension on change (reload it in chrome://extensions)
-pnpm daemon:dev             # the daemon in watch mode
-pnpm design:eval <recording folder> [--real --yes]   # design a recording; fake model unless --real
-
-pnpm fixtures               # serves fixtures/pages on http://localhost:5173
-pnpm seed:sandbox           # creates ~/ShadowTest with sample files for skills/real (--reset to start over)
-pnpm snapshot:pages         # re-downloads the real pages into fixtures/snapshots
-pnpm --filter @shadow/website dev   # the product site on http://localhost:3000 (Next.js)
-```
-
-**Replay without the daemon.** `pnpm replay` runs a workflow in its own debug-port Chrome, with no extension needed. It shares the player code with the daemon. The five workflows in [`skills/real`](skills/real/README.md) replayed end to end this way on 9 Oct.
-
-```sh
-pnpm seed:sandbox                                        # once: sample files in ~/ShadowTest
-pnpm replay skills/real/fill-web-form.json               # --yes approves gated steps; --headless, --no-scripts, --no-repair, --keep-open
-pnpm fixtures                                            # repair on drifted pages: point the drift skill's URL at one of them, then
-pnpm replay fixtures/pages/drift/drift-skill.json --yes --input invoice=<a pdf>
-```
-
-Before every commit, `pnpm test && pnpm lint && pnpm typecheck` must pass; CI also runs `pnpm build`. Conventions are in [`CLAUDE.md`](CLAUDE.md).
-
-</details>
-
-<details>
-<summary><b>Repository guide</b></summary>
-
-<br>
-
-A TypeScript monorepo (pnpm workspaces), plus the Swift app. The extension, the daemon and the window share one language, so they share the same schema and types.
-
-```
-.
-├── packages/
-│   ├── core/          # JOINT   workflow schema and checker, edit operations, repair guard, capability briefing, messages
-│   ├── llm/           # JOINT   every model call to Nebius Token Factory: client, profiles (fast, smart, vision), structured output, usage
-│   ├── agent/         # JOINT   the agent runtime: loop, tools, guard, budgets, transcript
-│   ├── memory/        # JOINT   persistent memory (SQLite, full-text search)
-│   ├── ipc/           # JOINT   length-prefixed framing (native messaging + daemon socket), data, log and bundle paths
-│   ├── recorder/      # RECORD  normalise → skeleton → compile, evidence, the design agent (v2), masking
-│   └── player/        # REPLAY  the workflow interpreter, matcher, channels (web, files, scripts, data, AI steps), repair
-├── apps/
-│   ├── api/           # shadow-api: device sign-in, the model relay, the per-user MCP endpoint over Composio, quotas
-│   ├── daemon/        # the always-on daemon: runs, walks, inbox, API (socket + HTTP), triggers, store, recordings, drafts, settings
-│   ├── ui/            # the window (React): inbox, workflows, editor, runs, versions, Record, Apps, Settings
-│   ├── mac/           # Shadow.app (Swift): menu bar, window, notifications, the Record button, first run, Mac-app capture and replay
-│   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
-│   ├── native-host/   # the shim Chrome starts: pipes native messaging <-> the daemon's Unix socket
-│   └── website/       # the product site (Next.js static export), on GitHub Pages
-├── skills/real/       # replay test workflows against real sites
-├── fixtures/          # local test pages (with drifted redesigns for repair), page snapshots, recordings for design:eval
-├── scripts/           # deploy/ (api, app, ci), fixture server, installers, Mac app build, package (.dmg) and release, llm check, design eval
-├── docs/              # design.md, product.md, questions.md, design-ui.md, examples.md, cloud-architecture.md, guide/
-├── reports/           # dated studies and plans; changes.md is the status of the whole product
-├── testing/           # checkpoint write-ups and design-eval-ledger.md (the real-model spend)
-├── CLAUDE.md          # the pipeline map, commands and conventions for whoever changes the code
-└── .github/           # CI (lint, typecheck, test, build)
-```
-
-| Area | Owner | Rule |
-| --- | --- | --- |
-| `packages/core`, `llm`, `agent`, `memory`, `ipc`, `apps/ui`, `skills/` | Both | Changes need a review from both sides; the workflow schema is the contract |
-| `packages/recorder`, recording code in `apps/extension/src/content.ts` | Record | |
-| `packages/player`, replay code in `apps/extension/src/background.ts`, `apps/daemon`, `apps/native-host` | Replay | |
-
-</details>
-
-### Read next
+## Read next
 
 | Page | For |
 | --- | --- |
 | [`docs/product.md`](docs/product.md) | Opening Shadow for the first time: install, record a task, look at it, run it, what stays on your Mac |
 | [`reports/changes.md`](reports/changes.md) | The status of the whole product: done, partly done, not started, every known bug, what can fail while running |
+| [`DEVELOPMENT.md`](DEVELOPMENT.md) | Running the code: quick start, full setup, troubleshooting, commands, the daemon's API |
+| [`FEEDBACK.md`](FEEDBACK.md) | What worked and what was hard with Token Factory and Nemotron |
 | [`DEPLOY.md`](DEPLOY.md) | Shipping it: `shadow-api` to Cloud Run, the `.dmg` to GitHub Releases, the site to GitHub Pages |
 | [`CLAUDE.md`](CLAUDE.md) | For anyone (or any agent) changing the code: the pipeline and where each stage lives, commands, conventions |
 | [`docs/design.md`](docs/design.md) | The design, every decision with its date, and the [status table](docs/design.md#status-design-vs-code) |
@@ -547,36 +288,6 @@ These values were **estimated by reading the code** on 6 Oct, before the workflo
 1. Have a person who really does the workflow record it.
 2. Keep the recording in `fixtures/traces/`.
 3. Replay it on the next occurrence.
-
-## Install the packaged app
-
-The packaged app needs no Node, no pnpm and no repository. The same steps, with pictures, are in [`docs/product.md`](docs/product.md).
-
-1. Download `Shadow.dmg` from the [latest release](#deployed-link). Drag **Shadow** to Applications and open it. The first time, right-click → Open (the app is signed ad hoc, not by Apple).
-2. The setup window has three steps:
-   - **Sign in:** with Google; no API key is needed. Afterwards you should see "Connected to Nemotron".
-   - **Chrome:** load the extension, as shown in the setup window.
-   - **Permissions:** Accessibility for Mac apps; Screen Recording and Microphone only for screenshots and narration.
-3. Press **Open Shadow**. From then on, Shadow starts when you log in.
-
-### Deployed link
-
-- **Site**: [akshat-soni02.github.io/nxn-global-ai-hackathon-personal-agent](https://akshat-soni02.github.io/nxn-global-ai-hackathon-personal-agent/), on GitHub Pages, rebuilt on every push to `main`.
-- **Download**: [the latest release](https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent/releases/latest): `Shadow.dmg` (the app, with the daemon and the Chrome extension inside) and `shadow-extension.zip`.
-- **Service**: `shadow-api` on Google Cloud Run, redeployed by Cloud Build on every push to `main` that touches it; its URL is built into the app.
-
-### Deployment guide
-
-Everything ships with these commands, in this order; [`DEPLOY.md`](DEPLOY.md) has what to set up first and the clicks the console needs:
-
-```sh
-PROJECT_ID=<your gcp project> pnpm deploy:api   # shadow-api to Cloud Run, keys in Secret Manager; saves its URL
-PROJECT_ID=<your gcp project> pnpm deploy:ci    # optional: redeploy shadow-api from main with Cloud Build
-pnpm deploy:app                                 # the .dmg with that URL inside, published as a GitHub Release
-# the site deploys itself to GitHub Pages on push to main; its button downloads that .dmg
-```
-
-`pnpm package` alone builds `dist/Shadow-<version>.dmg` and `dist/shadow-extension.zip` without publishing (`--skip-build` reuses the last build). The app is signed ad hoc (no Apple developer account), so the first open is right-click → Open, and macOS ties the Accessibility permission to each build.
 
 ## License
 

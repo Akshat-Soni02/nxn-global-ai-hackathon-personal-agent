@@ -422,7 +422,7 @@ What gets installed, a dmg? Do the pnpm commands run on the user's machine? How 
 
 **The answer.**
 - The user downloads **Shadow-<version>.dmg** from the GitHub Release, drags Shadow.app to Applications and opens
-  it (right-click → Open the first time: ad hoc signature). No Node, no pnpm, no repo on their Mac.
+  it (Open Anyway in Privacy & Security the first time: ad hoc signature, not notarised). No Node, no pnpm, no repo on their Mac.
 - Inside the app: the Swift program, a Node binary, the daemon bundled into one file, the Chrome shim, the window's
   pages, the extension folder, the icon, and the daemon's LaunchAgent file. `pnpm package` builds all of that and the
   dmg (checked on 13 Oct: a 44 MB dmg); `pnpm release` publishes it with the extension zip.

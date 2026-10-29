@@ -12,7 +12,7 @@ Mac apps, with your files. When a website changes, it fixes the task itself and 
 ## Install
 
 1. Download `Shadow.dmg` from the latest GitHub Release (the Download button on the site) and open it.
-2. Drag **Shadow** to Applications and open it. The first time, right-click → Open (it is signed by us, not by Apple).
+2. Drag **Shadow** to Applications and open it. The first time macOS stops it (it is signed by us, not notarised by Apple): press **Done**, then in System Settings → Privacy & Security press **Open Anyway**, then **Open Anyway** again and enter your password. Details: [the README](../README.md#opening-an-app-apple-hasnt-verified).
 3. A setup window appears with three steps:
    - **Sign in.** Press Sign in. Your browser opens Shadow's sign-in page: use Google or your email. Back in the
      app you should see "Connected to Nemotron". You don't need an API key; Shadow's free tier covers everyday use.

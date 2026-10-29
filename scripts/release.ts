@@ -31,8 +31,9 @@ const notes = notesFile
   ? readFileSync(notesFile, "utf8")
   : `Shadow for macOS: show it a task once, and it does it for you from then on.
 
-**Download \`Shadow.dmg\`**, drag Shadow to Applications, and open it with right-click > Open the first time (the app is
-signed ad hoc, not by Apple). Sign in with Google; no API key is needed. The setup window then loads the Chrome
+**Download \`Shadow.dmg\`** (Macs with Apple silicon, macOS 14 or later) and drag Shadow to Applications. Apple hasn't
+verified it (it is signed ad hoc, not notarised), so the first time macOS stops it: press Done, then in System Settings
+→ Privacy & Security press **Open Anyway**, then Open Anyway again. Sign in with Google; no API key is needed. The setup window then loads the Chrome
 extension (\`shadow-extension.zip\` is the same extension, for loading by hand) and asks for the Mac permissions.
 
 Step by step: [docs/product.md](https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent/blob/main/docs/product.md).`;
