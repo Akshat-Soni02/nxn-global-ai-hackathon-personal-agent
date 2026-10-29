@@ -73,6 +73,7 @@ export function Settings() {
     session.call("setConsent", { consent: { ...s.consent, ...patch } }).then(() => settings.reload());
   const runCheck = async () => setCheck(await session.call<ModelCheck>("checkModel"));
   const hasService = Boolean(s.account.apiUrl);
+  const extensionFolder = s.bundle ? `${s.bundle}/Contents/Resources/extension` : "apps/extension/dist";
 
   return (
     <>
@@ -164,10 +165,15 @@ export function Settings() {
         <details>
           <summary className="muted small">Loading the extension</summary>
           <p className="muted small">
-            chrome://extensions → Developer mode → Load unpacked →{" "}
-            <code>{s.bundle ? `${s.bundle}/Contents/Resources/extension` : "apps/extension/dist"}</code> → Details →
-            Allow access to file URLs.
+            chrome://extensions → Developer mode → Load unpacked → <code>{extensionFolder}</code> → Details → Allow
+            access to file URLs.
           </p>
+          {/* Chrome's picker won't open Shadow.app by clicking (a package to it): ⌘⇧G takes a pasted path (Oct 29). */}
+          <p className="muted small">
+            Chrome's folder picker can't open Shadow.app by clicking: press ⌘⇧G in it, paste the path, press Return,
+            then Select.
+          </p>
+          <Action run={() => navigator.clipboard.writeText(extensionFolder)}>Copy the path</Action>
         </details>
       </section>
 

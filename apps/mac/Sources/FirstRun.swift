@@ -91,7 +91,7 @@ struct FirstRunView: View {
           Button("Show the extension folder") { onShowExtension() }
         }
         Text(
-          "Then in Chrome: chrome://extensions → Developer mode → Load unpacked → that folder → Allow access to file URLs."
+          "Then in Chrome: chrome://extensions → Developer mode → Load unpacked. Chrome can't open Shadow.app by clicking: press ⌘⇧G, paste (Show the extension folder copies its path), Return, Select. Then the extension's Details → Allow access to file URLs."
         )
         .font(.callout).foregroundStyle(.secondary)
         if !model.chromeStatus.isEmpty {

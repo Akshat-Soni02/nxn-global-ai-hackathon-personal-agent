@@ -46,7 +46,7 @@ Built for the Personal AI track of the [Nebius x NVIDIA Global AI Hackathon](htt
 2. Open Shadow. The first time, macOS stops it because Apple hasn't checked it: see [Opening an app Apple hasn't verified](#opening-an-app-apple-hasnt-verified) just below.
 3. The setup window has three steps:
    - **Sign in** with Google. No API key is needed; afterwards you should see "Connected to Nemotron".
-   - **Chrome:** load the extension, as the setup window shows.
+   - **Chrome:** load the extension, as the setup window shows. Chrome's Load unpacked picker can't open Shadow.app by clicking: press **⌘⇧G**, paste `/Applications/Shadow.app/Contents/Resources/extension`, press Return, then Select.
    - **Permissions:** Accessibility for Mac apps; Screen Recording and Microphone only for screenshots and narration.
 4. Press **Open Shadow**. From then on Shadow starts when you log in. Press **Record**, do a task, press **Stop**.
 
