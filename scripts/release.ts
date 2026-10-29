@@ -26,6 +26,16 @@ const assets = [dmg, stable, zip];
 const args = process.argv.slice(2);
 const draft = args.includes("--draft");
 const notesFile = args.includes("--notes") ? args[args.indexOf("--notes") + 1] : undefined;
+// What a person downloading it needs. Not GitHub's generated notes: on a first release they list every PR ever merged.
+const notes = notesFile
+  ? readFileSync(notesFile, "utf8")
+  : `Shadow for macOS: show it a task once, and it does it for you from then on.
+
+**Download \`Shadow.dmg\`**, drag Shadow to Applications, and open it with right-click > Open the first time (the app is
+signed ad hoc, not by Apple). Sign in with Google; no API key is needed. The setup window then loads the Chrome
+extension (\`shadow-extension.zip\` is the same extension, for loading by hand) and asks for the Mac permissions.
+
+Step by step: [docs/product.md](https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent/blob/main/docs/product.md).`;
 const tag = `v${version}`;
 const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
 const commit = git("rev-parse", "HEAD");
@@ -57,7 +67,8 @@ if (hasGh) {
         commit,
         "--title",
         `Shadow ${version}`,
-        ...(notesFile ? ["--notes-file", notesFile] : ["--generate-notes"]),
+        "--notes",
+        notes,
         ...(draft ? ["--draft"] : []),
       ];
   console.log(`gh ${command.join(" ")}`);
@@ -100,7 +111,7 @@ async function viaApi(): Promise<void> {
         target_commitish: commit,
         name: `Shadow ${version}`,
         draft,
-        ...(notesFile ? { body: readFileSync(notesFile, "utf8") } : { generate_release_notes: true }),
+        body: notes,
       }),
     });
     console.log(`created ${tag}`);
