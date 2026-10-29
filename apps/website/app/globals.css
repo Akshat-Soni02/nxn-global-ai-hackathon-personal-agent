@@ -894,8 +894,9 @@ button {
   grid-template-columns: 1fr;
 }
 @media (min-width: 900px) {
+  /* Four steps: two by two, so each keeps room for its words. */
   .setup {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 .setup li {

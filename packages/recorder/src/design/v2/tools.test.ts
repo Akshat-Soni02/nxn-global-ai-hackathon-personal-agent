@@ -98,6 +98,9 @@ describe("the tools", () => {
     const step = findStep(s.draft, "s3");
     expect(step && "args" in step ? step.args.text : "").toContain("{{today}}");
     expect(s.decisions.get("p1")?.decision).toBe("accept");
+    // Accepted again: a yes, never a refusal that counts as going nowhere (Oct 27).
+    const again = await run(s, "accept", { proposal: "p1", why: "again" });
+    expect(again.output).toMatchObject({ ok: true, note: "p1 is accepted already" });
   });
 
   it("add a new click as unverified, with approval added by code when it sends; an unknown verb lists the right ones", async () => {

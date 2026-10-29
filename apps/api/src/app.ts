@@ -59,6 +59,8 @@ export function createApp(deps: AppDeps) {
   const oauthError = (error: string, description: string) => ({ error, error_description: description });
 
   app.get("/healthz", (c) => c.json({ ok: true }));
+  // Cloud Run's front end keeps paths ending in "z" (/healthz answers 404 there before reaching us): this one does.
+  app.get("/health", (c) => c.json({ ok: true }));
 
   // ---- Sign-in (device flow) ------------------------------------------------------------------------------------
 

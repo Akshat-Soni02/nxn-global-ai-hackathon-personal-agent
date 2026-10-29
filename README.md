@@ -206,8 +206,8 @@ Status on **28 Oct 2026**, from the code on `main` plus PR #27 (the product audi
 | **Recovering** | Classify the failure, then cheap fixes, then the repair agent. It may ask to see a masked picture if you allow it. A step a connected app can do is offered as that app's step (**Connect / Use it / No**). Repair can say a step shouldn't be there, and you decide. Fixes are kept as versions, and roll back is one click. | Recording the fix you show it as the repair; Mac-app repair beyond the first cheap fix. |
 | **Connected apps** | Google Sheets, Docs, Gmail, Drive, Calendar, Slack, Notion and GitHub through Composio, plus 757 more apps connected with your own key. The design agent writes app steps instead of clicking through those pages. Typing into a drawn grid is stopped before the run and sent to the app. | |
 | **Inbox and triggers** | A run that needs you waits in the inbox, even across a restart. Workflows can be live, paused or draft. Triggers: schedules, or "when a file appears in a folder". A workflow pauses itself after 3 failures in a row. | "When an email arrives" |
-| **Shadow.app and the daemon** | Menu bar, window, notifications, the floating Record button, first-run setup, start at login. The daemon has a local API (socket and HTTP) and log files. Packaged with its own Node into one `.dmg` (`pnpm package`). | Tried by a person on a clean Mac; the GitHub Release; CI building the `.dmg`. |
-| **shadow-api** | Device sign-in, the model relay, one MCP endpoint per user over Composio, free-tier quotas. Runs locally with `pnpm api`. | A public deployment |
+| **Shadow.app and the daemon** | Menu bar, window, notifications, the floating Record button, first-run setup, start at login. The daemon has a local API (socket and HTTP) and log files. Packaged with its own Node into one `.dmg` (`pnpm package`). | Tried by a person on a clean Mac; CI building the `.dmg`. |
+| **shadow-api** | Device sign-in, the model relay, one MCP endpoint per user over Composio, free-tier quotas. Live on Cloud Run, redeployed from `main` by Cloud Build; runs locally with `pnpm api`. | |
 
 ## How it works
 
@@ -497,10 +497,10 @@ A TypeScript monorepo (pnpm workspaces), plus the Swift app. The extension, the 
 │   ├── mac/           # Shadow.app (Swift): menu bar, window, notifications, the Record button, first run, Mac-app capture and replay
 │   ├── extension/     # Chrome MV3 extension: background worker (native port, chrome.debugger), content script
 │   ├── native-host/   # the shim Chrome starts: pipes native messaging <-> the daemon's Unix socket
-│   └── website/       # the product site (Next.js static export)
+│   └── website/       # the product site (Next.js static export), on GitHub Pages
 ├── skills/real/       # replay test workflows against real sites
 ├── fixtures/          # local test pages (with drifted redesigns for repair), page snapshots, recordings for design:eval
-├── scripts/           # fixture server, installers, Mac app build, package (.dmg) and release, llm check, design eval
+├── scripts/           # deploy/ (api, app, ci), fixture server, installers, Mac app build, package (.dmg) and release, llm check, design eval
 ├── docs/              # design.md, product.md, questions.md, design-ui.md, examples.md, cloud-architecture.md, guide/
 ├── reports/           # dated studies and plans; changes.md is the status of the whole product
 ├── testing/           # checkpoint write-ups and design-eval-ledger.md (the real-model spend)
@@ -522,6 +522,7 @@ A TypeScript monorepo (pnpm workspaces), plus the Swift app. The extension, the 
 | --- | --- |
 | [`docs/product.md`](docs/product.md) | Opening Shadow for the first time: install, record a task, look at it, run it, what stays on your Mac |
 | [`reports/changes.md`](reports/changes.md) | The status of the whole product: done, partly done, not started, every known bug, what can fail while running |
+| [`DEPLOY.md`](DEPLOY.md) | Shipping it: `shadow-api` to Cloud Run, the `.dmg` to GitHub Releases, the site to GitHub Pages |
 | [`CLAUDE.md`](CLAUDE.md) | For anyone (or any agent) changing the code: the pipeline and where each stage lives, commands, conventions |
 | [`docs/design.md`](docs/design.md) | The design, every decision with its date, and the [status table](docs/design.md#status-design-vs-code) |
 | [`docs/cloud-architecture.md`](docs/cloud-architecture.md) | Sign-in, `shadow-api`, model calls with Shadow's key, connected apps through Composio, quotas |
@@ -549,30 +550,33 @@ These values were **estimated by reading the code** on 6 Oct, before the workflo
 
 ## Install the packaged app
 
-> **No release is published yet.** Until it is, use [Quick start](#quick-start) or [Running from the repository](#running-from-the-repository).
+The packaged app needs no Node, no pnpm and no repository. The same steps, with pictures, are in [`docs/product.md`](docs/product.md).
 
-Once released, the packaged app needs no Node, no pnpm and no repository:
-
-1. Download `Shadow-<version>.dmg` from the GitHub Release. Drag **Shadow** to Applications and open it. The first time, right-click → Open (the app is signed ad hoc, not by Apple).
+1. Download `Shadow.dmg` from the [latest release](#deployed-link). Drag **Shadow** to Applications and open it. The first time, right-click → Open (the app is signed ad hoc, not by Apple).
 2. The setup window has three steps:
-   - **Sign in:** no API key is needed. Afterwards you should see "Connected to Nemotron".
+   - **Sign in:** with Google; no API key is needed. Afterwards you should see "Connected to Nemotron".
    - **Chrome:** load the extension, as shown in the setup window.
    - **Permissions:** Accessibility for Mac apps; Screen Recording and Microphone only for screenshots and narration.
 3. Press **Open Shadow**. From then on, Shadow starts when you log in.
 
 ### Deployed link
 
-The test build will be a GitHub Release with `Shadow-<version>.dmg` (Shadow.app with the daemon inside) and `shadow-extension.zip`. The link goes here when `pnpm release` first runs.
-
-The website (`apps/website`) is not hosted yet. `pnpm --filter @shadow/website build` writes static pages to `apps/website/out`, ready for any file host.
+- **Site**: [akshat-soni02.github.io/nxn-global-ai-hackathon-personal-agent](https://akshat-soni02.github.io/nxn-global-ai-hackathon-personal-agent/), on GitHub Pages, rebuilt on every push to `main`.
+- **Download**: [the latest release](https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent/releases/latest): `Shadow.dmg` (the app, with the daemon and the Chrome extension inside) and `shadow-extension.zip`.
+- **Service**: `shadow-api` on Google Cloud Run, redeployed by Cloud Build on every push to `main` that touches it; its URL is built into the app.
 
 ### Deployment guide
 
-Two things ship: **`shadow-api`** to Google Cloud Run (once), and the **`.dmg`** for users.
+Everything ships with these commands, in this order; [`DEPLOY.md`](DEPLOY.md) has what to set up first and the clicks the console needs:
 
-0. **The service** (`apps/api`) needs a Google Cloud project with Firestore, Identity Platform and Secret Manager, then `gcloud run deploy`. Every command is in [`apps/api/README.md`](apps/api/README.md). The app finds the service at the URL baked in when `pnpm package` runs (`SHADOW_API_URL`).
-1. **`pnpm package`** builds the extension and Shadow.app, bundles the daemon and the native host, and adds a Node binary. It writes `dist/Shadow-<version>.dmg` and `dist/shadow-extension.zip`. `--skip-build` reuses the last build.
-2. **`pnpm release [--draft] [--notes <file>]`** publishes both files as a GitHub Release tagged with the version in `package.json`. It needs `gh auth login`.
+```sh
+PROJECT_ID=<your gcp project> pnpm deploy:api   # shadow-api to Cloud Run, keys in Secret Manager; saves its URL
+PROJECT_ID=<your gcp project> pnpm deploy:ci    # optional: redeploy shadow-api from main with Cloud Build
+pnpm deploy:app                                 # the .dmg with that URL inside, published as a GitHub Release
+# the site deploys itself to GitHub Pages on push to main; its button downloads that .dmg
+```
+
+`pnpm package` alone builds `dist/Shadow-<version>.dmg` and `dist/shadow-extension.zip` without publishing (`--skip-build` reuses the last build). The app is signed ad hoc (no Apple developer account), so the first open is right-click → Open, and macOS ties the Accessibility permission to each build.
 
 ## License
 

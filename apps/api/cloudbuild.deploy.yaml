@@ -1,0 +1,38 @@
+# CI/CD for shadow-api (DEPLOY.md, "Continuous deploy"): a push to main that touches the service or the packages it
+# uses rebuilds the image and rolls it out to Cloud Run. Only the image changes: the secrets, environment and sizes set
+# by scripts/deploy/api.sh stay as they are. Runs on Cloud Build's default machine (free tier: 2,500 build-minutes a
+# month). The trigger is made by scripts/deploy/ci.sh.
+substitutions:
+  _REGION: europe-west1
+  _REPO: shadow
+  _IMAGE: shadow-api
+  _SERVICE: shadow-api
+options:
+  logging: CLOUD_LOGGING_ONLY
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - apps/api/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:$SHORT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:latest
+      - .
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}"]
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --quiet
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:$SHORT_SHA

@@ -36,7 +36,7 @@ export default function Overview() {
               <More href="/how-it-works/">See how it works</More>
             </div>
             <p className="fine" data-hero-fade>
-              macOS 14 or later · Free and open source · Your Mac, your own model key
+              macOS 14 or later · Free to try · Sign in with Google
             </p>
           </div>
           <div className="hero-stage wrap-wide" data-hero-fade>
@@ -198,8 +198,8 @@ export default function Overview() {
             <p className="eyebrow">Privacy</p>
             <h2 className="headline">Your Mac is the server.</h2>
             <p className="lead">
-              There is no Shadow cloud. What it learns, remembers and runs stays on your Mac, and the model is called
-              with <strong>your own key</strong>.
+              What it learns, remembers and runs stays on your Mac. Only the text a model needs leaves it, and{" "}
+              <strong>no one keeps it</strong>.
             </p>
           </div>
           <div className="tiles four">
@@ -263,8 +263,8 @@ export default function Overview() {
             <p className="eyebrow">Under the hood</p>
             <h2 className="headline">Built on NVIDIA Nemotron.</h2>
             <p className="lead">
-              Shadow calls the models on Nebius Token Factory with your own key. Turn on Zero Data Retention for your
-              account, and what Shadow sends isn't kept.
+              Shadow calls the models on Nebius Token Factory with Zero Data Retention: what it sends isn't stored or
+              trained on.
             </p>
           </div>
           <div className="tiles three">

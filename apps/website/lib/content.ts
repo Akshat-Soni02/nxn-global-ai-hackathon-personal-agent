@@ -4,8 +4,9 @@
 const REPO = "https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent";
 
 export const LINKS = {
-  // The latest GitHub Release's .dmg. It opens GitHub's "no releases" page until `pnpm release` has run.
-  download: `${REPO}/releases/latest`,
+  // The latest GitHub Release's .dmg, by the stable name scripts/release.ts uploads: the file itself, not a page.
+  download: `${REPO}/releases/latest/download/Shadow.dmg`,
+  releases: `${REPO}/releases/latest`,
   repo: REPO,
   docs: `${REPO}/tree/main/docs`,
   product: `${REPO}/blob/main/docs/product.md`,
@@ -23,8 +24,8 @@ export const REQUIREMENTS = [
   { title: "macOS 14 Sonoma or later", text: "Shadow lives on the Mac you work on." },
   { title: "Google Chrome", text: "For the web pages Shadow records and runs." },
   {
-    title: "A Nebius Token Factory key",
-    text: "Your own key, kept in your Keychain. Turn on Zero Data Retention for your organisation.",
+    title: "A Google account",
+    text: "To sign in. The models and the apps you connect come with it: no API key to find or paste.",
   },
 ] as const;
 
@@ -123,7 +124,11 @@ export const STAYS = [
     where: "Shadow's folder on your Mac",
     howLong: "Deleted 24 hours after the workflow is saved",
   },
-  { thing: "Your model key", where: "The macOS Keychain", howLong: "Until you replace it" },
+  {
+    thing: "Your sign-in (a device token, not a password)",
+    where: "The macOS Keychain",
+    howLong: "Until you sign out",
+  },
 ] as const;
 
 export const FAQ = [
@@ -145,7 +150,7 @@ export const FAQ = [
   },
   {
     q: "Where does the model run?",
-    a: "On Nebius Token Factory, with your own key: NVIDIA Nemotron 3 Super and Nemotron 3.5 Lightning, and GLM-5.3-Flash only for blacked-out pictures if you allow them.",
+    a: "On Nebius Token Factory, through Shadow's service, with Zero Data Retention: NVIDIA Nemotron 3 Super and Nemotron 3.5 Lightning, and GLM-5.3-Flash only for blacked-out pictures if you allow them.",
   },
   {
     q: "Can I see what it did?",
@@ -166,7 +171,11 @@ export const TROUBLE = [
     q: "Record does nothing",
     a: "Shadow's background service isn't running. The menu bar says so and offers Start.",
   },
-  { q: "“No API key”", a: "Settings → paste the key → Save and check." },
+  { q: "“Not signed in”", a: "Settings → Account → Sign in, and finish in the browser page it opens." },
+  {
+    q: "“Shadow can't be opened”",
+    a: "The first time only: right-click Shadow in Applications, choose Open, then Open again.",
+  },
   {
     q: "Chrome says “not connected”",
     a: "Settings → Connect Chrome, then reload the extension in chrome://extensions.",

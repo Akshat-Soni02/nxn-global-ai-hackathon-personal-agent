@@ -232,13 +232,21 @@ export function AddNode({
   const [form, setForm] = useState<Record<string, string>>({ output: "text", pick: "newest" });
   const [problem, setProblem] = useState<string>();
   const field = (name: string, label: string, hint?: string, wide = false) => (
-    // biome-ignore lint/a11y/noLabelWithoutControl: its control is the textarea or the input inside, chosen by `wide`
-    <label className={`field${wide ? " wide" : ""}`}>
+    <label className={`field${wide ? " wide" : ""}`} htmlFor={`add-${name}`}>
       <span>{label}</span>
       {wide ? (
-        <textarea value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} rows={3} />
+        <textarea
+          id={`add-${name}`}
+          value={form[name] ?? ""}
+          onChange={(e) => setForm({ ...form, [name]: e.target.value })}
+          rows={3}
+        />
       ) : (
-        <input value={form[name] ?? ""} onChange={(e) => setForm({ ...form, [name]: e.target.value })} />
+        <input
+          id={`add-${name}`}
+          value={form[name] ?? ""}
+          onChange={(e) => setForm({ ...form, [name]: e.target.value })}
+        />
       )}
       {hint ? <span className="muted small">{hint}</span> : null}
     </label>

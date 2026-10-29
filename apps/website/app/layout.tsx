@@ -15,7 +15,7 @@ const base = process.env.SITE_BASE_PATH ?? "";
 export const metadata: Metadata = {
   title: { default: "Shadow · Show it once", template: "%s · Shadow" },
   description:
-    "Shadow learns a task from watching you do it once, then does it for you on your Mac, and fixes itself when a site changes. Private: your Mac and your own model key, nothing in between.",
+    "Shadow learns a task from watching you do it once, then does it for you on your Mac, and fixes itself when a site changes. Private: what you record and run stays on your Mac.",
   // Safari draws no SVG tab icon and old browsers ask for /favicon.ico, so the set is: the .ico (32 px listed first
   // so Chrome still prefers the SVG), the SVG with its rim, the touch icon for iOS, and the manifest for installs.
   icons: {

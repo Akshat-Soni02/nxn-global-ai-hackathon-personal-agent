@@ -1,6 +1,6 @@
 # Real-world workflows
 
-Fifteen tasks people do at work, described **the way a person actually does them**: what they see, click, select, copy and type, not how a program would do it. They are the test cases for Shadow and the basis of the **task coverage** metric in the [readme](../readme.md#success-metric-task-coverage).
+Fifteen tasks people do at work, described **the way a person actually does them**: what they see, click, select, copy and type, not how a program would do it. They are the test cases for Shadow and the basis of the **task coverage** metric in the [readme](../README.md#success-metric-task-coverage).
 
 The point of writing them this way: nobody searches Gmail with `from:reports@ newer_than:7d`. They open the inbox, spot the email, and click it. Turning that click into "the newest email from that sender" is Shadow's job, so it must not be written into the test.
 
