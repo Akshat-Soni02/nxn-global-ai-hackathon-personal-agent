@@ -18,3 +18,6 @@ apps/website/*.tsbuildinfo
 # Deploy (scripts/deploy): the service URL and your project settings, not shared
 .deploy/
 scripts/deploy/deploy.env
+
+.playwright-mcp/
+.superpowers/
