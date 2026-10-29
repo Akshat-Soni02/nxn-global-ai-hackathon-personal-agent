@@ -101,7 +101,7 @@ Every model call goes through one package, [`packages/llm`](packages/llm/src), t
 
   A second Nemotron call, the critic ([`critic.ts`](packages/recorder/src/design/v2/critic.ts)), reads the whole result before it is saved.
 - **Replay is deterministic.** Clicks, typing, file moves and app calls make no model call. Nemotron is called only for an AI step (Lightning, about $0.0002 a step) or when a step fails (Super). So a workflow that runs every morning costs almost nothing.
-- **A small model first, then a bigger one.** If Lightning's answer fails code's check, the same question goes once to Super, along with what was wrong. On 24 Oct, Lightning picked an already-saved story again after being told not to; Super was right 3 times out of 3.
+- **A small model first, then a bigger one.** If Lightning's answer fails code's check, the same question goes once to Super, along with what was wrong. In one test, Lightning picked an already-saved story again after being told not to; Super was right 3 times out of 3.
 - **Repair keeps only what it proves.** The repair agent gets the failing step, an outline of the page and what changed. It proposes a fix, the fix is tried on the live page, and it is saved as a new version only when it works. It can never add a step that sends or pays, or turn an approval off ([`guard.ts`](packages/core/src/guard.ts)).
 
 ### Where Token Factory sped up our work
@@ -110,9 +110,9 @@ Every model call goes through one package, [`packages/llm`](packages/llm/src), t
 - **Structured output with `json_schema`.** Every agent action and every AI step's answer is JSON checked against a schema, so we wrote no parsing code. A reply that fails the check is retried once with the errors.
 - **Thinking switched on or off per call** (`chat_template_kwargs.enable_thinking`). Lightning answers without reasoning, fast and cheap. Super reasons when it designs or repairs.
 - **Prices that allow a model call on every run.** At $0.06 per 1M input tokens, Lightning lets a scheduled workflow carry AI steps every day. A whole design of a recording on Super cost between $0.01 and $0.20.
-- **Prompt caching without asking for it.** The design prompt, sent a second time, came back with 2,784 of its 2,806 input tokens cached (measured 28 Oct).
+- **Prompt caching without asking for it.** The design prompt, sent a second time, came back with 2,784 of its 2,806 input tokens cached.
 - **Zero Data Retention** is an organisation setting, which a private assistant needs: prompts are neither stored nor used for training.
-- **Fast, cheap iteration on real runs.** About 100 real design and repair runs between 20 and 28 Oct cost about $8 in all. Every one is logged in [`testing/design-eval-ledger.md`](testing/design-eval-ledger.md).
+- **Fast, cheap iteration on real runs.** About 100 real design and repair runs while we built Shadow cost about $8 in all. Every one is logged in [`testing/design-eval-ledger.md`](testing/design-eval-ledger.md).
 
 ### Other Nebius tools and services
 
@@ -128,24 +128,21 @@ and why we have no feedback on Nebius AI Cloud.
 
 ## What works today
 
-Status on **28 Oct 2026**, from the code on `main` plus PR #27 (the product audit and its fixes, on `audit/oct27-product`).
 - Everything built is checked by tests.
 - The record → workflow path is also checked by real-model runs on real recordings. The spend is in [`testing/design-eval-ledger.md`](testing/design-eval-ledger.md).
-- [`reports/changes.md`](reports/changes.md) is the full list, with every known bug.
-- [Doc 14](docs/guide/14-shadow-end-to-end.md#8-what-is-left-and-the-sign-off-list) lists what a person still has to try.
 
-| Area | Built | Not yet |
-| --- | --- | --- |
-| **Recording** | Web pages, Mac apps (through Accessibility) and file moves, after a short form: goal, how often, what changes, never. Optional **screenshots**: only the words read from them on the Mac leave it, masked. Optional **narration**, turned into text on the Mac. Several recordings can become workflows at once. | Clicks into a spreadsheet's cells can't be replayed on the page (they need the connected app). Screenshots and narration not yet tried by a person with macOS's permissions. |
-| **Design agent** | Plans, then applies, in file mode, and a critic checks the result. It turns a recording into a workflow (inputs, loops, branches, AI steps, connected-app steps) saved as about 10 named **blocks**. It asks its questions while it builds. Details that carry through: a password field becomes a **secret** you type once (kept in the Keychain); a click in a list keeps its place ("the top job"); "never …" said aloud becomes a Never rule; a setting hides emails and ids from the AI. **Record again** makes the next version. | |
-| **Editing** | For any step: what it is for, its values, approval on or off, remove, move. **"+"** adds an Open, Click, Type, Read, AI, Find-files or App step. **Group it** makes a block, a "for each" or an "only if"; **Tidy up** groups an older workflow. Undo and redo; saved as the next version. On the workflow's page: **Test**, **Test this block**, a form per app tool, **"What would you like to change?"**, and **Show me** (record one part and put it in). | |
-| **Walk through** | One step at a time, each target outlined: Next, Do it, Skip or Stop. | |
-| **Running** | Loops, branches, AI steps, questions and approvals, in your own Chrome and in Mac apps. A page's popups, print and permission asks are handled. Targets inside same-site frames and shadow roots are found. Each run shows its blocks and how each went. | Chrome's own "where to save" window (the run stops and says so); frames from another site; a Mac app's sheets. |
-| **Recovering** | Classify the failure, then cheap fixes, then the repair agent. It may ask to see a masked picture if you allow it. A step a connected app can do is offered as that app's step (**Connect / Use it / No**). Repair can say a step shouldn't be there, and you decide. Fixes are kept as versions, and roll back is one click. | Recording the fix you show it as the repair; Mac-app repair beyond the first cheap fix. |
-| **Connected apps** | Google Sheets, Docs, Gmail, Drive, Calendar, Slack, Notion and GitHub through Composio, plus 757 more apps connected with your own key. The design agent writes app steps instead of clicking through those pages. Typing into a drawn grid is stopped before the run and sent to the app. | |
-| **Inbox and triggers** | A run that needs you waits in the inbox, even across a restart. Workflows can be live, paused or draft. Triggers: schedules, or "when a file appears in a folder". A workflow pauses itself after 3 failures in a row. | "When an email arrives" |
-| **Shadow.app and the daemon** | Menu bar, window, notifications, the floating Record button, first-run setup, start at login. The daemon has a local API (socket and HTTP) and log files. Packaged with its own Node into one `.dmg` (`pnpm package`). | Tried by a person on a clean Mac; CI building the `.dmg`. |
-| **shadow-api** | Device sign-in, the model relay, one MCP endpoint per user over Composio, free-tier quotas. Live on Cloud Run, redeployed from `main` by Cloud Build; runs locally with `pnpm api`. | |
+| Area | What it does |
+| --- | --- |
+| **Recording** | Web pages, Mac apps (through Accessibility) and file moves, after a short form: goal, how often, what changes, never. Optional **screenshots**: only the words read from them on the Mac leave it, masked. Optional **narration**, turned into text on the Mac. Several recordings can become workflows at once. |
+| **Design agent** | Plans, then applies, in file mode, and a critic checks the result. It turns a recording into a workflow (inputs, loops, branches, AI steps, connected-app steps) saved as about 10 named **blocks**. It asks its questions while it builds. Details that carry through: a password field becomes a **secret** you type once (kept in the Keychain); a click in a list keeps its place ("the top job"); "never …" said aloud becomes a Never rule; a setting hides emails and ids from the AI. **Record again** makes the next version. |
+| **Editing** | For any step: what it is for, its values, approval on or off, remove, move. **"+"** adds an Open, Click, Type, Read, AI, Find-files or App step. **Group it** makes a block, a "for each" or an "only if"; **Tidy up** groups an older workflow. Undo and redo; saved as the next version. On the workflow's page: **Test**, **Test this block**, a form per app tool, **"What would you like to change?"**, and **Show me** (record one part and put it in). |
+| **Walk through** | One step at a time, each target outlined: Next, Do it, Skip or Stop. |
+| **Running** | Loops, branches, AI steps, questions and approvals, in your own Chrome and in Mac apps. A page's popups, print and permission asks are handled. Targets inside same-site frames and shadow roots are found. Each run shows its blocks and how each went. |
+| **Recovering** | Classify the failure, then cheap fixes, then the repair agent. It may ask to see a masked picture if you allow it. A step a connected app can do is offered as that app's step (**Connect / Use it / No**). Repair can say a step shouldn't be there, and you decide. Fixes are kept as versions, and roll back is one click. |
+| **Connected apps** | Google Sheets, Docs, Gmail, Drive, Calendar, Slack, Notion and GitHub through Composio, plus 757 more apps connected with your own key. The design agent writes app steps instead of clicking through those pages. Typing into a drawn grid is stopped before the run and sent to the app. |
+| **Inbox and triggers** | A run that needs you waits in the inbox, even across a restart. Workflows can be live, paused or draft. Triggers: schedules, or "when a file appears in a folder". A workflow pauses itself after 3 failures in a row. |
+| **Shadow.app and the daemon** | Menu bar, window, notifications, the floating Record button, first-run setup, start at login. The daemon has a local API (socket and HTTP) and log files. Packaged with its own Node into one `.dmg` (`pnpm package`). |
+| **shadow-api** | Device sign-in, the model relay, one MCP endpoint per user over Composio, free-tier quotas. Live on Cloud Run, redeployed from `main` by Cloud Build; runs locally with `pnpm api`. |
 
 ## How it works
 
@@ -260,12 +257,11 @@ pnpm deploy:app                                 # the .dmg with that URL inside,
 | Page | For |
 | --- | --- |
 | [`docs/product.md`](docs/product.md) | Opening Shadow for the first time: install, record a task, look at it, run it, what stays on your Mac |
-| [`reports/changes.md`](reports/changes.md) | The status of the whole product: done, partly done, not started, every known bug, what can fail while running |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | Running the code: quick start, full setup, troubleshooting, commands, the daemon's API |
 | [`FEEDBACK.md`](FEEDBACK.md) | What worked and what was hard with Token Factory and Nemotron |
 | [`DEPLOY.md`](DEPLOY.md) | Shipping it: `shadow-api` to Cloud Run, the `.dmg` to GitHub Releases, the site to GitHub Pages |
 | [`CLAUDE.md`](CLAUDE.md) | For anyone (or any agent) changing the code: the pipeline and where each stage lives, commands, conventions |
-| [`docs/design.md`](docs/design.md) | The design, every decision with its date, and the [status table](docs/design.md#status-design-vs-code) |
+| [`docs/design.md`](docs/design.md) | The design and the reason behind each decision, and the [status table](docs/design.md#status-design-vs-code) |
 | [`docs/cloud-architecture.md`](docs/cloud-architecture.md) | Sign-in, `shadow-api`, model calls with Shadow's key, connected apps through Composio, quotas |
 | [`docs/questions.md`](docs/questions.md) | The questions people ask, answered by mechanism |
 | [`docs/guide/`](docs/guide/00-start-here.md) | The whole picture (diagram 13), and record, replay and AI end to end (diagram 14) |
@@ -280,11 +276,16 @@ The test for each one: someone who normally does the task does it while Shadow r
 - **0.5, partly:** the correct result when started by hand, possibly with the user doing one step or answering one question.
 - **0, not yet:** a core step fails, or a run gives a wrong result.
 
-| Date | Coverage (from a recording) | Hand-written skills | Biggest gaps |
-| --- | --- | --- | --- |
-| 2026-10-06 | **7%** (1 / 15) | 23% (3.5 / 15) | dates and values replayed literally; "for each" from repeated actions; choosing by sight; text typed from memory; triggers |
+**Estimated coverage: 5.5 / 15 (37%)**, from reading the code against each workflow's steps. Eleven of the 15 already give the right result when started by hand, with at most an approval or one question. Four need a piece that is still missing.
 
-These values were **estimated by reading the code** on 6 Oct, before the workflow tree, recovery and triggers were built, and have not been measured since. To measure them:
+Biggest gaps now:
+- reading text out of PDFs and images (invoices, receipts);
+- clipboard steps (a page's "Copy link");
+- a "when an email arrives" trigger;
+- a captcha, a one-time code or a print dialog still needs the person;
+- spreadsheet grids in Excel.
+
+Next we measure it with real people. To do that:
 1. Have a person who really does the workflow record it.
 2. Keep the recording in `fixtures/traces/`.
 3. Replay it on the next occurrence.
