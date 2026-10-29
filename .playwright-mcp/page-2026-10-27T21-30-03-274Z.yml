@@ -1,0 +1,126 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - button "Fold the sidebar" [expanded] [ref=e6] [cursor=pointer]
+      - generic [ref=e9]: Shadow
+    - navigation [ref=e16]:
+      - link "Inbox" [ref=e17] [cursor=pointer]:
+        - /url: "#/inbox"
+      - link "Workflows" [ref=e22] [cursor=pointer]:
+        - /url: "#/workflows"
+      - link "Runs" [ref=e29] [cursor=pointer]:
+        - /url: "#/runs"
+      - link "Record" [ref=e34] [cursor=pointer]:
+        - /url: "#/record"
+      - link "Apps" [ref=e39] [cursor=pointer]:
+        - /url: "#/apps"
+      - link "Settings" [ref=e46] [cursor=pointer]:
+        - /url: "#/settings"
+    - region "Health" [ref=e52]:
+      - 'generic "Shadow: running" [ref=e53]':
+        - generic [ref=e55]: Shadow
+        - generic [ref=e56]: running
+      - 'generic "Chrome: not connected" [ref=e57]':
+        - generic [ref=e59]: Chrome
+        - generic [ref=e60]: not connected
+      - 'generic "Mac apps: app not running" [ref=e61]':
+        - generic [ref=e63]: Mac apps
+        - generic [ref=e64]: app not running
+      - 'generic "Model: Nemotron" [ref=e65]':
+        - generic [ref=e67]: Model
+        - generic [ref=e68]: Nemotron
+  - main [ref=e69]:
+    - link "← Workflows" [ref=e70] [cursor=pointer]:
+      - /url: "#/workflows"
+    - generic [ref=e72]:
+      - generic [ref=e73]:
+        - heading "Test mode check Draft" [level=1] [ref=e74]:
+          - text: Test mode check
+          - generic [ref=e75] [cursor=pointer]: Draft
+        - generic [ref=e76]:
+          - link "Record again" [ref=e77] [cursor=pointer]:
+            - /url: "#/record/again/test-mode"
+          - button "Go live" [ref=e79] [cursor=pointer]
+          - button "Test" [ref=e80] [cursor=pointer]
+          - button "Walk through" [ref=e82] [cursor=pointer]
+          - button "Run now" [ref=e84] [cursor=pointer]
+      - paragraph [ref=e85]: read a page, then print it, then click a button that isn't there
+      - paragraph [ref=e86]: v1
+      - paragraph [ref=e87]: "A draft: Go live when it is ready. To let it start on its own, set its Frequency first."
+    - generic [ref=e88]:
+      - generic [ref=e89]:
+        - heading "Frequency" [level=2] [ref=e90]
+        - button "Change" [ref=e91] [cursor=pointer]
+      - paragraph [ref=e92]: Only when you start it
+    - generic [ref=e94]:
+      - generic [ref=e95]:
+        - generic [ref=e96]: What would you like to change?
+        - textbox "What would you like to change?" [ref=e97]:
+          - /placeholder: also skip jobs older than a week
+      - button "Change it" [disabled] [ref=e98]
+    - paragraph [ref=e99]: "Shadow changed it: Renamed the block intent from \"Print and send\" to \"Print the page\".. Look at the draft below, then save it or undo."
+    - generic [ref=e100]:
+      - generic [ref=e101]:
+        - heading "Edit" [level=2] [ref=e102]
+        - generic [ref=e103]:
+          - button "Undo" [ref=e104] [cursor=pointer]
+          - button "Redo" [disabled] [ref=e105]
+          - button "Discard" [ref=e107] [cursor=pointer]
+          - button "Save as v2" [ref=e109] [cursor=pointer]
+          - button "Close" [ref=e110] [cursor=pointer]
+      - paragraph [ref=e111]: "1 change on v1: replaced b2 (Print the page)"
+      - generic [ref=e112]:
+        - generic [ref=e115]:
+          - generic [ref=e117]:
+            - generic [ref=e118]: start
+            - generic [ref=e119]: Only when you start it
+          - button "Add a step after start" [ref=e120] [cursor=pointer]: +
+          - generic [ref=e121]:
+            - button "Several steps Read the page 2 steps" [ref=e122] [cursor=pointer]:
+              - generic [ref=e123]:
+                - img "Several steps" [ref=e124]
+                - generic [ref=e126]: Read the page
+              - generic [ref=e127]: 2 steps
+            - generic [ref=e129]:
+              - button "In the browser Open 127.0.0.1/run-blockers.html" [ref=e131] [cursor=pointer]:
+                - generic [ref=e132]:
+                  - img "In the browser" [ref=e133]
+                  - generic [ref=e135]: Open 127.0.0.1/run-blockers.html
+              - button "Add a step after s1" [ref=e136] [cursor=pointer]: +
+              - button "In the browser Read its title → title" [ref=e138] [cursor=pointer]:
+                - generic [ref=e139]:
+                  - img "In the browser" [ref=e140]
+                  - generic [ref=e142]: Read its title
+                - generic [ref=e143]: → title
+              - button "Add a step after s2" [ref=e144] [cursor=pointer]: +
+          - button "Add a step after b1" [ref=e145] [cursor=pointer]: +
+          - generic [ref=e146]:
+            - button "Several steps Print the page 2 steps" [ref=e147] [cursor=pointer]:
+              - generic [ref=e148]:
+                - img "Several steps" [ref=e149]
+                - generic [ref=e151]: Print the page
+              - generic [ref=e152]: 2 steps
+            - generic [ref=e154]:
+              - button "In the browser Print the page" [ref=e156] [cursor=pointer]:
+                - generic [ref=e157]:
+                  - img "In the browser" [ref=e158]
+                  - generic [ref=e160]: Print the page
+              - button "Add a step after s3" [ref=e161] [cursor=pointer]: +
+              - button "In the browser Press Send asks you first" [ref=e163] [cursor=pointer]:
+                - generic [ref=e164]:
+                  - img "In the browser" [ref=e165]
+                  - generic [ref=e167]: Press Send
+                - generic [ref=e168]: asks you first
+              - button "Add a step after s4" [ref=e169] [cursor=pointer]: +
+          - button "Add a step after b2" [ref=e170] [cursor=pointer]: +
+        - complementary "The picked step" [ref=e171]:
+          - generic [ref=e172]:
+            - generic [ref=e173]: No step picked
+            - generic [ref=e174]: Click a step in the tree to change what it is for, have it wait for your approval, move it or remove it; + adds one.
+    - generic [ref=e175]:
+      - heading "Versions" [level=2] [ref=e177]
+      - list
+      - paragraph [ref=e178]: Rolling back saves the earlier version as a new one, so nothing is lost.
+    - generic [ref=e179]:
+      - heading "Runs" [level=2] [ref=e180]
+      - paragraph [ref=e181]: No runs yet.

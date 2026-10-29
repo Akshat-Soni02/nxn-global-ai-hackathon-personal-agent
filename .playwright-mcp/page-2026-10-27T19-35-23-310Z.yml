@@ -1,0 +1,52 @@
+- generic [ref=f3e3]:
+  - complementary [ref=f3e4]:
+    - generic [ref=f3e5]:
+      - button "Fold the sidebar" [expanded] [ref=f3e6] [cursor=pointer]
+      - generic [ref=f3e9]: Shadow
+    - navigation [ref=f3e16]:
+      - link "Inbox" [ref=f3e17] [cursor=pointer]:
+        - /url: "#/inbox"
+      - link "Workflows" [ref=f3e22] [cursor=pointer]:
+        - /url: "#/workflows"
+      - link "Runs" [ref=f3e29] [cursor=pointer]:
+        - /url: "#/runs"
+      - link "Record" [ref=f3e34] [cursor=pointer]:
+        - /url: "#/record"
+      - link "Apps" [ref=f3e39] [cursor=pointer]:
+        - /url: "#/apps"
+      - link "Settings" [ref=f3e46] [cursor=pointer]:
+        - /url: "#/settings"
+    - region "Health" [ref=f3e52]:
+      - 'generic "Shadow: running" [ref=f3e53]':
+        - generic [ref=f3e55]: Shadow
+        - generic [ref=f3e56]: running
+      - 'generic "Chrome: not connected" [ref=f3e57]':
+        - generic [ref=f3e59]: Chrome
+        - generic [ref=f3e60]: not connected
+      - 'generic "Mac apps: app not running" [ref=f3e61]':
+        - generic [ref=f3e63]: Mac apps
+        - generic [ref=f3e64]: app not running
+      - 'generic "Model: Nemotron" [ref=f3e65]':
+        - generic [ref=f3e67]: Model
+        - generic [ref=f3e68]: Nemotron
+  - main [ref=f3e69]:
+    - link "← Workflows" [ref=f3e74] [cursor=pointer]:
+      - /url: "#/workflows"
+    - generic [ref=f3e75]:
+      - heading "Record a task" [level=1] [ref=f3e76]
+      - paragraph [ref=f3e77]: Do the task once while Shadow watches. Say how often and any rules as you go.
+    - paragraph [ref=f3e101]: "Chrome isn't connected, so nothing you do in Chrome will be recorded. Reload the Shadow extension in chrome://extensions; if the sidebar still says Chrome: not connected, run pnpm setup:native-host and reload it again."
+    - paragraph [ref=f3e102]: "Last recording: Nothing to save: no steps were recorded. Chrome's extension wasn't connected, so nothing in Chrome was captured: reload it in chrome://extensions and look for \"Chrome: connected\" in the sidebar"
+    - group [ref=f3e103]:
+      - generic "What happened" [ref=f3e104] [cursor=pointer]
+    - generic [ref=f3e105]:
+      - textbox "What should Shadow learn?" [ref=f3e106]:
+        - /placeholder: What should Shadow learn? e.g. Every morning, add the 5 newest YC jobs to my Ycomb jobs sheet, skipping companies already in it
+      - generic [ref=f3e107]:
+        - button "Read the words on my screen" [ref=f3e108] [cursor=pointer]
+        - button "Hear my voice" [ref=f3e112] [cursor=pointer]
+        - button "Let the model see masked pictures" [disabled] [ref=f3e116]
+        - button "Record" [ref=f3e122] [cursor=pointer]
+      - group [ref=f3e124]:
+        - generic "Private words (optional)" [ref=f3e125] [cursor=pointer]
+    - paragraph [ref=f3e126]: Clicks and typing only.

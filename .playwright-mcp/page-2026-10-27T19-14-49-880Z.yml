@@ -1,0 +1,44 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - button "Fold the sidebar" [expanded] [ref=e6] [cursor=pointer]
+      - generic [ref=e9]: Shadow
+    - navigation [ref=e16]:
+      - link "Inbox, 1 waiting" [ref=e116] [cursor=pointer]:
+        - /url: "#/inbox"
+        - generic [ref=e21]: Inbox
+        - generic [ref=e117]: "1"
+      - link "Workflows" [ref=e22] [cursor=pointer]:
+        - /url: "#/workflows"
+      - link "Runs" [ref=e29] [cursor=pointer]:
+        - /url: "#/runs"
+      - link "Record" [ref=e34] [cursor=pointer]:
+        - /url: "#/record"
+      - link "Apps" [ref=e39] [cursor=pointer]:
+        - /url: "#/apps"
+      - link "Settings" [ref=e46] [cursor=pointer]:
+        - /url: "#/settings"
+    - region "Health" [ref=e52]:
+      - 'generic "Shadow: running" [ref=e53]':
+        - generic [ref=e55]: Shadow
+        - generic [ref=e56]: running
+      - 'generic "Chrome: connected" [ref=e118]':
+        - generic [ref=e59]: Chrome
+        - generic [ref=e60]: connected
+      - 'generic "Mac apps: app not running" [ref=e61]':
+        - generic [ref=e63]: Mac apps
+        - generic [ref=e64]: app not running
+      - 'generic "Model: Nemotron" [ref=e65]':
+        - generic [ref=e67]: Model
+        - generic [ref=e68]: Nemotron
+  - main [ref=e69]:
+    - link "← Workflows" [ref=e119] [cursor=pointer]:
+      - /url: "#/workflows"
+    - generic [ref=e120]:
+      - heading "Record a task" [level=1] [ref=e121]
+      - paragraph [ref=e122]: Do the task once while Shadow watches. Say how often and any rules as you go.
+    - paragraph [ref=e123]: Answer in the Inbox (or in the terminal) to start recording.
+    - paragraph [ref=e124]:
+      - text: 1 question is waiting for you in the Inbox.
+      - link "Open the Inbox" [ref=e125] [cursor=pointer]:
+        - /url: "#/inbox"

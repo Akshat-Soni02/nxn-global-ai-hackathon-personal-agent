@@ -1,0 +1,45 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - button "Fold the sidebar" [expanded] [ref=e6] [cursor=pointer]
+      - generic [ref=e9]: Shadow
+    - navigation [ref=e16]:
+      - link "Inbox" [ref=e17] [cursor=pointer]:
+        - /url: "#/inbox"
+      - link "Workflows" [ref=e22] [cursor=pointer]:
+        - /url: "#/workflows"
+      - link "Runs" [ref=e29] [cursor=pointer]:
+        - /url: "#/runs"
+      - link "Record" [ref=e34] [cursor=pointer]:
+        - /url: "#/record"
+      - link "Apps" [ref=e39] [cursor=pointer]:
+        - /url: "#/apps"
+      - link "Settings" [ref=e46] [cursor=pointer]:
+        - /url: "#/settings"
+    - region "Health" [ref=e52]:
+      - 'generic "Shadow: running" [ref=e53]':
+        - generic [ref=e55]: Shadow
+        - generic [ref=e56]: running
+      - 'generic "Chrome: connected" [ref=e72]':
+        - generic [ref=e59]: Chrome
+        - generic [ref=e60]: connected
+      - 'generic "Mac apps: app not running" [ref=e61]':
+        - generic [ref=e63]: Mac apps
+        - generic [ref=e64]: app not running
+      - 'generic "Model: no API key" [ref=e65]':
+        - generic [ref=e67]: Model
+        - generic [ref=e68]: no API key
+  - main [ref=e69]:
+    - link "← Workflows" [ref=e70] [cursor=pointer]:
+      - /url: "#/workflows"
+    - generic [ref=e224]:
+      - heading "Record a task" [level=1] [ref=e225]
+      - paragraph [ref=e226]: Do the task once while Shadow watches. Say how often and any rules as you go.
+    - generic [ref=e227]:
+      - heading "Recording · 0:00" [level=2] [ref=e228]
+      - paragraph [ref=e230]:
+        - strong [ref=e231]: "Show me: Open the details"
+      - paragraph [ref=e232]: Do the task now, the way you always do, in Chrome or any Mac app. Press Stop when it is done.
+      - generic [ref=e233]:
+        - button "Stop" [ref=e235] [cursor=pointer]
+        - button "Discard" [ref=e237] [cursor=pointer]

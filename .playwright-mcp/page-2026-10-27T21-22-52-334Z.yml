@@ -1,0 +1,35 @@
+- generic [ref=f1e3]:
+  - complementary [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - button "Fold the sidebar" [expanded] [ref=f1e6] [cursor=pointer]
+      - generic [ref=f1e9]: Shadow
+    - navigation [ref=f1e16]:
+      - link "Inbox" [ref=f1e17] [cursor=pointer]:
+        - /url: "#/inbox"
+      - link "Workflows" [ref=f1e22] [cursor=pointer]:
+        - /url: "#/workflows"
+      - link "Runs" [ref=f1e29] [cursor=pointer]:
+        - /url: "#/runs"
+      - link "Record" [ref=f1e34] [cursor=pointer]:
+        - /url: "#/record"
+      - link "Apps" [ref=f1e39] [cursor=pointer]:
+        - /url: "#/apps"
+      - link "Settings" [ref=f1e46] [cursor=pointer]:
+        - /url: "#/settings"
+    - region "Health" [ref=f1e52]:
+      - 'generic "Shadow: not reachable" [ref=f1e53]':
+        - generic [ref=f1e55]: Shadow
+        - generic [ref=f1e56]: not reachable
+      - 'generic "Chrome: not connected" [ref=f1e57]':
+        - generic [ref=f1e59]: Chrome
+        - generic [ref=f1e60]: not connected
+      - 'generic "Mac apps: app not running" [ref=f1e61]':
+        - generic [ref=f1e63]: Mac apps
+        - generic [ref=f1e64]: app not running
+      - 'generic "Model: no API key" [ref=f1e65]':
+        - generic [ref=f1e67]: Model
+        - generic [ref=f1e68]: no API key
+  - main [ref=f1e69]:
+    - link "← Workflows" [ref=f1e70] [cursor=pointer]:
+      - /url: "#/workflows"
+    - paragraph [ref=f1e71]: Loading…

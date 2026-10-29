@@ -1,0 +1,84 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - button "Fold the sidebar" [expanded] [ref=e6] [cursor=pointer]
+      - generic [ref=e9]: Shadow
+    - navigation [ref=e16]:
+      - link "Inbox" [ref=e17] [cursor=pointer]:
+        - /url: "#/inbox"
+      - link "Workflows" [ref=e22] [cursor=pointer]:
+        - /url: "#/workflows"
+      - link "Runs" [ref=e29] [cursor=pointer]:
+        - /url: "#/runs"
+      - link "Record" [ref=e34] [cursor=pointer]:
+        - /url: "#/record"
+      - link "Apps" [ref=e39] [cursor=pointer]:
+        - /url: "#/apps"
+      - link "Settings" [ref=e46] [cursor=pointer]:
+        - /url: "#/settings"
+    - region "Health" [ref=e52]:
+      - 'generic "Shadow: running" [ref=e72]':
+        - generic [ref=e55]: Shadow
+        - generic [ref=e56]: running
+      - 'generic "Chrome: connected" [ref=e57]':
+        - generic [ref=e59]: Chrome
+        - generic [ref=e60]: connected
+      - 'generic "Mac apps: app not running" [ref=e61]':
+        - generic [ref=e63]: Mac apps
+        - generic [ref=e64]: app not running
+      - 'generic "Model: no API key" [ref=e65]':
+        - generic [ref=e67]: Model
+        - generic [ref=e68]: no API key
+  - main [ref=e69]:
+    - link "← Workflows" [ref=e70] [cursor=pointer]:
+      - /url: "#/workflows"
+    - generic [ref=e73]:
+      - link "Workflows" [ref=e74] [cursor=pointer]:
+        - /url: "#/workflows"
+      - generic [ref=e75]:
+        - heading "Test mode check Draft" [level=1] [ref=e76]:
+          - text: Test mode check
+          - generic [ref=e77] [cursor=pointer]: Draft
+        - generic [ref=e78]:
+          - link "Record again" [ref=e79] [cursor=pointer]:
+            - /url: "#/record/again/test-mode"
+          - button "Edit" [ref=e80] [cursor=pointer]
+          - button "Go live" [ref=e82] [cursor=pointer]
+          - button "Test" [ref=e83] [cursor=pointer]
+          - button "Walk through" [ref=e85] [cursor=pointer]
+          - button "Run now" [ref=e87] [cursor=pointer]
+      - paragraph [ref=e88]: read a page, then print it, then click a button that isn't there
+      - paragraph [ref=e89]: v1
+      - paragraph [ref=e90]: "A draft: Go live when it is ready. To let it start on its own, set its Frequency first."
+    - generic [ref=e91]:
+      - generic [ref=e92]:
+        - heading "Frequency" [level=2] [ref=e93]
+        - button "Change" [ref=e94] [cursor=pointer]
+      - paragraph [ref=e95]: Only when you start it
+    - generic [ref=e96]:
+      - heading "Steps" [level=2] [ref=e97]
+      - paragraph [ref=e98]: "Test of \"Print and send\": 1 found on the page without being done (it writes), 1 didn't"
+      - generic [ref=e102]:
+        - generic [ref=e104]:
+          - generic [ref=e105]: start
+          - generic [ref=e106]: Only when you start it
+        - button "Several steps Read the page 2 steps" [ref=e149] [cursor=pointer]:
+          - generic [ref=e109]:
+            - img "Several steps" [ref=e110]
+            - generic [ref=e112]: Read the page
+          - generic [ref=e115]: 2 steps
+        - button "Several steps Print and send 1 to check 2 steps" [active] [ref=e117] [cursor=pointer]:
+          - generic [ref=e118]:
+            - img "Several steps" [ref=e119]
+            - generic [ref=e121]: Print and send
+            - 'generic "the test: s4 target not found" [ref=e122]':
+              - text: "1"
+              - generic [ref=e123]: to check
+          - generic [ref=e124]: 2 steps
+    - generic [ref=e125]:
+      - heading "Versions" [level=2] [ref=e127]
+      - list
+      - paragraph [ref=e128]: Rolling back saves the earlier version as a new one, so nothing is lost.
+    - generic [ref=e129]:
+      - heading "Runs" [level=2] [ref=e130]
+      - paragraph [ref=e131]: No runs yet.

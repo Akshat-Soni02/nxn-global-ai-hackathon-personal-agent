@@ -77,7 +77,7 @@ Each new version is a new build, so macOS asks once more, and Accessibility (for
 - [Get Shadow](#get-shadow): download, [open an app Apple hasn't verified](#opening-an-app-apple-hasnt-verified), set up
 - [NVIDIA Nemotron on Nebius Token Factory](#nvidia-nemotron-on-nebius-token-factory): which model does what, and where Token Factory sped up our work
 - [Feedback on Token Factory, AI Cloud and Nemotron](FEEDBACK.md)
-- [What works today](#what-works-today) · [How it works](#how-it-works) · [Privacy](#privacy)
+- [How it works](#how-it-works) · [Privacy](#privacy)
 - [For developers](#for-developers): [run it from the repository](DEVELOPMENT.md), [deploy it](#deployment-guide)
 - [Read next](#read-next) · [Success metric](#success-metric-task-coverage) · [License](#license)
 
@@ -125,24 +125,6 @@ Shadow's one small server is `shadow-api` ([`apps/api`](apps/api)). It handles s
 What we found while building Shadow, each point from a run or a measurement in this repository, is in
 **[`FEEDBACK.md`](FEEDBACK.md)**: what worked well and what was hard on Nebius Token Factory and with NVIDIA Nemotron,
 and why we have no feedback on Nebius AI Cloud.
-
-## What works today
-
-- Everything built is checked by tests.
-- The record → workflow path is also checked by real-model runs on real recordings. The spend is in [`testing/design-eval-ledger.md`](testing/design-eval-ledger.md).
-
-| Area | What it does |
-| --- | --- |
-| **Recording** | Web pages, Mac apps (through Accessibility) and file moves, after a short form: goal, how often, what changes, never. Optional **screenshots**: only the words read from them on the Mac leave it, masked. Optional **narration**, turned into text on the Mac. Several recordings can become workflows at once. |
-| **Design agent** | Plans, then applies, in file mode, and a critic checks the result. It turns a recording into a workflow (inputs, loops, branches, AI steps, connected-app steps) saved as about 10 named **blocks**. It asks its questions while it builds. Details that carry through: a password field becomes a **secret** you type once (kept in the Keychain); a click in a list keeps its place ("the top job"); "never …" said aloud becomes a Never rule; a setting hides emails and ids from the AI. **Record again** makes the next version. |
-| **Editing** | For any step: what it is for, its values, approval on or off, remove, move. **"+"** adds an Open, Click, Type, Read, AI, Find-files or App step. **Group it** makes a block, a "for each" or an "only if"; **Tidy up** groups an older workflow. Undo and redo; saved as the next version. On the workflow's page: **Test**, **Test this block**, a form per app tool, **"What would you like to change?"**, and **Show me** (record one part and put it in). |
-| **Walk through** | One step at a time, each target outlined: Next, Do it, Skip or Stop. |
-| **Running** | Loops, branches, AI steps, questions and approvals, in your own Chrome and in Mac apps. A page's popups, print and permission asks are handled. Targets inside same-site frames and shadow roots are found. Each run shows its blocks and how each went. |
-| **Recovering** | Classify the failure, then cheap fixes, then the repair agent. It may ask to see a masked picture if you allow it. A step a connected app can do is offered as that app's step (**Connect / Use it / No**). Repair can say a step shouldn't be there, and you decide. Fixes are kept as versions, and roll back is one click. |
-| **Connected apps** | Google Sheets, Docs, Gmail, Drive, Calendar, Slack, Notion and GitHub through Composio, plus 757 more apps connected with your own key. The design agent writes app steps instead of clicking through those pages. Typing into a drawn grid is stopped before the run and sent to the app. |
-| **Inbox and triggers** | A run that needs you waits in the inbox, even across a restart. Workflows can be live, paused or draft. Triggers: schedules, or "when a file appears in a folder". A workflow pauses itself after 3 failures in a row. |
-| **Shadow.app and the daemon** | Menu bar, window, notifications, the floating Record button, first-run setup, start at login. The daemon has a local API (socket and HTTP) and log files. Packaged with its own Node into one `.dmg` (`pnpm package`). |
-| **shadow-api** | Device sign-in, the model relay, one MCP endpoint per user over Composio, free-tier quotas. Live on Cloud Run, redeployed from `main` by Cloud Build; runs locally with `pnpm api`. |
 
 ## How it works
 

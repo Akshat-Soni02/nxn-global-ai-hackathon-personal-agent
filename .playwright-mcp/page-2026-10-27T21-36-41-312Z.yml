@@ -1,0 +1,84 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - button "Fold the sidebar" [expanded] [ref=e6] [cursor=pointer]
+      - generic [ref=e9]: Shadow
+    - navigation [ref=e16]:
+      - link "Inbox" [ref=e17] [cursor=pointer]:
+        - /url: "#/inbox"
+      - link "Workflows" [ref=e22] [cursor=pointer]:
+        - /url: "#/workflows"
+      - link "Runs" [ref=e29] [cursor=pointer]:
+        - /url: "#/runs"
+      - link "Record" [ref=e34] [cursor=pointer]:
+        - /url: "#/record"
+      - link "Apps" [ref=e39] [cursor=pointer]:
+        - /url: "#/apps"
+      - link "Settings" [ref=e46] [cursor=pointer]:
+        - /url: "#/settings"
+    - region "Health" [ref=e52]:
+      - 'generic "Shadow: running" [ref=e53]':
+        - generic [ref=e55]: Shadow
+        - generic [ref=e56]: running
+      - 'generic "Chrome: connected" [ref=e72]':
+        - generic [ref=e59]: Chrome
+        - generic [ref=e60]: connected
+      - 'generic "Mac apps: app not running" [ref=e61]':
+        - generic [ref=e63]: Mac apps
+        - generic [ref=e64]: app not running
+      - 'generic "Model: no API key" [ref=e65]':
+        - generic [ref=e67]: Model
+        - generic [ref=e68]: no API key
+  - main [ref=e69]:
+    - link "← Workflows" [ref=e70] [cursor=pointer]:
+      - /url: "#/workflows"
+    - generic [ref=e239]:
+      - generic [ref=e240]:
+        - heading "Test mode check Draft" [level=1] [ref=e241]:
+          - text: Test mode check
+          - generic [ref=e242] [cursor=pointer]: Draft
+        - generic [ref=e243]:
+          - link "Record again" [ref=e244] [cursor=pointer]:
+            - /url: "#/record/again/test-mode"
+          - button "Edit" [ref=e245] [cursor=pointer]
+          - button "Go live" [ref=e247] [cursor=pointer]
+          - button "Test" [ref=e248] [cursor=pointer]
+          - button "Walk through" [ref=e250] [cursor=pointer]
+          - button "Run now" [ref=e252] [cursor=pointer]
+      - paragraph [ref=e253]: read a page, then print it, then click a button that isn't there
+      - paragraph [ref=e254]: v1
+      - paragraph [ref=e255]: "A draft: Go live when it is ready. To let it start on its own, set its Frequency first."
+    - generic [ref=e256]:
+      - generic [ref=e257]:
+        - heading "Frequency" [level=2] [ref=e258]
+        - button "Change" [ref=e259] [cursor=pointer]
+      - paragraph [ref=e260]: Only when you start it
+    - generic [ref=e262]:
+      - generic [ref=e263]:
+        - generic [ref=e264]: What would you like to change?
+        - textbox "What would you like to change?" [ref=e265]:
+          - /placeholder: also skip jobs older than a week
+      - button "Change it" [disabled] [ref=e266]
+    - generic [ref=e267]:
+      - heading "Steps" [level=2] [ref=e268]
+      - generic [ref=e272]:
+        - generic [ref=e274]:
+          - generic [ref=e275]: start
+          - generic [ref=e276]: Only when you start it
+        - button "Several steps Read the page 2 steps" [ref=e278] [cursor=pointer]:
+          - generic [ref=e279]:
+            - img "Several steps" [ref=e280]
+            - generic [ref=e282]: Read the page
+          - generic [ref=e283]: 2 steps
+        - button "Several steps Print and send 2 steps" [ref=e285] [cursor=pointer]:
+          - generic [ref=e286]:
+            - img "Several steps" [ref=e287]
+            - generic [ref=e289]: Print and send
+          - generic [ref=e290]: 2 steps
+    - generic [ref=e291]:
+      - heading "Versions" [level=2] [ref=e293]
+      - list
+      - paragraph [ref=e294]: Rolling back saves the earlier version as a new one, so nothing is lost.
+    - generic [ref=e295]:
+      - heading "Runs" [level=2] [ref=e296]
+      - paragraph [ref=e297]: No runs yet.

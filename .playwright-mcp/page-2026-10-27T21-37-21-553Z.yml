@@ -1,0 +1,84 @@
+- generic [ref=f1e3]:
+  - complementary [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - button "Fold the sidebar" [expanded] [ref=f1e6] [cursor=pointer]
+      - generic [ref=f1e9]: Shadow
+    - navigation [ref=f1e16]:
+      - link "Inbox" [ref=f1e17] [cursor=pointer]:
+        - /url: "#/inbox"
+      - link "Workflows" [ref=f1e22] [cursor=pointer]:
+        - /url: "#/workflows"
+      - link "Runs" [ref=f1e29] [cursor=pointer]:
+        - /url: "#/runs"
+      - link "Record" [ref=f1e34] [cursor=pointer]:
+        - /url: "#/record"
+      - link "Apps" [ref=f1e39] [cursor=pointer]:
+        - /url: "#/apps"
+      - link "Settings" [ref=f1e46] [cursor=pointer]:
+        - /url: "#/settings"
+    - region "Health" [ref=f1e52]:
+      - 'generic "Shadow: running" [ref=f1e53]':
+        - generic [ref=f1e55]: Shadow
+        - generic [ref=f1e56]: running
+      - 'generic "Chrome: connected" [ref=f1e57]':
+        - generic [ref=f1e59]: Chrome
+        - generic [ref=f1e60]: connected
+      - 'generic "Mac apps: app not running" [ref=f1e61]':
+        - generic [ref=f1e63]: Mac apps
+        - generic [ref=f1e64]: app not running
+      - 'generic "Model: no API key" [ref=f1e65]':
+        - generic [ref=f1e67]: Model
+        - generic [ref=f1e68]: no API key
+  - main [ref=f1e69]:
+    - link "← Workflows" [ref=f1e70] [cursor=pointer]:
+      - /url: "#/workflows"
+    - generic [ref=f1e71]:
+      - generic [ref=f1e72]:
+        - heading "Test mode check" [level=1] [ref=f1e73]
+        - generic [ref=f1e74]:
+          - link "Record again" [ref=f1e75] [cursor=pointer]:
+            - /url: "#/record/again/test-mode"
+          - button "Edit" [ref=f1e76] [cursor=pointer]
+          - button "Go live" [ref=f1e78] [cursor=pointer]
+          - button "Test" [ref=f1e79] [cursor=pointer]
+          - button "Walk through" [ref=f1e81] [cursor=pointer]
+          - button "Run now" [ref=f1e83] [cursor=pointer]
+      - paragraph [ref=f1e84]: read a page, then print it, then click a button that isn't there
+      - paragraph [ref=f1e85]: v1
+    - generic [ref=f1e86]:
+      - generic [ref=f1e87]:
+        - heading "Frequency" [level=2] [ref=f1e88]
+        - button "Change" [ref=f1e89] [cursor=pointer]
+      - paragraph [ref=f1e90]: Only when you start it
+    - generic [ref=f1e92]:
+      - generic [ref=f1e93]:
+        - generic [ref=f1e94]: What would you like to change?
+        - textbox "What would you like to change?" [ref=f1e95]:
+          - /placeholder: also skip jobs older than a week
+      - button "Change it" [disabled] [ref=f1e96]
+    - paragraph [ref=f1e97]:
+      - text: "A draft with 1 change waits: added b3 (Open the details) after b2."
+      - button "Look at it" [ref=f1e98] [cursor=pointer]
+    - generic [ref=f1e99]:
+      - heading "Steps" [level=2] [ref=f1e100]
+      - generic [ref=f1e104]:
+        - generic [ref=f1e106]:
+          - generic [ref=f1e107]: start
+          - generic [ref=f1e108]: Only when you start it
+        - button "Several steps Read the page 2 steps" [ref=f1e110] [cursor=pointer]:
+          - generic [ref=f1e111]:
+            - img "Several steps" [ref=f1e112]
+            - generic [ref=f1e114]: Read the page
+          - generic [ref=f1e115]: 2 steps
+        - button "Several steps Print and send 2 steps" [ref=f1e117] [cursor=pointer]:
+          - generic [ref=f1e118]:
+            - img "Several steps" [ref=f1e119]
+            - generic [ref=f1e121]: Print and send
+          - generic [ref=f1e122]: 2 steps
+    - generic [ref=f1e123]:
+      - heading "Versions" [level=2] [ref=f1e125]
+      - list
+      - paragraph [ref=f1e126]: Rolling back saves the earlier version as a new one, so nothing is lost.
+    - generic [ref=f1e127]:
+      - heading "Runs" [level=2] [ref=f1e128]
+      - paragraph [ref=f1e129]: No runs yet.
