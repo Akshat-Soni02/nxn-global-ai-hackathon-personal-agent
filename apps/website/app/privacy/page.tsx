@@ -190,6 +190,22 @@ export default function Privacy() {
         </div>
       </Band>
 
+      <Band tone="white" id="account" label="Your account">
+        <div className="wrap">
+          <div className="section-head" data-reveal>
+            <p className="eyebrow">Your account</p>
+            <h2 className="headline">An email and a count, nothing more.</h2>
+            <p className="lead">
+              Signing in with Google gives Shadow's service your Google account id and email address, and nothing else
+              from your Google account. The service keeps them with your plan, the Macs you signed in on, and how many
+              model and app calls you made each day and month, to run your account and its free-tier limits. None of it
+              is sold, shared or used for ads. To delete your account, open an issue on{" "}
+              <a href="https://github.com/Akshat-Soni02/nxn-global-ai-hackathon-personal-agent/issues">GitHub</a>.
+            </p>
+          </div>
+        </div>
+      </Band>
+
       <ClosingCTA title="Private, and yours." lead="Everything Shadow learns stays on your Mac." />
     </>
   );
